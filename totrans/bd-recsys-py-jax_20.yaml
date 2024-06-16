@@ -1,7 +1,9 @@
 - en: Chapter 16\. Acceleration Structures
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 第16章。加速结构
 - en: So what are acceleration structures? In computer science terminology, when you
     try to rank every item in a corpus one by one, the typical amount of time it would
     take if there are *N* items is proportional to *N*. This is called [big *O* notation](https://oreil.ly/9-ton).
@@ -12,33 +14,48 @@
     items, it might take a very long time if we also have to make recommendations
     for a billion users. Then in big *O* notation it would be *O*(10^(18)) dot products
     to score a billion items for each and every one of a billion users.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 那么什么是加速结构？在计算机科学术语中，当您尝试逐个对语料库中的每个项目进行排名时，如果有*N*个项目，通常需要的时间与*N*成正比。这称为[大O符号](https://oreil.ly/9-ton)。因此，如果您有一个用户向量，并且有一个包含*N*个项目的语料库，那么通常需要*O*(*N*)时间来为用户评分语料库中的所有项目。如果*N*很小且可以容纳在GPU内存中，通常*N*
+    < 100万个项目左右，这通常是可处理的。但是，如果我们有一个非常大的语料库，例如十亿个项目，如果我们还必须为十亿个用户进行推荐，那么在大O符号中，为每个十亿个用户评分十亿个项目将需要*O*(10^(18))的点积运算。
 - en: 'In this chapter, we will try to reduce the *O*(*N* * *M*) time to something
     sublinear in the number of items *N* and the number of users *M*. We will discuss
     strategies including the following:'
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将尝试将*O*(*N* * *M*)的时间减少到与物品数*N*和用户数*M*的数量成比例的子线性时间。我们将讨论包括以下策略：
 - en: Sharding
+  id: totrans-3
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 划分
 - en: Locality sensitive hashing
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 局部敏感哈希
 - en: '*k*-d Trees'
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*k*-d树'
 - en: Hierarchical k-means
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 分层k均值
 - en: Cheaper retrieval methods
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 更便宜的检索方法
 - en: We’ll also cover the trade-offs related to each strategy and what they could
     be used for. For all the following examples, we assume that the user and items
     are represented by embedding vectors of the same size and that the affinity between
@@ -46,20 +63,28 @@
     If we were to use a neural network like a two-tower model to score the user and
     item, then possibly the only method that could be used to speed things up would
     be sharding or some kind of cheaper pre-filtering method.
+  id: totrans-8
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们还将涵盖与每种策略相关的权衡及其可能用途。在所有以下示例中，我们假设用户和项目由相同大小的嵌入向量表示，并且用户和项目之间的关系是简单的点积、余弦距离或欧几里得距离。如果我们要使用像两塔模型这样的神经网络来为用户和项目评分，那么可能唯一可用于加速的方法可能是划分或某种更便宜的预过滤方法。
 - en: Sharding
+  id: totrans-9
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 划分
 - en: '*Sharding* is probably the simplest strategy to [divide and conquer](https://oreil.ly/ul_IK).
     Suppose you have *k* machines, *N* items, and *M* users. Using a sharding strategy,
     you can reduce the runtime to *O*(*N* * *M* / *k*). You can do this by assigning
     each item a unique identifier, so you have tuples of (*`unique_id`*, *`item_vector`*).
     Then, by simply taking `machine_id = unique_id % K`, we can assign a subset of
     the corpus to a different machine.'
+  id: totrans-10
   prefs: []
   type: TYPE_NORMAL
+  zh: '*划分*可能是最简单的策略，用于[分而治之](https://oreil.ly/ul_IK)。假设您有*k*台机器、*N*个项目和*M*个用户。使用划分策略，您可以将运行时间减少到*O*(*N*
+    * *M* / *k*)。您可以通过为每个项目分配一个唯一标识符来做到这一点，因此您有(*`unique_id`*, *`item_vector`*)的元组。然后，通过简单地取`machine_id
+    = unique_id % K`，我们可以将语料库的子集分配给不同的机器。'
 - en: When a user needs a recommendation, we can then compute the top-scoring recommendations
     either ahead of time or on demand by distributing the workload onto *k* machines,
     thus making the computation *k* times faster, except for the overhead in gathering
@@ -68,17 +93,23 @@
     from each shard, collate them together, and then sort all the results jointly
     if you want to have the same results as in a brute-force method of scoring the
     entire corpus.
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 当用户需要推荐时，我们可以预先计算或按需计算排名靠前的推荐结果，通过将工作负载分布到*k*台机器上，从而使计算速度提高*k*倍，除了在服务器上收集并联合排序顶部结果时的开销。请注意，如果您想要例如前100名的最高得分项目，您仍然需要从每个分片获取前100个结果，将它们合并在一起，然后联合排序所有结果，这样才能获得与全文本评分方法相同的结果。
 - en: Sharding is useful in the sense that it can be combined with any of the other
     acceleration methods and is not dependent on the representation having any specific
     form, such as being a single vector.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 划分在可以与任何其他加速方法结合，并且不依赖于具有任何特定形式（如单个向量）的表示方式方面非常有用。
 - en: Locality Sensitive Hashing
+  id: totrans-13
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 局部敏感哈希
 - en: '*Locality sensitive hashing* (LSH) is an interesting technique that converts
     a vector into a token-based representation. This is powerful because if CPUs are
     readily available, we can use them to compute the similarity between vectors by
@@ -86,16 +117,20 @@
     specialized assembly instructions rather than floating-point operations. Integer
     operations tend to be much faster on CPUs than floating-point operations, so we
     can compute similarity between items much faster than using vector operations.'
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: '*局部敏感哈希*（LSH）是一种将向量转换为基于标记的表示的有趣技术。这是强大的，因为如果CPU容易获得，我们可以使用它们通过使用更便宜的整数算术操作（如XOR和位计数）来计算向量之间的相似性，而不是浮点运算。整数操作在CPU上比浮点运算快得多，因此我们可以比使用向量操作更快地计算项目之间的相似性。'
 - en: The other benefit is that once items are represented as a series of tokens,
     a regular search engine database would be able to store and retrieve these items
     by using token matching. Regular hashing, on the other hand, tends to result in
     vastly different hash codes if a slight change occurs in the input. This is not
     a criticism of the hash functions; they just have different uses for different
     kinds of data.
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一个好处是，一旦项目表示为一系列标记，常规搜索引擎数据库可以通过使用标记匹配来存储和检索这些项目。另一方面，常规哈希倾向于在输入发生轻微变化时产生截然不同的哈希码。这并不是对哈希函数的批评；它们只是针对不同类型数据的不同用途。
 - en: Let’s walk through a couple of ways to convert a vector into a hash. LSH is
     different from regular hashing in that small perturbations to a vector should
     result in the same hash bits as the hash of the original vector. This is an important
@@ -112,38 +147,54 @@
     permutations, we just directly use the permutation function in JAX. The hash code
     computation after that is simply a comparison between adjacent dimensions of the
     permuted vector, as shown in [Example 16-1](#ex-16-1).
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们来看一下将向量转换为哈希值的几种方法。LSH与常规哈希不同之处在于，对向量的小扰动应导致与原始向量的哈希位相同。这是一个重要的特性，因为它允许我们通过使用快速方法（如哈希映射）来查找向量的邻域。一种简单的哈希方法称为[比较推理的力量](https://oreil.ly/_1Bd8)，或者全胜哈希。在这种哈希方案中，向量首先通过已知的、可重现的置换进行排列。我们可以通过简单地使用接受种子并可靠地复现相同洗牌序列的随机数生成器来生成这种已知置换。重要的是，这种置换在不同版本的Python中是稳定的，因为我们希望在生成哈希时以及检索时都能够复现哈希操作。由于我们使用的是JAX的随机库，而JAX对于置换的可重现性非常注意，因此我们直接使用JAX中的置换函数。之后的哈希码计算只是对置换向量的相邻维度进行比较，如[示例
+    16-1](#ex-16-1)所示。
 - en: Example 16-1\. Winner take all
+  id: totrans-17
   prefs:
   - PREF_H5
   type: TYPE_NORMAL
+  zh: 示例 16-1\. 全胜
 - en: '[PRE0]'
+  id: totrans-18
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: As you can see, the vector `x2` is slightly different from `x1` and results
     in the same hash code of `01`, whereas `x3` is different and results in a hash
     code of `10`. The [Hamming distance](https://oreil.ly/RF-x1) of the hash code
     is then used to compute the distance between two vectors, as shown in [Example 16-2](#example-16-2).
     The distance is simply the XOR of the two hash codes, which results in 1 whenever
     the bits disagree, followed by bit counting.
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如你所见，向量`x2`与`x1`略有不同，结果是相同的哈希码`01`，而`x3`不同，结果是哈希码`10`。然后使用哈希码的[海明距离](https://oreil.ly/RF-x1)计算两个向量之间的距离，如[示例
+    16-2](#example-16-2)所示。距离简单地是两个哈希码的异或，即每当位不同时结果为1，随后进行位计数。
 - en: Example 16-2\. Hamming function
+  id: totrans-20
   prefs:
   - PREF_H5
   type: TYPE_NORMAL
+  zh: 示例 16-2\. 海明函数
 - en: '[PRE1]'
+  id: totrans-21
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: Using the Hamming distance as shown here results in some speedup in the distance
     computation, but the major speedup will come from using the hash codes in a hash
     map. For example, we could break up the hash code into 8-bit chunks and store
     the corpus into shards keyed by each 8-bit chunk, which results in a 256× speedup
     because we have to look only in the hash map that has the same key as the query
     vector for nearest neighbors.
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 如此处所示，使用汉明距离可以加快距离计算速度，但主要的加速来自于在哈希映射中使用哈希码。例如，我们可以将哈希码分成8位块，并将语料库存储在由每个8位块键入的分片中，这将导致256倍的加速，因为我们只需查找具有与查询向量相同键的哈希映射。
 - en: This has a drawback in terms of recall, though, because all 8 bits have to match
     in order for an item to be retrieved that matches the query vector. A tradeoff
     exists between the number of bits of the hash code used in hashing and the Hamming
@@ -151,13 +202,17 @@
     the corpus is divided into smaller and smaller chunks. However, the drawback is
     that more and more bits have to match, and thus all the hash code bits in a nearby
     vector in the original space might not match and thus might not be retrieved.
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 这在召回方面有一个缺点，因为所有8位必须匹配才能检索与查询向量匹配的项。在使用哈希和汉明距离计算时存在一个折衷。哈希码位数越大，搜索速度越快，因为语料库被分割成越来越小的块。然而，缺点是越来越多的位必须匹配，因此在原始空间中的相邻向量中，所有哈希码位可能不匹配，因此可能不会被检索。
 - en: The remedy is to have multiple hash codes with different random-number generators
     and repeat this process a few times with different random seeds. This extra step
     is left as an exercise for you.
+  id: totrans-24
   prefs: []
   type: TYPE_NORMAL
+  zh: 解决方法是使用多个具有不同随机数生成器的哈希码，并使用不同的随机种子重复此过程几次。这个额外步骤留作你的练习。
 - en: Another common way to compute hash bits uses the [Johnson-Lindenstrauss lemma](https://oreil.ly/vbAGn),
     which is a fancy way of saying that two vectors, when multiplied by the same random
     Gaussian matrix, tend to end up in a similar location. However, the L2 distances
@@ -165,26 +220,34 @@
     distance to train the embeddings rather than dot products. In this scheme, only
     the hash code computation differs; the Hamming distance treatment is exactly the
     same.
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一种常见的计算哈希位的方法使用[约翰逊-林登斯特劳斯引理](https://oreil.ly/vbAGn)，这是说，当两个向量与同一个随机高斯矩阵相乘时，它们倾向于在相似的位置结束。然而，L2距离被保留，这意味着当使用欧氏距离来训练嵌入时，这种哈希函数效果更好。在这种方案中，只有哈希码计算不同；汉明距离处理完全相同。
 - en: The speedup from LSH is directly proportional to the number of bits of the hash
     code that have to be an exact match. Suppose only 8 bits of the hash code are
     used in the hash map; then the speedup is 2⁸, or 256 times the original. The trade-off
     for the speed is having to store the hash map in memory.
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: LSH的加速与哈希码的精确匹配位数成正比。假设哈希映射中仅使用了哈希码的8位，那么加速比就是2⁸，即比原始速度快256倍。速度的折衷是需要将哈希映射存储在内存中。
 - en: k-d Trees
+  id: totrans-27
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: k-d Trees
 - en: A common strategy for speeding up computation in computer science is *divide
     and conquer*. In this scheme, the data is recursively partitioned into two halves,
     and only the half that is relevant to the search query is searched. In contrast
     to a linear *O*(*n*) in the number of items in the corpus scheme, a divide-and-conquer
     algorithm would be able to query a corpus in *O*(log2(*n*)) time, which is a substantial
     speedup if *n* is large.
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 计算机科学中加速计算的一种常见策略是*分而治之*。在这种方案中，数据被递归地分成两半，只搜索与搜索查询相关的半部分。与语料库中项数的线性*O*(*n*)相比，分而治之算法能在*O*(log2(*n*))的时间内查询语料库，如果*n*很大，这将显著加快速度。
 - en: One such binary tree for vector spaces is called a [*k*-d tree](https://oreil.ly/z0vFO).
     Typically, to build a *k*-d tree, we compute the bounding box of all the points
     in the collection, find the longest edge of the bounding box and split it down
@@ -194,61 +257,89 @@
     along that split dimension. The recursive process stops when a small number of
     items is left in the leaf node. Many implementations of *k*-d trees exist—for
     example, [SciPy’s *k*-d tree](https://oreil.ly/iZZD9).
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 一种用于向量空间的这种二叉树称为[*k*-d 树](https://oreil.ly/z0vFO)。通常，构建*k*-d 树时，我们计算集合中所有点的边界框，找到边界框的最长边，并沿着该边的中间在分割维度上进行分割，然后将集合分成两半。如果使用中位数，则集合在该分割维度上被更多或更少地分成两半；我们说*更多或更少*，因为在该分割维度上可能存在平局。递归过程在叶子节点中剩余少量项时停止。有许多*k*-d
+    树的实现，例如[SciPy 的*k*-d 树](https://oreil.ly/iZZD9)。
 - en: Although the speedup is substantial, this method tends to work when the number
     of feature dimensions of the vector is low. Also, similar to other methods, *k*-d
     trees work best when the L2 distance is the metric used for the embedding. Losses
     in retrieval can occur if the dot product was used for the similarity metric,
     as the *k*-d tree makes more sense for Euclidean space partitioning.
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管加速效果显著，但这种方法在向量的特征维度较低时更有效。同其他方法类似，*k*-d 树在欧氏距离作为嵌入的度量时效果最佳。如果使用点积作为相似度度量，可能会造成检索损失，因为*k*-d
+    树更适合于欧几里得空间的划分。
 - en: '[Example 16-3](#example-16-3) provides sample code for splitting a batch of
     points along the largest dimension.'
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: '[示例 16-3](#example-16-3) 提供了分割一批点的示例代码，沿着最大维度进行分割。'
 - en: Example 16-3\. Partitioning via a k-d tree
+  id: totrans-32
   prefs:
   - PREF_H5
   type: TYPE_NORMAL
+  zh: 示例 16-3\. 通过*k*-d 树进行分区
 - en: '[PRE2]'
+  id: totrans-33
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: As you can see from the code, the *k*-d tree partitioning code can be as simple
     as splitting along the middle longest dimension. Other possibilities are splitting
     along the median of the longest dimension or [using a surface area heuristic](https://oreil.ly/BxAf7).
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 如代码所示，*k*-d 树分割代码可以简单地沿着最长维度的中间进行分割。其他可能性包括沿着最长维度的中位数分割或者[使用表面积启发式](https://oreil.ly/BxAf7)。
 - en: A *k*-d tree is constructed by repeatedly partitioning the data along only one
     spatial dimension at a time (usually along the largest axis aligned to the spread
     of data); see [Figure 16-1](#kdtree_construction).
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: '*k*-d 树通过重复沿着一个空间维度（通常沿着数据分布最广的主轴）进行数据分割来构建；参见 [图 16-1](#kdtree_construction)。'
 - en: '![KD-Tree construction](assets/brpj_1601.png)'
+  id: totrans-36
   prefs: []
   type: TYPE_IMG
+  zh: '![KD-树构建](assets/brpj_1601.png)'
 - en: Figure 16-1\. k-d tree construction’s initial bounding box
+  id: totrans-37
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
+  zh: 图 16-1\. k-d 树构建的初始边界框
 - en: Partitions are recursively subdivided again, usually along the longest axis,
     until the number of points in the partition is fewer than a chosen small number;
     see [Figure 16-2](#kdtree_recursive).
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 分割通常会再次递归地沿着最长轴进行细分，直到分割中的点数少于所选的小数目；参见 [图 16-2](#kdtree_recursive)。
 - en: The *k*-d tree lookup time is *O*(log2(*n*)) in *n*, the number of items in
     the corpus. The tree also requires a small overhead of memory to store the tree
     itself, which is dominated by the number of leaf nodes, so it would be best to
     have a minimal number of items in a leaf to prevent splits that are too fine.
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: '*k*-d 树的查找时间为*O*(log2(*n*))，其中*n*为语料库中的项数。树本身需要一些额外的内存开销来存储，主要由叶子节点数量决定，因此最好在叶子节点中具有最小数量的项，以防止分割过细。'
 - en: '![KD-Tree recursive step](assets/brpj_1602.png)'
+  id: totrans-40
   prefs: []
   type: TYPE_IMG
+  zh: '![KD-树递归步骤](assets/brpj_1602.png)'
 - en: Figure 16-2\. k-d tree construction recursively partitioned
+  id: totrans-41
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
+  zh: 图 16-2\. k-d 树递归分割
 - en: From the root node, repeatedly check whether the query point (e.g., the item
     we are seeking nearest neighbors for) is in the left or right child of the root
     node, as shown in [Figure 16-3](#kdtree_query). For example, use `go_left = x[split_dim]
@@ -257,102 +348,143 @@
     query point’s value at the split dimension is less than the split value we go
     left, otherwise we go right. Recursively descend down the tree until reaching
     the leaf node; then exhaustively compute distances to all items in the leaf node.
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 从根节点开始，重复检查查询点（例如，我们正在寻找最近邻居的项目）是否在根节点的左侧或右侧子节点中，如[图16-3](#kdtree_query)所示。例如，使用`go_left
+    = x[split_dim] < value_split[dim]`。在二叉树约定中，左子节点包含所有在分割维度上值小于分割值的点。因此，如果查询点在分割维度上的值小于分割值，则向左移动，否则向右移动。递归地沿着树向下降，直到达到叶节点；然后详尽计算所有叶节点中项目到查询点的距离。
 - en: '![KD-Tree Query](assets/brpj_1603.png)'
+  id: totrans-43
   prefs: []
   type: TYPE_IMG
+  zh: '![KD树查询](assets/brpj_1603.png)'
 - en: Figure 16-3\. k-d tree query
+  id: totrans-44
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
+  zh: 图16-3\. k-d树查询
 - en: A *k*-d tree has a potential drawback. If an item is close to a splitting plane,
     that item would be considered on the other side of the tree. As a result, the
     item would not be considered as a nearest neighbor candidate. In some implementations
     of *k*-d trees, called *spill trees*, both sides of a splitting plane are visited
     if the query point is close enough to the plane’s decision boundary. This change
     increases runtime a little bit for the benefit of more recall.
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: '*k*-d树存在一个潜在的缺点。如果一个项目接近分割平面，该项目将被认为在树的另一侧。因此，该项目不会被考虑为最近邻居候选。在某些*k*-d树的实现中，称为*溢出树*，如果查询点足够接近平面的决策边界，则会访问分割平面的两侧。这种改变稍微增加了运行时，以换取更高的召回率。'
 - en: Hierarchical k-means
+  id: totrans-46
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 分层*k*-均值
 - en: Another divide-and-conquer strategy that does scale to higher feature dimensions
     is *k-means clustering*. In this scheme, the corpus is clustered into *k* clusters
     and then recursively clustered into *k* more clusters until each cluster is smaller
     than a defined limit.
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一种可以扩展到更高特征维度的分而治之策略是*k*-均值聚类。在这种方案中，语料库被聚类成*k*个聚类，然后递归地聚类成*k*个更多的聚类，直到每个聚类小于一个定义的限制。
 - en: An implementation of *k*-means can be found at [scikit-learn’s web page](https://oreil.ly/E45Lo).
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: '*k*-均值的实现可以在[scikit-learn的网页](https://oreil.ly/E45Lo)找到。'
 - en: To build the clustering, first create cluster centroids at random from existing
     points ([Figure 16-4](#kmeans_construction)).
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
+  zh: 要构建聚类，首先从现有点随机创建聚类中心（见[图16-4](#kmeans_construction)）。
 - en: '![Kmeans Initialization](assets/brpj_1604.png)'
+  id: totrans-50
   prefs: []
   type: TYPE_IMG
+  zh: '![K均值初始化](assets/brpj_1604.png)'
 - en: Figure 16-4\. k-means initialization
+  id: totrans-51
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
+  zh: 图16-4\. k均值初始化
 - en: Next, we assign all points to the cluster they are closest to. Then for each
     cluster, we take the average of all the assigned points as the new cluster center.
     We repeat until done, which can be a fixed number of steps. [Figure 16-5](#kmeans_construction2)
     illustrates this process. The output is then *k* cluster centers of points. The
     process can be repeated again for each cluster center, splitting again into *k*
     more clusters.
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，我们将所有点分配到它们最接近的聚类中。然后对于每个聚类，我们将所有分配点的平均值作为新的聚类中心。我们重复此过程直到完成，这可以是固定步骤的数量。图16-5（见[图16-5](#kmeans_construction2)）说明了这个过程。然后的输出是*k*个点的聚类中心。可以再次为每个聚类中心重复此过程，再次分割成*k*个更多的聚类。
 - en: '![Kmeans Clustering](assets/brpj_1605.png)'
+  id: totrans-53
   prefs: []
   type: TYPE_IMG
+  zh: '![K均值聚类](assets/brpj_1605.png)'
 - en: Figure 16-5\. k-means clustering
+  id: totrans-54
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
+  zh: 图16-5\. k均值聚类
 - en: Again, the speedup is *O*(log(*n*)) in the number of items, but *k*-means is
     better adapted to clustering higher-dimensional data points than *k*-d trees.
+  id: totrans-55
   prefs: []
   type: TYPE_NORMAL
+  zh: 再次，速度提升是*O*(log(*n*))的项目数量，但*k*-均值比*k*-d树更适合于聚类高维数据点。
 - en: The querying for a *k*-means cluster is rather straightforward. You can find
     the closest cluster to the query point and then repeat the process for all subclusters
     until a leaf node is found; then all the items in the leaf node are scored against
     the query point.
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于*k*-均值聚类的查询非常直接。您可以找到最接近查询点的最接近聚类，然后对所有子聚类重复该过程，直到找到叶节点为止；然后对叶节点中的所有项目与查询点进行评分。
 - en: An alternative to *k*-means is to perform SVD and use the first *k* eigenvectors
     as the clustering criteria. The use of SVD is interesting in that there exists
     closed form and approximate methods like [power iteration](https://oreil.ly/ZgZ2-)
     for computing the eigenvectors. Using the dot product to compute affinity might
     be better suited to vectors trained using the dot product as the affinity metric.
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 一种替代*k*-means的方法是执行SVD，并使用前*k*个特征向量作为聚类标准。使用SVD有趣之处在于存在像[power iteration](https://oreil.ly/ZgZ2-)这样的封闭形式和近似方法来计算特征向量。使用点积来计算亲和力可能更适合使用点积训练的向量作为亲和度度量。
 - en: To learn more on this topic, you can consult [“Label Partitioning for Sublinear
     Ranking”](https://oreil.ly/rMg-3) by Jason Weston et al. (including one of this
     book’s authors). The paper compares LSH, SVD, and hierarchical *k*-means. You’ll
     find a comparison of the speedup and the loss in retrieval, with the brute-force
     as a baseline.
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 要了解更多相关信息，您可以参考Jason Weston等人撰写的[“标签分区用于次线性排名”](https://oreil.ly/rMg-3)。该论文比较了LSH、SVD和分层*k*-means的性能提升及检索损失，以暴力方法为基准。
 - en: Graph-Based ANN
+  id: totrans-59
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 基于图的ANN
 - en: An emerging trend in ANNs is using graph-based methods. Lately, *hierarchical
     navigable small worlds* is a particularly popular approach. This [graph algorithm](https://oreil.ly/Z2ohy)
     encodes proximity in multilayer structures and then relies on the common maxim
     that “the number of connectivity steps from one node to another is often surprisingly
     small.” In graph-based ANN methods, you often find one neighbor, and then traverse
     the edges connected to that neighbor to rapidly find others.
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 在ANN中的一个新兴趋势是使用基于图的方法。最近，*分层可导航小世界*是一种特别流行的方法。这种[图算法](https://oreil.ly/Z2ohy)在多层结构中编码接近性，然后依赖于通用的“从一个节点到另一个节点的连接步数通常惊人地少”的最大值。在基于图的ANN方法中，通常找到一个邻居，然后遍历与该邻居连接的边以快速找到其他节点。
 - en: Cheaper Retrieval Methods
+  id: totrans-61
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 更便宜的检索方法
 - en: If your corpus has the ability to do an item-wise cheap retrieval method, one
     way to speed up searches is to use the cheap retrieval method to obtain a small
     subset of items and then use the more expensive vector-based methods to rank the
@@ -361,12 +493,16 @@
     ranking, gather all the top co-occurring items together (from a user’s preferred
     items, for example) and then score them together with the ML model. In this way,
     we do not have to score the entire corpus with the ML model but just a small subset.
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果您的语料库能够进行逐项便宜的检索方法，加快搜索的一种方式是使用便宜的检索方法获取一小部分项目，然后使用更昂贵的基于向量的方法对子集进行排名。其中一种便宜的检索方法是制作一个项目与另一个项目的顶部共现的帖子列表。然后，当生成用于排名的候选集时，将用户首选项目中的所有顶部共现项目收集在一起，并与ML模型一起对它们进行评分。通过这种方式，我们不必对整个语料库使用ML模型进行评分，而只需对一个小子集进行评分。
 - en: Summary
+  id: totrans-63
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 摘要
 - en: In this chapter, we showed a few ways to speed up the retrieval and scoring
     of items in a corpus, given a query vector, without losing too much in terms of
     recall and while still maintaining precision. No ANN method is perfect, as the
@@ -374,5 +510,7 @@
     from dataset to dataset. We hope that this chapter provides a launching pad for
     you to explore various ways to make retrieval faster and sublinear in the number
     of items in the corpus.
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们展示了一些加快语料库中项目检索和评分的方法，给定一个查询向量，同时不会太多地损失召回率，同时仍保持精度。没有一种ANN方法是完美的，因为加速结构依赖于数据的分布，而这在数据集之间是不同的。我们希望本章能为您提供一个探索使检索更快且与语料库中项目数量亚线性相关的各种方法的起点。
