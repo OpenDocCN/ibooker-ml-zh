@@ -1,7 +1,9 @@
 - en: Chapter 10\. Low-Rank Methods
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 第10章 低秩方法
 - en: In the preceding chapter, we lamented at the challenge of working with so many
     features. By letting each item be its own feature, we were able to express a lot
     of information about user preference and item-affinity correlations, but we were
@@ -12,18 +14,24 @@
     and effective way. This allows us to generate more personalized and relevant recommendations
     for users while also reducing the computational complexity of the recommendation
     process.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 在前一章中，我们对处理这么多特征的挑战感到惋惜。通过让每个项目成为其自己的特征，我们能够表达大量关于用户偏好和项目相关性的信息，但在维度灾难方面我们陷入了麻烦。结合非常稀疏特征的现实，您面临危险。在本章中，我们将转向更小的特征空间。通过将用户和项目表示为低维向量，我们可以更有效地捕捉它们之间的复杂关系。这使我们能够为用户生成更个性化和相关的推荐，同时减少推荐过程的计算复杂性。
 - en: We will explore the use of low-dimensional embeddings and discuss the benefits
     and some of the implementation details of this approach. We will also look at
     code in JAX that uses modern gradient-based optimization to reduce the dimension
     of your item or user representations.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将探讨使用低维嵌入的方法，并讨论此方法的优势以及部分实现细节。我们还将查看在JAX中使用现代基于梯度的优化来减少项目或用户表示维度的代码。
 - en: Latent Spaces
+  id: totrans-3
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 潜在空间
 - en: You are already familiar with feature spaces, which are usually categorical
     or vector-valued direct representations of the data. This can be the raw red,
     green, and blue values of an image, counts of items in a histogram, or attributes
@@ -33,18 +41,25 @@
     [Chapter 8](ch08.html#ch:wikipedia-e2e) are one such example of a latent vector
     that was learned to represent the log count of words. Here we will cover more
     ways to generate these latent features or embeddings.
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 您已经熟悉特征空间，通常是数据的分类或矢量值直接表示。这可以是图像的原始红色、绿色和蓝色值，直方图中项目的计数，或者对象的属性如长度、宽度和高度。另一方面，潜在特征不代表任何特定的实值特征，而是随机初始化，然后根据任务进行学习。我们在[第8章](ch08.html#ch:wikipedia-e2e)中讨论的GloVe嵌入就是一个学习表示单词对数计数的潜在向量的例子。在这里，我们将介绍生成这些潜在特征或嵌入的更多方式。
 - en: Focus on Your “Strangths”
+  id: totrans-5
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 专注于您的“优势”
 - en: This chapter relies heavily on linear algebra, so it’s good to read up on vectors,
     dot products, and norms of vectors before proceeding. Having an understanding
     of matrices and the rank of matrices will also be useful. Consider [*Linear Algebra
     and Its Applications*](https://oreil.ly/8MBN8) by Gilbert Strang.
+  id: totrans-6
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章非常依赖于线性代数，因此在继续之前，熟悉向量、点积和向量范数是很好的。了解矩阵及其秩也将非常有用。考虑阅读《线性代数及其应用》（[*Linear Algebra
+    and Its Applications*](https://oreil.ly/8MBN8)），作者Gilbert Strang。
 - en: One of the reasons latent spaces are so popular is that they are usually lower
     in dimension than the features they represent. For example, if the user-item rating
     matrix or interaction matrix (where the matrix entries are 1 if a user has interacted
@@ -58,20 +73,30 @@
     the system to have a lot less capacity in terms of degrees of freedom, then factorization
     can completely reconstruct the matrix, and the missing entries tend to get filled
     by similar items.
+  id: totrans-7
   prefs: []
   type: TYPE_NORMAL
+  zh: 潜在空间如此受欢迎的原因之一是它们通常比它们所代表的特征低维。例如，如果用户-物品评分矩阵或交互矩阵（其中矩阵条目为 1，如果用户与物品有交互）是 *N*
+    × *M* 维度的，那么将矩阵分解为 *N* × *K* 和 *K* × *M* 的潜在因子，其中 *K* 远小于 *N* 或 *M*，是对缺失条目的一种近似，因为我们放宽了因子分解。
+    *K* 比 *N* 或 *M* 小通常被称为*信息瓶颈*—也就是说，我们正在强制矩阵由一个小得多的矩阵组成。这意味着 ML 模型必须填补缺失的条目，这对于推荐系统可能是有利的。只要用户与足够相似的物品有交互，通过强制系统在自由度方面容量大大减少，然后因子分解可以完全重构矩阵，并且缺失的条目往往会被相似的物品填补。
 - en: Let’s see what happens, for example, when we factor a user-item matrix of 4
     × 4 into a 4 × 2 and a 2 × 4 vector using SVD.
+  id: totrans-8
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，当我们将一个 4 × 4 的用户-物品矩阵分解为一个 4 × 2 和一个 2 × 4 的向量时，会发生什么。
 - en: 'We are supplying a matrix whose rows are users and whose columns are items.
     For example, row 0 is `[1, 0, 0, 1]`, which means user 0 has selected item 0 and
     item 3\. These can be ratings or purchases. Now let’s look at some code:'
+  id: totrans-9
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们提供的矩阵的行是用户，列是物品。例如，第 0 行是 `[1, 0, 0, 1]`，这意味着用户 0 选择了物品 0 和物品 3。这些可以是评分或购买。现在让我们看一些代码：
 - en: '[PRE0]'
+  id: totrans-10
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: Notice that the user in row 1 now has a score for an item in column 3, and the
     user in row 3 now has a positive score for the item in column 2\. This phenomenon
     is generally known as *matrix completion* and is a good property for recommender
@@ -80,12 +105,17 @@
     of the matrix that it is trying to reconstruct is known as a *low-rank approximation*
     because the rank of the approximation is 2 but the rank of the original user-item
     matrix is 4.
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 请注意，现在第 1 行的用户在第 3 列有一个物品的分数，并且第 3 行的用户对第 2 列的物品有正分数。这种现象通常被称为*矩阵补全*，对于推荐系统来说是一个很好的特性，因为现在我们可以向用户推荐新的物品。通过强制让
+    ML 通过比其尝试重建的矩阵大小更小的瓶颈的一般方法被称为*低秩近似*，因为近似的秩为 2，但原始用户-物品矩阵的秩为 4。
 - en: What Is the Rank of a Matrix?
+  id: totrans-12
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 矩阵的秩是什么？
 - en: An *N* × *M* matrix may be considered as *N* row vectors (corresponding to users)
     and *M* column vectors (corresponding to items). When you consider the *N* vectors
     of dimension *M*, the *rank of the matrix* is the volume of the polyhedron defined
@@ -93,52 +123,76 @@
     talk about the rank of matrices, however. While it’s the most natural and precise
     definition, we instead say it’s the “minimum number of dimensions necessary to
     represent the vectors of the matrix.”
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: '*N* × *M* 矩阵可以被视为 *N* 行向量（对应用户）和 *M* 列向量（对应物品）。当你考虑 *M* 维度中 *N* 向量时，*矩阵的秩*
+    是由 *N* 个向量在 *M* 维度中定义的多面体的体积。然而，这与我们讨论矩阵秩的方式通常不同。虽然这是最自然和精确的定义，但我们却说它是“表示矩阵向量所需的最小维数。”'
 - en: We will cover SVD in more detail later in the chapter. This was just to whet
     your appetite to understand how latent spaces are related to recommender systems.
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将在本章后面更详细地介绍 SVD。这只是为了激发你对理解潜在空间如何与推荐系统相关的兴趣。
 - en: Dot Product Similarity
+  id: totrans-15
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 点积相似度
 - en: In [Chapter 3](ch03.html#ch:math) we introduced similarity measures, but now
     we return to the dot product in the context of similarity because of their increased
     importance in latent spaces. After all, latent spaces are built on the assumption
     that distance is similarity.
+  id: totrans-16
   prefs: []
   type: TYPE_NORMAL
+  zh: 在[第三章](ch03.html#ch:math)中，我们介绍了相似度测量，但现在我们回到点积的概念，因为在潜在空间中它们变得更加重要。毕竟，潜在空间建立在距离即相似性的假设上。
 - en: The dot-product similarity is meaningful in recommendation systems because it
     provides a geometric interpretation of the relationship between users and items
     in the latent space (or potentially items and items, users and users, etc.). In
     the context of recommendation systems, the dot product can be seen as a projection
     of one vector onto another, indicating the degree of similarity or alignment between
     the user’s preferences and the item’s characteristics.
+  id: totrans-17
   prefs: []
   type: TYPE_NORMAL
+  zh: 在推荐系统中，点积相似度有意义，因为它提供了在潜在空间中用户与物品之间关系的几何解释（或者可能是物品与物品、用户与用户等）。在推荐系统的背景下，点积可以看作是一个向量在另一个向量上的投影，指示用户偏好与物品特性之间的相似度或对齐程度。
 - en: 'To understand the geometric significance of the dot product, consider two vectors,
     *u* and *p*, representing the user and the product in the latent space, respectively.
     The dot product of these two vectors can be defined as follows:'
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 要理解点积的几何意义，考虑两个向量 *u* 和 *p*，分别表示潜在空间中的用户和产品。这两个向量的点积可以定义如下：
 - en: <math alttext="u times p equals StartAbsoluteValue EndAbsoluteValue u StartAbsoluteValue
     EndAbsoluteValue StartAbsoluteValue EndAbsoluteValue p StartAbsoluteValue EndAbsoluteValue
     c o s left-parenthesis theta right-parenthesis" display="block"><mrow><mi>u</mi>
     <mo>×</mo> <mi>p</mi> <mo>=</mo> <mo>|</mo> <mo>|</mo> <mi>u</mi> <mo>|</mo> <mo>|</mo>
     <mo>|</mo> <mo>|</mo> <mi>p</mi> <mo>|</mo> <mo>|</mo> <mi>c</mi> <mi>o</mi> <mi>s</mi>
     <mo>(</mo> <mi>θ</mi> <mo>)</mo></mrow></math>
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="u times p equals StartAbsoluteValue EndAbsoluteValue u StartAbsoluteValue
+    EndAbsoluteValue StartAbsoluteValue EndAbsoluteValue p StartAbsoluteValue EndAbsoluteValue
+    c o s left-parenthesis theta right-parenthesis" display="block"><mrow><mi>u</mi>
+    <mo>×</mo> <mi>p</mi> <mo>=</mo> <mo>|</mo> <mo>|</mo> <mi>u</mi> <mo>|</mo> <mo>|</mo>
+    <mo>|</mo> <mo>|</mo> <mi>p</mi> <mo>|</mo> <mo>|</mo> <mi>c</mi> <mi>o</mi> <mi>s</mi>
+    <mo>(</mo> <mi>θ</mi> <mo>)</mo></mrow></math>
 - en: Here, ||u|| and ||p|| represent the magnitudes of the user and product vectors,
     and θ is the angle between them. The dot product is thus a measure of the projection
     of one vector onto another, which is scaled by the magnitudes of both vectors.
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里，||u|| 和 ||p|| 表示用户向量和产品向量的大小，θ 表示它们之间的角度。因此，点积是一个衡量一个向量在另一个向量上投影的度量，其值受到两个向量大小的影响。
 - en: 'The cosine similarity, which is another popular similarity measure in recommendation
     systems, is derived directly from the dot product:'
+  id: totrans-21
   prefs: []
   type: TYPE_NORMAL
+  zh: 余弦相似度是推荐系统中另一个流行的相似度度量，直接源于点积：
 - en: <math alttext="c o s i n e s i m i l a r i t y left-parenthesis u comma p right-parenthesis
     equals StartFraction left-parenthesis u times p right-parenthesis Over left-parenthesis
     StartAbsoluteValue EndAbsoluteValue u StartAbsoluteValue EndAbsoluteValue StartAbsoluteValue
@@ -148,8 +202,18 @@
     <mi>t</mi> <mi>y</mi> <mrow><mo>(</mo> <mi>u</mi> <mo>,</mo> <mi>p</mi> <mo>)</mo></mrow>
     <mo>=</mo> <mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mo>(</mo><mi>u</mi><mo>×</mo><mi>p</mi><mo>)</mo></mrow>
     <mrow><mo>(</mo><mo>|</mo><mo>|</mo><mi>u</mi><mo>|</mo><mo>|</mo><mo>|</mo><mo>|</mo><mi>p</mi><mo>|</mo><mo>|</mo><mo>)</mo></mrow></mfrac></mstyle></mrow></math>
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="c o s i n e s i m i l a r i t y left-parenthesis u comma p right-parenthesis
+    equals StartFraction left-parenthesis u times p right-parenthesis Over left-parenthesis
+    StartAbsoluteValue EndAbsoluteValue u StartAbsoluteValue EndAbsoluteValue StartAbsoluteValue
+    EndAbsoluteValue p StartAbsoluteValue EndAbsoluteValue right-parenthesis EndFraction"
+    display="block"><mrow><mi>c</mi> <mi>o</mi> <mi>s</mi> <mi>i</mi> <mi>n</mi> <mi>e</mi>
+    <mi>s</mi> <mi>i</mi> <mi>m</mi> <mi>i</mi> <mi>l</mi> <mi>a</mi> <mi>r</mi> <mi>i</mi>
+    <mi>t</mi> <mi>y</mi> <mrow><mo>(</mo> <mi>u</mi> <mo>,</mo> <mi>p</mi> <mo>)</mo></mrow>
+    <mo>=</mo> <mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mo>(</mo><mi>u</mi><mo>×</mo><mi>p</mi><mo>)</mo></mrow>
+    <mrow><mo>(</mo><mo>|</mo><mo>|</mo><mi>u</mi><mo>|</mo><mo>|</mo><mo>|</mo><mo>|</mo><mi>p</mi><mo>|</mo><mo>|</mo><mo>)</mo></mrow></mfrac></mstyle></mrow></math>
 - en: The cosine similarity ranges from –1 to 1, where –1 indicates completely dissimilar
     preferences and characteristics. A 0 indicates no similarity, and 1 indicates
     perfect alignment between the user’s preferences and the product’s characteristics.
@@ -158,8 +222,11 @@
     vectors. Note that the choice of using cosine similarity versus L2 distance depends
     on the type of embeddings you’re using and the way you optimize the computations.
     In practice, the only important feature is often the relative values.
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 余弦相似度的范围从 -1 到 1，其中 -1 表示完全不相似的偏好和特性。0 表示没有相似度，1 表示用户偏好与产品特性完全对齐。在推荐系统的背景下，余弦相似度提供了一个归一化的相似度度量，不受用户和产品向量大小的影响。需要注意，选择使用余弦相似度还是
+    L2 距离取决于您使用的嵌入类型以及优化计算的方式。在实践中，通常最重要的特征是相对值。
 - en: The geometric interpretation of the dot product (and cosine similarity) in recommendation
     systems is that it captures the alignment between user preferences and product
     characteristics. If the angle between the user and product vectors is small, the
@@ -170,47 +237,66 @@
     can capture the degree of alignment between user preferences and item characteristics,
     allowing the recommendation system to identify items that are most likely to be
     relevant and appealing to the user.
+  id: totrans-24
   prefs: []
   type: TYPE_NORMAL
+  zh: 在推荐系统中，点积（以及余弦相似度）的几何解释是捕捉用户偏好与产品特性之间的对齐程度。如果用户向量和产品向量之间的角度很小，则用户偏好与产品特性很好地对齐，从而导致更高的相似度分数。相反，如果角度很大，则用户偏好与产品特性不相似，导致较低的相似度分数。通过将用户和物品向量投影到彼此上，点积相似度可以捕捉用户偏好与物品特性之间的对齐程度，从而使推荐系统能够识别最有可能与用户相关和吸引的物品。
 - en: Anecdotally, the dot product seems to capture popularity, as very long vectors
     tend to be easy to project on anything that isn’t completely perpendicular or
     pointing away from them. As a result, a trade-off exists between frequently recommending
     popular items with a large vector length and longer-tail items that have smaller
     angular difference with cosine distance.
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 传闻中，点积似乎捕捉到了流行度，因为非常长的向量倾向于容易投影到任何不完全垂直或指向远离的物体上。因此，存在一种权衡，即频繁推荐具有较大向量长度的热门物品与具有较小余弦距离角度差的长尾物品之间的权衡。
 - en: '[Figure 10-1](#cosine_dot) considers two vectors, *a* and *b*. With cosine
     similarity, the vectors are unit length, so the angle is just the measure of similarity.
     However, with dot product, a very long vector like *c* might be considered more
     similar to *a* than *b* even though the angle between *a* and *b* is smaller because
     of the longer length of *c*. These long vectors tend to be very popular items
     that co-occur with many other items.'
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: '[图 10-1](#cosine_dot) 考虑了两个向量，*a* 和 *b*。使用余弦相似度时，向量是单位长度的，所以角度就是相似度的度量。然而，使用点积时，一个非常长的向量像
+    *c* 可能会被认为比 *b* 更相似 *a*，尽管 *a* 和 *b* 之间的角度更小，因为 *c* 的长度更长。这些长向量往往是与许多其他项目共同出现的非常流行的项目。'
 - en: '![Cosine vs Dot product similarity](assets/brpj_1001.png)'
+  id: totrans-27
   prefs: []
   type: TYPE_IMG
+  zh: '![余弦 vs 点积相似度](assets/brpj_1001.png)'
 - en: Figure 10-1\. Cosine versus dot-product similarity
+  id: totrans-28
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
+  zh: 图 10-1\. 余弦相似度与点积相似度
 - en: Co-occurrence Models
+  id: totrans-29
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 共现模型
 - en: In our Wikipedia co-occurrences examples, we determined that the co-occurrence
     structure between two items could be used to generate measures of similarity.
     We covered how PMI can take the counts of co-occurrence and make recommendations
     based on very high mutual information between an item in the cart and others.
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们的维基百科共现示例中，我们确定了两个项目之间的共现结构可以用来生成相似度测量。我们讨论了如何使用 PMI 可以获取共现计数并基于购物车中的项与其他项之间非常高的互信息做出推荐。
 - en: As we’ve discussed, PMI is not a distance metric but still has important similarity
     measures based on co-occurrence. Let’s return to this topic.
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们所讨论的，PMI 不是一个距离度量，但基于共现仍具有重要的相似度度量。让我们回到这个话题。
 - en: 'Recall from earlier that PMI is defined as follows:'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 之前提到过，PMI 的定义如下：
 - en: <math alttext="StartFraction p left-parenthesis x Subscript i Baseline comma
     x Subscript j Baseline right-parenthesis Over p left-parenthesis x Subscript i
     Baseline right-parenthesis asterisk p left-parenthesis x Subscript j Baseline
@@ -230,15 +316,39 @@
     close=")" open="(" separators=""><mtext>total</mtext><mtext>interactions</mtext></mfenced></mrow>
     <mrow><mo>#</mo><mrow><mo>(</mo><msub><mi>x</mi> <mi>i</mi></msub> <mo>)</mo></mrow><mo>*</mo><mo>#</mo><mrow><mo>(</mo><msub><mi>x</mi>
     <mi>j</mi></msub> <mo>)</mo></mrow></mrow></mfrac></mstyle></mrow></math>
+  id: totrans-33
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="StartFraction p left-parenthesis x Subscript i Baseline comma
+    x Subscript j Baseline right-parenthesis Over p left-parenthesis x Subscript i
+    Baseline right-parenthesis asterisk p left-parenthesis x Subscript j Baseline
+    right-parenthesis EndFraction equals StartFraction left-parenthesis upper C Subscript
+    script upper I Baseline right-parenthesis Subscript x Sub Subscript i Subscript
+    comma x Sub Subscript j Subscript Baseline asterisk number-sign left-parenthesis
+    total interactions right-parenthesis Over number-sign left-parenthesis x Subscript
+    i Baseline right-parenthesis asterisk number-sign left-parenthesis x Subscript
+    j Baseline right-parenthesis EndFraction" display="block"><mrow><mstyle displaystyle="true"
+    scriptlevel="0"><mfrac><mrow><mi>p</mi><mo>(</mo><msub><mi>x</mi> <mi>i</mi></msub>
+    <mo>,</mo><msub><mi>x</mi> <mi>j</mi></msub> <mo>)</mo></mrow> <mrow><mi>p</mi><mrow><mo>(</mo><msub><mi>x</mi>
+    <mi>i</mi></msub> <mo>)</mo></mrow><mo>*</mo><mi>p</mi><mrow><mo>(</mo><msub><mi>x</mi>
+    <mi>j</mi></msub> <mo>)</mo></mrow></mrow></mfrac></mstyle> <mo>=</mo> <mstyle
+    displaystyle="true" scriptlevel="0"><mfrac><mrow><msub><mfenced close=")" open="("
+    separators=""><msub><mi>C</mi> <mi>ℐ</mi></msub></mfenced> <mrow><msub><mi>x</mi>
+    <mi>i</mi></msub> <mo>,</mo><msub><mi>x</mi> <mi>j</mi></msub></mrow></msub> <mo>*</mo><mo>#</mo><mfenced
+    close=")" open="(" separators=""><mtext>total</mtext><mtext>interactions</mtext></mfenced></mrow>
+    <mrow><mo>#</mo><mrow><mo>(</mo><msub><mi>x</mi> <mi>i</mi></msub> <mo>)</mo></mrow><mo>*</mo><mo>#</mo><mrow><mo>(</mo><msub><mi>x</mi>
+    <mi>j</mi></msub> <mo>)</mo></mrow></mrow></mfrac></mstyle></mrow></math>
 - en: 'Now let’s consider the *discrete co-occurrence distribution*, <math alttext="upper
     C upper D Subscript x Sub Subscript i"><mrow><mi>C</mi> <msub><mi>D</mi> <msub><mi>x</mi>
     <mi>i</mi></msub></msub></mrow></math> , defined as the collection of co-occurrences
     over all other <math alttext="x Subscript j"><msub><mi>x</mi> <mi>j</mi></msub></math>
     :'
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在让我们考虑 *离散共现分布*，<math alttext="upper C upper D Subscript x Sub Subscript i"><mrow><mi>C</mi>
+    <msub><mi>D</mi> <msub><mi>x</mi> <mi>i</mi></msub></msub></mrow></math> ，定义为所有其他
+    <math alttext="x Subscript j"><msub><mi>x</mi> <mi>j</mi></msub></math> 的共现的集合：
 - en: <math alttext="upper C upper D Subscript x Sub Subscript i Baseline equals left-parenthesis
     upper C Subscript script upper I Baseline right-parenthesis Subscript x Sub Subscript
     i Subscript comma x 1 Baseline comma ellipsis comma left-parenthesis upper C Subscript
@@ -254,21 +364,45 @@
     <mi>i</mi></msub></mrow></msub> <mo>,</mo> <mo>...</mo> <mo>,</mo> <msub><mfenced
     close=")" open="(" separators=""><msub><mi>C</mi> <mi>ℐ</mi></msub></mfenced>
     <mrow><msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo><msub><mi>x</mi> <mi>N</mi></msub></mrow></msub></mrow></mrow></math>
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper C upper D Subscript x Sub Subscript i Baseline equals left-parenthesis
+    upper C Subscript script upper I Baseline right-parenthesis Subscript x Sub Subscript
+    i Subscript comma x 1 Baseline comma ellipsis comma left-parenthesis upper C Subscript
+    script upper I Baseline right-parenthesis Subscript x Sub Subscript i Subscript
+    comma x Sub Subscript i Subscript Baseline comma ellipsis comma left-parenthesis
+    upper C Subscript script upper I Baseline right-parenthesis Subscript x Sub Subscript
+    i Subscript comma x Sub Subscript upper N Subscript Baseline" display="block"><mrow><mi>C</mi>
+    <msub><mi>D</mi> <msub><mi>x</mi> <mi>i</mi></msub></msub> <mo>=</mo> <mrow><msub><mfenced
+    close=")" open="(" separators=""><msub><mi>C</mi> <mi>ℐ</mi></msub></mfenced>
+    <mrow><msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo><msub><mi>x</mi> <mn>1</mn></msub></mrow></msub>
+    <mo>,</mo> <mo>...</mo> <mo>,</mo> <msub><mfenced close=")" open="(" separators=""><msub><mi>C</mi>
+    <mi>ℐ</mi></msub></mfenced> <mrow><msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo><msub><mi>x</mi>
+    <mi>i</mi></msub></mrow></msub> <mo>,</mo> <mo>...</mo> <mo>,</mo> <msub><mfenced
+    close=")" open="(" separators=""><msub><mi>C</mi> <mi>ℐ</mi></msub></mfenced>
+    <mrow><msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo><msub><mi>x</mi> <mi>N</mi></msub></mrow></msub></mrow></mrow></math>
 - en: 'Here, <math alttext="j element-of 1 ellipsis upper N"><mrow><mi>j</mi> <mo>∈</mo>
     <mn>1</mn> <mo>...</mo> <mi>N</mi></mrow></math> , and <math alttext="upper N"><mi>N</mi></math>
     is the total number of items. This represents the co-occurrence histogram between
     <math alttext="x Subscript i"><msub><mi>x</mi> <mi>i</mi></msub></math> and all
     other items. By introducing this discrete distribution, we can utilize another
     tool: the Hellinger distance.'
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这里，<math alttext="j element-of 1 ellipsis upper N"><mrow><mi>j</mi> <mo>∈</mo>
+    <mn>1</mn> <mo>...</mo> <mi>N</mi></mrow></math> ，而 <math alttext="upper N"><mi>N</mi></math>
+    是所有项目的总数。这表示 <math alttext="x Subscript i"><msub><mi>x</mi> <mi>i</mi></msub></math>
+    与所有其他项目之间的共现直方图。通过引入这种离散分布，我们可以利用另一个工具：Hellinger 距离。
 - en: 'We can measure distributional distance in a few ways, each with different advantages.
     For our discussion, we will not go deeply into the differences and will stick
     to the simplest but most appropriate. Hellinger distance is defined as follows:'
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以用几种方法来衡量分布距离，每种方法都有不同的优势。在我们的讨论中，我们不会深入探讨这些差异，而是坚持使用最简单但最合适的方法。Hellinger
+    距离的定义如下：
 - en: <math alttext="upper H left-parenthesis upper P comma upper Q right-parenthesis
     equals NestedStartRoot 1 minus sigma-summation Underscript i Overscript n Endscripts
     StartRoot p Subscript i Baseline q Subscript i Baseline EndRoot NestedEndRoot
@@ -281,8 +415,21 @@
     displaystyle="true" scriptlevel="0"><mfrac><mn>1</mn> <msqrt><mn>2</mn></msqrt></mfrac></mstyle>
     <msub><mfenced close="∥" open="∥" separators=""><msqrt><mi>P</mi></msqrt><mo>-</mo><msqrt><mi>Q</mi></msqrt></mfenced>
     <mn>2</mn></msub></mrow></math>
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper H left-parenthesis upper P comma upper Q right-parenthesis
+    equals NestedStartRoot 1 minus sigma-summation Underscript i Overscript n Endscripts
+    StartRoot p Subscript i Baseline q Subscript i Baseline EndRoot NestedEndRoot
+    equals StartFraction 1 Over StartRoot 2 EndRoot EndFraction double-vertical-bar
+    StartRoot upper P EndRoot minus StartRoot upper Q EndRoot double-vertical-bar
+    Subscript 2" display="block"><mrow><mi>H</mi> <mrow><mo>(</mo> <mi>P</mi> <mo>,</mo>
+    <mi>Q</mi> <mo>)</mo></mrow> <mo>=</mo> <msqrt><mrow><mn>1</mn> <mo>-</mo> <msubsup><mo>∑</mo>
+    <mi>i</mi> <mi>n</mi></msubsup> <msqrt><mrow><msub><mi>p</mi> <mi>i</mi></msub>
+    <msub><mi>q</mi> <mi>i</mi></msub></mrow></msqrt></mrow></msqrt> <mo>=</mo> <mstyle
+    displaystyle="true" scriptlevel="0"><mfrac><mn>1</mn> <msqrt><mn>2</mn></msqrt></mfrac></mstyle>
+    <msub><mfenced close="∥" open="∥" separators=""><msqrt><mi>P</mi></msqrt><mo>-</mo><msqrt><mi>Q</mi></msqrt></mfenced>
+    <mn>2</mn></msub></mrow></math>
 - en: <math alttext="upper P equals mathematical left-angle p Subscript i Baseline
     mathematical right-angle"><mrow><mi>P</mi> <mo>=</mo> <mfenced close="〉" open="〈"
     separators=""><msub><mi>p</mi> <mi>i</mi></msub></mfenced></mrow></math> and <math
@@ -294,58 +441,89 @@
     i"><mrow><mi>C</mi> <msub><mi>D</mi> <msub><mi>x</mi> <mi>i</mi></msub></msub></mrow></math>
     and <math alttext="upper C upper D Subscript x Sub Subscript j"><mrow><mi>C</mi>
     <msub><mi>D</mi> <msub><mi>x</mi> <mi>j</mi></msub></msub></mrow></math> .
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper P equals mathematical left-angle p Subscript i Baseline
+    mathematical right-angle"><mrow><mi>P</mi> <mo>=</mo> <mfenced close="〉" open="〈"
+    separators=""><msub><mi>p</mi> <mi>i</mi></msub></mfenced></mrow></math> 和 <math
+    alttext="upper Q equals mathematical left-angle q Subscript i Baseline mathematical
+    right-angle"><mrow><mi>Q</mi> <mo>=</mo> <mfenced close="〉" open="〈" separators=""><msub><mi>q</mi>
+    <mi>i</mi></msub></mfenced></mrow></math> 是两个概率密度向量。在我们的设定中，<math alttext="upper
+    P"><mi>P</mi></math> 和 <math alttext="upper Q"><mi>Q</mi></math> 可以是 <math alttext="upper
+    C upper D Subscript x Sub Subscript i"><mrow><mi>C</mi> <msub><mi>D</mi> <msub><mi>x</mi>
+    <mi>i</mi></msub></msub></mrow></math> 和 <math alttext="upper C upper D Subscript
+    x Sub Subscript j"><mrow><mi>C</mi> <msub><mi>D</mi> <msub><mi>x</mi> <mi>j</mi></msub></msub></mrow></math>
+    。
 - en: The motivation behind this process is that we now have a proper distance between
     items purely based on co-occurrences. We can use any dimension transformation
     or reduction on this geometry. Later we will show dimension-reduction techniques
     that can use an arbitrary distance matrix and reduce the space to a lower-dimensional
     embedding that approximates it.
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个过程背后的动机是，我们现在有了基于共现的物品之间的适当距离。我们可以在这种几何上使用任何维度转换或减少。稍后我们将展示可以使用任意距离矩阵并将空间减少到逼近它的低维嵌入的维度减少技术。
 - en: What About Measure Spaces and Information Theory?
+  id: totrans-41
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 测度空间和信息理论呢？
 - en: While we’re discussing distributions, you may find yourself wondering, “Is there
     a distance between distributions such that distributions are points in a latent
     space?” Oh, you weren’t wondering that? Well, OK. We’ll address it anyway.
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们讨论分布时，你可能会想知道，“是否存在一种距离使得分布在潜在空间中是点？”哦，你没有想到？好吧，我们无论如何会解决这个问题。
 - en: The short answer is that we can measure the differences between distributions.
     The most popular is Kullback–Leibler (KL) divergence, which is usually described
     in a Bayesian sense as the amount of surprise in seeing the distribution P, when
     expecting the distribution Q. However, KL is not a proper distance metric because
     it is asymmetric.
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 简短的答案是，我们可以衡量分布之间的差异。最流行的是库尔巴克-莱布勒（KL）散度，通常在贝叶斯意义下描述为预期分布Q时看到分布P的惊讶程度。然而，KL不是一个适当的距离度量，因为它是非对称的。
 - en: Another symmetric distance metric that has some nice properties is the Hellinger
     distance. Hellinger distance is effectively the 2-norm measure theoretic distance.
     Additionally, Hellinger distance naturally generalizes to discrete distributions.
+  id: totrans-44
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一个具有良好性质的对称距离度量是海林格距离。海林格距离实际上是二范数的测度论距离。此外，海林格距离自然地推广到离散分布。
 - en: 'If this still hasn’t scratched your itch for abstraction, we can also consider
     the total variation distance, which is the limit in the space of Fisher’s exact
     distance measures, which really means that it has all the nice properties of a
     distance of two distributions and no measure would ever consider them more dissimilar.
     Well, all the nice properties except for one: it’s not smooth. If you also want
     smoothness for differentiability, you’ll need to approximate it via an offset.'
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果这仍然没有解决你对抽象的渴望，我们还可以考虑总变分距离，这是在费舍尔精确距离测度空间中的极限，这实际上意味着它具有两个分布距离的所有良好性质，并且没有测量会认为它们更不同。嗯，所有的良好性质除了一个：它不平滑。如果你还希望具有平滑性和可微性，你需要通过偏移来近似它。
 - en: If you ever need a distance between distributions, just use Hellinger.
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你需要计算分布之间的距离，可以使用海林格距离。
 - en: Reducing the Rank of a Recommender Problem
+  id: totrans-47
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 减少推荐问题的排名
 - en: We’ve shown that as the number of items and users grows, we rapidly increase
     the dimensionality of our recommender problem. Because we’re representing each
     item and user as a column or vector, this scales like <math alttext="n squared"><msup><mi>n</mi>
     <mn>2</mn></msup></math> . One way to push back against this difficulty is by
     rank reduction; recall our previous discussions about rank reduction via factorization.
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们已经表明，随着物品和用户数量的增加，我们推荐问题的维度迅速增加。因为我们将每个项目和用户表示为一列或向量，这类似于<math alttext="n
+    squared"><msup><mi>n</mi> <mn>2</mn></msup></math>的规模。推迟这一困难的一种方法是通过降秩；回想我们之前关于通过因子分解进行降秩的讨论。
 - en: 'Like many integers, many matrices can be *factored* into smaller matrices;
     for integers, *smaller* means of smaller value, and for matrices, *smaller* means
     of smaller dimensions. When we factor an <math alttext="upper N times upper M"><mrow><mi>N</mi>
@@ -358,15 +536,28 @@
     <mi>N</mi></mrow></math> and <math alttext="d less-than-or-equal-to upper M"><mrow><mi>d</mi>
     <mo>≤</mo> <mi>M</mi></mrow></math> . By factorizing a matrix, we ask for two
     matrices that together equal, or approximate, the original matrix:'
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
+  zh: 像许多整数一样，许多矩阵可以被*分解*成更小的矩阵；对于整数来说，*更小*意味着更小的值，对于矩阵来说，*更小*意味着更小的维度。当我们分解一个<math
+    alttext="upper N times upper M"><mrow><mi>N</mi> <mo>×</mo> <mi>M</mi></mrow></math>矩阵时，我们会寻找两个矩阵<math
+    alttext="upper U Subscript upper N times d"><msub><mi>U</mi> <mrow><mi>N</mi><mo>×</mo><mi>d</mi></mrow></msub></math>和<math
+    alttext="upper V Subscript d times upper M"><msub><mi>V</mi> <mrow><mi>d</mi><mo>×</mo><mi>M</mi></mrow></msub></math>；请注意，当您将矩阵相乘时，它们必须共享一个维度，并且该维度被消除，留下另外两个维度。在这里，我们将考虑当<math
+    alttext="d less-than-or-equal-to upper N"><mrow><mi>d</mi> <mo>≤</mo> <mi>N</mi></mrow></math>和<math
+    alttext="d less-than-or-equal-to upper M"><mrow><mi>d</mi> <mo>≤</mo> <mi>M</mi></mrow></math>时的MF。通过分解矩阵，我们要求两个矩阵，它们可以等于或近似于原始矩阵：
 - en: <math alttext="upper A Subscript i comma j Baseline asymptotically-equals mathematical
     left-angle upper U Subscript i Baseline comma upper V Subscript j Baseline mathematical
     right-angle" display="block"><mrow><msub><mi>A</mi> <mrow><mi>i</mi><mo>,</mo><mi>j</mi></mrow></msub>
     <mo>≃</mo> <mfenced close="〉" open="〈" separators=""><msub><mi>U</mi> <mi>i</mi></msub>
     <mo>,</mo> <msub><mi>V</mi> <mi>j</mi></msub></mfenced></mrow></math>
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper A Subscript i comma j Baseline asymptotically-equals mathematical
+    left-angle upper U Subscript i Baseline comma upper V Subscript j Baseline mathematical
+    right-angle" display="block"><mrow><msub><mi>A</mi> <mrow><mi>i</mi><mo>,</mo><mi>j</mi></mrow></msub>
+    <mo>≃</mo> <mfenced close="〉" open="〈" separators=""><msub><mi>U</mi> <mi>i</mi></msub>
+    <mo>,</mo> <msub><mi>V</mi> <mi>j</mi></msub></mfenced></mrow></math>
 - en: 'We seek a small value for <math alttext="d"><mi>d</mi></math> to reduce the
     number of latent dimensions. As you may have already noticed, each of the matrices
     <math alttext="upper U Subscript upper N times d"><msub><mi>U</mi> <mrow><mi>N</mi><mo>×</mo><mi>d</mi></mrow></msub></math>
@@ -377,50 +568,79 @@
     as the full <math alttext="upper N times upper M"><mrow><mi>N</mi> <mo>×</mo>
     <mi>M</mi></mrow></math> dimensional relationships in two sets of relationships:
     items versus latent features, and users versus latent features.'
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们寻求一个小的值<math alttext="d"><mi>d</mi></math>来减少潜在维度的数量。正如您可能已经注意到的那样，每个矩阵<math
+    alttext="upper U Subscript upper N times d"><msub><mi>U</mi> <mrow><mi>N</mi><mo>×</mo><mi>d</mi></mrow></msub></math>和<math
+    alttext="upper V Subscript d times upper M"><msub><mi>V</mi> <mrow><mi>d</mi><mo>×</mo><mi>M</mi></mrow></msub></math>将对应于原始评分矩阵的行或列。然而，它们以更少的维度表示。这利用了*低维潜在空间*的概念。直观地说，潜在空间旨在以两组关系表示与完整<math
+    alttext="upper N times upper M"><mrow><mi>N</mi> <mo>×</mo> <mi>M</mi></mrow></math>维关系相同的关系：项目与潜在特征之间的关系，以及用户与潜在特征之间的关系。
 - en: These methods are also popular in other kinds of ML, but for our case, we’ll
     primarily be looking at factorizing ratings or interaction matrices.
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 这些方法在其他类型的机器学习中也很受欢迎，但对于我们的案例，我们主要将研究对评分或交互矩阵进行因子分解的问题。
 - en: 'Frequently, you must overcome a few challenges when considering MF:'
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: 考虑MF时，您经常必须克服一些挑战：
 - en: The matrix you wish to factor is sparse and often non-negative and/or binary.
+  id: totrans-54
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 您希望分解的矩阵是稀疏的，并且通常是非负的和/或二进制的。
 - en: The number of nonzero elements in each item vector can vary wildly, as we saw
     in the Matthew effect.
+  id: totrans-55
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 每个项目向量中的非零元素数量可能会有很大的变化，正如我们在马太效应中看到的那样。
 - en: Factorizing matrices is cubic in complexity.
+  id: totrans-56
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 矩阵分解的复杂度是立方的。
 - en: SVD and other full-rank methods don’t work without imputation, which itself
     is complicated.
+  id: totrans-57
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: SVD和其他全秩方法在没有填补的情况下无法工作，填补本身也很复杂。
 - en: We’ll address these with some alternative optimization methods.
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将通过一些替代优化方法来解决这些问题。
 - en: Optimizing for MF with ALS
+  id: totrans-59
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 优化MF与ALS
 - en: 'The basic optimization we wish to execute is to approximate as follows:'
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们希望执行的基本优化如下：
 - en: <math alttext="upper A Subscript i comma j Baseline asymptotically-equals mathematical
     left-angle upper U Subscript i Baseline comma upper V Subscript j Baseline mathematical
     right-angle" display="block"><mrow><msub><mi>A</mi> <mrow><mi>i</mi><mo>,</mo><mi>j</mi></mrow></msub>
     <mo>≃</mo> <mfenced close="〉" open="〈" separators=""><msub><mi>U</mi> <mi>i</mi></msub>
     <mo>,</mo> <msub><mi>V</mi> <mi>j</mi></msub></mfenced></mrow></math>
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper A Subscript i comma j Baseline asymptotically-equals mathematical
+    left-angle upper U Subscript i Baseline comma upper V Subscript j Baseline mathematical
+    right-angle" display="block"><mrow><msub><mi>A</mi> <mrow><mi>i</mi><mo>,</mo><mi>j</mi></mrow></msub>
+    <mo>≃</mo> <mfenced close="〉" open="〈" separators=""><msub><mi>U</mi> <mi>i</mi></msub>
+    <mo>,</mo> <msub><mi>V</mi> <mi>j</mi></msub></mfenced></mrow></math>
 - en: Notably, if you wish to optimize matrix entries directly, you’ll need to optimize
     <math alttext="d squared asterisk upper N asterisk upper M"><mrow><msup><mi>d</mi>
     <mn>2</mn></msup> <mo>*</mo> <mi>N</mi> <mo>*</mo> <mi>M</mi></mrow></math> elements
@@ -431,13 +651,19 @@
     updates to all terms in both matrices on each pass, you may update only one of
     the two matrices, which dramatically reduces the number of computations that need
     to take place.
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 值得注意的是，如果您希望直接优化矩阵条目，则需要同时优化<math alttext="d squared asterisk upper N asterisk
+    upper M"><mrow><msup><mi>d</mi> <mn>2</mn></msup> <mo>*</mo> <mi>N</mi> <mo>*</mo>
+    <mi>M</mi></mrow></math>个元素，这些元素对应于这些因子化中的参数数量。然而，通过交替调整一个或另一个矩阵，我们可以轻松实现显著的加速。这称为*交替最小二乘*，通常简称为*ALS*，这是解决此问题的一种常见方法。与在每次传递中向两个矩阵的所有项后向传播更新不同，您可以仅更新两个矩阵中的一个，从而大大减少需要进行的计算数量。
 - en: 'ALS seeks to switch back and forth between <math alttext="upper U"><mi>U</mi></math>
     and <math alttext="upper V"><mi>V</mi></math> , evaluating on the same loss function
     but updating the weights in only one matrix at a time:'
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: ALS 试图在<math alttext="upper U"><mi>U</mi></math>和<math alttext="upper V"><mi>V</mi></math>之间来回切换，评估相同的损失函数，但每次仅更新一个矩阵的权重：
 - en: <math alttext="StartLayout 1st Row 1st Column Blank 2nd Column upper U left-arrow
     upper U minus eta asterisk upper U asterisk nabla upper U asterisk script upper
     D left-parenthesis upper A comma upper U upper V right-parenthesis 2nd Row 1st
@@ -450,49 +676,78 @@
     <mtr><mtd columnalign="left"><mrow><mi>V</mi> <mo>←</mo> <mi>V</mi> <mo>-</mo>
     <mi>η</mi> <mo>*</mo> <mi>V</mi> <mo>*</mo> <mi>∇</mi> <mi>V</mi> <mo>*</mo> <mi>𝒟</mi>
     <mfenced close=")" open="(" separators=""><mi>A</mi> <mo>,</mo> <mi>U</mi> <mi>V</mi></mfenced></mrow></mtd></mtr></mtable></math>
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="StartLayout 1st Row 1st Column Blank 2nd Column upper U left-arrow
+    upper U minus eta asterisk upper U asterisk nabla upper U asterisk script upper
+    D left-parenthesis upper A comma upper U upper V right-parenthesis 2nd Row 1st
+    Column Blank 2nd Column upper V left-arrow upper V minus eta asterisk upper V
+    asterisk nabla upper V asterisk script upper D left-parenthesis upper A comma
+    upper U upper V right-parenthesis EndLayout" display="block"><mtable displaystyle="true"><mtr><mtd
+    columnalign="left"><mrow><mi>U</mi> <mo>←</mo> <mi>U</mi> <mo>-</mo> <mi>η</mi>
+    <mo>*</mo> <mi>U</mi> <mo>*</mo> <mi>∇</mi> <mi>U</mi> <mo>*</mo> <mi>𝒟</mi> <mfenced
+    close=")" open="(" separators=""><mi>A</mi> <mo>,</mo> <mi>U</mi> <mi>V</mi></mfenced></mrow></mtd></mtr>
+    <mtr><mtd columnalign="left"><mrow><mi>V</mi> <mo>←</mo> <mi>V</mi> <mo>-</mo>
+    <mi>η</mi> <mo>*</mo> <mi>V</mi> <mo>*</mo> <mi>∇</mi> <mi>V</mi> <mo>*</mo> <mi>𝒟</mi>
+    <mfenced close=")" open="(" separators=""><mi>A</mi> <mo>,</mo> <mi>U</mi> <mi>V</mi></mfenced></mrow></mtd></mtr></mtable></math>
 - en: 'Here, <math alttext="eta"><mi>η</mi></math> is the learning rate and <math
     alttext="script upper D"><mi>𝒟</mi></math> is our chosen distance function. We’ll
     present more details of this distance function momentarily. Before we move on,
     let’s consider a few of the intricacies here:'
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这里，<math alttext="eta"><mi>η</mi></math>是学习率，<math alttext="script upper D"><mi>𝒟</mi></math>是我们选择的距离函数。我们稍后会详细介绍这个距离函数。在我们继续之前，让我们考虑这里的一些复杂性：
 - en: Each of these update rules requires the gradient with respect to the relevant
     factor matrix.
+  id: totrans-66
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 每个更新规则都需要相对于相关因子矩阵的梯度。
 - en: We update an entire factor matrix at a time, but we evaluate loss on the product
     of the factor matrices versus the original matrix.
+  id: totrans-67
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们一次更新一个完整的因子矩阵，但在因子矩阵的乘积与原始矩阵之间评估损失。
 - en: We have a mysterious distance function.
+  id: totrans-68
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们有一个神秘的距离函数。
 - en: By the way that we’ve constructed this optimization, we’re implicitly assuming
     that we’ll use this process to converge two well-approximating matrices (we often
     also impose a limit on the number of iterations).
+  id: totrans-69
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 通过我们构建这种优化的方式，我们隐含地假设我们将使用这个过程来使两个近似的矩阵收敛（通常还会对迭代次数施加限制）。
 - en: In JAX, these optimizations will be straightforward to implement, and we’ll
     see how similar the equational forms and the JAX code look.
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 JAX 中，这些优化将很容易实现，并且我们将看到等式形式和 JAX 代码看起来有多么相似。
 - en: Distance Between Matrices
+  id: totrans-71
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 矩阵之间的距离
 - en: 'We can determine the distance between two matrices in a variety of ways. As
     we’ve seen before, different distance measurements for vectors yield different
     interpretations from the underlying space. We won’t have as many complications
     for these computations, but it’s worth a short observation. The most obvious approach
     is one you’ve already seen, *observed mean squared error*:'
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以以多种方式确定两个矩阵之间的距离。正如我们之前所见，对于向量的不同距离测量从底层空间提供了不同的解释。对于这些计算，我们不会有太多复杂性，但这值得一小段观察。最明显的方法是你已经看到的*观察到的均方误差*：
 - en: <math alttext="StartFraction sigma-summation Underscript normal upper Omega
     Endscripts left-parenthesis upper A Subscript i comma j Baseline minus mathematical
     left-angle upper U Subscript i Baseline comma upper V Subscript j Baseline mathematical
@@ -502,37 +757,58 @@
     <mo>-</mo><mfenced close="〉" open="〈" separators=""><msub><mi>U</mi> <mi>i</mi></msub>
     <mo>,</mo><msub><mi>V</mi> <mi>j</mi></msub></mfenced></mfenced> <mn>2</mn></msup></mrow>
     <mrow><mn>1</mn><mi>Ω</mi><mo>|</mo></mrow></mfrac></mstyle></math>
+  id: totrans-73
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="StartFraction sigma-summation Underscript normal upper Omega
+    Endscripts left-parenthesis upper A Subscript i comma j Baseline minus mathematical
+    left-angle upper U Subscript i Baseline comma upper V Subscript j Baseline mathematical
+    right-angle right-parenthesis squared Over 1 normal upper Omega vertical-bar EndFraction"><mstyle
+    displaystyle="true" scriptlevel="0"><mfrac><mrow><msub><mo>∑</mo> <mi>Ω</mi></msub>
+    <msup><mfenced close=")" open="(" separators=""><msub><mi>A</mi> <mrow><mi>i</mi><mo>,</mo><mi>j</mi></mrow></msub>
+    <mo>-</mo><mfenced close="〉" open="〈" separators=""><msub><mi>U</mi> <mi>i</mi></msub>
+    <mo>,</mo><msub><mi>V</mi> <mi>j</mi></msub></mfenced></mfenced> <mn>2</mn></msup></mrow>
+    <mrow><mn>1</mn><mi>Ω</mi><mo>|</mo></mrow></mfrac></mstyle></math>
 - en: One useful alternative to the observed mean squared error can be used when you
     have a single nonzero entry for a user vector (alternatively, a max rating). In
     that case, you could instead use a cross-entropy loss, which provides a *logistic
     MF*, and thus a probability estimate. For more details on how to implement this,
     see the [“Matrix Factorization for Recommender Systems” tutorial](https://oreil.ly/7qWy6)
     by Kyle Chung.
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: 当用户向量只有一个非零条目（或者说最大评分）时，观察到的均方误差的一个有用替代方法是使用交叉熵损失，这样可以提供一个*逻辑MF*，从而得到概率估计。有关如何实现此操作的更多详细信息，请参阅Kyle
+    Chung的[“推荐系统的矩阵分解”教程](https://oreil.ly/7qWy6)。
 - en: In our observed ratings, we expect (and see!) a large number of missing values
     and some item vectors with an overrepresented number of ratings. This suggests
     that we should consider nonuniformly weighted matrices. Next we’ll discuss how
     to account for this and other variants with regularization.
+  id: totrans-75
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们观察到的评分中，我们预期（并看到！）有大量缺失值和一些具有过多评分的项目向量。这表明我们应该考虑非均匀加权的矩阵。接下来我们将讨论如何通过正则化来考虑这些和其他变体。
 - en: Regularization for MF
+  id: totrans-76
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: MF的正则化
 - en: '*Weighted alternating least squares* (WALS) is similar to ALS but attempts
     to resolve these two data issues more gracefully. In WALS, the weight assigned
     to each observed rating is inversely proportional to the number of observed ratings
     for the user or item. Therefore, observed ratings for users or items with few
     ratings are given more weight in the optimization process.'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: '*加权交替最小二乘*（WALS）与ALS类似，但试图更优雅地解决这两个数据问题。在WALS中，分配给每个观察到的评分的权重与用户或项目的观察到的评分数成反比。因此，对于评分较少的用户或项目的观察到的评分在优化过程中被赋予更大的权重。'
 - en: 'We can apply these weights as a regularization parameter in our eventual loss
     function:'
+  id: totrans-78
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以将这些权重作为我们最终损失函数中的正则化参数应用：
 - en: <math alttext="StartFraction sigma-summation Underscript normal upper Omega
     Endscripts left-parenthesis upper A Subscript i comma j Baseline minus less-than
     upper U Subscript i Baseline comma upper V Subscript j Baseline greater-than right-parenthesis
@@ -545,27 +821,49 @@
     <mn>2</mn></msup></mrow> <mrow><mo>|</mo><mi>Ω</mi><mo>|</mo></mrow></mfrac></mstyle>
     <mo>+</mo> <mstyle displaystyle="true" scriptlevel="0"><mfrac><mn>1</mn> <mi>N</mi></mfrac></mstyle>
     <mo>∑</mo> <mrow><mo>|</mo> <mi>U</mi> <mo>|</mo></mrow></mrow></math>
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="StartFraction sigma-summation Underscript normal upper Omega
+    Endscripts left-parenthesis upper A Subscript i comma j Baseline minus less-than
+    upper U Subscript i Baseline comma upper V Subscript j Baseline greater-than right-parenthesis
+    squared Over StartAbsoluteValue normal upper Omega EndAbsoluteValue EndFraction
+    plus StartFraction 1 Over upper N EndFraction sigma-summation StartAbsoluteValue
+    upper U EndAbsoluteValue" display="block"><mrow><mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><msub><mo>∑</mo>
+    <mi>Ω</mi></msub> <msup><mfenced close=")" open="(" separators=""><msub><mi>A</mi>
+    <mrow><mi>i</mi><mo>,</mo><mi>j</mi></mrow></msub> <mo>-</mo><mo><</mo><msub><mi>U</mi>
+    <mi>i</mi></msub> <mo>,</mo><msub><mi>V</mi> <mi>j</mi></msub> <mo>></mo></mfenced>
+    <mn>2</mn></msup></mrow> <mrow><mo>|</mo><mi>Ω</mi><mo>|</mo></mrow></mfrac></mstyle>
+    <mo>+</mo> <mstyle displaystyle="true" scriptlevel="0"><mfrac><mn>1</mn> <mi>N</mi></mfrac></mstyle>
+    <mo>∑</mo> <mrow><mo>|</mo> <mi>U</mi> <mo>|</mo></mrow></mrow></math>
 - en: 'Other regularization methods are important, and also popular, for MF. We’ll
     discuss these two powerful regularization techniques:'
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 其他正则化方法对于MF也很重要，并且很受欢迎。我们将讨论这两种强大的正则化技术：
 - en: Weight decay
+  id: totrans-81
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 权重衰减
 - en: Gramian regularization
+  id: totrans-82
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Gramian正则化
 - en: As is often the case, *weight decay* is our <math alttext="l squared"><msup><mi>l</mi>
     <mn>2</mn></msup></math> regularization, which in this case is at the level of
     the Frobenius norm, i.e., the magnitude of the weight matrix. An elegant way to
     view this weight decay is that it’s minimizing the magnitude of the *singular
     values*.
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 像往常一样，*权重衰减* 是我们的 <math alttext="l squared"><msup><mi>l</mi> <mn>2</mn></msup></math>
+    正则化，这种情况下是Frobenius范数的水平，即权重矩阵的大小。一个优雅的观点是，这种权重衰减是在最小化*奇异值*的大小。
 - en: Similarly, MF has another regularization technique that looks very standard
     but is quite different in calculation. This is via the *Gramians*—essentially
     regularizing the size of the individual matrix entries, but there’s an elegant
@@ -576,11 +874,18 @@
     used to calculate co-occurrences for binary matrices. The connection is that both
     are simply trying to find efficient representations of dot products between a
     matrix’s rows and columns.
+  id: totrans-84
   prefs: []
   type: TYPE_NORMAL
+  zh: 类似地，MF还有另一种看起来非常标准但计算方式完全不同的正则化技术。这是通过Gramians——本质上是正则化单个矩阵条目的大小，但在优化中有一个优雅的技巧。特别地，矩阵
+    <math alttext="upper U"><mi>U</mi></math> 的Gramian是乘积 <math alttext="upper U Superscript
+    upper T Baseline upper U"><mrow><msup><mi>U</mi> <mi>T</mi></msup> <mi>U</mi></mrow></math>
+    。敏锐的读者可能会认出这个术语，因为它与我们先前用于计算二进制矩阵的共现的术语相同。联系在于两者都只是试图找到矩阵行和列之间点积的有效表示方式。
 - en: 'These regularizations are the Frobenius terms:'
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: 这些正则化是Frobenius项：
 - en: <math alttext="upper R left-parenthesis upper U comma upper V right-parenthesis
     equals StartFraction 1 Over upper N EndFraction sigma-summation Underscript i
     Overscript upper N Endscripts StartAbsoluteValue upper U Subscript i Baseline
@@ -594,11 +899,27 @@
     <mn>2</mn> <mn>2</mn></msubsup> <mo>+</mo> <mfrac><mn>1</mn> <mi>M</mi></mfrac>
     <munderover><mo>∑</mo> <mi>j</mi> <mi>M</mi></munderover> <msubsup><mrow><mo>|</mo><msub><mi>V</mi>
     <mi>j</mi></msub> <mo>|</mo></mrow> <mn>2</mn> <mn>2</mn></msubsup></mrow></mstyle></math>
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper R left-parenthesis upper U comma upper V right-parenthesis
+    equals StartFraction 1 Over upper N EndFraction sigma-summation Underscript i
+    Overscript upper N Endscripts StartAbsoluteValue upper U Subscript i Baseline
+    EndAbsoluteValue Subscript 2 Superscript 2 Baseline plus StartFraction 1 Over
+    upper M EndFraction sigma-summation Underscript j Overscript upper M Endscripts
+    StartAbsoluteValue upper V Subscript j Baseline EndAbsoluteValue Subscript 2 Superscript
+    2" display="block"><mstyle displaystyle="true" scriptlevel="0"><mrow><mi>R</mi>
+    <mrow><mo>(</mo> <mi>U</mi> <mo>,</mo> <mi>V</mi> <mo>)</mo></mrow> <mo>=</mo>
+    <mfrac><mn>1</mn> <mi>N</mi></mfrac> <munderover><mo>∑</mo> <mi>i</mi> <mi>N</mi></munderover>
+    <mrow><mo>|</mo></mrow> <msub><mi>U</mi> <mi>i</mi></msub> <msubsup><mrow><mo>|</mo></mrow>
+    <mn>2</mn> <mn>2</mn></msubsup> <mo>+</mo> <mfrac><mn>1</mn> <mi>M</mi></mfrac>
+    <munderover><mo>∑</mo> <mi>j</mi> <mi>M</mi></munderover> <msubsup><mrow><mo>|</mo><msub><mi>V</mi>
+    <mi>j</mi></msub> <mo>|</mo></mrow> <mn>2</mn> <mn>2</mn></msubsup></mrow></mstyle></math>
 - en: 'Or expanded, the equation looks like this:'
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 或者，展开来说，方程看起来像这样：
 - en: <math alttext="upper R left-parenthesis upper U comma upper V right-parenthesis
     equals StartFraction 1 Over upper N EndFraction sigma-summation Underscript i
     Overscript upper N Endscripts sigma-summation Underscript k Overscript d Endscripts
@@ -613,11 +934,28 @@
     <mi>M</mi></mfrac> <munderover><mo>∑</mo> <mi>j</mi> <mi>M</mi></munderover> <munderover><mo>∑</mo>
     <mi>l</mi> <mi>d</mi></munderover> <msubsup><mi>V</mi> <mrow><mi>j</mi><mo>,</mo><mi>l</mi></mrow>
     <mn>2</mn></msubsup></mrow></mstyle></math>
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper R left-parenthesis upper U comma upper V right-parenthesis
+    equals StartFraction 1 Over upper N EndFraction sigma-summation Underscript i
+    Overscript upper N Endscripts sigma-summation Underscript k Overscript d Endscripts
+    upper U Subscript i comma k Superscript 2 Baseline plus StartFraction 1 Over upper
+    M EndFraction sigma-summation Underscript j Overscript upper M Endscripts sigma-summation
+    Underscript l Overscript d Endscripts upper V Subscript j comma l Superscript
+    2" display="block"><mstyle displaystyle="true" scriptlevel="0"><mrow><mi>R</mi>
+    <mrow><mo>(</mo> <mi>U</mi> <mo>,</mo> <mi>V</mi> <mo>)</mo></mrow> <mo>=</mo>
+    <mfrac><mn>1</mn> <mi>N</mi></mfrac> <munderover><mo>∑</mo> <mi>i</mi> <mi>N</mi></munderover>
+    <munderover><mo>∑</mo> <mi>k</mi> <mi>d</mi></munderover> <msubsup><mi>U</mi>
+    <mrow><mi>i</mi><mo>,</mo><mi>k</mi></mrow> <mn>2</mn></msubsup> <mo>+</mo> <mfrac><mn>1</mn>
+    <mi>M</mi></mfrac> <munderover><mo>∑</mo> <mi>j</mi> <mi>M</mi></munderover> <munderover><mo>∑</mo>
+    <mi>l</mi> <mi>d</mi></munderover> <msubsup><mi>V</mi> <mrow><mi>j</mi><mo>,</mo><mi>l</mi></mrow>
+    <mn>2</mn></msubsup></mrow></mstyle></math>
 - en: 'And here are the Gramian terms:'
+  id: totrans-89
   prefs: []
   type: TYPE_NORMAL
+  zh: 这些是Gramian项：
 - en: <math alttext="StartLayout 1st Row 1st Column upper G left-parenthesis upper
     U comma upper V right-parenthesis 2nd Column colon equals StartFraction 1 Over
     upper N dot upper M EndFraction sigma-summation Underscript i Overscript upper
@@ -640,11 +978,36 @@
     <msub><mfenced close=")" open="(" separators=""><msup><mi>U</mi> <mi>T</mi></msup>
     <mi>U</mi><mo>*</mo><msup><mi>V</mi> <mi>T</mi></msup> <mi>V</mi></mfenced> <mrow><mi>k</mi><mo>,</mo><mi>l</mi></mrow></msub></mrow></mstyle></mtd></mtr></mtable>
     <mo>.</mo></mrow></math>
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="StartLayout 1st Row 1st Column upper G left-parenthesis upper
+    U comma upper V right-parenthesis 2nd Column colon equals StartFraction 1 Over
+    upper N dot upper M EndFraction sigma-summation Underscript i Overscript upper
+    N Endscripts sigma-summation Underscript j Overscript upper M Endscripts mathematical
+    left-angle upper U Subscript i Baseline comma upper V Subscript j Baseline mathematical
+    right-angle squared 2nd Row 1st Column Blank 3rd Row 1st Column Blank 2nd Column
+    equals StartFraction 1 Over upper N dot upper M EndFraction asterisk sigma-summation
+    Underscript k comma l Overscript d Endscripts left-parenthesis upper U Superscript
+    upper T Baseline upper U asterisk upper V Superscript upper T Baseline upper V
+    right-parenthesis Subscript k comma l Baseline EndLayout period" display="block"><mrow><mtable><mtr><mtd
+    columnalign="left"><mrow><mi>G</mi> <mo>(</mo> <mi>U</mi> <mo>,</mo> <mi>V</mi>
+    <mo>)</mo></mrow></mtd> <mtd columnalign="left"><mstyle displaystyle="true" scriptlevel="0"><mrow><mo>:</mo>
+    <mo>=</mo> <mfrac><mn>1</mn> <mrow><mi>N</mi><mo>·</mo><mi>M</mi></mrow></mfrac>
+    <munderover><mo>∑</mo> <mi>i</mi> <mi>N</mi></munderover> <munderover><mo>∑</mo>
+    <mi>j</mi> <mi>M</mi></munderover> <msup><mfenced close="〉" open="〈" separators=""><msub><mi>U</mi>
+    <mi>i</mi></msub> <mo>,</mo><msub><mi>V</mi> <mi>j</mi></msub></mfenced> <mn>2</mn></msup></mrow></mstyle></mtd></mtr>
+    <mtr><mtd columnalign="left"><mstyle displaystyle="true" scriptlevel="0"><mrow><mo>=</mo>
+    <mfrac><mn>1</mn> <mrow><mi>N</mi><mo>·</mo><mi>M</mi></mrow></mfrac> <mo>*</mo>
+    <munderover><mo>∑</mo> <mrow><mi>k</mi><mo>,</mo><mi>l</mi></mrow> <mi>d</mi></munderover>
+    <msub><mfenced close=")" open="(" separators=""><msup><mi>U</mi> <mi>T</mi></msup>
+    <mi>U</mi><mo>*</mo><msup><mi>V</mi> <mi>T</mi></msup> <mi>V</mi></mfenced> <mrow><mi>k</mi><mo>,</mo><mi>l</mi></mrow></msub></mrow></mstyle></mtd></mtr></mtable>
+    <mo>.</mo></mrow></math>
 - en: 'Finally, we have our loss function:'
+  id: totrans-91
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们有我们的损失函数：
 - en: <math alttext="StartFraction 1 Over StartAbsoluteValue normal upper Omega EndAbsoluteValue
     EndFraction sigma-summation Underscript left-parenthesis i comma j right-parenthesis
     element-of normal upper Omega Endscripts left-parenthesis upper A Subscript i
@@ -676,12 +1039,46 @@
     <mrow><mi>k</mi><mo>,</mo><mi>l</mi></mrow> <mi>d</mi></munderover> <msub><mfenced
     close=")" open="(" separators=""><msup><mi>U</mi> <mi>T</mi></msup> <mi>U</mi><mo>*</mo><msup><mi>V</mi>
     <mi>T</mi></msup> <mi>V</mi></mfenced> <mrow><mi>k</mi><mo>,</mo><mi>l</mi></mrow></msub></mfenced></mrow></mstyle></math>
+  id: totrans-92
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="StartFraction 1 Over StartAbsoluteValue normal upper Omega EndAbsoluteValue
+    EndFraction sigma-summation Underscript left-parenthesis i comma j right-parenthesis
+    element-of normal upper Omega Endscripts left-parenthesis upper A Subscript i
+    j Baseline minus mathematical left-angle upper U Subscript i Baseline comma upper
+    V Subscript j Baseline mathematical right-angle right-parenthesis squared plus
+    lamda Subscript upper R Baseline left-parenthesis StartFraction 1 Over upper N
+    EndFraction sigma-summation Underscript i Overscript upper N Endscripts sigma-summation
+    Underscript k Overscript d Endscripts upper U Subscript i comma k Superscript
+    2 Baseline plus StartFraction 1 Over upper M EndFraction sigma-summation Underscript
+    j Overscript upper M Endscripts sigma-summation Underscript l Overscript d Endscripts
+    upper V Subscript j comma l Superscript 2 Baseline right-parenthesis plus lamda
+    Subscript upper G Baseline left-parenthesis StartFraction 1 Over upper N dot upper
+    M EndFraction asterisk sigma-summation Underscript k comma l Overscript d Endscripts
+    left-parenthesis upper U Superscript upper T Baseline upper U asterisk upper V
+    Superscript upper T Baseline upper V right-parenthesis Subscript k comma l Baseline
+    right-parenthesis" display="block"><mstyle displaystyle="true" scriptlevel="0"><mrow><mfrac><mn>1</mn>
+    <mrow><mo>|</mo><mi>Ω</mi><mo>|</mo></mrow></mfrac> <munder><mo>∑</mo> <mrow><mo>(</mo><mi>i</mi><mo>,</mo><mi>j</mi><mo>)</mo><mo>∈</mo><mi>Ω</mi></mrow></munder>
+    <msup><mrow><mo>(</mo><msub><mi>A</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub>
+    <mo>-</mo><mrow><mo>〈</mo><msub><mi>U</mi> <mi>i</mi></msub> <mo>,</mo><msub><mi>V</mi>
+    <mi>j</mi></msub> <mo>〉</mo></mrow><mo>)</mo></mrow> <mn>2</mn></msup> <mo>+</mo>
+    <msub><mi>λ</mi> <mi>R</mi></msub> <mfenced close=")" open="(" separators=""><mfrac><mn>1</mn>
+    <mi>N</mi></mfrac> <munderover><mo>∑</mo> <mi>i</mi> <mi>N</mi></munderover> <munderover><mo>∑</mo>
+    <mi>k</mi> <mi>d</mi></munderover> <msubsup><mi>U</mi> <mrow><mi>i</mi><mo>,</mo><mi>k</mi></mrow>
+    <mn>2</mn></msubsup> <mo>+</mo> <mfrac><mn>1</mn> <mi>M</mi></mfrac> <munderover><mo>∑</mo>
+    <mi>j</mi> <mi>M</mi></munderover> <munderover><mo>∑</mo> <mi>l</mi> <mi>d</mi></munderover>
+    <msubsup><mi>V</mi> <mrow><mi>j</mi><mo>,</mo><mi>l</mi></mrow> <mn>2</mn></msubsup></mfenced>
+    <mo>+</mo> <msub><mi>λ</mi> <mi>G</mi></msub> <mfenced close=")" open="(" separators=""><mfrac><mn>1</mn>
+    <mrow><mi>N</mi><mo>·</mo><mi>M</mi></mrow></mfrac> <mo>*</mo> <munderover><mo>∑</mo>
+    <mrow><mi>k</mi><mo>,</mo><mi>l</mi></mrow> <mi>d</mi></munderover> <msub><mfenced
+    close=")" open="(" separators=""><msup><mi>U</mi> <mi>T</mi></msup> <mi>U</mi><mo>*</mo><msup><mi>V</mi>
+    <mi>T</mi></msup> <mi>V</mi></mfenced> <mrow><mi>k</mi><mo>,</mo><mi>l</mi></mrow></msub></mfenced></mrow></mstyle></math>
 - en: Regularized MF Implementation
+  id: totrans-93
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 正则化的MF实现
 - en: So far, we’ve written a *lot* of math symbols, but all of those symbols have
     allowed us to arrive at a model that is extremely powerful. *Regularized matrix
     factorization* is an effective model for medium-sized recommender problems. This
@@ -689,28 +1086,37 @@
     with MF implementations is performance, but because we’re working in JAX, which
     has extremely native GPU support, our implementation can actually be much more
     compact than what you may find in something like a [PyTorch example](https://oreil.ly/U-K-V).
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 到目前为止，我们已经写了*很多*数学符号，但所有这些符号都使我们能够得出一个非常强大的模型。*正则化矩阵因子分解*是一个有效的中等规模推荐问题模型。这种模型类型在许多严肃的企业中仍然在使用。MF实现的一个经典问题是性能，但因为我们使用JAX，在这里有极好的本地GPU支持，我们的实现实际上可以比像[PyTorch示例](https://oreil.ly/U-K-V)中找到的更紧凑。
 - en: Let’s work through how this model would look to predict ratings for a user-item
     matrix via this doubly regularized model with Gramians.
+  id: totrans-95
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们通过Gramians的双重正则化模型来预测用户-项目矩阵中的评分会是怎样的模型。
 - en: 'First we’ll do the simple setup. This will assume your ratings matrix is already
     on wandb:'
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE1]'
+  id: totrans-97
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: Note that we’ve had to implement our own loss function here. This is a relatively
     straightforward mean square error (MSE) loss, but it’s taking advantage of the
     sparse nature of our matrix. You may notice in the code that we’ve converted the
     matrix to a sparse representation, so it’s important that our loss function cannot
     only take advantage of that representation, but also be written to utilize the
     JAX device arrays and mapping/jitting.
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
 - en: Is That Loss Function Really Right?
+  id: totrans-99
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -719,6 +1125,7 @@
     of this loss function that leverages JAX would look like. There are actually many
     reasonable approaches to this kind of optimization. To that end, we wrote a public
     experiment to benchmark several approaches [on Colab](https://oreil.ly/6zwEX).
+  id: totrans-100
   prefs: []
   type: TYPE_NORMAL
 - en: 'Next, we need to build model objects to handle our MF state as we train. This
@@ -726,134 +1133,181 @@
     model into a training loop in a relatively memory-efficient way. This model was
     trained on 100 million entries for a few thousand epochs on a MacBook Pro in less
     than a day:'
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE2]'
+  id: totrans-102
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: 'We should also set this up to log nicely to wandb so it’s easy to understand
     what is happening during training:'
+  id: totrans-103
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE3]'
+  id: totrans-104
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: Note that this code is using `tree_multimap` to handle broadcasting our update
     rule, and we’re using the jitted loss from before in the `omse_loss` call. Also,
     we’re calling `value_and_grad` so we can log the loss to wandb as we go. This
     is a common trick you’ll see for efficiently doing both without a callback.
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
 - en: 'You can finish this off and start the training with a sweep:'
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE4]'
+  id: totrans-107
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: In this case, the hyperparameter optimization (HPO) is over our hyperparameters
     like embedding dimension and the priors (randomized matrices). Up until now, we
     have trained some MF models on our ratings matrix. Let’s now add regularization
     and cross-validation.
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
 - en: 'Let’s translate the preceding math equations directly into code:'
+  id: totrans-109
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE5]'
+  id: totrans-110
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'We won’t dive super deep into learning rate schedulers, but we will do a simple
     decay:'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE6]'
+  id: totrans-112
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'Our updated train function will incorporate our new regularizations—which come
     with some hyperparameters—and a bit of additional logging setup. This code makes
     it easy to log our experiment as it trains and configures the hyperparameters
     to work with regularization:'
+  id: totrans-113
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE7]'
+  id: totrans-114
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'The last step is to do this in a way that gives us confidence in the models
     we’re seeing. Unfortunately, setting up cross-validation for MF problems can be
     tricky, so we’ll need to make a few modifications to our data structures:'
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE8]'
+  id: totrans-116
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'Each hyperparameter setup should yield loss for each fold, so within *wandb.init*,
     we build a model with each fold:'
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE9]'
+  id: totrans-118
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'At each step, we’d like to not only compute the gradient for the training and
     evaluate on the test but also compute gradients for all folds, evaluate on all
     the tests, and produce the relevant errors:'
+  id: totrans-119
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE10]'
+  id: totrans-120
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: 'Logging should be losses per fold, and the aggregate loss should be the target
     metric. This is because each fold is an independent optimization of the model
     parameters; however, we wish to see aggregate behavior across the folds:'
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE11]'
+  id: totrans-122
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'We wrap up into one big training method:'
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE12]'
+  id: totrans-124
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'Here’s our final sweeps configuration:'
+  id: totrans-125
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE13]'
+  id: totrans-126
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: That may seem like a lot of setup, but we’ve really achieved a lot here. We’ve
     initialized the model to optimize the two matrix factors while simultaneously
     keeping the matrix elements and the Gramians small.
+  id: totrans-127
   prefs: []
   type: TYPE_NORMAL
 - en: This brings us to our lovely images.
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
 - en: Output from HPO MF
+  id: totrans-129
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
 - en: Let’s have a quick look at what the prior work has produced. First, [Figure 10-3](#overallLoss)
     shows that our primary loss function, observed mean square error (OMSE), is rapidly
     decreasing. This is great, but we should take a deeper look.
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
 - en: '![The loss during training](assets/brpj_1003.png)'
+  id: totrans-131
   prefs: []
   type: TYPE_IMG
 - en: Figure 10-3\. The loss during training
+  id: totrans-132
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
 - en: Let’s also have a quick look to ensure that our regularization parameters ([Figure 10-4](#regparams))
     are converging. We can see that our L2 regularization could probably still decrease
     if we were to continue for more epochs.
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
 - en: '![Regularization Params](assets/brpj_1004.png)'
+  id: totrans-134
   prefs: []
   type: TYPE_IMG
 - en: Figure 10-4\. Regularization parameters
+  id: totrans-135
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
@@ -868,12 +1322,15 @@
     can interact with fold behavior, but in all the low-loss scenarios (at the bottom),
     we see a high correlation between performance on different folds (the vertical
     axes in the plot).
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
 - en: '![The loss during training](assets/brpj_1005.png)'
+  id: totrans-137
   prefs: []
   type: TYPE_IMG
 - en: Figure 10-5\. The loss during training
+  id: totrans-138
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
@@ -885,12 +1342,15 @@
     surprisingly, `ell_2` have virtually no effect. However, small embedding dimension
     and small Gramian weight definitely do. A larger alpha also seems to correlate
     well with good performance.
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
 - en: '![The loss during training](assets/brpj_1006.png)'
+  id: totrans-140
   prefs: []
   type: TYPE_IMG
 - en: Figure 10-6\. The loss by hyperparameter
+  id: totrans-141
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
@@ -902,6 +1362,7 @@
     along the bottom of the convex hull of the scatter points is the *Pareto frontier*,
     or the best performance at that x value. Since this is a time-series Pareto plot,
     it merely tracks the best performance in time.
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
 - en: You may be wondering how and why we’re able to converge to better loss values
@@ -911,16 +1372,20 @@
     to this method, see [“Bayesian Hyperparameter Optimization—A Primer”](https://oreil.ly/4nd3D)
     by Robert Mitson. In a real setting, we’d see less monotonic behavior in this
     plot, but we’d always be hoping to improve.
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
 - en: '![The loss during training](assets/brpj_1007.png)'
+  id: totrans-144
   prefs: []
   type: TYPE_IMG
 - en: Figure 10-7\. The Pareto frontier of the loss values
+  id: totrans-145
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
 - en: Prequential validation
+  id: totrans-146
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
@@ -930,48 +1395,59 @@
     models. In your basic ML training, you’ve likely been encouraged to think about
     validation datasets; these may take many forms, testing particular subsets of
     instances or features or even distributed across covariates in a known way.
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
 - en: One useful framing for recommendation systems is to remember that they’re a
     fundamentally sequential dataset. With this in mind, let’s take another look at
     our ratings data. Later we will talk more about sequential recommenders, but while
     we’re talking about validation, it’s useful to mention how to take proper care.
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
 - en: Notice that all our ratings have an associated timestamp. To build a proper
     validation set, it’s a good idea to take that timestamp from the end of our data.
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
 - en: However, you might be wondering, “When are different users active?” and “Is
     it possible that the later timestamps are a biased selection of the ratings?”
     These are important questions. To account for these questions, we should do a
     holdout by user.
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
 - en: To create this *prequential dataset*, where the test set follows directly after
     the training set in a chronological sequence, start by deciding on a desired size
     for validation, like 10%. Next, group the data by user. Finally, employ rejection
     sampling, ensuring you don’t use the most recent timestamp as the rejection criterion.
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
 - en: 'Here’s a simple implementation for pandas using rejection sampling. This is
     not the most computationally efficient implementation, but it will get the job
     done:'
+  id: totrans-152
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE14]'
+  id: totrans-153
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: This is an effective and important validation scheme for inherently sequential
     datasets.
+  id: totrans-154
   prefs: []
   type: TYPE_NORMAL
 - en: WSABIE
+  id: totrans-155
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
 - en: Let’s focus again on optimizations and modifications. Another optimization is
     to treat the MF problem as a single optimization.
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
 - en: 'The paper [“WSABIE: Scaling Up to Large Vocabulary Image Annotation”](https://oreil.ly/1GB3x)
@@ -981,9 +1457,11 @@
     and Warp loss in [“WARP”](ch12.html#warp). Representing a user as the average
     of items they like is a way of saving space and not needing a separate user matrix
     if there are large numbers of users.'
+  id: totrans-157
   prefs: []
   type: TYPE_NORMAL
 - en: Latent Space HPO
+  id: totrans-158
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -991,9 +1469,11 @@
     [“Hyper-Parameter Optimization for Latent Spaces in Dynamic Recommender Systems”](https://oreil.ly/RLeEC)
     by Bruno Veloso et al. attempts to modify the relative embeddings during each
     step to optimize the embedding model.
+  id: totrans-159
   prefs: []
   type: TYPE_NORMAL
 - en: Dimension Reduction
+  id: totrans-160
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1001,6 +1481,7 @@
     to decrease computational complexity and enhance the accuracy of recommendation
     algorithms. In this context, the primary concepts of dimension reduction for recommendation
     systems include MF and SVD.
+  id: totrans-161
   prefs: []
   type: TYPE_NORMAL
 - en: 'The *matrix factorization method* decomposes the user-item interaction matrix
@@ -1018,34 +1499,47 @@
     latent factors, respectively. This technique can reveal the underlying data structure
     and offer recommendations based on a user’s previous interactions. Mathematically,
     MF can be represented as follows:'
+  id: totrans-162
   prefs: []
   type: TYPE_NORMAL
 - en: <math alttext="upper A tilde upper U times upper V Superscript left-parenthesis
     upper T right-parenthesis" display="block"><mrow><mi>A</mi> <mo>∼</mo> <mi>U</mi>
     <mo>×</mo> <msup><mi>V</mi> <mrow><mo>(</mo><mi>T</mi><mo>)</mo></mrow></msup></mrow></math>
+  id: totrans-163
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper A tilde upper U times upper V Superscript left-parenthesis
+    upper T right-parenthesis" display="block"><mrow><mi>A</mi> <mo>∼</mo> <mi>U</mi>
+    <mo>×</mo> <msup><mi>V</mi> <mrow><mo>(</mo><mi>T</mi><mo>)</mo></mrow></msup></mrow></math>
 - en: '*SVD* is a linear-algebra technique that decomposes a matrix (*A*) into three
     matrices—the left singular vectors (*U*), the singular values (*Σ*), and the right
     singular vectors (*V*). SVD can be utilized for MF in recommendation systems,
     where the user-item interaction matrix is decomposed into a smaller number of
     latent factors. The mathematical representation of SVD is as follows:'
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
 - en: <math alttext="upper A equals upper U times normal upper Sigma times upper V
     Superscript left-parenthesis upper T right-parenthesis" display="block"><mrow><mi>A</mi>
     <mo>=</mo> <mi>U</mi> <mo>×</mo> <mi>Σ</mi> <mo>×</mo> <msup><mi>V</mi> <mrow><mo>(</mo><mi>T</mi><mo>)</mo></mrow></msup></mrow></math>
+  id: totrans-165
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper A equals upper U times normal upper Sigma times upper V
+    Superscript left-parenthesis upper T right-parenthesis" display="block"><mrow><mi>A</mi>
+    <mo>=</mo> <mi>U</mi> <mo>×</mo> <mi>Σ</mi> <mo>×</mo> <msup><mi>V</mi> <mrow><mo>(</mo><mi>T</mi><mo>)</mo></mrow></msup></mrow></math>
 - en: 'In practice, though, rather than using a mathematical library to find the eigenvectors,
     folks might use the [power iteration method](https://oreil.ly/DCsRs) to discover
     the eigenvectors approximately. This method is far more scalable than a full dense
     SVD solution that is optimized for correctness and dense vectors:'
+  id: totrans-166
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE15]'
+  id: totrans-167
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: Notice that the eigenvector returned by the power iteration is close to the
     first column of <math alttext="upper S"><mi>S</mi></math> , but not quite. This
     is because the method is approximate. It relies on the fact that an eigenvector
@@ -1055,9 +1549,11 @@
     the columns are users, and the rows are items. It is important to play with transposed
     matrices because a lot of ML involves reshaping and transposing matrices, so getting
     used to them early is an important skill.
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
 - en: Eigenvector Examples
+  id: totrans-169
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1069,6 +1565,7 @@
     is another interesting exercise, as it allows you to start computing the eigenvectors
     of sparse matrices, which is usually the form of matrix that recommender systems
     use.'
+  id: totrans-170
   prefs: []
   type: TYPE_NORMAL
 - en: 'Next, we construct a recommendation for a user by creating a column and then
@@ -1080,31 +1577,39 @@
     is the largest component in the eigenvector and thus rated most highly if the
     user is closest to the eigenvector <math alttext="x 1"><msub><mi>x</mi> <mn>1</mn></msub></math>
     . Here’s what this looks like in code:'
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
 - en: '[PRE16]'
+  id: totrans-172
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: In this example, a user has downvoted item 0 and item 1\. The closest column
     eigenvector is therefore column 0\. We then select the closest eigenvector to
     the user, order the entries, and recommend item 2 to the user, which is the highest-scoring
     entry that the user has not seen.
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
 - en: 'Two techniques aim to extract the most relevant features from the user-item
     interaction matrix and reduce its dimensionality, which can improve performance:'
+  id: totrans-174
   prefs: []
   type: TYPE_NORMAL
 - en: Principal component analysis (PCA)
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
 - en: This statistical technique transforms the original high-dimensional data into
     a lower-dimensional representation while retaining the most important information.
     PCA can be applied to the user-item interaction matrix to reduce the number of
     dimensions and improve the computational efficiency of the recommendation algorithm.
+  id: totrans-176
   prefs: []
   type: TYPE_NORMAL
 - en: Nonnegative matrix factorization (NMF)
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
 - en: This technique decomposes the nonnegative user-item interaction matrix <math
@@ -1123,12 +1628,14 @@
     nonnegative and interpretable. The mathematical representation of NMF is <math
     alttext="upper A asymptotically-equals upper W times upper H"><mrow><mi>A</mi>
     <mo>≃</mo> <mi>W</mi> <mo>×</mo> <mi>H</mi></mrow></math> .
+  id: totrans-178
   prefs: []
   type: TYPE_NORMAL
 - en: MF techniques can be further extended to incorporate additional information,
     such as item content or user demographic data, through the use of side information.
     Side information can be employed to augment the user-item interaction matrix,
     allowing for more accurate and personalized recommendations.
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
 - en: Furthermore, MF models can be extended to handle implicit feedback data, where
@@ -1136,6 +1643,7 @@
     incorporating additional regularization terms into the objective function, MF
     models can learn a more robust representation of the user-item interaction matrix,
     leading to better recommendations for implicit feedback scenarios.
+  id: totrans-180
   prefs: []
   type: TYPE_NORMAL
 - en: Consider a recommendation system that employs MF to model the user-item interaction
@@ -1146,9 +1654,11 @@
     information about the user-item interactions. This enables the algorithm to generate
     more efficient and accurate recommendations, even for new users or items with
     limited interaction data.
+  id: totrans-181
   prefs: []
   type: TYPE_NORMAL
 - en: Isometric Embeddings
+  id: totrans-182
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1157,6 +1667,7 @@
     space. The term *isometric* signifies that the distances between points in the
     high-dimensional space are preserved precisely in the lower-dimensional space,
     up to a scaling factor.'
+  id: totrans-183
   prefs: []
   type: TYPE_NORMAL
 - en: In contrast to other types of embeddings, such as linear or nonlinear embeddings,
@@ -1167,6 +1678,7 @@
     data points. In NLP, isometric embeddings can be utilized to represent the semantic
     similarities between words or documents while maintaining their relative distances
     in the embedding space.
+  id: totrans-184
   prefs: []
   type: TYPE_NORMAL
 - en: 'One popular technique for generating isometric embeddings is *multidimensional
@@ -1186,6 +1698,7 @@
     <mo>-</mo> <mrow><mo>|</mo> <mo>|</mo></mrow> <msub><mi>x</mi> <mi>i</mi></msub>
     <mo>-</mo> <msub><mi>x</mi> <mi>j</mi></msub> <msup><mrow><mo>|</mo><mo>|</mo><mo>)</mo></mrow>
     <mn>2</mn></msup></mrow></math> .'
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
 - en: Here, <math alttext="d Subscript i j"><msub><mi>d</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub></math>
@@ -1193,6 +1706,7 @@
     Subscript i"><msub><mi>x</mi> <mi>i</mi></msub></math> and <math alttext="x Subscript
     j"><msub><mi>x</mi> <mi>j</mi></msub></math> represent points in the lower-dimensional
     embedding.
+  id: totrans-186
   prefs: []
   type: TYPE_NORMAL
 - en: Another approach for generating isometric embeddings is through the use of kernel
@@ -1201,6 +1715,7 @@
     the points are easier to compute. The isometric embedding is then calculated in
     the feature space, and the resulting embedding is mapped back to the original
     space.
+  id: totrans-187
   prefs: []
   type: TYPE_NORMAL
 - en: Isometric embeddings have been employed in recommendation systems to represent
@@ -1208,6 +1723,7 @@
     between the items are preserved. By preserving the distances between items in
     the embedding space, the recommendation algorithm can better capture the underlying
     structure of the data and provide more accurate and diverse recommendations.
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
 - en: Isometric embeddings can also be employed to incorporate additional information
@@ -1216,12 +1732,14 @@
     the algorithm can capture the similarities between items based on both the user-item
     interaction data and the item content or user demographics, leading to more accurate
     and diverse recommendations.
+  id: totrans-189
   prefs: []
   type: TYPE_NORMAL
 - en: Moreover, isometric embeddings can also be used to address the cold-start problem
     in recommendation systems. By using the isometric embeddings to represent the
     items, the algorithm can make recommendations for new items based on their similarities
     to the existing items in the embedding space, even in the absence of user interactions.
+  id: totrans-190
   prefs: []
   type: TYPE_NORMAL
 - en: In summary, isometric embeddings are a valuable technique in recommendation
@@ -1230,9 +1748,11 @@
     can be generated using MF techniques and can be employed to incorporate additional
     information, address the cold-start problem, and improve the accuracy and diversity
     of recommendations.
+  id: totrans-191
   prefs: []
   type: TYPE_NORMAL
 - en: Nonlinear Locally Metrizable Embeddings
+  id: totrans-192
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1242,6 +1762,7 @@
     between items in the embedding space, the recommendation algorithm can better
     capture the local structure of the data and provide more accurate and diverse
     recommendations.'
+  id: totrans-193
   prefs: []
   type: TYPE_NORMAL
 - en: 'Mathematically, let <math alttext="upper X equals x 1 comma x 2 comma period
@@ -1259,6 +1780,7 @@
     i.e., for any <math alttext="x Subscript i Baseline comma x Subscript j Baseline
     element-of upper X"><mrow><msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo> <msub><mi>x</mi>
     <mi>j</mi></msub> <mo>∈</mo> <mi>X</mi></mrow></math> , we have this:'
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
 - en: <math alttext="d Subscript upper Y Baseline left-parenthesis f left-parenthesis
@@ -1271,8 +1793,19 @@
     <mo>)</mo></mrow> <mo>≃</mo> <msub><mi>d</mi> <mi>X</mi></msub> <mrow><mo>(</mo>
     <msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo> <msub><mi>x</mi> <mi>j</mi></msub>
     <mo>)</mo></mrow></mrow></math>
+  id: totrans-195
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="d Subscript upper Y Baseline left-parenthesis f left-parenthesis
+    x Subscript i Baseline right-parenthesis comma f left-parenthesis x Subscript
+    j Baseline right-parenthesis right-parenthesis asymptotically-equals d Subscript
+    upper X Baseline left-parenthesis x Subscript i Baseline comma x Subscript j Baseline
+    right-parenthesis" display="block"><mrow><msub><mi>d</mi> <mi>Y</mi></msub> <mrow><mo>(</mo>
+    <mi>f</mi> <mrow><mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mo>)</mo></mrow>
+    <mo>,</mo> <mi>f</mi> <mrow><mo>(</mo> <msub><mi>x</mi> <mi>j</mi></msub> <mo>)</mo></mrow>
+    <mo>)</mo></mrow> <mo>≃</mo> <msub><mi>d</mi> <mi>X</mi></msub> <mrow><mo>(</mo>
+    <msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo> <msub><mi>x</mi> <mi>j</mi></msub>
+    <mo>)</mo></mrow></mrow></math>
 - en: 'One popular approach to generating nonlinear locally metrizable embeddings
     in recommendation systems is via autoencoder neural networks. Autoencoders work
     by mapping the high-dimensional user-item interaction matrix onto a lower-dimensional
@@ -1281,6 +1814,7 @@
     are trained jointly to minimize the difference between the input data and the
     reconstructed data, with the objective of capturing the underlying structure of
     the data in the embedding space:'
+  id: totrans-196
   prefs: []
   type: TYPE_NORMAL
 - en: <math alttext="m i n Subscript left-parenthesis theta comma phi right-parenthesis
@@ -1295,8 +1829,21 @@
     <msub><mi>g</mi> <mi>φ</mi></msub> <mrow><mo>(</mo> <msub><mi>f</mi> <mi>θ</mi></msub>
     <mrow><mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mo>)</mo></mrow> <mo>)</mo></mrow>
     <msup><mrow><mo>|</mo><mo>|</mo></mrow> <mn>2</mn></msup></mrow></math>
+  id: totrans-197
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="m i n Subscript left-parenthesis theta comma phi right-parenthesis
+    Baseline sigma-summation Underscript left-parenthesis i equals 1 right-parenthesis
+    Overscript n Endscripts StartAbsoluteValue EndAbsoluteValue x Subscript i minus
+    g Subscript phi Baseline left-parenthesis f Subscript theta Baseline left-parenthesis
+    x Subscript i Baseline right-parenthesis right-parenthesis StartAbsoluteValue
+    EndAbsoluteValue squared" display="block"><mrow><mi>m</mi> <mi>i</mi> <msub><mi>n</mi>
+    <mrow><mo>(</mo><mi>θ</mi><mo>,</mo><mi>φ</mi><mo>)</mo></mrow></msub> <munderover><mo>∑</mo>
+    <mrow><mo>(</mo><mi>i</mi><mo>=</mo><mn>1</mn><mo>)</mo></mrow> <mi>n</mi></munderover>
+    <mrow><mo>|</mo> <mo>|</mo></mrow> <msub><mi>x</mi> <mi>i</mi></msub> <mo>-</mo>
+    <msub><mi>g</mi> <mi>φ</mi></msub> <mrow><mo>(</mo> <msub><mi>f</mi> <mi>θ</mi></msub>
+    <mrow><mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mo>)</mo></mrow> <mo>)</mo></mrow>
+    <msup><mrow><mo>|</mo><mo>|</mo></mrow> <mn>2</mn></msup></mrow></math>
 - en: Here, <math alttext="f Subscript theta"><msub><mi>f</mi> <mi>θ</mi></msub></math>
     denotes the encoder network with parameters <math alttext="theta comma g Subscript
     theta Baseline"><mrow><mi>θ</mi> <mo>,</mo> <msub><mi>g</mi> <mi>θ</mi></msub></mrow></math>
@@ -1304,12 +1851,14 @@
     , and <math alttext="StartAbsoluteValue EndAbsoluteValue dot StartAbsoluteValue
     EndAbsoluteValue"><mrow><mo>|</mo> <mo>|</mo> <mo>·</mo> <mo>|</mo> <mo>|</mo></mrow></math>
     represents the Euclidean norm.
+  id: totrans-198
   prefs: []
   type: TYPE_NORMAL
 - en: Another approach for generating nonlinear locally metrizable embeddings in recommendation
     systems is through the use of t-distributed stochastic neighbor embedding (t-SNE).
     t-SNE works by modeling the pairwise similarities between the items in the high-dimensional
     space, and then finding a lower-dimensional embedding that preserves these similarities.
+  id: totrans-199
   prefs: []
   type: TYPE_NORMAL
 - en: 'A more popular approach in modern times is UMAP, which instead attempts to
@@ -1319,6 +1868,7 @@
     The optimization problem is typically formulated as a cost function *C* that measures
     the difference between the pairwise similarities in the high-dimensional space
     and the corresponding similarities in the lower-dimensional embedding:'
+  id: totrans-200
   prefs: []
   type: TYPE_NORMAL
 - en: <math alttext="dollar-sign upper C left-parenthesis upper Y right-parenthesis
@@ -1331,14 +1881,26 @@
     <mi>o</mi> <mi>g</mi> <mrow><mo>(</mo> <mstyle displaystyle="true" scriptlevel="0"><mfrac><msub><mi>p</mi>
     <mrow><mi>i</mi><mi>j</mi></mrow></msub> <msub><mi>q</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub></mfrac></mstyle>
     <mo>)</mo></mrow></mrow></math>
+  id: totrans-201
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="dollar-sign upper C left-parenthesis upper Y right-parenthesis
+    equals sigma-summation Underscript left-parenthesis i comma j right-parenthesis
+    Endscripts p Subscript i j Baseline asterisk l o g left-parenthesis StartFraction
+    p Subscript i j Baseline Over q Subscript i j Baseline EndFraction right-parenthesis
+    dollar-sign"><mrow><mi>C</mi> <mrow><mo>(</mo> <mi>Y</mi> <mo>)</mo></mrow> <mo>=</mo>
+    <msub><mo>∑</mo> <mrow><mo>(</mo><mi>i</mi><mo>,</mo><mi>j</mi><mo>)</mo></mrow></msub>
+    <msub><mi>p</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub> <mo>*</mo> <mi>l</mi>
+    <mi>o</mi> <mi>g</mi> <mrow><mo>(</mo> <mstyle displaystyle="true" scriptlevel="0"><mfrac><msub><mi>p</mi>
+    <mrow><mi>i</mi><mi>j</mi></mrow></msub> <msub><mi>q</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub></mfrac></mstyle>
+    <mo>)</mo></mrow></mrow></math>
 - en: Here, <math alttext="p Subscript i j"><msub><mi>p</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub></math>
     denotes the pairwise similarities in the high-dimensional space, <math alttext="q
     Subscript i j"><msub><mi>q</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub></math>
     denotes the pairwise similarities in the lower-dimensional space, and the sum
     is over all pairs of items <math alttext="left-parenthesis i comma j right-parenthesis"><mrow><mo>(</mo>
     <mi>i</mi> <mo>,</mo> <mi>j</mi> <mo>)</mo></mrow></math> .
+  id: totrans-202
   prefs: []
   type: TYPE_NORMAL
 - en: Nonlinear locally metrizable embeddings can also be used to incorporate additional
@@ -1347,6 +1909,7 @@
     and the additional information, the algorithm can capture the similarities between
     items based on both the user-item interaction data and the item content or user
     demographics, leading to more accurate and diverse recommendations.
+  id: totrans-203
   prefs: []
   type: TYPE_NORMAL
 - en: Moreover, nonlinear locally metrizable embeddings can also be used to address
@@ -1354,6 +1917,7 @@
     metrizable embeddings to represent the items, the algorithm can make recommendations
     for new items based on their similarities to the existing items in the embedding
     space, even in the absence of user interactions.
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
 - en: In summary, nonlinear locally metrizable embeddings are a useful technique in
@@ -1363,9 +1927,11 @@
     as autoencoder neural networks or t-SNE and can be used to incorporate additional
     information, address the cold-start problem, and improve the accuracy and diversity
     of recommendations.
+  id: totrans-205
   prefs: []
   type: TYPE_NORMAL
 - en: Centered Kernel Alignment
+  id: totrans-206
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1376,6 +1942,7 @@
     representations change throughout the layers of the network” and “How similar
     are these layers?” Interestingly, for some architectures, this question may yield
     deep insight into the network’s behavior.
+  id: totrans-207
   prefs: []
   type: TYPE_NORMAL
 - en: This process of comparing layer representations is called *correlation analysis*.
@@ -1386,9 +1953,11 @@
     is that each layer comprises a series of latent factors, and similar to correlation
     analysis for other features of a dataset, these latent features’ relationships
     may be simply summarized by their covariance.
+  id: totrans-208
   prefs: []
   type: TYPE_NORMAL
 - en: Affinity and p-sale
+  id: totrans-209
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1398,6 +1967,7 @@
     sales matrix into two lower-dimensional matrices: one that represents user preferences
     and another that represents product characteristics. Now, let’s convert this MF
     model into a sale estimator.'
+  id: totrans-210
   prefs: []
   type: TYPE_NORMAL
 - en: 'Let <math alttext="upper R element-of double-struck upper R Superscript left-parenthesis
@@ -1412,13 +1982,18 @@
     <mrow><mo>(</mo><mi>N</mi><mo>×</mo><mi>d</mi><mo>)</mo></mrow></msup></mrow></math>
     , where <math alttext="d"><mi>d</mi></math> is the dimensionality of the latent
     space, such that:'
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
 - en: <math alttext="upper R asymptotically-equals upper U asterisk upper V Superscript
     upper T" display="block"><mrow><mi>R</mi> <mo>≃</mo> <mi>U</mi> <mo>*</mo> <msup><mi>V</mi>
     <mi>T</mi></msup></mrow></math>
+  id: totrans-212
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper R asymptotically-equals upper U asterisk upper V Superscript
+    upper T" display="block"><mrow><mi>R</mi> <mo>≃</mo> <mi>U</mi> <mo>*</mo> <msup><mi>V</mi>
+    <mi>T</mi></msup></mrow></math>
 - en: The *probability of a sale*, or equivalently a read, watch, eat, or click, can
     be predicted using MF by first decomposing the historical data matrix into user
     and product matrices, and then calculating a score that represents the likelihood
@@ -1426,10 +2001,12 @@
     product of the corresponding row in the user matrix and the column in the product
     matrix, followed by a logistic function to transform the dot product into a probability
     score.
+  id: totrans-213
   prefs: []
   type: TYPE_NORMAL
 - en: 'Mathematically, the probability of a sale for a user *u* and a product *p*
     can be represented as follows:'
+  id: totrans-214
   prefs: []
   type: TYPE_NORMAL
 - en: <math alttext="upper P left-parenthesis u comma p right-parenthesis equals normal
@@ -1438,10 +2015,18 @@
     <mrow><mo>(</mo> <mi>u</mi> <mo>,</mo> <mi>p</mi> <mo>)</mo></mrow> <mo>=</mo>
     <mi>sigmoid</mi> <mrow><mo>(</mo> <mi>u</mi> <mo>*</mo> <msup><mi>p</mi> <mi>T</mi></msup>
     <mo>)</mo></mrow></mrow></math>
+  id: totrans-215
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="upper P left-parenthesis u comma p right-parenthesis equals normal
+    s normal i normal g normal m normal o normal i normal d left-parenthesis u asterisk
+    p Superscript upper T Baseline right-parenthesis" display="block"><mrow><mi>P</mi>
+    <mrow><mo>(</mo> <mi>u</mi> <mo>,</mo> <mi>p</mi> <mo>)</mo></mrow> <mo>=</mo>
+    <mi>sigmoid</mi> <mrow><mo>(</mo> <mi>u</mi> <mo>*</mo> <msup><mi>p</mi> <mi>T</mi></msup>
+    <mo>)</mo></mrow></mrow></math>
 - en: 'Here, sigmoid is the logistic function that maps the dot product of the user
     and product vectors to a probability score between 0 and 1:'
+  id: totrans-216
   prefs: []
   type: TYPE_NORMAL
 - en: <math alttext="s i g m o i d left-parenthesis x right-parenthesis equals 1 slash
@@ -1450,13 +2035,21 @@
     <mi>d</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mn>1</mn> <mo>/</mo> <mo>(</mo>
     <mn>1</mn> <mo>+</mo> <mi>e</mi> <mi>x</mi> <mi>p</mi> <mo>(</mo> <mo>-</mo> <mi>x</mi>
     <mo>)</mo> <mo>)</mo></mrow></math>
+  id: totrans-217
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="s i g m o i d left-parenthesis x right-parenthesis equals 1 slash
+    left-parenthesis 1 plus e x p left-parenthesis negative x right-parenthesis right-parenthesis"
+    display="block"><mrow><mi>s</mi> <mi>i</mi> <mi>g</mi> <mi>m</mi> <mi>o</mi> <mi>i</mi>
+    <mi>d</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mn>1</mn> <mo>/</mo> <mo>(</mo>
+    <mn>1</mn> <mo>+</mo> <mi>e</mi> <mi>x</mi> <mi>p</mi> <mo>(</mo> <mo>-</mo> <mi>x</mi>
+    <mo>)</mo> <mo>)</mo></mrow></math>
 - en: The <math alttext="p Superscript upper T"><msup><mi>p</mi> <mi>T</mi></msup></math>
     represents the transpose of the product vector. The dot product of the user and
     product vectors is a measure of the similarity between the user’s preferences
     and the product’s characteristics, and the logistic function maps this similarity
     score to a probability score.
+  id: totrans-218
   prefs: []
   type: TYPE_NORMAL
 - en: The user and product matrices can be trained on the historical data by using
@@ -1464,6 +2057,7 @@
     the dot product and logistic function can be applied to new user-product pairs
     to predict the probability of a sale. The predicted probabilities can then be
     used to rank and recommend products to the user.
+  id: totrans-219
   prefs: []
   type: TYPE_NORMAL
 - en: It’s worth highlighting that, since the loss function for ALS is convex (meaning
@@ -1472,6 +2066,7 @@
     matrix is solved for. Then the item matrix is fixed and the user matrix is solved
     for. The method alternates between the two solutions, and because the loss is
     convex in this regime, the method converges quickly.
+  id: totrans-220
   prefs: []
   type: TYPE_NORMAL
 - en: The dot product of the corresponding row in the user matrix and column in the
@@ -1479,6 +2074,7 @@
     or how well the user’s preferences match the product’s characteristics. However,
     this score alone may not be a sufficient predictor of whether the user will actually
     purchase the product.
+  id: totrans-221
   prefs: []
   type: TYPE_NORMAL
 - en: The logistic function applied to the dot product in the MF model transforms
@@ -1488,6 +2084,7 @@
     popularity of the product, the user’s purchasing behavior, and any other relevant
     external factors. By incorporating these additional factors, MF is able to better
     predict the probability of a sale, rather than just an affinity score.
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
 - en: A comparison library (however, not in JAX) for computing latent embeddings linearly
@@ -1496,15 +2093,18 @@
     but the dot product can be used for regression or binary classification tasks.
     The method can also be extended to recommend more than two kinds of items beyond
     user and item.
+  id: totrans-223
   prefs: []
   type: TYPE_NORMAL
 - en: In summary, MF produces probabilities of sale instead of just affinity scores
     by incorporating additional factors beyond the user’s preferences and the product’s
     characteristics, and transforming the affinity score into a probability score
     by using a logistic function.
+  id: totrans-224
   prefs: []
   type: TYPE_NORMAL
 - en: Propensity Weighting for Recommendation System Evaluation
+  id: totrans-225
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1514,6 +2114,7 @@
     bias the evaluation of new models. This feedback loop can lead to confounding
     variables, making it difficult to distinguish between user preferences and the
     influence of the deployed system.
+  id: totrans-226
   prefs: []
   type: TYPE_NORMAL
 - en: If this surprises you, let’s consider for a moment what would have to be true
@@ -1522,6 +2123,7 @@
     like “the recommendations are completely ignored by the user” and “the system
     makes recommendations at random.” Propensity weighting can mitigate some of the
     worst effects of this problem.
+  id: totrans-227
   prefs: []
   type: TYPE_NORMAL
 - en: 'The performance of a recommender system depends on many factors, including
@@ -1532,25 +2134,30 @@
     is therefore a challenging task, as it requires controlling for potential confounding
     factors—those that may affect both the treatment assignment (the recommendation
     strategy) and the outcome of interest (the user’s response to the recommendations).'
+  id: totrans-228
   prefs: []
   type: TYPE_NORMAL
 - en: 'Causal inference provides a framework for addressing these challenges. In the
     context of recommender systems, causal inference can help answer questions such
     as these:'
+  id: totrans-229
   prefs: []
   type: TYPE_NORMAL
 - en: How does the choice of recommendation strategy affect user engagement, such
     as CTRs, purchase rates, and satisfaction ratings?
+  id: totrans-230
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: What is the optimal recommendation strategy for a given user segment, item category,
     or context?
+  id: totrans-231
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
 - en: What are the long-term effects of a recommendation strategy on user retention,
     loyalty, and lifetime value?
+  id: totrans-232
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
@@ -1558,9 +2165,11 @@
     to recommender systems, based on the concept of propensity score. We’ll introduce
     propensity to quantify the adjusted likelihood of some items being shown to the
     user. We’ll then see how this interacts with the famous Simpson’s paradox.
+  id: totrans-233
   prefs: []
   type: TYPE_NORMAL
 - en: Propensity
+  id: totrans-234
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1570,6 +2179,7 @@
     recommendation systems, that confounder can be the system itself! Offline evaluation
     of recommendation systems is subject to confounders derived from the item selection
     behavior of users and the deployed recommendation system.
+  id: totrans-235
   prefs: []
   type: TYPE_NORMAL
 - en: If this issue seems a bit circular, it kind of is. This is sometimes called
@@ -1580,9 +2190,11 @@
     we can offset the selection bias. Compared to the standard offline holdout evaluation,
     this method attempts to represent the actual utility of the examined recommendation
     models.
+  id: totrans-236
   prefs: []
   type: TYPE_NORMAL
 - en: Utilizing Counterfactuals
+  id: totrans-237
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1596,6 +2208,7 @@
     this can help de-bias as well. One such setting where these methods may be combined
     is in RL-based recommenders that use explore-exploit methods like a multiarmed
     bandit or other structured randomization.
+  id: totrans-238
   prefs: []
   type: TYPE_NORMAL
 - en: '*Inverse propensity scoring* (*IPS*) is a propensity-based evaluation method
@@ -1608,6 +2221,7 @@
     get richer” for recommendation systems; IPS is one way to combat this effect.
     Note the relationship here between the two ideas of the Matthew effect and Simpson’s
     paradox, when within different strata, selection effects create significant biasing.'
+  id: totrans-239
   prefs: []
   type: TYPE_NORMAL
 - en: Propensity weighting is based on the idea that the probability of an item being
@@ -1615,6 +2229,7 @@
     affects the feedback that is collected from that user. By reweighting the feedback
     based on the propensity scores, we can adjust for the bias introduced by the deployed
     system and obtain a more accurate evaluation of the new recommendation model.
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
 - en: To apply IPS, we need to estimate the propensity scores for each item-user interaction
@@ -1624,6 +2239,7 @@
     proxy for its propensity score. However, more sophisticated methods can be used
     to model the propensity scores based on user and item features, as well as the
     context of the interaction.
+  id: totrans-241
   prefs: []
   type: TYPE_NORMAL
 - en: Once the propensity scores are estimated, we can reweight the feedback by using
@@ -1632,6 +2248,7 @@
     system are downweighted, while items that are less likely to be exposed are upweighted.
     This reweighting process approximates a counterfactual distribution of feedback
     expected from surfacing recommendations from a uniform distribution of popularity.
+  id: totrans-242
   prefs: []
   type: TYPE_NORMAL
 - en: Finally, we can use the reweighted feedback to evaluate the new recommendation
@@ -1639,9 +2256,11 @@
     effectiveness of the new model is then compared to that of the deployed system
     by using the reweighted feedback, providing a fairer and more accurate evaluation
     of the new model’s performance.
+  id: totrans-243
   prefs: []
   type: TYPE_NORMAL
 - en: Simpson’s and Mitigating Confounding
+  id: totrans-244
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
@@ -1649,6 +2268,7 @@
     establishes strata within which we see (potentially misleading) covariation. This
     paradox arises when the association between two variables is investigated but
     these variables are strongly influenced by a confounding variable.'
+  id: totrans-245
   prefs: []
   type: TYPE_NORMAL
 - en: In the case of recommendation systems, this confounding variable is the deployed
@@ -1657,6 +2277,7 @@
     This score allows for the design and analysis of offline evaluation of recommendation
     models based on the observed closed-loop feedback, mimicking some of the particular
     characteristics of the open-loop scenario.
+  id: totrans-246
   prefs: []
   type: TYPE_NORMAL
 - en: Traditional descriptions of Simpson’s paradox often suggest stratification,
@@ -1666,6 +2287,7 @@
     confounding variable. For recommendation systems, this involves stratifying the
     observed outcome based on the possible values of the confounding variable, which
     is the deployed model’s characteristics.
+  id: totrans-247
   prefs: []
   type: TYPE_NORMAL
 - en: The user-independent propensity score is estimated via a two-step generative
@@ -1674,6 +2296,7 @@
     that it is recommended. Based on a set of mild assumptions (but too mathematically
     technical to cover here), the user-independent propensity score can be estimated
     using maximum likelihood for each dataset.
+  id: totrans-248
   prefs: []
   type: TYPE_NORMAL
 - en: 'We need to define the user-propensity score <math alttext="p Subscript u comma
@@ -1686,6 +2309,7 @@
     . As described in [“Unbiased Offline Recommender Evaluation for Missing-Not-at-Random
     Implicit Feedback”](https://oreil.ly/mpM87) by Longqi Yang et al., the equation
     is as follows:'
+  id: totrans-249
   prefs: []
   type: TYPE_NORMAL
 - en: <math alttext="p Subscript asterisk comma i Baseline alpha left-parenthesis
@@ -1694,8 +2318,15 @@
     <mi>α</mi> <msup><mfenced close=")" open="(" separators=""><msubsup><mi>n</mi>
     <mi>i</mi> <mo>*</mo></msubsup></mfenced> <mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mi>γ</mi><mo>+</mo><mn>1</mn></mrow>
     <mn>2</mn></mfrac></mstyle></msup></mrow></math>
+  id: totrans-250
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="p Subscript asterisk comma i Baseline alpha left-parenthesis
+    n Subscript i Superscript asterisk Baseline right-parenthesis Superscript StartFraction
+    gamma plus 1 Over 2 EndFraction" display="block"><mrow><msub><mi>p</mi> <mrow><mo>*</mo><mo>,</mo><mi>i</mi></mrow></msub>
+    <mi>α</mi> <msup><mfenced close=")" open="(" separators=""><msubsup><mi>n</mi>
+    <mi>i</mi> <mo>*</mo></msubsup></mfenced> <mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mi>γ</mi><mo>+</mo><mn>1</mn></mrow>
+    <mn>2</mn></mfrac></mstyle></msup></mrow></math>
 - en: Here, <math alttext="n Subscript i Superscript asterisk"><msubsup><mi>n</mi>
     <mi>i</mi> <mo>*</mo></msubsup></math> is the total number of times item <math
     alttext="i"><mi>i</mi></math> interacted with, and <math alttext="gamma"><mi>γ</mi></math>
@@ -1704,6 +2335,7 @@
     affects the propensity distributions over items and depends on the examined dataset;
     we estimate the <math alttext="gamma"><mi>γ</mi></math> parameter by using maximum
     likelihood for each dataset.
+  id: totrans-251
   prefs: []
   type: TYPE_NORMAL
 - en: With these estimates for propensity, we can then apply a simple inverse weighting
@@ -1714,9 +2346,11 @@
     with propensity matching, to generate counterfactual recommendations; by collecting
     approximately equal propensity items into strata, we can then use these strata
     as our confounding variable.
+  id: totrans-252
   prefs: []
   type: TYPE_NORMAL
 - en: Doubly Robust Estimation
+  id: totrans-253
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1726,10 +2360,12 @@
     on the item). The weights used in DRE depend on the predicted probabilities from
     both models. This method has the advantage that it can still provide unbiased
     estimates even if one of the models is misspecified.'
+  id: totrans-254
   prefs: []
   type: TYPE_NORMAL
 - en: 'The structural equations for a doubly robust estimator with propensity score
     weighting and outcome model is as follows:'
+  id: totrans-255
   prefs: []
   type: TYPE_NORMAL
 - en: <math alttext="normal upper Theta equals StartFraction sigma-summation w Subscript
@@ -1751,8 +2387,28 @@
     <mi>i</mi></msub> <mo>)</mo></mrow> <mn>2</mn></msup> <mfenced close=")" open="("
     separators=""><mi>f</mi><mrow><mo>(</mo><msub><mi>X</mi> <mi>i</mi></msub> <mo>)</mo></mrow><mo>-</mo><msup><mi>f</mi>
     <mo>*</mo></msup> <mrow><mo>(</mo><msub><mi>X</mi> <mi>i</mi></msub> <mo>)</mo></mrow></mfenced></mfenced></mrow></mfrac></mstyle></mrow></math>
+  id: totrans-256
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="normal upper Theta equals StartFraction sigma-summation w Subscript
+    i Baseline left-parenthesis upper Y Subscript i Baseline minus f left-parenthesis
+    upper X Subscript i Baseline right-parenthesis right-parenthesis Over sigma-summation
+    w Subscript i Baseline left-parenthesis upper T Subscript i Baseline minus p Subscript
+    i Baseline right-parenthesis plus sigma-summation w Subscript i Baseline left-parenthesis
+    p Subscript i Baseline left-parenthesis 1 minus p Subscript i Baseline right-parenthesis
+    squared left-parenthesis f left-parenthesis upper X Subscript i Baseline right-parenthesis
+    minus f Superscript asterisk Baseline left-parenthesis upper X Subscript i Baseline
+    right-parenthesis right-parenthesis right-parenthesis EndFraction" display="block"><mrow><mi>Θ</mi>
+    <mo>=</mo> <mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mo>∑</mo><msub><mi>w</mi>
+    <mi>i</mi></msub> <mfenced close=")" open="(" separators=""><msub><mi>Y</mi> <mi>i</mi></msub>
+    <mo>-</mo><mi>f</mi><mrow><mo>(</mo><msub><mi>X</mi> <mi>i</mi></msub> <mo>)</mo></mrow></mfenced></mrow>
+    <mrow><mo>∑</mo><msub><mi>w</mi> <mi>i</mi></msub> <mfenced close=")" open="("
+    separators=""><msub><mi>T</mi> <mi>i</mi></msub> <mo>-</mo><msub><mi>p</mi> <mi>i</mi></msub></mfenced>
+    <mo>+</mo><mo>∑</mo><msub><mi>w</mi> <mi>i</mi></msub> <mfenced close=")" open="("
+    separators=""><msub><mi>p</mi> <mi>i</mi></msub> <msup><mrow><mo>(</mo><mn>1</mn><mo>-</mo><msub><mi>p</mi>
+    <mi>i</mi></msub> <mo>)</mo></mrow> <mn>2</mn></msup> <mfenced close=")" open="("
+    separators=""><mi>f</mi><mrow><mo>(</mo><msub><mi>X</mi> <mi>i</mi></msub> <mo>)</mo></mrow><mo>-</mo><msup><mi>f</mi>
+    <mo>*</mo></msup> <mrow><mo>(</mo><msub><mi>X</mi> <mi>i</mi></msub> <mo>)</mo></mrow></mfenced></mfenced></mrow></mfrac></mstyle></mrow></math>
 - en: Here, <math alttext="upper Y Subscript i"><msub><mi>Y</mi> <mi>i</mi></msub></math>
     is the outcome, <math alttext="upper X Subscript i"><msub><mi>X</mi> <mi>i</mi></msub></math>
     are covariates, <math alttext="upper T Subscript i"><msub><mi>T</mi> <mi>i</mi></msub></math>
@@ -1764,13 +2420,16 @@
     asterisk Baseline left-parenthesis upper X Subscript i Baseline right-parenthesis"><mrow><msup><mi>f</mi>
     <mo>*</mo></msup> <mrow><mo>(</mo> <msub><mi>X</mi> <mi>i</mi></msub> <mo>)</mo></mrow></mrow></math>
     is the estimated outcome model.
+  id: totrans-257
   prefs: []
   type: TYPE_NORMAL
 - en: For a great introduction to these considerations, check out [“Give Me a Robust
     Estimator—and Make It a Double!](https://oreil.ly/sNhvF).
+  id: totrans-258
   prefs: []
   type: TYPE_NORMAL
 - en: Summary
+  id: totrans-259
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
@@ -1779,6 +2438,7 @@
     Ultimately, latent spaces are about more than dimension reduction; they are about
     understanding a geometry in which measures of distance encode the meaning relevant
     to your ML task.
+  id: totrans-260
   prefs: []
   type: TYPE_NORMAL
 - en: The world of embeddings and encoders runs deep. We haven’t had time to discuss
@@ -1789,10 +2449,12 @@
     by Vicki Boykis](https://oreil.ly/Rpu23) on embeddings, the [essay and guide to
     constructing embeddings](https://oreil.ly/UDZ1_) by Karel Minařík, or the [beautiful
     visual guide to text embeddings](https://oreil.ly/t1N48) by Meor Amer from Cohere.
+  id: totrans-261
   prefs: []
   type: TYPE_NORMAL
 - en: We’re now equipped with representations, but next we need to optimize. We’re
     building *personalized* recommendation systems, so let’s define the metrics that
     measure our performance on our task.
+  id: totrans-262
   prefs: []
   type: TYPE_NORMAL
