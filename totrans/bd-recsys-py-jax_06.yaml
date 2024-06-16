@@ -1,0 +1,813 @@
+- en: 'Chapter 5\. Putting It All Together: Content-Based Recommender'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Throughout this part of the book, we’ve introduced some of the most basic components
+    in a recommendation system. In this chapter, we’ll get hands-on. We’re going to
+    design and implement a recommendation system for images from Pinterest. This chapter,
+    along with the book’s other “Putting It All Together” chapters, will show you
+    how to work with datasets by using open source tools. The material for this kind
+    of chapter refers to code hosted on GitHub that you will need to download and
+    play with in order to properly experience the content.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since this is the first practical hands-on chapter, here are some extra setup
+    instructions for the development environment. We developed this code on Windows
+    running in a Windows Subsystem for Linux (WSL) Ubuntu virtual machine. The code
+    should run fine on Linux machines, with more technical adaptation for macOS and
+    a lot more for Windows, in which case it would be better to run it on a WSL2 Ubuntu
+    virtual machine. You can look at the setup for WSL in the [Microsoft documentation
+    for Windows](https://oreil.ly/VWPhi). We picked Ubuntu for the image. You will
+    also need [NVIDIA CUDA](https://oreil.ly/rnCw4) and [cuDNN](https://oreil.ly/LHa-I)
+    if you have an NVIDIA GPU and want to use it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will be using the [Shop the Look (STL) dataset](https://oreil.ly/PxfJn)
+    from [“Complete the Look: Scene-Based Complementary Product Recommendation”](https://oreil.ly/2EDnZ)
+    by Wang-Cheng Kang et al.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will show you how to build a content-based recommender.
+    Recall that a content-based recommender uses indirect, generalizable representations
+    of the items you wish to represent. Imagine, for instance, that you want to recommend
+    a cake but cannot use the name of a cake. Instead, you might use descriptions
+    of the cake or its ingredients as the content features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With the STL dataset, we will try to match scenes, which are pictures of a person
+    in a particular setting, with products that might go well with the scene. The
+    training set contains pairs of scenes with single products, and we want to use
+    the content recommender to extend recommendations to the entire catalog of products
+    and sort them in some kind of ranking order. The content recommender, because
+    it uses indirect content features to make recommendations, can be used to recommend
+    new products that haven’t been in the recommendation system or to warm-start a
+    recommendation system with manually curated data before users start using it and
+    a feedback loop is established. In the case of the STL dataset, we’ll focus on
+    the visual appearance of the scene and the products.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will generate content embeddings via a convolutional neural network (CNN)
+    architecture, and then train the embedding via a triplet loss and show how to
+    create a content recommendation system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter covers the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Revision control software
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Python build systems
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Random-item recommender
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Obtaining the STL dataset images
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Definition of CNN
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Model training in JAX, Flax, and Optax
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Input pipeline
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Revision Control Software
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*Revision control software* is a software system that keeps track of code changes.
+    Think of it as a database that tracks versions of code you have written, while
+    providing added functionality like showing the differences between each version
+    of code and allowing you to revert to a previous version.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are many kinds of revision control systems. We host the code for this
+    book on [GitHub](https://oreil.ly/DsolH).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The revision control software we use is called [Git](https://git-scm.com). Code
+    changes are done in batches called a *patch*, and each patch is uploaded to a
+    source control repository like GitHub so that it can be cloned and worked on by
+    many people at the same time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can use this command to clone the book code sample repository:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: For this chapter, look in the directory *ESRecsys/pinterest* for instructions
+    on how to run the code in detail. This chapter will mostly focus on descriptions
+    and pointers to the repository so that you’ll able to get a feel for these systems
+    in practice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Python Build Systems
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Python *packages* are libraries that provide functionality beyond the standard
+    Python libraries. These include ML packages such as TensorFlow and JAX but also
+    more utilitarian packages like the absl flags library or machine learning operations
+    (MLOps) libraries like [Weights & Biases](https://wandb.ai).
+  prefs: []
+  type: TYPE_NORMAL
+- en: These packages are usually hosted on [the Python Package Index](https://pypi.org).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Take a look at the file *requirements.txt*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can see that we have picked a small set of Python packages to install for
+    our dependencies. The format is package name, two equal signs, and then the version
+    of the package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Other build systems that work with Python include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[pip](https://oreil.ly/QNevQ)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[Bazel](https://oreil.ly/3BdIC)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[Anaconda](https://oreil.ly/4z182)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For this chapter, we will use pip.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before installing the packages, however, you might want to read up on [Python
+    virtual environments](https://oreil.ly/fnQKD). Python virtual environments are
+    a way to keep track of Python package dependencies per project so that if different
+    projects use different versions of the same package, they won’t interfere with
+    one another because each project has its own Python virtual environment to run
+    in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can create and activate a Python virtual environment by typing the following
+    into a Unix shell:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first command creates a Python virtual environment, and the second one activates
+    it. You will have to activate a virtual environment every time you open a new
+    shell so that Python knows what environment to work in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After the virtual environment is created, you can then use pip to install packages
+    into the virtual environment, and those newly installed packages will not affect
+    the system-level packages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can do this by running this command in the *ESRecsys/pinterest* directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: This will install the specified packages and any subpackages that they might
+    depend on into the virtual environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Random-Item Recommender
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The first program we will look at is a random-item recommender ([Example 5-1](#example0501)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Example 5-1\. Setting up flags
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here we use the absl flags library to pass in arguments to the program such
+    as the path to the JSON catalog file that contains the STL scene, and product
+    pairs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Flags can have different types like string and integer, and you can mark them
+    as required. If a required flag is not passed to the program, it will complain
+    and stop running. Flags can be accessed via their value method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We load and parse the STL dataset by using the JSON Python library, and then
+    we randomly shuffle the catalog and dump the top few results in HTML.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can run the random-item recommender via the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: After completion, you can open the *output.html* file with your web browser
+    and see some random items from the catalog. [Figure 5-1](#random_item_figure)
+    shows a sample.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Random items from the Pinterest shop the look dataset](assets/brpj_0501.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5-1\. Random-item recommender
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: The *fashion-catalog.json* file contains descriptions of products and their
+    Pinterest ID, while *fashion.json* contains pairings of a scene with a recommended
+    product.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, we’ll look at how to recommend multiple new items for a single scene by
+    training an ML model on scene-product pairings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is generally a good idea to create a random-item recommender the first time
+    you encounter a corpus just so you have an idea of the kind of items in the corpus
+    and you have a baseline to compare to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Obtaining the STL Dataset Images
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The first step in the process of creating a content-based recommender is fetching
+    the content. In this case, the STL dataset’s content is mostly images, with some
+    metadata about the image (like the type of product). We will be using just the
+    image content for this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can look at the code in *fetch_images.py* to see how this is done, by using
+    the Python standard library urllib to fetch the images. Be aware that doing too
+    much fetching on someone else’s website might trigger their bot defenses and cause
+    them to blacklist your IP address, so it might be a wise idea to rate-limit fetches
+    or find some other way to get the data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We have downloaded thousands of image files and put them together into an archive
+    as a Weights & Biases artifact. Since the archive is already in this artifact,
+    you don’t need to scrape the images yourself, but the code we’ve supplied will
+    allow you to do so.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can read up on artifacts in the [Weights & Biases documentation](https://oreil.ly/NXTYP).
+    Artifacts are an MLOps concept that version and package together archives of data
+    and track producers and consumers of the data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can download the image artifact by running the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The images will then be in the local directory *artifacts/shop_the_look:v1*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Convolutional Neural Network Definition
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we have the images, the next step is figuring out how to represent
+    the data. Images come in different sizes and are a complex type of content to
+    analyze. We can use the raw pixels as the representation of our content, but the
+    drawback is that tiny changes in pixel values can cause large differences in the
+    distance between images. We do not want that. Rather, we want to somehow learn
+    what is important in the images and ignore parts of the image, such as the background
+    color, that might not be as important.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this task, we will use a [convolutional neural network (CNN)](https://oreil.ly/r6KpS)
+    to compute an embedding vector for the image. An *embedding vector* is a kind
+    of feature vector for the image that is learned from data and is of fixed size.
+    We use embedding vectors for our representation because we want our database to
+    be small and compact, easy to score over large numbers of images in the corpus,
+    and relevant to the task at hand, which is to match products to a given scene
+    image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The neural network architecture we use is a variant of residual networks, or
+    Resnet. Refer to [“Deep Residual Learning for Image Recognition”](https://oreil.ly/XQYUh)
+    by Kaiming He et al. for details about the architecture and for references on
+    CNNs. Briefly, a convolution layer repeatedly applies a small filter of typically
+    3 × 3 size over an image. This results in a feature map of the same resolution
+    as the input if the stride is (1, 1) (which means apply the filter with a 1-pixel
+    step in the x direction and a 1-pixel step in the y direction), or quarter size
+    if the stride is (2, 2). The residual skip connection is just a shortcut from
+    the previous input layer to the next, so in effect, the nonlinear part of the
+    networks learns the residual from the linear skip part, hence the name residual
+    network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Additionally, we use the BatchNorm layer, details of which can be found at
+    [“Batch Normalization: Accelerating Deep Network Training by Reducing Internal
+    Covariate Shift”](https://oreil.ly/qM-yg) by Sergey Ioffe and Christian Szegedy,
+    and the [“Searching for Activation Functions”](https://oreil.ly/9Zlqb) by Prajit
+    Ramachandran, Barret Zoph, and Quoc V. Le.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once we specify the model, we also need to optimize it for the task.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Model Training in JAX, Flax, and Optax
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Optimizing our model should be pretty straightforward in any ML framework. Here
+    we show how to do it easily with [JAX](https://oreil.ly/pcmCU), [Flax](https://oreil.ly/RtzDn),
+    and [Optax](https://oreil.ly/vOCvF). *JAX* is a lower-level NumPy-like ML library,
+    and *Flax* is a higher-level neural network library that provides functionality
+    such as neural network modules and embedding layers. *Optax* is a library that
+    does optimization that we will use to minimize our loss function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you are familiar with NumPy, JAX is quite easy to pick up. JAX shares the
+    same API as NumPy but has the capability of running the resulting code on vector
+    processors such as GPUs or TPUs by doing JIT compilation. JAX device arrays and
+    NumPy arrays can be easily converted back and forth, which makes it easy to develop
+    for the GPU and yet easy to debug on the CPU.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to learning how to represent the images, we also need to specify
+    how they are related to one another.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Since the embedding vectors are of fixed dimensions, the easiest similarity
+    score is simply the dot product of the two vectors. See [“Similarity from Co-occurrence”](ch09.html#sim_measures)
+    for other kinds of similarity measures. So, given an image for a scene, we compute
+    the scene embedding and do the same for the product to obtain a product embedding,
+    and take the dot product of the two to obtain a score for the closeness of fit
+    of a scene <math alttext="ModifyingAbove s With right-arrow"><mover accent="true"><mi>s</mi>
+    <mo>→</mo></mover></math> to a product <math alttext="ModifyingAbove p With right-arrow"><mover
+    accent="true"><mi>p</mi> <mo>→</mo></mover></math> :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="s c o r e left-parenthesis ModifyingAbove s With right-arrow
+    comma ModifyingAbove p With right-arrow right-parenthesis equals ModifyingAbove
+    s With right-arrow asterisk ModifyingAbove p With right-arrow" display="block"><mrow><mi>s</mi>
+    <mi>c</mi> <mi>o</mi> <mi>r</mi> <mi>e</mi> <mrow><mo>(</mo> <mover accent="true"><mi>s</mi>
+    <mo>→</mo></mover> <mo>,</mo> <mover accent="true"><mi>p</mi> <mo>→</mo></mover>
+    <mo>)</mo></mrow> <mo>=</mo> <mover accent="true"><mi>s</mi> <mo>→</mo></mover>
+    <mo>*</mo> <mover accent="true"><mi>p</mi> <mo>→</mo></mover></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: We use CNNs to obtain the embedding of an image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We use separate CNNs for the scene and product, however, because they come from
+    different kinds of images. Scenes tend to show the context we’re matching products
+    to and contain people and the setting, whereas products tend to be catalog images
+    of shoes and bags with a blank background, so we need different neural networks
+    to determine what is important in the image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once we have the score, that alone is not sufficient, though. We need to make
+    sure that a good match of a scene and product, which we call the *positive product*,
+    is higher scoring than a negative product. The positive product is a good match
+    for the scene, and the negative product is a not-so-good match for the scene.
+    The positive product comes from the training data, and the negative product comes
+    from randomly sampling the catalog. A loss that can capture the relationship between
+    a positive scene-product pair (A, B) and negative scene-product pair (A, C) is
+    called *triplet loss*. Let’s go into some detail for defining the [triplet loss](https://oreil.ly/alBxu).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Suppose we want the score for the positive scene-product pair to be one more
+    than a negative scene-product pair. We then have the following inequality:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="s c o r e left-parenthesis s c e n e comma p o s Subscript p
+    r o d u c t Baseline right-parenthesis greater-than s c o r e left-parenthesis
+    s c e n e comma n e g Subscript p r o d u c t Baseline right-parenthesis plus
+    1" display="block"><mrow><mi>s</mi> <mi>c</mi> <mi>o</mi> <mi>r</mi> <mi>e</mi>
+    <mrow><mo>(</mo> <mi>s</mi> <mi>c</mi> <mi>e</mi> <mi>n</mi> <mi>e</mi> <mo>,</mo>
+    <mi>p</mi> <mi>o</mi> <msub><mi>s</mi> <mrow><mi>p</mi><mi>r</mi><mi>o</mi><mi>d</mi><mi>u</mi><mi>c</mi><mi>t</mi></mrow></msub>
+    <mo>)</mo></mrow> <mo>></mo> <mi>s</mi> <mi>c</mi> <mi>o</mi> <mi>r</mi> <mi>e</mi>
+    <mrow><mo>(</mo> <mi>s</mi> <mi>c</mi> <mi>e</mi> <mi>n</mi> <mi>e</mi> <mo>,</mo>
+    <mi>n</mi> <mi>e</mi> <msub><mi>g</mi> <mrow><mi>p</mi><mi>r</mi><mi>o</mi><mi>d</mi><mi>u</mi><mi>c</mi><mi>t</mi></mrow></msub>
+    <mo>)</mo></mrow> <mo>+</mo> <mn>1</mn></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: The 1 is just an arbitrary constant we use, called a *margin*, to make sure
+    that the positive scene-product score is larger than the negative scene-product
+    score.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Since the process of gradient descent minimizes a function, we then convert
+    the preceding inequality into a loss function by moving all terms to one side:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="0 greater-than 1 plus s c o r e left-parenthesis s c e n e comma
+    n e g Subscript p r o d u c t Baseline right-parenthesis minus s c o r e left-parenthesis
+    s c e n e comma p o s Subscript p r o d u c t Baseline right-parenthesis" display="block"><mrow><mn>0</mn>
+    <mo>></mo> <mn>1</mn> <mo>+</mo> <mi>s</mi> <mi>c</mi> <mi>o</mi> <mi>r</mi> <mi>e</mi>
+    <mrow><mo>(</mo> <mi>s</mi> <mi>c</mi> <mi>e</mi> <mi>n</mi> <mi>e</mi> <mo>,</mo>
+    <mi>n</mi> <mi>e</mi> <msub><mi>g</mi> <mrow><mi>p</mi><mi>r</mi><mi>o</mi><mi>d</mi><mi>u</mi><mi>c</mi><mi>t</mi></mrow></msub>
+    <mo>)</mo></mrow> <mo>-</mo> <mi>s</mi> <mi>c</mi> <mi>o</mi> <mi>r</mi> <mi>e</mi>
+    <mrow><mo>(</mo> <mi>s</mi> <mi>c</mi> <mi>e</mi> <mi>n</mi> <mi>e</mi> <mo>,</mo>
+    <mi>p</mi> <mi>o</mi> <msub><mi>s</mi> <mrow><mi>p</mi><mi>r</mi><mi>o</mi><mi>d</mi><mi>u</mi><mi>c</mi><mi>t</mi></mrow></msub>
+    <mo>)</mo></mrow></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As long as the quantity on the right side is larger than 0, we want to minimize
+    it; but if it is already less than 0, we do not. Therefore, we encode the quantity
+    in a rectified linear unit, which is represented by the function `max(0, *x*)`.
+    We can thus write out our loss function as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="l o s s left-parenthesis s c e n e comma p o s Subscript p r
+    o d u c t Baseline comma n e g Subscript p r o d u c t Baseline right-parenthesis
+    equals"><mrow><mi>l</mi> <mi>o</mi> <mi>s</mi> <mi>s</mi> <mo>(</mo> <mi>s</mi>
+    <mi>c</mi> <mi>e</mi> <mi>n</mi> <mi>e</mi> <mo>,</mo> <mi>p</mi> <mi>o</mi> <msub><mi>s</mi>
+    <mrow><mi>p</mi><mi>r</mi><mi>o</mi><mi>d</mi><mi>u</mi><mi>c</mi><mi>t</mi></mrow></msub>
+    <mo>,</mo> <mi>n</mi> <mi>e</mi> <msub><mi>g</mi> <mrow><mi>p</mi><mi>r</mi><mi>o</mi><mi>d</mi><mi>u</mi><mi>c</mi><mi>t</mi></mrow></msub>
+    <mo>)</mo> <mo>=</mo></mrow></math> <math alttext="m a x left-parenthesis 0 comma
+    1 plus s c o r e left-parenthesis s c e n e comma n e g Subscript p r o d u c
+    t Baseline right-parenthesis minus s c o r e left-parenthesis s c e n e comma
+    p o s Subscript p r o d u c t Baseline right-parenthesis right-parenthesis"><mrow><mi>m</mi>
+    <mi>a</mi> <mi>x</mi> <mo>(</mo> <mn>0</mn> <mo>,</mo> <mn>1</mn> <mo>+</mo> <mi>s</mi>
+    <mi>c</mi> <mi>o</mi> <mi>r</mi> <mi>e</mi> <mrow><mo>(</mo> <mi>s</mi> <mi>c</mi>
+    <mi>e</mi> <mi>n</mi> <mi>e</mi> <mo>,</mo> <mi>n</mi> <mi>e</mi> <msub><mi>g</mi>
+    <mrow><mi>p</mi><mi>r</mi><mi>o</mi><mi>d</mi><mi>u</mi><mi>c</mi><mi>t</mi></mrow></msub>
+    <mo>)</mo></mrow> <mo>-</mo> <mi>s</mi> <mi>c</mi> <mi>o</mi> <mi>r</mi> <mi>e</mi>
+    <mrow><mo>(</mo> <mi>s</mi> <mi>c</mi> <mi>e</mi> <mi>n</mi> <mi>e</mi> <mo>,</mo>
+    <mi>p</mi> <mi>o</mi> <msub><mi>s</mi> <mrow><mi>p</mi><mi>r</mi><mi>o</mi><mi>d</mi><mi>u</mi><mi>c</mi><mi>t</mi></mrow></msub>
+    <mo>)</mo></mrow> <mo>)</mo></mrow></math>
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Since we usually minimize loss functions, this ensures that as long as the `score(scene,
+    neg_product)` is 1 more than `score(scene, pos_product)`, the optimization procedure
+    will try to minimize the score of the negative pair while increasing the score
+    of the positive pair.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next example covers the following modules in order so that they make sense
+    as they follow the flow of data from reading to training to making recommendations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*input__pipeline.py*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How the data is read
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*models.py*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How the neural networks are specified
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*train_shop_the_look.py*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How the neural network is fit using Optax
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*make_embeddings.py*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to make a compact database of scene and products
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*make_recommendations.py*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to use the compact database of embeddings to create a list of product recommendations
+    per scene
+  prefs: []
+  type: TYPE_NORMAL
+- en: Input Pipeline
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '[Example 5-2](#example0502) shows the code for *input_pipeline.py*. We use
+    the ML library [TensorFlow](https://oreil.ly/hsqPr) for its data pipeline.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Example 5-2\. TensorFlow data pipeline
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can see that `create_dataset` takes in three filenames: that of a scene,
+    then a positive match and a negative match. For this example, the negative match
+    is simply selected at random from the catalog. We cover more sophisticated ways
+    of picking the negative in [Chapter 12](ch12.html#LossFunctions). The image filenames
+    are processed by reading the file, decoding the image, cropping it to a fixed
+    size, and then rescaling the data so that it becomes a floating-point image centered
+    around 0 and with small values between –1 and 1\. We do this because most neural
+    networks are initialized with the assumption that the data they get is roughly
+    normally distributed, and so if you pass in too large a value, it would be far
+    out of the norm of the expected input range.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[Example 5-3](#example0503) shows how to specify our CNN and STL model with
+    Flax.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Example 5-3\. Defining the CNN model
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here we use Flax’s neural network class `Module`. The annotation `nn.compact`
+    is there so we do not have to specify a setup function for simple neural network
+    architectures like this one and can simply specify the layers in the `call` function.
+    The `call` function accepts two parameters, an image `*x*` and a Boolean `train`
+    that tells the module whether we are calling it in training mode. The reason we
+    need the Boolean training is that the BatchNorm layers are updated only during
+    training and are not updated when the network is fully learned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you look at the CNN specification code, you can see how we set up the residual
+    network. We can freely mix neural network functions like `swish` with JAX functions
+    like `mean`. The `swish` function is a nonlinear activation for the neural network
+    that transforms the input in such a way as to weight some values of activation
+    more than others.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The STL model, on the other hand, has a more complicated setup, so we have
+    to specify the setup code to create two CNN towers: one for the scene and another
+    for the product. A *CNN tower* is just a copy of the same architecture but has
+    different weights for different image types. As mentioned earlier, we have a different
+    tower for each type of image because each represents different things; one tower
+    is for the scene (which provides the context to which we are matching products),
+    and a separate tower is for the products. As a result, we add in two different
+    methods for converting scene and product images into scene and product embeddings.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The call is also different. It doesn’t have the annotation compact because we
+    have a more complicated setup. In the call function for the STL model, we first
+    compute the scene embedding, then the positive product embedding, and then the
+    positive score. After that, we do the same for the negative score. We then return
+    the positive score, negative score, and all three embedding vectors. We return
+    the embedding vectors as well as the scores because we want to ensure that the
+    model generalizes to new, unseen data as in a held-out validation set, so we want
+    to make sure the embedding vectors are not too large. The concept of capping their
+    size is called *regularization*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now let’s take a look at *train_shop_the_look.py* ([Example 5-4](#example0504)).
+    We’ll break it into separate function calls and discuss them one by one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Example 5-4\. Generating triplets for training
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The code fragment reads in the scene-product JSON database and generates triplets
+    of scene, positive product, and negative products for the input pipeline. The
+    interesting part to note here is how JAX handles random numbers. JAX’s philosophy
+    is functional in nature, meaning that functions are pure and have no side effects.
+    Random-number generators carry state, so in order to make JAX random-number generators
+    function, you have to pass in the state to the random-number generator. The mechanism
+    for this is to have a pseudo random number generator key, PNRGKey, as the object-carrying
+    state. We initialize one arbitrarily from the number 0\. Whenever we wish to use
+    the key, though, we have to split it into two by using `jax.random.split`, then
+    use one to generate the next random number and a subkey to perform the random
+    action. In this case, we use the subkey to select a random negative from the entire
+    corpus of products for our negative. We cover more complex ways to sample the
+    negative in [Chapter 12](ch12.html#LossFunctions), but randomly selecting a negative
+    is the simplest way to construct the triplet for triplet loss.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Similar to the way the negatives are selected, we again use JAX’s random functionality
+    to generate a list of indices to swap, in order to shuffle the array for the training
+    step. Random shuffling is important in stochastic gradient descent to break up
+    any kind of structure in the training data to ensure that the gradients are stochastic.
+    We use JAX’s random shuffling mechanism for better reproducibility so that experiments
+    are more likely to be the same, given the same initial data and settings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next pair of functions we will look at are listed in [Example 5-5](#example0505)
+    and show how the train and eval steps are written. The train step takes the state
+    of the model, which contains the model parameters as well as the gradient information,
+    which varies depending on the optimizer being used. This step also takes in batches
+    of scenes, positive products, and negative products in order to construct the
+    triplet loss. In addition to optimizing for the triplet loss, we want to minimize
+    the size of the embeddings whenever they go outside the unit sphere. The process
+    of minimizing the size of the embeddings is called *regularization*, so we add
+    it to the triplet loss to obtain the final loss.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Example 5-5\. Training and evaluation steps
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Flax, being written on top of JAX, is also functional in philosophy, so the
+    existing state is used to compute the gradient of the loss function, which when
+    applied returns a new state variable. This ensures that the functions remain pure
+    and the state variables are mutable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This functional philosophy is what allows JAX to JIT compile or use JIT functions
+    so they run fast on CPU, GPU, or TPU.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The eval step, in comparison, is rather simple. It just computes the triplet
+    loss without the regularization loss as our evaluation metric. Again, we cover
+    more sophisticated evaluation metrics in [Chapter 11](ch11.html#PersonalRecMetrics).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, let’s take a look at the body of the training program, shown in [Example 5-6](#example0506).
+    We store our hyperparameters such as learning rate, regularization, and output
+    size in a config dictionary. We do this so we can pass the config dictionary on
+    to the Weights & Biases MLOps service for safekeeping and also so we can do hyperparameter
+    sweeps.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Example 5-6\. Main body of code for training the model
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: A *hyperparameter sweep* is a tuning service that helps you find optimal values
+    for hyperparameters such as learning rate by running many trials of different
+    values and searches for the best one. Having the configuration as a dictionary
+    allows us to reproduce the best parameters by running a hyperparameter sweep and
+    then saving the best one for the final model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [Figure 5-2](#wandb_figure), you can see what a Weights & Biases hyperparameter
+    sweep looks like. On the left, we have all the runs in the sweep; each run is
+    trying a different set of values that we have specified in the config dictionary.
+    In the middle, we see how the final evaluation loss changes over time with the
+    number of trials on the sweep. On the right, we have a plot indicating the importance
+    of the hyperparameter in affecting the evaluation loss. Here we can see that the
+    learning rate has the most effect on the eval loss, followed by the regularization
+    amount.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![brpj 0502](assets/brpj_0502.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5-2\. Weights & Biases hyperparameter sweep
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: On the bottom right of the figure, a parallel coordinates plot shows how each
+    parameter affects the evaluation loss. To read the plot, follow each line and
+    see where it ends up on the final evaluation loss. The optimal hyperparameters
+    can be found by tracing the line from the bottom-right target value of evaluation
+    loss back to the left, through the values chosen for the hyperparameters. In this
+    case, the optimal value selected is a `learning_rate` of 0.0001618, a regularization
+    of 0.2076, and an `output_size` of 64.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The rest of the code is mostly setting up the model and hooking up the input
+    pipeline to the model. Deciding when to log metrics and model serialization is
+    mostly self-explanatory. The details can be read in the Flax documentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In saving the model, notice that two methods are used. One is a checkpoint,
+    and the other is Flax serialization. We have both because the checkpoint is used
+    when training jobs are canceled and we need to recover the step at which the job
+    was canceled so we can resume training. The final serialization is used when the
+    training is done.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We also save a copy of the model as a [Weights & Biases artifact](https://oreil.ly/gmGGt).
+    This way, the Weights & Biases platform can keep track of the hyperparameters
+    that created the model, the exact code and the exact Git hash that generated the
+    model, and the lineage of the model. This lineage consists of upstream artifacts
+    used to generate the model (such as the training data), the state of the job used
+    to create the model, and an added back link to all future jobs that might use
+    the artifact. This makes it easier to reproduce models at a point in time or trace
+    back which model was used and at what time in production. This comes in super
+    handy when you have a larger organization and folks are hunting around for information
+    on how a model was created. By using artifacts, they can simply look in one place
+    for the code and training data artifacts to reproduce a model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have trained the models, we want to generate embeddings for the
+    scene and the product database. The nice thing about using the dot product as
+    a scoring function as opposed to using a model is that you can generate scene
+    and product embeddings independently and then scale out these computations at
+    inference time. This kind of scaling will be introduced in [Chapter 8](ch08.html#ch:wikipedia-e2e),
+    but for now the relevant part of *make_embeddings.py* is shown in [Example 5-7](#example0507).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Example 5-7\. Finding the top-*k* recommendations
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, we simply use the same Flax serialization library to load the
+    model, and then call the appropriate method of the model by using the `apply`
+    function. We then save the vectors in a JSON file, since we have already been
+    using JSON for the scene and product databases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we’ll use the scoring code in *make_recommendations.py* to generate
+    product recommendations for sample scenes ([Example 5-8](#example0508)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Example 5-8\. Core retrieval definition
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: The most relevant code fragment is the scoring code, where we have a scene embedding
+    and want to use JAX to score all the product embeddings instead of a single scene
+    embedding. Here we use Lax, a sublibrary of JAX that supplies direct API calls
+    to XLA, the underlying ML compiler for JAX, in order to access accelerated functions
+    like `top_k`. In addition, we compile the function `find_top_k` by using JAX’s
+    JIT. You can pass pure Python functions that contain JAX commands to `jax.jit`
+    in order to compile them to a specific target architecture such as a GPU using
+    XLA. Notice we have a special argument called `static_argnames`; this allows us
+    to inform JAX that `k` is fixed and doesn’t change much so that JAX is able to
+    compile a purpose-built `top_k_finder` for a fixed value of `k`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[Figure 5-3](#recommended_items_indoor) shows sample product recommendations
+    for a scene in which a woman is wearing a red shirt. The products recommended
+    include red velvet and dark pants.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Recommended items for person wearing a red shirt indoors](assets/brpj_0503.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5-3\. Recommended items for an indoor scene
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: '[Figure 5-4](#recommmended_items_outdoor) shows another scene: a woman is wearing
+    a red coat outdoors, and the matching accessories are a yellow handbag and yellow
+    pants.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We have pregenerated some results that are stored as an artifact that you can
+    view by typing in the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: One thing you may notice is that the yellow bag and pants get recommended a
+    lot. It may be possible that the embedding vector for the yellow bag is large,
+    so it gets matched to a lot of scenes. This is called the *popular item problem*
+    and is a common issue with recommendation systems. We cover some business logic
+    to handle diversity and popularity in later chapters, but this is a problem that
+    can happen with recommendation systems that you might want to keep an eye out
+    for.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Recommended items for person wearing a red shirt outdoors](assets/brpj_0504.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5-4\. Recommended items for an outdoor scene
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: And with that, we conclude the first “Putting It All Together” chapter. We covered
+    how to use JAX and Flax to read real-world data, train a model, and find the top
+    recommended items for a look. If you haven’t played with the code yet, hop on
+    over to the GitHub repo to give it a whirl! We hope that providing a real-world
+    working example of an end-to-end content-based recommender will give you a better
+    feel for how the theory translates into practice. Enjoy playing with the code!
+  prefs: []
+  type: TYPE_NORMAL

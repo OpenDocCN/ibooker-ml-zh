@@ -1,0 +1,710 @@
+- en: Chapter 13\. Time Series Clustering
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far in this book, we have worked mostly with *cross-sectional data*, in which
+    we have observations for entities at a single point in time. This includes the
+    credit card dataset with transactions that happened over two days and the MNIST
+    dataset with images of digits. For these datasets, we applied unsupervised learning
+    to learn the underlying structure in the data and to group similar transactions
+    and images together without using any labels.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unsupervised learning is also very valuable for work with *time series data*,
+    in which we have observations for a single entity at different time intervals.
+    We need to develop a solution that can learn the underlying structure of data
+    across time, not just for a particular moment in time. If we develop such a solution,
+    we can identify similar time series patterns and group them together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is very impactful in fields such as finance, medicine, robotics, astronomy,
+    biology, meteorology, etc., since professionals in these fields spend a lot of
+    time analyzing data to classify current events based on how similar they are to
+    past events. By grouping current events together with similar past events, these
+    professionals are able to more confidently decide on the right course of action
+    to take.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will work on clustering time series data based on pattern
+    similarity. Clustering time series data is a purely unsupervised approach and
+    does not require annotation of data for training, although annotated data is necessary
+    for validating the results as with all other unsupervised learning experiments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: There is a third group of data that combines cross-sectional and time series
+    data. This is known as *panel* or *longitudinal* data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ECG Data
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To make the time series clustering problem more tangible, let’s introduce a
+    specific real-world problem. Imagine we were working in healthcare and had to
+    analyze electrocardiogram (EKG/ECG) readings. ECG machines record the electrical
+    activity of the heart over a period of time using electrodes placed over the skin.
+    The ECG measures activity over approximately 10 seconds, and the recorded metrics
+    help detect any cardiac problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most ECG readings record normal heartbeat activity, but the abnormal readings
+    are the ones healthcare professionals must identify to react preemptively before
+    any adverse cardiac event—such as cardiac arrest—occurs. The ECG produces a line
+    graph with peaks and valleys so the task of classifying a reading as normal or
+    abnormal is a straightforward pattern recognition task, well suited for machine
+    learning.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Real-world ECG readings are not so cleanly displayed, making classification
+    of the images into these various buckets difficult and error-prone.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, variations in the *amplitude* of the waves (the height of the center
+    line to the peak or trough), the *period* (the distance from one peak to the next),
+    the *phase shift* (horizontal shifting), and the *vertical shift* are challenges
+    for any machine-driven classification system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Approach to Time Series Clustering
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Any approach to time series clustering will require us to handle these types
+    of distortions. As you may recall, clustering relies on distance measures to determine
+    how close in space data is to other data so that similar data can be grouped together
+    into distinct and homogeneous clusters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Clustering time series data works similarly, but we need a distance measure
+    that is scale- and shift-invariant so that similar time series data is grouped
+    together regardless of trivial differences in amplitude, period, phase shift,
+    and vertical shift.
+  prefs: []
+  type: TYPE_NORMAL
+- en: k-Shape
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: One of the state-of-the-art approaches to time series clustering that meets
+    this criteria is *k-shape*, which was first introduced at ACM SIGMOD in 2015 by
+    John Paparrizos and Luis Gravano.^([1](ch13.html#idm140637524834352))
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*k*-shape uses a distance measure that is invariant to scaling and shifting
+    to preserve the shapes of time series sequences while comparing them. Specifically,
+    *k*-shape uses a normalized version of cross-correlation to compute cluster centroids
+    and then, in every iteration, updates the assignment of time series to these clusters.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to being invariant to scaling and shifting, *k*-shape is domain-independent
+    and scalable, requiring minimal parameter tuning. Its iterative refinement procedure
+    scales linearly in the number of sequences. These characteristics have made it
+    one of the most powerful time series clustering algorithms available today.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By this point, it should be clear that *k*-shape operates similarly to *k*-means:
+    both algorithms use an iterative approach to assign data to groups based on the
+    distance between the data and the centroid of the nearest group. The critical
+    difference is in how *k*-shape calculates distances—it uses shaped-based distance
+    that relies on cross-correlations.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Time Series Clustering Using k-Shape on ECGFiveDays
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Let’s build a time series clustering model using *k*-shape.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will rely on data from the UCR time series collection. Because
+    the file size exceeds one hundred megabytes, it is not accessible on GitHub. You
+    will need to download the files from the [UCR Time Series website](http://bit.ly/2CXPcfq).
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is the largest public collection of class-labeled time series datasets,
+    numbering—85 in total. These datasets are from multiple domains, so we can test
+    how well our solution does across domains. Each time series belongs to only one
+    class, so we also have labels to validate the results of our time series clustering.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data Preparation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let’s begin by loading the necessary libraries:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: We will use the *tslearn* package to access the Python-based *k*-shape algorithm.
+    tslearn has a similar framework as Scikit-learn but is geared toward work with
+    time series data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, let’s load the training and test data from the `ECGFiveDays` dataset,
+    which was downloaded from the UCR Time Series archive. The first column in this
+    matrix has the class labels, while the rest of the columns are the values of the
+    time series data. We will store the data as `X_train`, `y_train`, `X_test`, and
+    `y_test`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following code shows the number of time series, the number of unique classes,
+    and the length of each time series:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There are 23 time series and 2 unique classes, and each time series has a length
+    of 136\. [Figure 13-1](#ecg_five_days_class_1_0_first_two_examples) shows a few
+    examples of each class; now we know what these ECG readings look like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: '![ECG Five Days Class 1.0 - First Two Examples](assets/hulp_1301.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-1\. ECGFiveDays class 1.0—first two examples
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: '![ECG Five Days Class 1.0 - Second Two Examples](assets/hulp_1302.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-2\. ECGFiveDays class 1.0—second two examples
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: 'Here is the code to plot results from `Class 2.0`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: '![ECG Five Days Class 2.0 - First Two Examples](assets/hulp_1303.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-3\. ECGFiveDays class 2.0—first two examples
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: '![ECG Five Days Class 2.0 - Second Two Examples](assets/hulp_1304.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-4\. ECGFiveDays class 2.0—second two examples
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: To the naked, untrained eye, the examples from class 1.0 and class 2.0 seem
+    indistinguishable, but these observations have been annotated by domain experts.
+    The plots are noisy with distortions. There are also differences in amplitude,
+    period, phase shift, and vertical shift that make classification a challenge.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s prepare the data for the *k*-shape algorithm. We will normalize the data
+    to have a mean of zero and standard deviation of one:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Training and Evaluation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Next, we will call the *k*-shape algorithm and set the number of clusters as
+    2, the max iterations to perform as one hundred, and the number of rounds of training
+    as one hundred:^([2](ch13.html#idm140637523748448))
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: To measure the goodness of the time series clustering, we will use the *adjusted
+    Rand index*, a measure of the similarity between two data clusterings adjusted
+    for the chance grouping of elements. This is related to the accuracy measure.^([3](ch13.html#idm140637523728768))
+  prefs: []
+  type: TYPE_NORMAL
+- en: Intuitively, the Rand index measures the number of agreements in cluster assignments
+    between the predicted clusterings and the true clusterings. If the model has an
+    adjusted Rand index with a value close to 0.0, it is purely randomly assigning
+    clusters; if the model has an adjusted Rand index with a value close to 1.0, the
+    predicted clusterings match the true clusterings exactly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will use the Scikit-learn implementation of the adjusted Rand index called
+    the *adjusted_rand_score*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s generate clustering predictions and then calculate the adjusted Rand
+    index:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Based on this run, the adjusted Rand index is 0.668\. If you perform this training
+    and prediction several times, you will notice the adjusted Rand index will vary
+    a bit but remains well above 0.0 at all times:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s predict on the test set and calculate the adjusted Rand index for it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The adjusted Rand index is considerably lower on the test set, barely above
+    0\. The cluster predictions are nearly chance assignments—the time series are
+    being grouped based on similarity with little success:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: If we had a much larger training set to train our *k*-shape-based time series
+    clustering model, we would expect better performance on the test set.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Time Series Clustering Using k-Shape on ECG5000
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Instead of the `ECGFiveDays` dataset, which has only 23 observations in the
+    training set and 861 in the test set, let’s use a much larger dataset of ECG readings.
+    The `ECG5000` dataset (also available on the UCR Time Series archive) has five
+    thousand ECG readings (i.e., time series) in total across the train and test sets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data Preparation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We will load in the datasets and make our own train and test split, with 80%
+    of the five thousand readings in the custom train set and the remaining 20% in
+    the custom test set. With this much larger training set, we should be able to
+    develop a time series clustering model that has much better performance, both
+    on the train set and, most importantly, on the test set:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s explore this dataset:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following code displays the basic summary statistics. There are four thousand
+    readings in the training set, which are grouped into five distinct classes, and
+    each time series has a length of 140:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Let’s also consider how many of the readings belong to each of these classes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: The distribution is shown in [Figure 13-5](#ecg_5000_class_1_0). Most of the
+    readings fall in class 1, followed by class 2\. Significantly fewer readings belong
+    to clases 3, 4, and 5.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s take the average time series reading from each class to get a better sense
+    of how the various classes look.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Class 1 ([Figure 13-5](#ecg_5000_class_1_0)) has a sharp trough followed by
+    a sharp peak and stabilization. This is the most common type of reading.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![ECG 5000 Class 1.0](assets/hulp_1305.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-5\. ECG5000 class 1.0
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: Class 2 ([Figure 13-6](#ecg_5000_class_2_0)) has a sharp trough followed by
+    a recovery and then an even sharper and lower trough with a partial recovery.
+    This is the second most common type of reading.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![ECG 5000 Class 2.0](assets/hulp_1306.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-6\. ECG5000 class 2.0
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: Class 3 ([Figure 13-7](#ecg_5000_class_3_0)) has a sharp trough followed by
+    a recovery and then an even sharper and lower trough with no recovery. There are
+    a few examples of these in the dataset.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![ECG 5000 Class 3.0](assets/hulp_1307.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-7\. ECG5000 class 3.0
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: Class 4 ([Figure 13-8](#ecg_5000_class_4_0)) has a sharp trough followed by
+    a recovery and then a shallow trough and stabilization. There are a few examples
+    of these in the dataset.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![ECG 5000 Class 4.0](assets/hulp_1308.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-8\. ECG5000 class 4.0
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: Class 5 ([Figure 13-9](#ecg_5000_class_5_0)) has a sharp trough followed by
+    an uneven recovery, a peak, and then an unsteady decline to a shallow trough.
+    There are very few examples of these in the dataset.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![ECG 5000 Class 5.0](assets/hulp_1309.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-9\. ECG5000 class 5.0
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: Training and Evaluation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As before, let’s normalize the data to have a mean of zero and standard deviation
+    of one. Then, we will fit the *k*-shape algorithm, setting the number of clusters
+    to five this time. Everything else remains the same:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s evaluate the results on the training set:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following code shows the adjusted Rand index on the training set. It is
+    considerably stronger at 0.75:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s evaluate the results on the test set, too:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The adjusted Rand index on the test set is much higher, too. It is 0.72:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: By increasing the training set to four thousand time series (from 23), we have
+    a considerably better-performing time series clustering model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s explore the predicted clusters some more to see just how homogeneous
+    they are. For each predicted cluster, we will evaluate the distribution of true
+    labels. If the clusters are well-defined and homogeneous, most of the readings
+    in each cluster should have the same true label:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following code displays the homogeneity of the clusters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The majority of the readings within each predicted cluster belong to just one
+    true label class. This highlights just how well defined and homogeneous the *k*-shape-derived
+    clusters are.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Time Series Clustering Using k-Means on ECG5000
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For the sake of completeness, let’s compare the results of *k*-shape with results
+    from *k*-means. We will use the *tslearn* library to perform the training and
+    evaluate using the adjusted Rand index as before.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will set the number of clusters as five, the number of max iterations for
+    a single run as one hundred, the number of independent runs as one hundred, the
+    metric distance as Euclidean, and the random state as 2019:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The *TimeSeriesKMean* algorithm runs even faster than *k*-shape using the Euclidean
+    distance metric. But the results are not as good:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The adjusted Rand index on the training set is 0.506:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: The adjusted Rand index on the test set is 0.486.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Time Series Clustering Using Hierarchical DBSCAN on ECG5000
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Finally, let’s apply *hierarchical DBSCAN*, which we explored earlier in the
+    book, and evaluate its performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will run *HDBSCAN* with its default parameters and evaluate performance
+    using the adjusted Rand index:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The adjusted Rand index on the training set is an impressive 0.769:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: The adjusted Rand index on the training set is an impressive 0.769.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s evaluate on the test set:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The adjusted Rand index on the training set is an equally impressive 0.720:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: Comparing the Time Series Clustering Algorithms
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: HDBSCAN and *k*-shape performed similarly well on the ECG5000 dataset, while
+    *k*-means performed worse. However, we cannot draw strong conclusions by evaluating
+    the performance of these three clustering algorithms on a single time series dataset.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s run a larger experiment to see how these three clustering algorithms stack
+    up against one another.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we will load all the directories and files in the UCR Time Series Classification
+    folder so we can iterate through them during the experiment. There are 85 datasets
+    in total:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next, let’s recycle the code for each of the three clustering algorithms and
+    use the list of datasets we just prepared to run a full experiment. We will store
+    the training and test adjusted Rand indices by dataset and measure the time it
+    takes each clustering algorithm to complete the entire experiment of 85 datasets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Full Run with k-Shape
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The first experiment uses *k*-shape.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: It takes approximately an hour to run the *k*-shape algorithm. We’ve stored
+    the adjusted Rand indices and will use these to compare *k*-shape with *k*-means
+    and HBDSCAN soon.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: The time we measured for *k*-shape is based on the hyperparameters we set for
+    the experiment as well as the local hardware specifications for the machine on
+    which the experiments were run. Different hyperparameters and hardware specifications
+    could result in dramatically different experiment times.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Full Run with k-Means
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Next up is *k*-means:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It takes less than five minutes for *k*-means to run through all 85 datasets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Full Run with HDBSCAN
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Finally, we have HBDSCAN:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: It takes less than 10 minutes for HBDSCAN to run through all 85 datasets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing All Three Time Series Clustering Approaches
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now let’s compare all three clustering algorithms to see which fared the best.
+    One approach is to calculate the average adjusted Rand indices on the training
+    and test sets, respectively, for each of the clustering algorithms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here are the scores for each of the algorithms:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: The results are fairly comparable, with *k*-means having the highest Rand indices,
+    followed closely by *k*-shape and HDBSCAN.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To validate some of these findings, let’s count how many times each algorithm
+    placed first, second, or third across all the 85 datasets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: '*k*-shape had the most first place finishes, followed by HDBSCAN. *k*-means
+    had the most second place finishes, performing neither the best but also not the
+    worst on the majority of the datasets ([Table 13-1](#comparison_summary)).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Table 13-1\. Comparison summary
+  prefs: []
+  type: TYPE_NORMAL
+- en: '|  | kShape | kMeans | hbdscan |'
+  prefs: []
+  type: TYPE_TB
+- en: '| --- | --- | --- | --- |'
+  prefs: []
+  type: TYPE_TB
+- en: '| firstPlace | 31.0 | 24.0 | 29.0 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| secondPlace | 19.0 | 41.0 | 26.0 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| thirdPlace | 35.0 | 20.0 | 30.0 |'
+  prefs: []
+  type: TYPE_TB
+- en: Based on this comparison, it is hard to conclude that one algorithm universally
+    trounces all the others. While *k*-shape has the most first place finishes, it
+    is considerably slower than the other two algorithms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And, *k*-means and HDBSCAN both hold their own, winning first place on a healthy
+    number of datasets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Conclusion
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we explored time series data for the first time in the book
+    and demonstrated the power of unsupervised learning to group time series patterns
+    based on their similarity to one another and without requiring any labels. We
+    worked with three clustering algorithms in detail—*k*-shape, *k*-means, and HDBSCAN.
+    While *k*-shape is regarded as the best of the bunch today, the other two algorithms
+    perform quite well, too.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most importantly, the results from the 85 time series datasets we worked with
+    highlight the importance of experimentation. As with most machine learning, no
+    single algorithm trounces all other algorithms. You must constantly expand your
+    breadth of knowledge and experiment to see which approaches work best for the
+    problem at hand. Knowing what to apply when is the hallmark of a good data scientist.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hopefully you will be better equipped to solve more of the problems you face
+    going forward with the many different unsupervised learning approaches you’ve
+    learned throughout this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ^([1](ch13.html#idm140637524834352-marker)) The paper is publicly available
+    [here](http://www.cs.columbia.edu/~jopa/kshape.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: ^([2](ch13.html#idm140637523748448-marker)) For more on the hyperparameters,
+    refer to the [official *k*-shape documentation](http://bit.ly/2Gfg0L9).
+  prefs: []
+  type: TYPE_NORMAL
+- en: ^([3](ch13.html#idm140637523728768-marker)) Consult Wikipedia for more information
+    on the [Rand index](https://en.wikipedia.org/wiki/Rand_index).
+  prefs: []
+  type: TYPE_NORMAL

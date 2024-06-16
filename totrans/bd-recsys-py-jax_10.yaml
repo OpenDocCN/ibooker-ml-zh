@@ -1,0 +1,737 @@
+- en: 'Chapter 8\. Putting It All Together: Data Processing and Counting Recommender'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we have discussed the broad outline of recommender systems, this chapter
+    will put it into a concrete implementation so that we can talk about the choices
+    of technologies and specifics of how the implementation works in real life.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter covers the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data representation with protocol buffers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Data processing frameworks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A PySpark sample program
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: GloVE embedding model
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Additional foundational techniques in JAX, Flax, and Optax
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We will show step-by-step how to go from a downloaded Wikipedia dataset to a
+    recommender system that can recommend words from Wikipedia based on the co-occurrence
+    with words in a Wikipedia article. We use a natural language example because words
+    are easily understood, and their relationships are readily grasped because we
+    can see that related words occur near one another in a sentence. Furthermore,
+    the Wikipedia corpus is easily downloadable and browsable by anyone with an internet
+    connection. This idea of co-occurrence can be generalized to any co-occurring
+    collection of items, such as watching a video in the same session or purchasing
+    cheeses in the same shopping bag.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter will demonstrate concrete implementations of an item-item and a
+    feature-item recommender. Items in this case are the words in an article, and
+    the features are word-count similarity—a MinHash or a kind of locality sensitive
+    hash for words. [Chapter 16](ch16.html#acceleration_structures) covers locality
+    sensitive hash in more detail, but for now, we’ll consider these simple hashing
+    functions to be encoding functions over content, such that content with similar
+    properties maps to similar co-domains. This general idea can be used as a warm-start
+    mechanism on a new corpus in the absence of logging data, and if we have user-item
+    features such as likes, these can be used as features for a feature-item recommender.
+    The principles of co-occurrence are the same, but by using Wikipedia as an example,
+    you can download the data and play with it by using the tools provided.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tech Stack
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A set of technologies used together is commonly called a *technology stack*,
+    or *tech stack*. Each component of a tech stack can usually be replaced by other
+    similar technologies. We will list a few alternatives for each component but not
+    go into detail about their pros and cons, as there can be many, and the situation
+    of the deployment will affect the choice of components. For example, your company
+    might already use a particular component, so for familiarity and support, you
+    might wish to use that one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter covers some of the technology choices for processing the data that
+    goes into building a concrete implementation of a collector.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The sample code is available on [GitHub](https://github.com/BBischof/ESRecsys).
+    You might want to clone the code into a local directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data Representation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The first choice of technology we need to make will determine how we represent
+    the data. Some of the choices are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[Protocol buffers](https://oreil.ly/Oc0cE)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[Apache Thrift](https://oreil.ly/BUHkW)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[JSON](https://oreil.ly/_QwWR)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[XML](https://oreil.ly/JigfM)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[CSV](https://oreil.ly/it5TA)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In this implementation, we’re mostly using protocol buffers because of the ease
+    of specifying a schema and then subsequently serializing and deserializing it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the file format, we’re using serialized protocol buffers that are uuencoded
+    and written as a single line per record and then bzipped up for compression. This
+    is just for convenience so that we can parse the files easily without having dependencies
+    on too many libraries. Your company might instead store data in a data warehouse
+    that is accessible by SQL, for example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Protocol buffers are generally easier to parse and handle than raw data. In
+    our implementation, we will parse the Wikipedia XML into protocol buffers for
+    easier handling using *xml2proto.py*. You can see from the code that XML parsing
+    is a complicated affair, whereas protocol buffer parsing is as simple as calling
+    the `ParseFromString` method, and all the data is then subsequently available
+    as a convenient Python object.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As of June 2022, the Wikipedia dump is about 20 GB in size, and converting to
+    protocol buffer format takes about 10 minutes. Please follow the steps described
+    in the README in the GitHub repo for the most up-to-date steps to run the programs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the *proto* directory, take a look at some of the protocol messages defined.
+    This, for example, is how we might store the text from a Wikipedia page:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The types supported and the schema definitions can be found on the protocol
+    buffer documentation page. This schema is converted into code by using the protocol
+    buffer compiler. This compiler’s job is to convert the schema into code that you
+    can call in different languages, which in our case is Python. The installation
+    of the protocol buffer compiler depends on the platform, and installation instructions
+    can be found in the [protocol buffer documentation](https://oreil.ly/k2QEv).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each time you change the schema, you will have to use the protocol buffer compiler
+    to get a new version of the protocol buffer code. This step can easily be automated
+    by using a build system like Bazel, but this is out of scope for this book. For
+    the purposes of this book, we will simply generate the protocol buffer code once
+    and check it into the repository for simplicity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Following the directions on the GitHub README, download a copy of the Wikipedia
+    dataset and then run *xml2proto.py* to convert the data to a protocol buffer format.
+    Optionally, use *codex.py* to see what the protocol buffer format looks like.
+    These steps took 10 minutes on a Windows workstation using Windows Subsystem for
+    Linux. The XML parser used doesn’t parallelize very well, so this step is fundamentally
+    serial. We’ll next discuss how we would distribute the work in parallel either
+    among multiple cores locally or on a cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Big Data Frameworks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The next technology we choose will process data at scale on multiple machines.
+    Some options are listed here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[Apache Spark](https://spark.apache.org)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[Apache Beam](https://beam.apache.org)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[Apache Flink](https://flink.apache.org)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In this implementation, we’re using Apache Spark in Python, or PySpark. The
+    README in the repository shows how to install a copy of PySpark locally using
+    `pip install`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first step implemented in PySpark is tokenization and URL normalization.
+    The code is in [*tokenize_wiki_pyspark.py*](https://oreil.ly/TF_vU), but we won’t
+    go over it here because a lot of the processing is simply distributed natural
+    language parsing and writing out the data into protocol buffer format. We will
+    instead talk in detail about the second step, which is to make a dictionary of
+    tokens (the *words* in the article) and some statistics about the word counts.
+    However, we will run the code just to see what the Spark usage experience looks
+    like. Spark programs are run using the program `spark-submit` as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Running the Spark submit script allows you to execute the controller program,
+    in this case, [*tokenize_wiki_pyspark.py*](https://oreil.ly/pQp7r), on a local
+    machine as we have in the command line—note that the line `local[4]` means use
+    up to four cores. The same command can be used to submit the job to a YARN cluster
+    for running on hundreds of machines, but for the purposes of trying out PySpark,
+    a decent enough workstation should be able to process all the data in minutes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This tokenization program converts from a source-specific format (in this case,
+    a Wikipedia protocol buffer) into a more generic text document used for NLP. In
+    general, it’s a good idea to use a generic format that all your sources of data
+    can be converted into because that simplifies the data processing downstream.
+    The data conversion can be done from each corpus into a standard format that is
+    handled uniformly by all the later programs in the pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After submitting the job, you can navigate to the Spark UI (shown in [Figure 8-1](#spark_ui))
+    on your local machine at *localhost:4040/stages/*. You should see the job executing
+    in parallel, using up all the cores in your machine. You might want to play with
+    the `local[4]` parameter; using `local[*]` will use up all the free cores on your
+    machine. If you have access to a cluster, you can also point to the appropriate
+    cluster URL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Spark UI showing the stages of computation](assets/brpj_0801.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8-1\. Spark UI
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: Cluster Frameworks
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The nice thing about writing a Spark program is that it can scale from a single
+    machine with multiple cores to a cluster of many machines with thousands of cores.
+    The full list of cluster types can be found in the [Spark “Submitting Applications”
+    documentation](https://oreil.ly/0apFm).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Spark can run on the following cluster types:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[Spark Standalone cluster](https://oreil.ly/NIiwB)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[Mesos cluster](https://oreil.ly/lHzRG)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[YARN cluster](https://oreil.ly/nuEQh)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[Kubernetes cluster](https://oreil.ly/sXIfK)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Depending on the kind of cluster your company or institution has set up, most
+    of the time submitting the job is just a matter of pointing to the correct URL.
+    Many companies such as Databricks and Google also have fully managed Spark solutions
+    that allow you to set up a Spark cluster with little effort.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PySpark Example
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Counting words turns out to be a powerful tool in information retrieval, as
+    we can use handy tricks like term frequency, inverse document frequency (TF-IDF),
+    which is simply the count of words in the documents divided by the number of documents
+    the word has occurred in. This is represented as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="t f i d f Subscript word Baseline left-parenthesis i right-parenthesis
+    equals StartFraction log Subscript 10 Baseline left-parenthesis number of times
+    w o r d Subscript i Baseline has occurred in corpus right-parenthesis Over number
+    of documents in corpus containing w o r d Subscript i Baseline EndFraction" display="block"><mrow><mi>t</mi>
+    <mi>f</mi> <mi>i</mi> <mi>d</mi> <msub><mi>f</mi> <mtext>word</mtext></msub> <mrow><mo>(</mo>
+    <mi>i</mi> <mo>)</mo></mrow> <mo>=</mo> <mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><msub><mo
+    form="prefix">log</mo> <mn>10</mn></msub> <mfenced close=")" open="(" separators=""><mtext>number</mtext><mtext>of</mtext><mtext>times</mtext><mi>w</mi><mi>o</mi><mi>r</mi><msub><mi>d</mi>
+    <mi>i</mi></msub> <mtext>has</mtext><mtext>occurred</mtext><mtext>in</mtext><mtext>corpus</mtext></mfenced></mrow>
+    <mrow><mtext>number</mtext><mtext>of</mtext><mtext>documents</mtext><mtext>in</mtext><mtext>corpus</mtext><mtext>containing</mtext><mi>w</mi><mi>o</mi><mi>r</mi><msub><mi>d</mi>
+    <mi>i</mi></msub></mrow></mfrac></mstyle></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, because the word *the* appears frequently, we might think it is
+    an important word. But by dividing by the document frequency, *the* becomes less
+    special and drops in importance. This trick is quite handy in simple NLP to get
+    a better-than-random weighting of word importance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Therefore, our next step is to run [*make_dictionary.py*](https://oreil.ly/lESlx).
+    As the name indicates, this program simply counts the words and documents and
+    makes a dictionary with the number of times a word has occurred.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We have some concepts to cover in order for you to properly grok how Spark helps
+    process data in a distributed manner. The entry point of most Spark programs is
+    `SparkContext`. This Python object is created on the controller. The *controller*
+    is the central program that launches workers that actually process the data. The
+    workers can be run locally on a single machine as a process or on many machines
+    on the cloud as separate workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`SparkContext` can be used to create resilient distributed datasets, or RDDs.
+    These are references to data streams that can be manipulated on the controller,
+    and processing on the RDD can be farmed out to all the workers. `SparkContext`
+    allows you to load up data files stored on a distributed filesystem like Hadoop
+    Distributed File System (HDFS) or cloud buckets. By calling the `SparkContext`’s
+    `textFile` method, we are returned a handle to an RDD. A stateless function can
+    then be applied or mapped on the RDD to transform it from one RDD to another by
+    repeatedly applying the function to the contents of the RDD.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, this program fragment loads a text file and converts all lines
+    to lowercase by running an anonymous lambda function that converts single lines
+    to lowercase:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: In a single-machine implementation, we would simply load up each Wikipedia article,
+    keep a running dictionary in RAM, and count each token and then add 1 to the token
+    count in the dictionary. A *token* is an atomic element of a document that is
+    divided into pieces. In regular English, it would be a word, but Wikipedia documents
+    have other entities such as the document references themselves that need to be
+    kept track of separately, so we call the division into pieces *tokenization* and
+    the atomic elements *tokens*. The single-machine implementation would take a while
+    to go through the thousands of documents on Wikipedia, which is why we use a distributed
+    processing framework like Spark. In the Spark paradigm, computation is broken
+    into maps, where a function is applied statelessly on each document in parallel.
+    Spark also has a reduce function, where the outputs of separate maps are joined
+    together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, suppose we have a list of word counts and want to sum up the values
+    of words that occur in different documents. The input to the reducer will be something
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: (apple, 10)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: (orange, 20)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: (apple, 7)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Then we call the Spark function `reduceByKey(lambda a, b: a+ b)`, which adds
+    all the values with the same key together and returns the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: (orange, 20)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: (apple, 17)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If you look at the code in [*make_dictionary.py*](https://oreil.ly/lESlx), the
+    *map phase* is where we take a document as input and then break it into tuples
+    of (token, 1). In the *reduce phase*, the map outputs are joined by the key, which
+    in this case is the token itself, and the reduce function is simply to sum up
+    all the counts of tokens.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that the reduce function assumes that the reduction is associative—that
+    is, <math alttext="left-parenthesis a plus b plus c right-parenthesis equals left-parenthesis
+    a plus b right-parenthesis plus c equals a plus left-parenthesis b plus c right-parenthesis"><mrow><mo>(</mo>
+    <mi>a</mi> <mo>+</mo> <mi>b</mi> <mo>+</mo> <mi>c</mi> <mo>)</mo> <mo>=</mo> <mo>(</mo>
+    <mi>a</mi> <mo>+</mo> <mi>b</mi> <mo>)</mo> <mo>+</mo> <mi>c</mi> <mo>=</mo> <mi>a</mi>
+    <mo>+</mo> <mo>(</mo> <mi>b</mi> <mo>+</mo> <mi>c</mi> <mo>)</mo></mrow></math>
+    . This allows the Spark framework to sum up some parts of the token dictionary
+    in memory on the map phase (in some frameworks, this is called the *combine step*,
+    where you run part of the reduction on the output of the map phase on the mapper
+    machine) and then sum them up over several passes on the reduce phase.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As an optimization, we use the Spark function `mapPartitions`. Map runs the
+    provided function once per line (for which we have encoded an entire Wikipedia
+    document as a protocol buffer, uuencoded as a single text line), whereas `mapPartitions`
+    runs it over an entire partition, which is many documents, usually 64 MB of them.
+    This optimization lets us construct a small Python dictionary over the entire
+    partition so that we have many fewer token-count pairs to reduce. This saves on
+    network bandwidth so the mapper has less data to send to the reducer, and is a
+    good tip in general for these data processing pipelines to reduce network bandwidth
+    (which is generally the most time-consuming part of data processing compared to
+    computation).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next we show a complete Spark program that reads in documents in the protocol
+    buffer format of `TextDocument` shown in the preceding code block and then counts
+    how often the words, or tokens, occur in the entire corpus. The file in the GitHub
+    repo is [*make_dictionary.py*](https://oreil.ly/lESlx). The following code is
+    presented slightly differently from the repo file in that it is broken into three
+    chunks for readability and the order of the main and subroutines have been swapped
+    for clarity. Here, we present first the dependencies and flags, then the main
+    body, and then the functions being called by the main body so that the purposes
+    of the functions are clearer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let’s look at the dependencies. The main ones are the protocol buffer
+    representing the text document of the Wikipedia article, as discussed earlier.
+    This is the input we are expecting. For the output, we have the `TokenDictionary`
+    protocol buffer, which mainly counts the occurrences of words in the article.
+    We will use the co-occurrences of words to form a similarity graph of articles
+    that we can then use as the basis of a warm-start recommender system. We also
+    have dependencies on PySpark, the data processing framework we are using to process
+    the data, as well as a flag library that handles the options of our program. The
+    absl flags library is pretty handy for parsing and explaining the purposes of
+    command-line flags and also retrieving the set values of flags easily. Here are
+    the dependencies and flags:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we have the main body of the program, which is where all the subroutines
+    are called. We first create `SparkContext`, which is the entry point into the
+    Spark data processing system, and then call its `textFile` method to read in the
+    bzipped Wikipedia articles. Please read the README on the repo to understand how
+    it was generated. Next, we parse the text document and send the RDD to two processing
+    pipelines, one to make a dictionary for the body of the article and another to
+    make a dictionary of the titles. We could choose to make a single unified dictionary
+    for both, but having them separate allows us to create a content-based recommender
+    using the token dictionary and an article-to-article recommender using the title
+    dictionary, as titles are identifiers for the Wikipedia article. Here’s the main
+    body:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we have the subroutines called by the main function, all decomposed
+    into smaller subroutines for counting the tokens in the article body and the titles:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, Spark makes it easy to scale a program from a single machine
+    to run on a cluster of many machines! Starting from the main function, we create
+    `SparkContext`, read in the input file as a text file, parse it, and then make
+    the token and title dictionaries. The RDD is passed around as arguments of the
+    processing function and can be used multiple times and fed to various map functions
+    (such as the token and title dictionary methods).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The heavy lifting in the make-dictionary methods is done by the process-partitions
+    functions, which are map functions that are applied to entire partitions at once.
+    *Partitions* are large chunks of the input, typically about 64 MB in size and
+    processed as one chunk so that we save on network bandwidth by doing map-side
+    combines. This is a technique to apply the reducer repeatedly on mapped partitions
+    as well as after joining by the key (which in this case is the token) and summing
+    up the counts. The reason we do this is to save on network bandwidth, which is
+    typically the slowest part of data processing pipelines after disk access.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can view the output of the `make_dictionary` phase by using the utility
+    *codex.py*, which dumps protocol buffers of different kinds registered in the
+    program. Since all our data is serialized as bzipped and uuencoded text files,
+    the only difference is which protocol buffer schema is used to decode the serialized
+    data, so we can use just one program to print out the first few elements of the
+    data for debugging. Although it might be much simpler to store data as JSON, XML,
+    or CSV files, having a schema will save you from future grief because protocol
+    buffers are extensible and support optional fields. They are also typed, which
+    can save you from accidental mistakes in JSON, such as not knowing whether a value
+    is a string or float or int, or having a field as a string in some files and as
+    an int in others. Having an explicit typed schema saves us from a lot of these
+    mistakes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next step in the pipeline is *make_cooccurrence.py*. As the name implies,
+    this program simply counts the number of times each token occurs with another
+    token. This is essentially a sparse way of representing a graph. In *nlp.proto*,
+    each row of the sparse co-occurrence matrix is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: In a *co-occurrence matrix*, each row *i* has an entry at column *j* that represents
+    the number of times token *j* has co-occurred with token *i*. This is a handy
+    way of associating the similarity between tokens *i* and *j* because if they co-occur
+    a lot, they must be more related to each other than tokens that do not co-occur.
+    In the protocol buffer format, these are stored as two parallel arrays of `other_index`
+    and `count`. We use indices because they are smaller than storing raw words, especially
+    with the varying encoding that protocol buffers use (i.e., the matrix of rows
+    and columns indexed by tokens, and elements that are the co-occurrences of the
+    indices). In this encoding, small integers take fewer bits to represent than large
+    integers; since we reverse-sorted the dictionary by frequency, the most commonly
+    occurring tokens have the smallest indices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this stage, if you wanted to make a very simple recommender based on frequent
+    item similarity co-occurrence, you would look up the row for token *i* and return
+    by count order the tokens <math alttext="j"><mi>j</mi></math> . The simple recommender
+    would make a good variant on the popular item recommender as described in the
+    earlier chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Customers Also Bought
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This concept of co-occurrences will be developed further in [Chapter 9](ch09.html#feature-counting),
+    but let’s take a moment to reflect on this concept of the MPIR and co-occurrences.
+    When we look at the co-occurrence matrix for items, we can take row sums or column
+    sums to determine the number of times each item has been seen (or purchased).
+    That was how we built the MPIR in [Chapter 2](ch02.html#ch:user-item). If instead
+    we look at the MPIR for a particular row corresponding to an item the user has
+    seen, that’s simply the *conditional MPIR*—i.e., the most popular item, given
+    that the user has seen item <math alttext="i"><mi>i</mi></math> .
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, here we can choose to do an embedding or low-rank representation of
+    the co-occurrence matrix. An embedding representation of a matrix is handy because
+    it allows us to represent each item as a vector. One way to factor the matrix
+    is via singular value decomposition, or SVD (see [“Latent Spaces”](ch10.html#latent-spaces)),
+    but we won’t be doing that here. Instead we will be learning GloVE embeddings,
+    which were developed for NLP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The objective function of GloVE embedding is to learn two vectors such that
+    their dot product is proportional to the log count of co-occurrence between the
+    two vectors. The reason this loss function works is that the dot product will
+    then be proportional to the log count of co-occurrence; thus, words that frequently
+    occur together will have a larger dot product than words that do not. To compute
+    the embeddings, we need to have the co-occurrence matrix handy, and luckily the
+    previous step in the pipeline has generated such a matrix for us to process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: GloVE Model Definition
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For this section, please refer to the code at [*train_coccurence.py*](https://oreil.ly/exOH2).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Suppose we have tokens *i* and *j* from the token dictionary. We know that
+    they have co-occurred with each other *N* times. We want to somehow generate an
+    embedding space such that the vectors <math alttext="x left-parenthesis i right-parenthesis
+    asterisk x left-parenthesis j right-parenthesis"><mrow><mi>x</mi> <mo>(</mo> <mi>i</mi>
+    <mo>)</mo> <mo>*</mo> <mi>x</mi> <mo>(</mo> <mi>j</mi> <mo>)</mo></mrow></math>
+    are proportional to log(*N*). The arguments for log count and the exact equation
+    are derived in the [“GloVe: Global Vectors for Word Representation”](https://oreil.ly/cMHB3)
+    by Jeffrey Pennington et al. We will show just the derived result:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="y Subscript predicted Baseline equals x left-parenthesis i right-parenthesis
+    ModifyingAbove x With dot left-parenthesis j right-parenthesis plus bias left-parenthesis
+    i right-parenthesis plus bias left-parenthesis j right-parenthesis" display="block"><mrow><msub><mi>y</mi>
+    <mtext>predicted</mtext></msub> <mo>=</mo> <mi>x</mi> <mrow><mo>(</mo> <mi>i</mi>
+    <mo>)</mo></mrow> <mover accent="true"><mi>x</mi> <mo>˙</mo></mover> <mrow><mo>(</mo>
+    <mi>j</mi> <mo>)</mo></mrow> <mo>+</mo> <mtext>bias</mtext> <mrow><mo>(</mo> <mi>i</mi>
+    <mo>)</mo></mrow> <mo>+</mo> <mtext>bias</mtext> <mrow><mo>(</mo> <mi>j</mi> <mo>)</mo></mrow></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: Here, <math alttext="x"><mi>x</mi></math> is the embedding lookup. In the code,
+    we use 64-dimensional vectors, which are not too small as to have insufficient
+    capacity to represent the embedding space but are not too large that it would
+    take up too much memory when we have an embedding for the entire dictionary. The
+    bias terms are there to soak up the large counts from very popular items such
+    as *the*, *a*, and *and* that co-occur with many other terms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The loss we want to minimize is the squared difference between the prediction
+    and the actual value:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="StartLayout 1st Row 1st Column Blank 2nd Column y Subscript target
+    Baseline equals 1 plus log Subscript 10 Baseline left-parenthesis upper N right-parenthesis
+    2nd Row 1st Column Blank 2nd Column weight equals min left-parenthesis 1 comma
+    upper N slash 100 right-parenthesis Superscript 0.75 Baseline 3rd Row 1st Column
+    Blank 2nd Column loss equals weight asterisk left-parenthesis y Subscript predicted
+    Baseline minus y Subscript target Baseline right-parenthesis squared EndLayout"
+    display="block"><mtable displaystyle="true"><mtr><mtd columnalign="left"><mrow><msub><mi>y</mi>
+    <mtext>target</mtext></msub> <mo>=</mo> <mn>1</mn> <mo>+</mo> <msub><mtext>log</mtext>
+    <mn>10</mn></msub> <mrow><mo>(</mo> <mi>N</mi> <mo>)</mo></mrow></mrow></mtd></mtr>
+    <mtr><mtd columnalign="left"><mrow><mtext>weight</mtext> <mo>=</mo> <mtext>min</mtext>
+    <msup><mfenced close=")" open="(" separators=""><mn>1</mn><mo>,</mo><mi>N</mi><mo>/</mo><mn>100</mn></mfenced>
+    <mrow><mn>0</mn><mo>.</mo><mn>75</mn></mrow></msup></mrow></mtd></mtr> <mtr><mtd
+    columnalign="left"><mrow><mtext>loss</mtext> <mo>=</mo> <mtext>weight</mtext>
+    <mo>*</mo> <msup><mrow><mo>(</mo><msub><mi>y</mi> <mtext>predicted</mtext></msub>
+    <mo>-</mo><msub><mi>y</mi> <mtext>target</mtext></msub> <mo>)</mo></mrow> <mn>2</mn></msup></mrow></mtd></mtr></mtable></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: The weighting term in the loss function is to prevent domination by very popular
+    co-occurrences as well as to downweight rarer co-occurrences.
+  prefs: []
+  type: TYPE_NORMAL
+- en: GloVE Model Specification in JAX and Flax
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let’s look at the implementation of the GloVE model based on JAX and Flax.
+    This is in the file *wikipedia/models.py* on the GitHub repository:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Flax is rather simple to use; all networks inherit from Flax’s linen neural
+    network library and are modules. Flax modules are also Python dataclasses, so
+    any hyper-parameters for the module are defined at the start of the module as
+    variables. We have only two for this simple model: the number of embeddings we
+    want, which corresponds to the number of tokens in the dictionary, and the dimension
+    of the embedding vectors. Next, in the setup of the module, we actually create
+    the layers we want, which is just the bias term and embedding for each token.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next part of the definition is the default method that is called when we
+    use this module. In this case, we want to pass in a pair of tokens, *i*, *j*;
+    convert them to embeddings, <math alttext="x left-parenthesis i right-parenthesis
+    comma x left-parenthesis j right-parenthesis"><mrow><mi>x</mi> <mo>(</mo> <mi>i</mi>
+    <mo>)</mo> <mo>,</mo> <mi>x</mi> <mo>(</mo> <mi>j</mi> <mo>)</mo></mrow></math>
+    ; and then compute the predicted log(*count*(*y*[predicted])).
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section of code, we encounter the first difference between JAX and NumPy—namely,
+    a vectorized map, or `vmap`. A `vmap` takes in a function and applies it in the
+    same way across axes of tensors; this makes coding easier because you just have
+    to think about how the original function operates on lower-rank tensors such as
+    vectors. In this example, since we are passing in batches of pairs of tokens and
+    then embedding them, we actually have a batch of vectors, and so we want to run
+    the dot product over the batch dimension. We pass in JAX’s dot function, which
+    takes vectors, run it over the batch dimension (which is axis 0), and tell `vmap`
+    to return the outputs as another batch dimension as axis 0\. This allows us to
+    efficiently and simply write code for lower-dimensional tensors and obtain a function
+    that can operate on higher-dimensional tensors by `vmap`ping over the extra axes.
+    Conceptually, it would be as if we looped over the first dimension and returned
+    an array of the dot products. However, by converting this process to a function,
+    we allow JAX to push this loop into JITable code that can be compiled to run fast
+    on a GPU.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we also declare the helper function [`score_all`](https://oreil.ly/-zYon),
+    which takes one token and scores it against all the other tokens. Again, we use
+    `vmap` to take the dot product with the particular token <math alttext="x left-parenthesis
+    i right-parenthesis"><mrow><mi>x</mi> <mo>(</mo> <mi>i</mi> <mo>)</mo></mrow></math>
+    but run it against all the other token embeddings. The difference here is that
+    since <math alttext="x left-parenthesis i right-parenthesis"><mrow><mi>x</mi>
+    <mo>(</mo> <mi>i</mi> <mo>)</mo></mrow></math> is already a vector, we don’t need
+    to `vmap` over it. Therefore, in `in_axes`, we supply `[None, 0]`, which means
+    don’t `vmap` over the axes of the first argument but instead `vmap` over axis
+    0 of the second argument, which is the batch of all the embeddings of all the
+    tokens. Then we return the result, which is an array that is the dot product of
+    <math alttext="x left-parenthesis i right-parenthesis"><mrow><mi>x</mi> <mo>(</mo>
+    <mi>i</mi> <mo>)</mo></mrow></math> against all other embeddings but without the
+    bias terms. We don’t use the bias term in scoring because it was used in part
+    to soak up the popularity of very common tokens, and our scoring function would
+    be more interesting if we just used the dot product part of it for scoring.
+  prefs: []
+  type: TYPE_NORMAL
+- en: GloVE Model Training with Optax
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Next, let’s take a look at [*wikipedia/train_coocurrence.py*](https://oreil.ly/A1o24).
+    Let’s look specifically at the part where the model is called to dig into some
+    JAX specifics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first point you will notice is the function decorator, `@jax.jit`. This
+    tells JAX that everything in the function is JITable. There are some requirements
+    for a function to be JITable—mostly that it is pure, which is a computer science
+    term indicating that if you call a function with the same arguments, you would
+    expect the same result. That function should not have any side effects and shouldn’t
+    rely on a cached state such as a private counter or random-number generator with
+    implicit state. The tensors that are passed in as arguments should probably also
+    have fixed shape, because every new shape would trigger a new JIT compilation.
+    You can give hints to the compiler that certain parameters are constants with
+    `static_argnums`, but these arguments shouldn’t change too frequently, or else
+    a lot of time will be spent compiling a program for each of these constants.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One consequence of this pure function philosophy is that the model structure
+    and model parameters are separated. This way, the model functions are pure and
+    the parameters are passed in to the model functions, allowing the model functions
+    to be jitted. This is why we apply the model’s `apply_fn` to the parameters rather
+    than simply having the parameters as part of the model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This `apply_model` function can then be compiled to implement the GloVE loss
+    that we described earlier. The other new functionality that JAX provides above
+    NumPy is automatically computing gradients of functions. The JAX function `value_and_grad`
+    computes the gradient of the loss with respect to the parameters. Since the gradient
+    always points in the direction in which the loss increases, we can use gradient
+    descent to go the other way and minimize the loss. The Optax library has a few
+    optimizers to pick from, including SGD (stochastic gradient descent with momentum)
+    and ADAM.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you run the training program, it will loop over the co-occurence matrix
+    and try to generate a succinct form of it by using the GloVE loss function. After
+    about an hour, you should be able to see the highest-scoring term.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The nearest neighbors for “democracy,” for example, are as follows: democracy:1.064498,
+    liberal:1.024733, reform:1.000746, affairs:0.961664, socialist:0.952792, organizations:0.935910,
+    political:0.919937, policy:0.917884, policies:0.907138, and --date:0.889342.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see, the query token itself is usually the highest-scoring neighbor,
+    but this is not necessarily true, as a very popular token might actually be higher
+    scoring to the token than the query token itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: After reading this chapter, you should have a good overview of the basic ingredients
+    for assembling a recommender system. You have seen how to set up a basic Python
+    development environment; manage packages; specify inputs and outputs with flags;
+    encode data in various ways, including using protocol buffers; and process the
+    data with a distributed framework with PySpark. You also learned how to compress
+    gigabytes of data into a few megabytes of a model that is able to generalize and
+    quickly score items, given a query item.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Take some time to play with the code and read the documentation of the various
+    packages referenced to get a good sense of the basics. These foundational examples
+    have widespread applications, and having a firm grasp on them will make your production
+    environments more accurate.
+  prefs: []
+  type: TYPE_NORMAL

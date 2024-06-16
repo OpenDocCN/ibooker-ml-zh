@@ -1,0 +1,718 @@
+- en: 'Chapter 13\. Putting It All Together: Experimenting and Ranking'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the last few chapters, we have covered many aspects of ranking, including
+    various kinds of loss functions as well as metrics for measuring the performance
+    of ranking systems. In this chapter, we will show an example of a ranking loss
+    and ranking metric on the [Spotify Million Playlist dataset](https://oreil.ly/j3nvH).
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter encourages a lot more experimentation and is more open-ended than
+    the previous ones, whose goal was to introduce concepts and infrastructure. This
+    chapter, on the other hand, is written to encourage you to roll up your sleeves
+    and engage directly with loss functions and writing metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Experimentation Tips
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we begin digging into the data and modeling, let’s cover some practices
+    that will make your life easier when doing a lot of experimentation and rapid
+    iteration. These are general guidelines that have made our experimentation faster.
+    As a result, we’re able to rapidly iterate toward solutions that help us reach
+    our objectives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Experimental code is different from engineering code in that the code is written
+    to explore ideas, not for robustness. The goal is to achieve maximum velocity
+    while not sacrificing too much in terms of code quality. So you should think about
+    whether a piece of code should be thoroughly tested or whether this isn’t necessary
+    because the code is present only to test a hypothesis and then it will be thrown
+    away. With that in mind, here are some tips. Keep in mind that these tips are
+    the opinion of the authors, developed over time, and are not hard-and-fast rules,
+    just some flavored opinions that some may disagree with.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keep It Simple
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In terms of the overall structure of research code, it’s best to keep it as
+    simple as possible. Try not to overthink too much in terms of inheritance and
+    reusability during the early stages of the lifecycle of exploration. At the start
+    of a project, we usually don’t know what it needs yet, so the preference should
+    be keeping the code easily readable and simple for debugging. That means you don’t
+    have to focus too much on code reuse because at the early stage of a project,
+    many code changes will occur while the structure of the model, data ingestion,
+    and interaction of various parts of a system are being worked out. When the uncertainties
+    have been worked out, then you can rewrite the code into a more robust form, but
+    refactoring too early actually slows velocity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A general rule of thumb is that it is OK to copy code three times and then refactor
+    out into a library the fourth time, because you’ll have seen enough use cases
+    to justify the reuse of code. If refactoring is done too early, you might not
+    have seen enough use cases of a piece of code to cover the possible use cases
+    that it might need to handle.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Debug Print Statements
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If you’ve read a number of ML research papers, you may expect your data to be
+    fairly clean and orderly at the start of a project. However, real-world data can
+    be messy, with missing fields and unexpected values. Having lots of print functions
+    allows you to print and visually inspect a sample of the data and also helps in
+    crafting the input data pipelines and transformations to feed the model. Also,
+    printing sample outputs of the model is useful in making sure the output is as
+    expected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The most important places to include logging are the input and output schema
+    between components of your system; these help you understand where reality may
+    be deviating from expectations. Later, you can make unit tests to ensure that
+    refactoring of the model doesn’t break anything, but the unit tests can wait for
+    when the model architecture is stable. A good rule of thumb is to add unit tests
+    when you want to refactor code or reuse or optimize the code to preserve functionality
+    or when the code is stable and you want to ensure that it doesn’t break a build.
+    Another good use case of adding print statements is when you inevitably run into
+    not-a-number (NaN) errors when running training code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In JAX, you can enable NaN debugging by using the following lines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The debug NaNs configuration setting will rerun a jitted function if it finds
+    any NaNs, and the debug print function will print the value of the tensors even
+    inside a JIT. A regular print won’t work inside a JIT because it is not a compilable
+    command and is skipped over during the tracing, so you have to use the debug print
+    function instead, which does work inside a JIT.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defer Optimization
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In research code, there is a lot of temptation to optimize early—in particular,
+    focusing on the implementation of your models or system to ensure they’re efficient
+    computationally or the code is elegant. However, research code is written for
+    higher velocity in experimentation, not execution speed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our suggestion is do not optimize too early unless it hinders research velocity.
+    One reason for this is the system might not be complete, so optimizing one part
+    might not make sense if another part of the system is even slower and is the actual
+    bottleneck. Another reason is the part that you are optimizing might not make
+    it to the final model, so all the optimization work might go to waste if the code
+    is refactored away anyway.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, optimization might actually hinder the ability to modify or inject
+    newer design choices in terms of architecture or functionality. Optimized code
+    tends to have certain choices that were made that fit the current structure of
+    the data flow but might not be amenable to further changes. For example, in the
+    code for this chapter, one possible optimization choice would have been to batch
+    together playlists of the same size so that the code might be able to run in larger
+    batches. However, at this point of the experimentation, that optimization would
+    have been premature and distracting because it might make the metrics code more
+    complicated. Our gentle advice is to defer optimization until after the bulk of
+    experimentation has been done and the architecture, loss functions, and metrics
+    have been chosen and settled upon.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keep Track of Changes
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In research code, too many variables are probably at play for you to change
+    them one at a time to see their effects. This problem is particularly noticeable
+    with larger datasets that require a lot of runs to determine which change causes
+    which effects. So, in general, fixing a number of parameters and changing the
+    code bit by bit is still a good idea so that you can keep track of the change
+    that causes the most improvement. Parameters have to be tracked, but so do the
+    code changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One way to keep track of changes is through services such as Weights & Biases
+    that we discussed in [Chapter 5](ch05.html#ch:pinterest-content). Keeping track
+    of the exact code that led to a change and the parameters is a good idea so that
+    experiments can be reproduced and analyzed. Especially with research code that
+    changes so frequently and is sometimes not checked in, you have to be diligent
+    in keeping a copy of the code that produced a run somewhere, and MLOps tools allow
+    you to track code and hyperparameters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Use Feature Engineering
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Unlike in academic papers, most applied research is interested in a good outcome
+    rather than a theoretically beautiful result. We’re not shackled by purist views
+    that the model has to learn everything about the data by itself. Instead, we’re
+    pragmatic and concerned about good outcomes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We should not discard practices like feature engineering, especially when we
+    have little data or are crunched for time and need decent results fast. Using
+    feature engineering means that if you know whether a handcrafted feature is correlated
+    positively or negatively with an outcome like the ranking of an item, then by
+    all means add these engineered features to the data. An example in recommender
+    systems is having an attribute of the item being scored that matches something
+    in the user’s profile. So, if an item has the same artist or album in the user’s
+    playlist, we can return a Boolean True; otherwise, we return False. This extra
+    feature simply helps the model converge faster, and the model can still use other
+    latent features such as embeddings to compensate if the hand-engineered features
+    don’t do so well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is generally a good practice to ablate the hand-engineered features once
+    in a while. To do this, hold back an experiment without some features to see if
+    those features have become obsolete over time or if they still benefit the business
+    metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ablation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*Ablation* in ML applications is the practice of measuring the change in performance
+    of a model when a particular feature is removed. In computer vision applications,
+    ablation often refers to blocking part of the image or view field to see how it
+    impacts the model’s ability to identify or segment data. In other kinds of ML,
+    it can mean strategically removing certain features.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: One gotcha with ablation is what to replace the feature with. Simply *zeroing
+    out* the feature can significantly skew the output of the model. This is called
+    *zero-ablation*, and can force the model to treat that feature out of distribution,
+    which yields less believable outcomes. Instead, some advocate for mean-ablation,
+    or taking the average or most common value of that feature. This allows the model
+    to see much more expected values, and reduce these risks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, this fails to consider the most important aspects of the kinds of models
+    we’ve been working on—latent high-order interactions. One of the authors has investigated
+    a deeper approach to ablation called *causal scrubbing*, in which you fix the
+    ablation value to be sampled from the posterior distribution produced by other
+    feature values, i.e., a value that “makes sense” with the rest of the values the
+    model will see at that time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understand Metrics Versus Business Metrics
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Sometimes, as ML practitioners, we obsess over the best possible metrics our
+    models can achieve. However, we should temper that enthusiasm as the best ML metric
+    might not totally represent the business interests at hand. Furthermore, other
+    systems that contain business logic might sit on top of our models and modify
+    the output. As a result, it is best not to obsess too heavily over ML metrics
+    and to do proper A/B tests that contain business metrics instead since that’s
+    the main measure of a good outcome with ML.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The best possible circumstance is to find a loss function that aligns well or
+    predicts the relevant business metric. This, unfortunately, is often not easy
+    to find, especially when the business metrics are nuanced or have competing priorities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Perform Rapid Iteration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Don’t be afraid to look at results of runs that are rather short. There’s no
+    need to do a full pass over the data at the beginning, when you are figuring out
+    the interaction between a model architecture and the data. It’s OK to do some
+    rapid runs with minor tweaks to see how they change the metrics over a short number
+    of time steps. In the Spotify Million Playlist dataset, we tweaked the model architecture
+    by using 100,000 playlists before doing longer runs. Sometimes the changes can
+    be so dramatic that the effects can be seen immediately, even at the first test-set
+    evaluation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have the basics of experimental research coding covered, let’s hop
+    over to the data and code and play a bit with modeling music recommendations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Spotify Million Playlist Dataset
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The code for this section can be found in [this book’s GitHub repo](https://github.com/BBischof/ESRecsys/tree/main/spotify).
+    The documentation for the data can be found at [Spotify Million Playlist Dataset
+    Challenge](https://oreil.ly/eVA7f).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first thing we should do is take a look at the data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'That should produce the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: When encountering a new dataset, it is always important to look at it and plan
+    which features to use to generate recommendations for the data. One possible goal
+    of the Spotify Million Playlist Dataset Challenge is to see if the next tracks
+    in a playlist can be predicted from the first five tracks in the playlist.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this case, several features might be useful for the task. We have track,
+    artist, and album universal resource identifiers (URIs), which are unique identifiers
+    for tracks, artists, and albums, respectively. And we have artist and album names
+    and names of playlists. The dataset also includes numerical features like duration
+    of a track and the number of followers in a playlist. Intuitively, the number
+    of followers of a playlist should not affect the ordering of tracks in a playlist,
+    so you might want to look for better features before using these possibly uninformative
+    ones. Looking at the overall statistics of features, you can also obtain a lot
+    of insight:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: First of all, notice that the number of tracks is more than the number of playlists.
+    This implies that quite a few tracks might have very little training data. So
+    the `track_uri` might not be a feature that generalizes very well. On the other
+    hand, the `album_uri` and `artist_uri` would generalize because they would occur
+    multiple times in different playlists. For the sake of code clarity, we will mostly
+    work with the `album_uri` and `artist_uri` as the features that represent a track.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In previous “Putting It All Together” chapters, we demonstrated the use of content-based
+    features or text token-based features that may be used instead, but direct embedding
+    features are the clearest for demonstrating ranking. In a real-world application,
+    embedding features and content-based features may be concatenated together to
+    form a feature that generalizes better for recommendation ranking. For the purposes
+    of this chapter, we will represent a track as the tuple of (`track_id`, `album_id`,
+    `artist_id`), where the ID is an integer representing the URI. We will build dictionaries
+    that map from the URI to the integer ID in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building URI Dictionaries
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Similar to [Chapter 8](ch08.html#ch:wikipedia-e2e), we will first start by constructing
+    a dictionary for all the URIs. This dictionary allows us to represent the text
+    URI as an integer for faster processing on the JAX side, as we can easily look
+    up embeddings from integers as opposed to arbitrary URI strings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is the code for *make_dictionary.py*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Whenever a new URI is encountered, we simply increment a counter and assign
+    that unique identifier to the URI. We do this for tracks, artists, and albums
+    and save it as a JSON file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although we could have used a data processing framework like PySpark for this,
+    it is important to take note of the data size. If the data size is small, like
+    a million playlists, it would just be faster to do it on a single machine. We
+    should be wise about when to use a big data processing framework, and for small
+    datasets it can sometimes be faster to simply run the code on one machine instead
+    of writing code that runs on a cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building the Training Data
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Now that we have the dictionaries, we can use them to convert the raw JSON
+    playlist logs into a more usable form for ML training. The code for this is in
+    *make_training.py*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: This code reads in a raw playlist JSON file, converts the URIs from textual
+    identifiers to the index in the dictionary, and filters out playlists that are
+    under a minimum size. In addition, we partition the playlist such that the first
+    five elements are grouped into the context, or user that we are recommending items
+    for, and the next items, which are the items we wish to predict for a given user.
+    We call the first five elements the *context* because they represent a playlist
+    and because there won’t be a one-to-one mapping between a playlist and a user
+    if a user has more than one playlist. We then write each playlist as a TensorFlow
+    example in a TensorFlow record file for use with the TensorFlow data input pipeline.
+    The records will always contain five tracks, albums, and artists for the context
+    and at least five more next tracks for learning the inference tasks of predicting
+    the next tracks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: We use TensorFlow objects here because of their compatibility with JAX and to
+    introduce some very convenient data formats.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We also store unique rows of tracks with all the features, which is mostly for
+    debugging and display should we need to convert a `track_uri` into a human-readable
+    form. This track data is stored in *all_tracks.json*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reading the Input
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The input is then read via *input_pipeline.py*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: We use the TensorFlow data’s functionality to read and decode the TensorFlow
+    records and examples. For that to work, we need to supply a schema, or a dictionary,
+    telling the decoder the names and types of features to expect. Since we have picked
+    five tracks each for the context, we should expect five each of `track_context`,
+    `album_context`, and `artist_context`. However, since the playlists themselves
+    are of variable lengths, we tell the decoder to expect variable-length integers
+    for the `next_track`, `next_album`, and `next_artist` features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second part of *input_pipeline.py* is for reusable input code to load the
+    dictionaries and track metadata:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: We also supply a utility function to convert the *all_tracks.json* file into
+    the entire corpus of tracks for scoring in the final recommendations. After all,
+    the goal is to rank the entire corpus, given the first five context tracks, and
+    see how well they match the given next track data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Modeling the Problem
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Next, let’s think of how we will model the problem. We have five context tracks,
+    each with an associated artist and album. We know that we have more tracks than
+    playlists, so for now we will simply ignore the `track_id` and just use the `album_id`
+    and `artist_id` as features. One strategy could be to use one-hot encoding for
+    the album and artist, and this would work well, but one-hot encoding tends to
+    lead to models with high precision but less generalization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An alternate way to represent identifiers is to embed them—that is, to make
+    a lookup table to an embedding of a fixed size that is lower dimensional than
+    the cardinality of the identifiers. This embedding can be thought of as a low-rank
+    approximation to the full-rank matrix of identifiers. We covered low-rank embeddings
+    in earlier chapters, and we use that concept here as features to represent the
+    album and artists.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Take a look at *models.py*, which contains the code for `SpotifyModel`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the setup code, notice that we have two embeddings, for the albums and the
+    artists. We have a lot of albums, so we show one way to reduce the memory footprint
+    of album embeddings: take the mod of a smaller number than the number of embeddings
+    so that multiple albums might share an embedding. If more memory is available,
+    you can remove the mod, but this technique is demonstrated here as a way of getting
+    some benefit of having an embedding for a feature with very large cardinality.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The artist is probably the most informative feature, and the data includes far
+    fewer unique artists, so we have a one-to-one mapping between the `artist_id`
+    and the embeddings. When we convert the tuple of `(album_id, artist_id)` to an
+    embedding, we do separate lookups for each ID and then concatenate the embeddings
+    and return one complete embedding to represent a track. If more playlist data
+    becomes available, you might also want to embed the `track_id`. However, given
+    that we have more unique tracks than playlists, the `track_id` feature will not
+    generalize well until we have more playlist data and the `track_id` could occur
+    more often as observations. A general rule of thumb is that a feature should occur
+    at least 100 times to be useful; otherwise, the gradients for that feature will
+    not be updated very often, and it might as well be a random number because it
+    is initialized as such.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the `call` section, we do the heavy lifting of computing the affinity of
+    a context to other tracks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s dig into this a bit since this is the core of the model code. The first
+    part is pretty straightforward: we convert the indices into embeddings by looking
+    up the album and artist embedding and concatenating them as a single vector per
+    track. It is in this location that you would add in other dense features by concatenation,
+    or convert sparse features to embeddings as we have done.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next part computes the affinity of the context to the next tracks. Recall
+    that the context is composed of the first five tracks, and the next track is the
+    rest of the playlist to be computed. We have several choices here for representing
+    the context and computing the affinity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the affinity of the context, we have chosen the simplest form of affinity,
+    that of a dot product. The other consideration is how we treat the context, since
+    it is composed of five tracks. One possible way is to average all the context
+    embeddings and use the average as the representation for the context. Another
+    way is to find the track with the maximal affinity as the closest track in the
+    context to that of the next track.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Details on various options can be found in [“Affinity Weighted Embedding”](https://oreil.ly/ig7Ch)
+    by Jason Weston et al. We have found that if a user has diverse interests, finding
+    the max affinity doesn’t update the context embeddings in the same direction as
+    the next track, as using the mean embedding does. In the case of playlists, the
+    mean context embedding vector should function just as well because playlists tend
+    to be on a single theme.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notice that we compute the affinity for the negative tracks as well. This is
+    because we want the next tracks to have more affinity to the context than the
+    negative tracks. In addition to the affinity of the context and next tracks to
+    the context, we also compute the L2 norm of the vectors as a way to regularize
+    the model so it does not overfit on the training data. We also reverse the embedding
+    vectors and compute what we call *self-affinity*, or the affinity of the context,
+    next, and negative embeddings to themselves, simply by reversing the list of vectors
+    and taking the dot product. This does not exhaustively compute all the affinities
+    of the set with itself; this again is left as an exercise for you as it builds
+    intuition and skill in using JAX.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The results are then returned as a tuple to the caller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Framing the Loss Function
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Now, let’s look at *train_spotify.py*. We will skip the boilerplate code and
+    just look at the evaluation and training steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first piece of code is the evaluation step. To compute the affinities of
+    the entire corpus, we pass in the album and artist indices for every possible
+    track in the corpus to the model and then sort them using `jax.lax.top_k`. The
+    first two lines are the scoring code for recommending the next tracks from the
+    context during recommendations. LAX is a utility library that comes with JAX that
+    contains functions outside of the NumPy API that are handy to work with vector
+    processors like GPUs and TPUs. In the Spotify Million Playlist Dataset Challenge,
+    one of the metrics is the recall@k at the artist and track level. For the tracks,
+    the `isin` function returns the correct metric of the intersection of the next
+    tracks and the top 500 scoring tracks of the corpus divided by the size of the
+    set of next tracks. This is because the tracks are unique in the corpus. However,
+    JAX’s `isin` doesn’t support making the elements unique, so for the artist recall
+    metric, we might count artists in the recall set more than once. For the sake
+    of computational efficiency, we use the multiple counts instead so that the evaluation
+    might be computed quickly on the GPU so as not to stall the training pipeline.
+    On a final evaluation, we might want to move the dataset to a CPU for a more accurate
+    metric.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We use Weights & Biases again to track all the metrics, as depicted in [Figure 13-1](#wandb_spotify_metrics_figure).
+    You can see how they fare with each other over several experiments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Spotify Million Platlist Dataset Evaluation Metrics](assets/brpj_1301.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-1\. Weights & Biases experiment tracking
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: 'Next, we will look at the loss functions, another juicy part that you can experiment
+    with in the exercises at the end of the chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: We have several losses here, some directly related to the main task and others
+    that help with regularization and generalization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We initially started with the `mean_triplet_loss`, which is simply a loss that
+    states that the positive affinity, or the affinity of the context tracks to the
+    next tracks, should be one more than the negative affinity, or the affinity of
+    the context tracks to the negative tracks. We will discuss how we experimented
+    to obtain the other auxiliary loss functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Experiment tracking, depicted in [Figure 13-2](#wandb_spotify_eval_track_metrics_figure),
+    is important in the process of improving the model, as is reproducibility. We
+    have tried as much as possible to make the training process deterministic by using
+    random-number generators from JAX that are reproducible by using the same starting
+    random-number generator seed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Spotify Million Platlist Dataset Experiments - Evaluation Track Recall](assets/brpj_1302.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 13-2\. Track recall experiments
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: We started with the `mean_triplet_loss` and `reg_loss`, which is the regularization
+    loss as a good baseline. These two losses simply make sure that the mean positive
+    affinity of the context to the next track is one more than the negative affinity
+    of the context to the negative tracks, and that the L2 norm of the embeddings
+    does not exceed the regularization thresholds. These correspond to the metrics
+    that did the worst. Notice that we do not run the experiment for the entire dataset.
+    This is because for rapid iteration, it might be faster to just run on a smaller
+    number of steps first and compare before interleaving occasionally with longer
+    runs that use the entire dataset.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next loss we added was the `max_neg_affinity` and the `min_pos_affinity`.
+    This loss was inspired in part by [“Efficient Coordinate Descent or Ranking with
+    Domination Loss”](https://oreil.ly/_aEF9) by Mark A. Stevens and [“Learning to
+    Rank Recommendations with the *k*-Order Statistic Loss”](https://oreil.ly/CPexf)
+    by Jason Weston et al. However, we do not use the entire negative set but merely
+    a subsample. Why? Because the negative set is noisy. Just because a user hasn’t
+    added a particular track to a playlist doesn’t mean that the track is not relevant
+    to the playlist. Maybe the user hasn’t heard the track yet, so the noise is due
+    to lack of exposure. We also do not do the sampling step as discussed in the *k*-order
+    statistic loss paper because sampling is CPU friendly but not GPU friendly. So
+    we combine ideas from both papers and take the largest negative affinity and make
+    it one less than the smallest positive affinity. The addition of this loss on
+    the extremal tracks from both the next and negative sets gave us the next boost
+    in performance in our experiments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we added the self-affinity losses. These ensure that tracks from the
+    context and next track sets have affinities of at least 0.5 and that the negative
+    track affinities are at most 0\. These are dot-product affinities and are more
+    absolute as opposed to the relative positive and negative affinities that make
+    the positive affinity one more than the negative affinities. In the long run,
+    they didn’t help much, but they did help the model converge faster in the beginning.
+    We left them in because they still offer some improvement on the evaluation metrics
+    on the last training step. This wraps up the explanatory part of this “Putting
+    It All Together” chapter. Now comes the fun part, the exercises!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exercises
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We offer a lot of exercises because playing with the data and code is helpful
+    in building out your intuition about different loss functions and ways of modeling
+    the user. Also, thinking about how to write the code allows you to improve your
+    proficiency with using JAX. So we have a list of helpful exercises to try out
+    that are fun and will help you understand the material provided in this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To wrap up this chapter, here are some interesting exercises to experiment with.
+    Doing them should give you lots of intuition about loss functions and the way
+    JAX works, as well as a feel for the experimental process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here are some easy exercises to start with:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Try out different optimizers (e.g., ADAM, RMSPROP).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Try changing the feature sizes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Add in duration as a feature (take care on normalization!).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What if you use cosine distance for inference and dot product for training?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Add in a new metric, like NDCG.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Play with distribution of positive versus negative affinities in the loss.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Hinge loss with the lowest next track and the highest negative track.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Continue exploring with these more difficult exercises:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Try using the track names as features and see if they help generalize.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What happens if you use a two-layer network for affinity?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What happens if you use an LSTM to compute affinity?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Replace track embeddings with correlation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Compute all the self-affinities in a set.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What does it mean to replace an embedding with a feature? In our example of
+    positive and negative affinity, we used the dot product to compute the affinity
+    between two entities, such as two tracks, <math alttext="x"><mi>x</mi></math>
+    and <math alttext="y"><mi>y</mi></math> . Rather than having the features as latent,
+    represented by embeddings, an alternative is to manually construct features that
+    represent the affinity between the two entities, <math alttext="x"><mi>x</mi></math>
+    and <math alttext="y"><mi>y</mi></math> . As covered in [Chapter 9](ch09.html#feature-counting),
+    this can be log counts or Dice correlation coefficient or mutual information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some kind of counting feature can be made and then stored in a database. Upon
+    training and inference, the database is looked up for each entity <math alttext="x"><mi>x</mi></math>
+    and <math alttext="y"><mi>y</mi></math> , and the affinity scores are then used
+    instead of or in conjunction with the dot product that is being learned. These
+    features tend to be more precise but have less recall than an embedding representation.
+    The embedding representation, being of low rank, has the ability to generalize
+    better and improve recall. Having counting features is synergistic with embedding
+    features because we can simultaneously improve precision with the use of precise
+    counting features and, at the same time, improve recall with the help of low-rank
+    features like embeddings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For computing all <math alttext="n squared"><msup><mi>n</mi> <mn>2</mn></msup></math>
+    affinities of tracks to other tracks in a set, consider using JAX’s `vmap` function.
+    `vmap` can be used to convert code that, for example, computes one track’s affinity
+    with all the other tracks and makes it run for all tracks versus all other tracks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We hope that you have enjoyed playing with the data and code and that your skill
+    in writing recommender systems in JAX has improved considerably after trying these
+    exercises!
+  prefs: []
+  type: TYPE_NORMAL

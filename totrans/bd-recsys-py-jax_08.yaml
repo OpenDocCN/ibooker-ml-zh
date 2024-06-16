@@ -1,0 +1,1064 @@
+- en: Chapter 6\. Data Processing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the trivial recommender that we defined in [Chapter 1](ch01.html#CH0), we
+    used the method `get_availability`; and in the MPIR, we used the method `get_item_popularities`.
+    We hoped the choice of naming would provide sufficient context about their function,
+    but we did not focus on the implementation details. Now we will start unpacking
+    the details of some of this complexity and present the toolsets for online and
+    offline collectors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hydrating Your System
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Getting data into the pipeline is punnily referred to as *hydration*. The ML
+    and data fields have a lot of water-themed naming conventions; [“(Data ∩ Water)
+    Terms”](https://oreil.ly/XVlzd) by Pardis Noorzad covers this topic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PySpark
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Spark is an extremely general computing library, with APIs for Java, Python,
+    SQL, and Scala. PySpark’s role in many ML pipelines is for data processing and
+    transforming the large-scale datasets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s return to the data structure we introduced for our recommendation problem;
+    recall that the user-item matrix is the linear-algebraic representation of all
+    the triples of users, items, and the user’s rating of the item. These triples
+    are not naturally occurring in the wild. Most commonly, you begin with log files
+    from your system; for example, Bookshop.org may have something that looks like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is a made-up log file that may look similar to the backend data for Bookshop.org’s
+    best sellers of the week. These are the kinds of events that you consume from
+    engineering and are likely stored in your columnar database. For data like this,
+    utilizing SQL syntax will be our entry point.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PySpark provides a convenient SQL API. Based on your infrastructure, this API
+    will allow you to write what looks like SQL queries against a potentially massive
+    dataset.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Example Schemas
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: These example database schemas are only guesses at what Bookshop.org may use,
+    but they are modeled on the authors’ experience of looking at hundreds of database
+    schemas at multiple companies over many years. Additionally, we attempt to distill
+    these schemas to the components relevant to our topic. In real systems, you’d
+    expect much more complexity but the same essential parts. Each data warehouse
+    and event stream will have its own quirks. Please consult a data engineer near
+    you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s use Spark to query the preceding logs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is a simple SQL query, assuming the preceding log schema, that would allow
+    us to see, for each user-item pair, how many times that user has viewed that pair.
+    The convenience of writing pure SQL here means that we can use our experience
+    in columnar databases to quickly ramp up on Spark.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The major advantage of Spark, however, is not yet on display. When executing
+    the preceding code in a Spark session, this query will not be immediately run.
+    It will be staged for execution, but Spark waits until you use this data downstream
+    in a way that *requires immediate execution* before it begins doing so. This is
+    called *lazy evaluation*, and it allows you to work on your data object without
+    every change and interaction immediately being applied. For more details, it’s
+    worth consulting a more in-depth guide like [*Learning Spark*](https://www.oreilly.com/library/view/learning-spark-2nd/9781492050032/)
+    by Jules Damji et al. (O’Reilly), but there’s one more important characteristic
+    of the Spark paradigm that is essential to discuss.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Spark is natively a distributed computing language. In particular, this means
+    that the preceding query—even after we force it to execute—will store its data
+    on multiple computers. Spark works via a *driver program* in your program or notebook,
+    which drives a *cluster manager*, which in turn coordinates *executors* on *worker
+    nodes.* When we query data with Spark, instead of all that data being returned
+    into a DataFrame in memory on the computer we’re using, parts of that data are
+    sent to memory on the executors. And when we do a transformation on the DataFrame,
+    it is applied appropriately on the pieces of the DataFrame that are stored on
+    each of the executors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If this sounds a bit like magic, that’s because it’s obscuring a lot of technical
+    details behind several convenience layers. Spark is a layer of technology that
+    allows the ML engineer to program as if they’re working on one machine, and have
+    those changes take effect on an entire cluster of machines. It’s not important
+    to understand the network structure when querying, but it is important to be aware
+    of some of these details in case things go wrong; the ability to understand what
+    the error output is referring to is crucial in troubleshooting. This is all summarized
+    in [Figure 6-1](#fig:sparkitecture), which is a diagram from the [Spark documentation](https://oreil.ly/89kAm).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Sparkitecture](assets/brpj_0601.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6-1\. Component architecture of Spark 3.0
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: It’s important to note that all this does not come for free; both lazy evaluation
+    and distributed DataFrames come at the cost of needing additional thought when
+    writing programs. Even though Spark makes a lot of this work far easier, understanding
+    how to write efficient code in this paradigm that works with the architecture
+    but still achieves complicated goals can require a year’s worth of experience.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Returning to recommendation systems—and in particular, the offline collector—we
+    want to use PySpark to build the types of datasets needed to train our models.
+    One simple thing to do with PySpark is to transform our logs data into the appropriate
+    form for training a model. In our simple query, we applied a few filters to our
+    data and grouped by user and item to get the number of views. A variety of other
+    tasks may fit naturally into this paradigm—perhaps adding user or item features
+    stored in other databases, or high-level aggregations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In our MPIR, we asked for `get_item_popularities`; and we sort of assumed a
+    few things:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This would return the number of times each item was chosen.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This method would be fast.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The second point is important if the endpoint is going to be called in real
+    time. So how might Spark come into play?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let’s assume we have a lot of data, enough that we can’t get it all
+    to fit into our little MacBook Pro’s memory. Additionally, let’s continue to use
+    the preceding schema. We can write an even simpler query:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can now write this aggregated list of `(item, count)` pairs to an app database
+    to serve `get_item_popularities` (something that doesn’t require us to do any
+    parsing when this is called), or potentially we can take a subset of the top-
+    <math alttext="upper N"><mi>N</mi></math> of this list and store it in memory
+    to get the best items with respect to a particular ranking. Either way, we’ve
+    separated concerns of parsing all our log data, and doing aggregation, from the
+    `get_item_popularities` function call in real time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This example used an overly simple data aggregation, one just as easy to do
+    in something like PostgreSQL, so why bother? The first reason is scalability.
+    Spark is really built to scale horizontally, which means that as the data we need
+    to access grows, we merely add more worker nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The second reason is that PySpark is more than just SparkSQL; anyone who’s done
+    complicated SQL queries can probably agree that the power and flexibility of SQL
+    is enormous, but frequently certain tasks that you want to achieve require a lot
+    of creativity to carry out in the fully SQL environment. PySpark gives you all
+    the expressiveness of pandas DataFrames, Python functions and classes, and a simple
+    interface to apply Python code to the PySpark data structure’s user-defined functions
+    (UDFs). UDFs are similar to lambda functions that you’d use in pandas, but they’re
+    built and optimized for PySpark DataFrames. As you’ve probably experienced when
+    writing ML programs in smaller data regimes, at some point you switch away from
+    using only SQL to using pandas API functions to perform data transformations—so
+    too will you appreciate this power at the Spark data scale.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PySpark allows you to write what looks very much like Python and pandas code
+    and have that code executed in a distributed fashion! You don’t need to write
+    code to specify which worker nodes operations should happen; that’s handled for
+    you by PySpark. This framework isn’t perfect; some things you expect to work may
+    require a bit of care, and optimization of your code can require an additional
+    level of abstraction, but generally, PySpark gives you a rapid way to move your
+    code from one node to a cluster and utilize that power.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To illustrate something a bit more useful in PySpark, let’s return to collaborative
+    filtering (CF) and compute some features more relevant for ranking.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Example: User Similarity in PySpark'
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A user similarity table allows you to map a user to other users who are relevant
+    to the recommender. This recalls the assumption that two similar users like similar
+    things, and thus you can recommend to both users the items that one hasn’t seen.
+    Constructing this user similarity table is an example of a PySpark job that you
+    might see as part of the offline collector’s responsibility. Even though in many
+    cases ratings would continue to stream in all the time, for the purposes of large
+    offline jobs, we often think of a daily batch to update the essential tables for
+    our model. In practice, in many cases this daily batch job suffices to provide
+    features that are good enough for most of the ML work downstream. Other important
+    paradigms exist, but those frequently *marry* the more frequent updates with these
+    daily batch jobs, instead of totally eliminating them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This architecture of daily batch jobs with smaller, more frequent batch jobs
+    is called the *lambda architecture*, and we’ll get more into the details of how
+    and why later. In brief, the two layers—batch and speed—which are distinguished
+    (inversely) by the frequency of processing and the volume per run of data they
+    process. Note that the speed layer may have varying frequencies associated with
+    it, and it’s possible to have different speed layers for hourly, and another speed
+    layer for minute-frequency jobs that do different things. [Figure 6-2](#fig:lamb-architecture)
+    provides an overview of the architecture.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![LambdaArchitecture](assets/brpj_0602.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6-2\. Overview of a lambda architecture
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: 'In the case of user similarity, let’s work on a batch job implementation of
+    computing a daily table. First we’ll need to get ratings from our schema before
+    today. We’ll also include a few other filters that simulate how this query might
+    look in real life:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: As before, utilizing the SQL syntax to get the dataset into a Spark DataFrame
+    is the first step, but now we have additional work on the PySpark side. A common
+    pattern is to get the dataset you want to work with via simple SQL syntax and
+    logic, and then use the PySpark API to do more detailed data processing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s first observe that we have no assumptions about uniqueness of a user-item
+    rating. For the sake of this table, let’s decide that we’ll use the most recent
+    rating for a pair:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We’ll now use `current_rating` as our ratings column for the purpose of downstream
+    calculation. Recall from before our ratings-based definition of user similarity:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="normal upper U normal upper S normal i normal m Subscript upper
+    A comma upper B Baseline equals StartFraction sigma-summation Underscript x element-of
+    script upper R Subscript upper A comma upper B Baseline Endscripts left-parenthesis
+    r Subscript upper A comma x Baseline minus r overbar Subscript upper A Baseline
+    right-parenthesis left-parenthesis r Subscript upper B comma x Baseline minus
+    r overbar Subscript upper B Baseline right-parenthesis Over StartRoot sigma-summation
+    Underscript x element-of script upper R Subscript upper A comma upper B Baseline
+    Endscripts left-parenthesis r Subscript upper A comma x Baseline minus r overbar
+    Subscript upper A Baseline right-parenthesis squared EndRoot StartRoot sigma-summation
+    Underscript x element-of script upper R Subscript upper A comma upper B Baseline
+    Endscripts left-parenthesis r Subscript upper B comma x Baseline minus r overbar
+    Subscript upper B Baseline right-parenthesis squared EndRoot EndFraction" display="block"><mrow><msub><mi>USim</mi>
+    <mrow><mi>A</mi><mo>,</mo><mi>B</mi></mrow></msub> <mo>=</mo> <mfrac><mrow><msub><mo>∑</mo>
+    <mrow><mi>x</mi><mo>∈</mo><msub><mi>ℛ</mi> <mrow><mi>A</mi><mo>,</mo><mi>B</mi></mrow></msub></mrow></msub>
+    <mrow><mo>(</mo><msub><mi>r</mi> <mrow><mi>A</mi><mo>,</mo><mi>x</mi></mrow></msub>
+    <mo>-</mo><msub><mover accent="true"><mi>r</mi> <mo>¯</mo></mover> <mi>A</mi></msub>
+    <mo>)</mo></mrow><mrow><mo>(</mo><msub><mi>r</mi> <mrow><mi>B</mi><mo>,</mo><mi>x</mi></mrow></msub>
+    <mo>-</mo><msub><mover accent="true"><mi>r</mi> <mo>¯</mo></mover> <mi>B</mi></msub>
+    <mo>)</mo></mrow></mrow> <mrow><msqrt><mrow><msub><mo>∑</mo> <mrow><mi>x</mi><mo>∈</mo><msub><mi>ℛ</mi>
+    <mrow><mi>A</mi><mo>,</mo><mi>B</mi></mrow></msub></mrow></msub> <msup><mrow><mo>(</mo><msub><mi>r</mi>
+    <mrow><mi>A</mi><mo>,</mo><mi>x</mi></mrow></msub> <mo>-</mo><msub><mover accent="true"><mi>r</mi>
+    <mo>¯</mo></mover> <mi>A</mi></msub> <mo>)</mo></mrow> <mn>2</mn></msup></mrow></msqrt>
+    <msqrt><mrow><msub><mo>∑</mo> <mrow><mi>x</mi><mo>∈</mo><msub><mi>ℛ</mi> <mrow><mi>A</mi><mo>,</mo><mi>B</mi></mrow></msub></mrow></msub>
+    <msup><mrow><mo>(</mo><msub><mi>r</mi> <mrow><mi>B</mi><mo>,</mo><mi>x</mi></mrow></msub>
+    <mo>-</mo><msub><mover accent="true"><mi>r</mi> <mo>¯</mo></mover> <mi>B</mi></msub>
+    <mo>)</mo></mrow> <mn>2</mn></msup></mrow></msqrt></mrow></mfrac></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The important values we’ll need are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="r Subscript left-parenthesis minus comma minus right-parenthesis"><msub><mi>r</mi>
+    <mrow><mo>(</mo><mo>-</mo><mo>,</mo><mo>-</mo><mo>)</mo></mrow></msub></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: The rating corresponding to a user-item pair
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="r overbar Subscript left-parenthesis minus right-parenthesis"><msub><mover
+    accent="true"><mi>r</mi> <mo>¯</mo></mover> <mrow><mo>(</mo><mo>-</mo><mo>)</mo></mrow></msub></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: The average rating across all items for a user
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The rows are already the <math alttext="r Subscript left-parenthesis minus
+    comma minus right-parenthesis"><msub><mi>r</mi> <mrow><mo>(</mo><mo>-</mo><mo>,</mo><mo>-</mo><mo>)</mo></mrow></msub></math>
+    values, so let’s compute user average ratings, <math alttext="r overbar Subscript
+    left-parenthesis minus right-parenthesis"><msub><mover accent="true"><mi>r</mi>
+    <mo>¯</mo></mover> <mrow><mo>(</mo><mo>-</mo><mo>)</mo></mrow></msub></math> ,
+    and the rating deviations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now our schema should look like this (we’ve formatted it slightly nicer than
+    the default Spark output):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s finish creating a dataset that contains our User Similarity calculations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: In constructing this dataset, we begin by taking a self-join, which avoids matching
+    the same users with themselves but rather joins on books that match. As we do
+    this join, we take the rating deviation from the user’s mean ratings that we computed
+    previously. We also use this opportunity to multiply them together for the numerator
+    in our user similarity function. In the last step, we’ll `groupBy` again so that
+    we can sum over all matching book IDs (by `groupBy` on `user_id_1` and `user_id_2`);
+    we sum the product and the powers of each set of deviations so that we can finally
+    divide and generate a new column for our user similarity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While this computation isn’t particularly complex, let’s take note of a few
+    things that we might appreciate. First, we built our user similarity matrix in
+    full from our records. This matrix may now be stored in a faster-access format
+    so that if we wish to do operations in real time, it’s ready to go. Second, we
+    did all these data transformations in Spark, so we can run these operations on
+    massive datasets and let Spark handle the parallelization onto the cluster. We
+    even were able to do this while writing code that looks a lot like pandas and
+    SQL. Finally, all our operations were columnar and required no iteration-based
+    calculation. This means this code will scale much better than some approaches.
+    This also ensures that Spark can parallelize our code well, and we can expect
+    good performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ve seen how PySpark can be used to prepare our user similarity matrix. We
+    have this definition of affinity estimating the appropriateness of an item for
+    a user; we can collect each of those scores into a tabular form—user rows and
+    item columns—to yield a matrix. As an exercise, can you take this matrix and generate
+    the affinity matrix?
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="normal upper A normal f normal f Subscript upper A comma i Baseline
+    equals r overbar Subscript upper A Baseline plus StartFraction sigma-summation
+    Underscript upper U element-of script upper N left-parenthesis upper A right-parenthesis
+    Endscripts normal upper U normal upper S normal i normal m Subscript upper A comma
+    upper U Baseline asterisk left-parenthesis r Subscript upper U comma i Baseline
+    minus r overbar Subscript upper A Baseline right-parenthesis Over sigma-summation
+    Underscript upper U element-of script upper N left-parenthesis upper A right-parenthesis
+    Endscripts normal upper U normal upper S normal i normal m Subscript upper A comma
+    upper U Baseline EndFraction" display="block"><mrow><msub><mi>Aff</mi> <mrow><mi>A</mi><mo>,</mo><mi>i</mi></mrow></msub>
+    <mo>=</mo> <msub><mover accent="true"><mi>r</mi> <mo>¯</mo></mover> <mi>A</mi></msub>
+    <mo>+</mo> <mfrac><mrow><msub><mo>∑</mo> <mrow><mi>U</mi><mo>∈</mo><mi>𝒩</mi><mo>(</mo><mi>A</mi><mo>)</mo></mrow></msub>
+    <msub><mi>USim</mi> <mrow><mi>A</mi><mo>,</mo><mi>U</mi></mrow></msub> <mo>*</mo><mrow><mo>(</mo><msub><mi>r</mi>
+    <mrow><mi>U</mi><mo>,</mo><mi>i</mi></mrow></msub> <mo>-</mo><msub><mover accent="true"><mi>r</mi>
+    <mo>¯</mo></mover> <mi>A</mi></msub> <mo>)</mo></mrow></mrow> <mrow><msub><mo>∑</mo>
+    <mrow><mi>U</mi><mo>∈</mo><mi>𝒩</mi><mo>(</mo><mi>A</mi><mo>)</mo></mrow></msub>
+    <msub><mi>USim</mi> <mrow><mi>A</mi><mo>,</mo><mi>U</mi></mrow></msub></mrow></mfrac></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: Feel free to assume that <math alttext="script upper N left-parenthesis upper
+    A right-parenthesis"><mrow><mi>𝒩</mi> <mo>(</mo> <mi>A</mi> <mo>)</mo></mrow></math>
+    is just the five nearest neighbors to <math alttext="upper A"><mi>A</mi></math>
+    with respect to user similarity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: DataLoaders
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: DataLoaders is a programming paradigm originating from PyTorch, but it has been
+    embraced in other gradient-optimized ML workflows. As we begin to integrate gradient-based
+    learning into our recommendation system architectures, we will face challenges
+    in our MLOps tooling. The first is related to training data size and available
+    memory. DataLoaders are a way to prescribe how data is batched and sent to the
+    training loop efficiently; as datasets get large, careful scheduling of these
+    training sets can have major effects on learning. But why must we think about
+    *batches* of data? That’s because we’ll use a variant of gradient descent appropriate
+    for large amounts of data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let’s review the basics of *mini-batched gradient descent*. During training
+    via gradient descent, we make a forward pass of our training sample through our
+    model to yield a prediction, and we then compute the error and the appropriate
+    gradient backward through our model to update parameters. Batched gradient descent
+    takes all our data in a single pass to compute the gradient for the training set
+    and push it back through; this implies you have the entire training dataset in
+    memory. As the dataset scales, this ranges from expensive to impossible; to avoid
+    this, we can instead compute gradients of the loss function for only a subset
+    of the dataset at a time. The simplest paradigm for this, called *stochastic gradient
+    descent* (SGD), computes these gradients and parameter updates one sample at a
+    time. The mini-batched version performs our batched gradient descent, but over
+    a series of subsets to form a partition of our dataset. In mathematical notation,
+    we write the update rule in terms of Jacobians on the smaller batches:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="theta equals theta minus eta asterisk nabla Subscript theta Baseline
+    upper J left-parenthesis theta semicolon x Superscript left-parenthesis i colon
+    i plus n right-parenthesis Baseline semicolon y Superscript left-parenthesis i
+    colon i plus n right-parenthesis Baseline right-parenthesis" display="block"><mrow><mi>θ</mi>
+    <mo>=</mo> <mi>θ</mi> <mo>-</mo> <mi>η</mi> <mo>*</mo> <msub><mi>∇</mi> <mi>θ</mi></msub>
+    <mi>J</mi> <mfenced close=")" open="(" separators=""><mi>θ</mi> <mo>;</mo> <msup><mi>x</mi>
+    <mrow><mo>(</mo><mi>i</mi><mo>:</mo><mi>i</mi><mo>+</mo><mi>n</mi><mo>)</mo></mrow></msup>
+    <mo>;</mo> <msup><mi>y</mi> <mrow><mo>(</mo><mi>i</mi><mo>:</mo><mi>i</mi><mo>+</mo><mi>n</mi><mo>)</mo></mrow></msup></mfenced></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: This optimization serves a few purposes. First, it requires only potentially
+    small subsets of our data held in memory during the steps. Second, it requires
+    far fewer passes than the purely iterative version in SGD. Third, the gradient
+    operating on these mini-batches can be organized as a Jacobian, and thus we have
+    linear-algebraic operations that may be highly optimized.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Jacobians
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The mathematical notion of a Jacobian in the simplest sense is an organizational
+    tool for a set of vector derivatives with relevant indexes. You may recall that
+    for functions of several variables, you can take the derivative *with respect
+    to* each of those variables. For a single multivariable scalar function, the Jacobian
+    is simply the row vector of first derivatives of the function—which happens to
+    be the transpose of the gradient.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is the simplest case; the gradient of a multivariable scalar function may
+    be written as a Jacobian. However, once we have a vector of (vector) derivatives,
+    we can write that as a matrix; the utility here is really only in the notation,
+    though. When you collect a series of multivariable scalar functions into a vector
+    of functions, the associated vector of gradients is a vector of vectors of derivatives.
+    This is called a *Jacobian matrix*, and it generalizes the gradient to vector-valued
+    functions. As you’ve likely realized, layers of neural networks are a great source
+    of vector-valued functions for which you’d like to derivate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you’re convinced mini-batches are useful, it’s time to discuss *DataLoaders*—a
+    simple PyTorch API for facilitating mini-batch access from a large dataset. The
+    key parameters for a DataLoader are `batch_size`, `shuffle`, and `num_workers`.
+    The batch size is easy to understand: it’s the number of samples included in each
+    batch (often an integer factor of the total size of the dataset). Often a shuffle
+    operation is applied in serving up these batches; the shuffle allows batches in
+    each epoch to be shown to the network in a randomized order; this is intended
+    to improve robustness. Finally, `num_workers` is a parallelization parameter for
+    the CPU’s batch generation.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The utility of a DataLoader is really best understood via demonstration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first important detail in this code is that any of its generators will be
+    reading in mini-batches from your total dataset and can be instructed to load
+    those batches in parallel. Note also that any differential steps in the model
+    computations will now be operating on these mini-batches.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s easy to think of DataLoaders as merely a tool for code cleanliness (which,
+    admittedly, it does improve), but it’s important to not underestimate how the
+    control of batch order, parallelization, and shape are significant features for
+    training your model. Lastly, the structure of your code now looks like batch gradient
+    descent, but it is taking advantage of mini-batching, further exposing what your
+    code actually does instead of the steps necessary to do it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Database Snapshots
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Let’s round out this section by stepping back from these fancy technologies
+    to discuss something important and classic: snapshotting a production database.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An extremely likely scenario is that the engineers (potentially also you) who
+    have built the recommendations server are writing their logs and other application
+    data to an SQL database. More likely than not, this database architecture and
+    deployment are optimized for fast querying by the application across its most
+    common use cases. As we’ve discussed, those logs may be in an event-style schema,
+    and there are other tables that may require aggregation and roll-up to make any
+    sense. For example, a *current inventory* table may require knowledge of start-of-day
+    inventory and then aggregate a list of purchase events.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All told, the production SQL database is usually a crucial component in the
+    stack that’s geared to specific use. As the downstream consumer of this data,
+    you may find yourself wanting different schemas, wanting lots of access to this
+    database, and performing serious operations on this data. The most common paradigm
+    is *database snapshotting*. Snapshotting is a functionality provided by various
+    flavors of SQL to performantly make a clone of a database. While this snapshotting
+    may take form in a variety of ways, let’s focus on a few that serve to simplify
+    our systems and ensure they have the necessary data on hand:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A daily table snapshot may be tied to an `as_of` field, or *the state of this
+    table on this day*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A daily table snapshot may be limited by time to see *what records have been
+    added today*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An event table snapshot may be used to feed a set of events into an event stream
+    processor like Segment (note that you may also set up live event streams like
+    Kafka).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An hourly aggregated table can be used for status logging or monitoring.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In general, the paradigm is usually to operate on snapshots for downstream data
+    processing. Many of the kinds of data processing we mentioned earlier—like computing
+    user similarity—are operations that may require significant data reads. *It’s
+    important to not build ML applications that require extensive querying on the
+    production database*, because doing so would likely decrease performance of the
+    app and result in a slower user experience. This decrease will undermine the improvement
+    made possible by your recommendations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once you’ve snapshotted the tables you’re interested in, you can often find
+    a collection of data pipelines useful to transform that data into even more specific
+    tables in your *data warehouse* (where you should be doing most of your work anyway).
+    Tools like Dagster, dbt, Apache Airflow, Argo, and Luigi are popular data-pipeline
+    and workflow orchestration tools for extract, transform, load (ETL) operations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data Structures for Learning and Inference
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This section introduces three important data structures that will enable our
+    recommendation system to perform complex operations quickly. The goal of each
+    structure is to sacrifice precision as little as possible, while speeding up access
+    to the data in real time. As you’ll see, these data structures form the backbone
+    of the real-time inference pipeline and approximate what takes place in the batch
+    pipeline as accurately as possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The three data structures are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Vector search/ANN index
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Bloom filters for candidate filtering
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Feature stores
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: So far, we’ve discussed the necessary components for getting data flowing in
+    your system. These help organize data to make it more accessible during the learning
+    and inference processes. Also, we’ll find some shortcuts to speed up inference
+    during retrieval. Vector search will allow us to identify similar items at scale.
+    Bloom filters will allow us to rapidly evaluate many criteria for excluding results.
+    Feature stores will provide us with necessary data about users for recommendation
+    inference.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Vector Search
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We have discussed user similarity and item similarity in terms of understanding
+    the relationships between those entities, but we haven’t talked about any *acceleration
+    structures* for these processes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First let’s discuss a bit of terminology;. If we think of a collection of vectors
+    that represent entities with a similarity metric provided by a distance function,
+    we refer to this as a *latent space.* The simple goal is to utilize our latent
+    space and its associated similarity metric (or complementary distance metric)
+    to be able to retrieve *similar* items quickly. In our previous examples with
+    similarity, we talked about neighborhoods of users and how they can be utilized
+    to build an affinity score between users and unseen items. But how do you find
+    the neighborhood?
+  prefs: []
+  type: TYPE_NORMAL
+- en: To understand this, recall that we defined neighborhoods of an element <math
+    alttext="x"><mi>x</mi></math> , written <math alttext="script upper N left-parenthesis
+    x right-parenthesis"><mrow><mi>𝒩</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo></mrow></math>
+    , as the set of <math alttext="k"><mi>k</mi></math> elements in the latent space
+    with the maximum similarity; or said differently, the set of <math alttext="j"><mi>j</mi></math>
+    th order statistics for <math alttext="j less-than-or-equal-to k"><mrow><mi>j</mi>
+    <mo>≤</mo> <mi>k</mi></mrow></math> from the sample of item similarities to <math
+    alttext="x"><mi>x</mi></math> . These *<math alttext="k"><mi>k</mi></math> -nearest
+    neighbors*, as they’re often called, will be used as the set of elements considered
+    similar to <math alttext="x"><mi>x</mi></math> .
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These vectors from CF yield a few other useful side effects:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A simple recommender that randomly samples unseen items from a user neighborhood’s
+    liked items
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Predictions about features of a user, from known features of users in the neighborhood
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: User segmentation via taste similarity
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: So how can we speed up these processes? One of the first significant improvements
+    in this area came from inverted indices. Utilizing inverted indices is at its
+    core carefully constructing a large hash between tokens of the query (for text-based
+    search) and the candidates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This approach is great for tokenizable entities like sentences or small-lexicon
+    collections. Given the ability to look up items that share one or many tokens
+    with the query, you can even use a general latent embedding to rank the candidate
+    responses by similarity. This approach deserves extra consideration as you scale:
+    it incurs a speed cost because it entails two steps, and because the similarity
+    distribution may not be well correlated with the token similarity required to
+    return many more candidates than we need.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Classic approaches to building a search system are based on large lookup tables
+    and feel deterministic. As we move toward ANN lookup, we want to relax some of
+    that strong deterministic behavior and introduce data structures that make assumptions
+    to *prune* these large indices. Instead of building indices for only tokenizable
+    components of your elements, you could precompute the *k*-d tree and use the indices
+    as the index. The *k*-d tree would precompute the nearest neighbors in a batch
+    process (which may be slow), to populate a top-*k* response for fast lookup. *k*-d
+    trees are an efficient data structure for encoding the preceding neighborhoods
+    but are notoriously slow to read from in higher dimensions. Using them instead
+    to build inverted indices, though, can be a great improvement.
+  prefs: []
+  type: TYPE_NORMAL
+- en: More recently, explicitly using vector databases with vector search is becoming
+    much more possible and feasible. Elasticsearch has added this capability; [Faiss](https://oreil.ly/AZ-Ai)
+    is a Python library that helps you implement this functionality in your systems;
+    [Pinecone](https://oreil.ly/LSaos) is a vector-database system explicitly targeting
+    this goal; and [Weaviate](https://oreil.ly/Z6la_) is a native vector-database
+    architecture that allows you to layer the previous token-based inverted indices
+    and vector similarity search.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Approximate Nearest Neighbors
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: What are this element’s *k*-nearest neighbors? Incredibly, approximate nearest
+    neighbors (ANN) can get very high accuracy compared to the actual nearest neighbors,
+    and you get there faster with head-spinning speedups. You often are satisfied
+    with approximate solutions to these problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One open source library that specializes in these approximations is [PyNNDescent](https://oreil.ly/i5LyM),
+    which uses clever speedups via both optimized implementation and careful mathematical
+    tricks. With ANN, you are opened up to two strategies as discussed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The pre-index can be dramatically improved.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: On queries without a pre-indexing option, you can still expect good performance.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In practice, these similarity lookups are incredibly important for making your
+    applications actually work. While we’ve mostly talked about recommendations for
+    full known catalogs of items, we cannot assume this in other recommendation contexts.
+    These include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Query-based recommendations (like search)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Contextual recommendations
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Cold-starting new items
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'As we go, you will see more and more references to similarity in spaces and
+    nearest neighbors; at each of those moments, think: “I know how to make this fast!”'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bloom Filters
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '*Bloom filters* are probabilistic data structures that allow us to test for
+    set inclusion very efficiently but with a downside: set exclusion is deterministic,
+    but set inclusion is probabilistic. *In practice, this means that asking the question
+    “Is <math alttext="x"><mi>x</mi></math> in this set” never results in a false
+    negative but may result in a false positive!* Note that this type-I error increases
+    as the size of the bloom increases.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Via vector search, we have identified a large pool of potential recommendations
+    for the user. From this pool, we need to do some immediate elimination. The most
+    obvious type of high-level filtering that’s essential is to remove those items
+    that the *user has previously not shown interest in or has already purchased.*
+    You’ve probably had the experience of being recommended the same item, over and
+    over, and thinking, “I don’t want this; stop showing me this.” From the simple
+    CF models we’ve introduced, you may now see why this could happen.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The system has identified a set of items via CF that you’re more likely to
+    pick. Without any outside influence, those computations will continue to return
+    the same results, and you’ll never escape those recommendations. As the system
+    designer, you may start with a heuristic:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the user has seen this item recommended three times and never clicked, let’s
+    not show it to them anymore.
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: This is a totally reasonable strategy to improve *freshness* (the idea of ensuring
+    users see new item recommendations) in your recommendation system. While this
+    is a simple strategy to improve your recommendations, how might you implement
+    this at scale?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A bloom filter may be used by defining the sets in question with the following:
+    “Has this user seen this item recommended three times and never clicked?” Bloom
+    filters have a caveat that they’re additive only: once something is in the bloom,
+    you can’t remove it. This is not a problem when observing a binary state like
+    this heuristic.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s construct a user-item ID to use as our hash in the bloom. Remember that
+    the key feature of the bloom filter is to quickly determine whether the hashed
+    item is in the bloom. When we observe a user-item pair that satisfies the preceding
+    criteria, take that pair as an ID and hash it. Now, because that hashed pair can
+    be easily reconstructed from a list of items for a user, we have a very fast way
+    to filter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s discuss a few technical details on this topic. First, you might want to
+    do a variety of kinds of filtering—maybe freshness is one, and another may be
+    items the user has already bought, and a third could exclude items that have sold
+    out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Here it would be good to implement each of these filters independently; the
+    first two can follow our user-item ID hashing as before, and the third one can
+    be a hash only on item IDs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another consideration is populating the bloom filters. It’s best practice to
+    build these blooms from a database during the offline batch jobs. On whatever
+    schedule your batch training is run, rebuild your blooms from the records storage
+    to ensure you’re keeping your blooms accurate. Remember that blooms don’t allow
+    deletion, so in the previous example, if an item goes from sold out to restocked,
+    your batch refresh of your blooms can pick up the availability again. In between
+    batch retraining, adding to a bloom is also very performant, so you can continue
+    to add to the bloom as you observe more data that needs to be considered for the
+    filtering in real time. Be sure these transactions are logged to a table, though!
+    That logging will be important when you want to refresh.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Fun Aside: Bloom Filters as the Recommendation System'
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Bloom filters not only provide an effective way to eliminate some recommendations
+    based on conditions for inclusion, but can also be used to do the recommending
+    itself! In particular, [“An Item/User Representation for Recommender Systems Based
+    on Bloom Filters”](https://oreil.ly/VsvN2) by Manuel Pozo et al. shows that for
+    high-dimensional feature sets with a lot of sparsity (as we discussed in [Chapter 3](ch03.html#ch:math)),
+    the type of hashing bloom filters do can help overcome some of the key challenges
+    in defining good similarity functions!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s observe that we can do two natural operations on sets via the bloom filter
+    data structures. First, consider two sets <math alttext="upper A"><mi>A</mi></math>
+    and <math alttext="upper B"><mi>B</mi></math> , and associate to them bloom filters
+    <math alttext="script upper B script upper F Subscript upper A"><msub><mi>ℬℱ</mi>
+    <mi>A</mi></msub></math> and <math alttext="script upper B script upper F Subscript
+    upper B"><msub><mi>ℬℱ</mi> <mi>B</mi></msub></math> . Then what’s the definition
+    of <math alttext="upper A intersection upper B"><mrow><mi>A</mi> <mo>∩</mo> <mi>B</mi></mrow></math>
+    ? Can we come up with a bloom filter for this intersection? Yep! Recall that our
+    bloom filters are guaranteed to tell us when an element is not contained in the
+    set, but if an element is in the set, the bloom filter can respond with only a
+    certain probability. In this case, we’d simply look for elements that are *in*
+    according to <math alttext="script upper B script upper F Subscript upper A"><msub><mi>ℬℱ</mi>
+    <mi>A</mi></msub></math> *AND* *in* according to <math alttext="script upper B
+    script upper F Subscript upper B"><msub><mi>ℬℱ</mi> <mi>B</mi></msub></math> .
+    Of course, the set of items returned as *in* each set is larger than the actual
+    set (i.e., <math alttext="upper A subset-of script upper B script upper F Subscript
+    upper A"><mrow><mi>A</mi> <mo>⊂</mo> <msub><mi>ℬℱ</mi> <mi>A</mi></msub></mrow></math>
+    ), so the intersection will also be larger:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="upper A intersection upper B subset-of script upper B script
+    upper F Subscript upper A intersection script upper B script upper F Subscript
+    upper B" display="block"><mrow><mi>A</mi> <mo>∩</mo> <mi>B</mi> <mo>⊂</mo> <msub><mi>ℬℱ</mi>
+    <mi>A</mi></msub> <mo>∩</mo> <msub><mi>ℬℱ</mi> <mi>B</mi></msub></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that you can compute the exact difference in cardinality via information
+    about your choice of hashing functions. Also note that the equation is an abuse
+    of notation by calling <math alttext="script upper B script upper F Subscript
+    upper A"><msub><mi>ℬℱ</mi> <mi>A</mi></msub></math> the set of things returned
+    by the bloom filter corresponding to <math alttext="upper A"><mi>A</mi></math>
+    .
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Second, we also need to construct the union. This is similarly easy by considering
+    elements that are *in* according to <math alttext="script upper B script upper
+    F Subscript upper A"><msub><mi>ℬℱ</mi> <mi>A</mi></msub></math> *OR* *in* according
+    to <math alttext="script upper B script upper F Subscript upper B"><msub><mi>ℬℱ</mi>
+    <mi>B</mi></msub></math> . And so, similarly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="upper A union upper B subset-of script upper B script upper F
+    Subscript upper A union script upper B script upper F Subscript upper B" display="block"><mrow><mi>A</mi>
+    <mo>∪</mo> <mi>B</mi> <mo>⊂</mo> <msub><mi>ℬℱ</mi> <mi>A</mi></msub> <mo>∪</mo>
+    <msub><mi>ℬℱ</mi> <mi>B</mi></msub></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, if we consider items <math alttext="upper X"><mi>X</mi></math> and <math
+    alttext="upper Y"><mi>Y</mi></math> as concatenated vectors of potentially many
+    features, and hash those concatenated features, we are representing each of them
+    as the bitwise vectors of our bloom. From before, we saw that the intersection
+    of two blooms makes sense, and in fact is equivalent to the bitwise *AND* of their
+    bloom representations. This means two items’ feature similarities can be expressed
+    by the bitwise *and* similarity of their bloom hashes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="normal s normal i normal m left-parenthesis upper X comma upper
+    Y right-parenthesis equals StartAbsoluteValue script upper B script upper F left-parenthesis
+    upper X right-parenthesis intersection script upper B script upper F left-parenthesis
+    upper Y right-parenthesis EndAbsoluteValue equals script upper B script upper
+    F left-parenthesis upper X right-parenthesis asterisk Subscript normal b normal
+    i normal t normal w normal i normal s normal e Baseline script upper B script
+    upper F left-parenthesis upper X right-parenthesis" display="block"><mrow><mi>sim</mi>
+    <mrow><mo>(</mo> <mi>X</mi> <mo>,</mo> <mi>Y</mi> <mo>)</mo></mrow> <mo>=</mo>
+    <mrow><mo>|</mo> <mi>ℬℱ</mi> <mrow><mo>(</mo> <mi>X</mi> <mo>)</mo></mrow> <mo>∩</mo>
+    <mi>ℬℱ</mi> <mrow><mo>(</mo> <mi>Y</mi> <mo>)</mo></mrow> <mo>|</mo></mrow> <mo>=</mo>
+    <mi>ℬℱ</mi> <mrow><mo>(</mo> <mi>X</mi> <mo>)</mo></mrow> <msub><mo>*</mo> <mi>bitwise</mi></msub>
+    <mi>ℬℱ</mi> <mrow><mo>(</mo> <mi>X</mi> <mo>)</mo></mrow></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: For static datasets, this method has real advantages, including speed, scalability,
+    and performance. Limitations are based on a variety of features and on the ability
+    to change the set of possible items. Later we will discuss *locally sensitive
+    hashing*, which further iterates on lookup speed with lower risks of collision
+    in high-dimensional spaces, and some similar ideas will reemerge.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Feature Stores
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: So far, we have focused on recommendation systems that we might call *pure collaborative
+    filtering*. We’ve made use of the user- or item-similarity data only when attempting
+    to make good recommendations. If you’ve been wondering, “Hey, what about information
+    about the actual users and items?” your curiosity will now be sated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are a huge variety of reasons you could be interested in features in
+    addition to your previous CF methods. Let’s list a few high-level concerns:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You may wish to show new users a specific set of items first.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You may wish to consider geographic boundaries in your recommendations.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Distinguishing between children and adults may be important for the types of
+    recommendations they’re given.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Item features may be used to ensure high-level diversity in the recommendations
+    (more to come in [Chapter 15](ch15.html#Diversity)).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: User features can enable various kinds of experimental testing.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Item features could be used to group items into sets for contextual recommendations
+    (more to come in [Chapter 15](ch15.html#Diversity)).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In addition to these issues, another kind of feature is often essential: real-time
+    features. While the point of feature stores is to provide real-time access to
+    all the necessary features, it’s worthwhile to distinguish stable features that
+    change infrequently from real-time features that we anticipate will change often.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some important examples of a real-time feature store are dynamic prices, current
+    item availability, *trending* status, wish-list status, and so on. These features
+    may change throughout the day, and we want their values in the feature store to
+    be mutable in real-time via other services and systems. Therefore, the real-time
+    feature store will need to provide API access for feature mutation. This is something
+    you may not want to provide for *stable* features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we design our feature store, we’re likely to want the stable features to
+    be built from data warehouse tables via ETLs and transformations, and we likely
+    want the real-time features to be built this way as well, but on a faster schedule
+    or allowing API access for mutation. In either case, the key quality of a feature
+    store is *very fast read access*. It’s often a good idea to separately build feature
+    stores for offline training of models that can be built in test to ensure support
+    for new models.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So how might the architecture and implementation look? See [Figure 6-3](#fig:feat-store).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Feature Store](assets/brpj_0603.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6-3\. Demonstration of a feature store
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: 'Designing a feature store involves designing pipelines that define and *transform
+    the features into that store* (coordinated via things like Airflow, Luigi, Argo,
+    etc.) and often look similar to the type of data pipelines used in building our
+    collector. One additional complication that the feature store needs to concern
+    itself with is a speed layer. During our discussion of the lambda architecture
+    earlier in this chapter, we mentioned that we can think of batch data processing
+    for the collector and a more rapid speed layer for intermediary updates, but this
+    is even more important for the feature store. The feature store may also need
+    a *streaming layer*. This layer operates on continuous streams of data and can
+    perform data transformations on those; it then writes the appropriate output to
+    the online feature store in real time. This adds complexity because data transformations
+    on streaming data present a very different set of challenges and often require
+    different algorithmic strategies. Some technologies that help here are Spark Streaming
+    and Kinesis. You’ll also need to configure the system to properly handle the data
+    stream, the most common of which is Kafka. Data streaming layers involve many
+    components and architectural considerations that fall outside our scope; if you’re
+    considering getting started with Kafka, check out [*Kafka: The Definitive Guide*](https://www.oreilly.com/library/view/kafka-the-definitive/9781492043072/)
+    by Gwen Shapira et al. (O’Reilly).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A feature store also needs a *storage layer*; many approaches exist here, but
+    using a NoSQL database is common, especially in the online feature store. The
+    reason is faster retrieval and the nature of the data storage. Feature stores
+    for recommendation systems tend to be very key based (i.e., *get the features
+    for this user*, or *get the features for this item*), which lend themselves well
+    to key-value stores. Some example technologies here are DynamoDB, Redis, and Cassandra.
+    The storage layer for an offline feature store may simply be an SQL-style database
+    to reduce complexity, but instead you’ll pay a tax of a delta between offline
+    and online. This delta and others like it are called [*training-serving skew*](https://oreil.ly/IcE1R).
+  prefs: []
+  type: TYPE_NORMAL
+- en: A unique but essential aspect of feature stores is the *registry*. A registry
+    is incredibly useful for a feature store because it coordinates existing features
+    and information on how they’re defined. A more sophisticated instance of a registry
+    also includes input and output schemas with typing, and distributional expectations.
+    These are contracts that the data pipelines must adhere to and satisfy to avoid
+    populating your feature store with garbage data. Additionally, the registry’s
+    definitions allow parallel data scientists and ML engineers to develop new features,
+    use one another’s features, and generally understand the assumptions of features
+    their models may utilize.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One important advantage of these registries is that they incentivize alignment
+    between teams and developers. In particular, if you decide you care about *country*
+    for your user, and you see a feature *country* in the registry, you’re more likely
+    to use that (or ask the developer who’s assigned to this feature in the registry)
+    than to make a new one from scratch. Practically, data scientists make hundreds
+    of small decisions and assumptions when defining their models, and this removes
+    some of that load that’s relying on the existing resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Model Registries
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A closely related concept to feature registries is model registries. The concepts
+    have a lot in common, but we caution you to think of them differently. A great
+    model registry can have type contracts for the input and output of your models,
+    and can serve many of the same benefits around alignment and clarity. A feature
+    registry should really be focused on definitions of the business logic and features.
+    Because feature engineering can also be model driven, speaking clearly about the
+    differences between these two things can be challenging, so to sum it up, we’ll
+    focus on what they serve: a model registry concerns itself with ML models and
+    the relevant metadata, whereas a feature registry concerns itself with features
+    that models will use.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we need to talk about *serving* these features. Backed by the appropriately
+    performant storage layer, we need to serve via API request the necessary feature
+    vectors. Those feature vectors are details about the user that the model will
+    need when serving recommendations—for example, the user’s location or content
+    age restrictions. The API can serve back the entire set of features for the key
+    or allow for more specification. Often the responses are JSON serialized for fast
+    data transfer. It’s important that the features being served are the *most up-to-date
+    set of features*, and latency here is expected to be < 100 ms for more serious
+    industrial applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One important caveat here is that for offline training, these feature stores
+    need to accommodate *time travel*. Because our goal during training is to give
+    the model the appropriate data to learn in the *most generalizable way*, when
+    training our model, it’s crucial to not give it access to features out of time.
+    This is called *data leakage* and can cause massive divergence in performance
+    between training and production. The feature store for offline training thus must
+    have knowledge of the features through time, so that during training, a time index
+    may be provided to get the features as they were then. These `as_of` keys can
+    be tied to the historical training data as we *replay* the history of what the
+    user-item interactions looked like.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With these pieces in place—and the important monitoring this system needs—you’ll
+    be able to serve offline and online features to your models. In [Part III](part03.html#ranking),
+    you will see model architectures that make use of them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We’ve discussed not only the crucial components necessary to hydrate your system
+    and serve recommendations, but also some of the engineering building blocks needed
+    to make those components a reality. Equipped with data loaders, embeddings, feature
+    stores, and retrieval mechanisms, we are ready to start constructing our pipeline
+    and system topology.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we’ll focus our sights on MLOps and the rest of the engineering
+    work required to build and iterate on these systems. It’s going to be important
+    for us to think carefully about deployment and monitoring so our recommendation
+    systems are constrained to life in IPython Notebooks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Continue onward to see the architectural considerations to move to production.
+  prefs: []
+  type: TYPE_NORMAL

@@ -1,0 +1,1114 @@
+- en: Chapter 9\. Feature-Based and Counting-Based Recommendations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Consider this oversimplified problem: given a bunch of new users, predict which
+    will like our new mega-ultra-fancy-fun-item-of-novelty, or MUFFIN for short. You
+    may start by asking which old users like MUFFIN; do those users have any aspects
+    in common? If so, you could build a model that predicts MUFFIN affinity from those
+    correlated user features.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Alternatively, you could ask, “What are other items people buy with MUFFIN?”
+    If you find that others frequently also ask for JAM (just-awesome-merch), then
+    MUFFIN may be a good suggestion for those who already have JAM. This would be
+    using the co-occurrence of MUFFIN and JAM as a predictor. Similarly, if your friend
+    comes along with tastes similar to yours—you both like SCONE, JAM, BISCUIT, and
+    TEA—but your friend hasn’t yet had the MUFFIN, if you like MUFFIN, it’s probably
+    a good choice for your friend too. This is using the co-occurrence of items between
+    you and your friend.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These item relationship features will form our first ranking methods in this
+    chapter; so grab a tasty snack and let’s dig in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bilinear Factor Models (Metric Learning)
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As per the usual idioms about running in front of horses and walking after the
+    cart, let’s start our journey into ranking systems with what can be considered
+    the *naive* ML approaches. Via these approaches, we will start to get a sense
+    of where the rub lies in building recommendation systems and why some of the forthcoming
+    efforts are necessary at all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s begin again with our basic premise of recommendation problems: to estimate
+    ratings of item <math alttext="x"><mi>x</mi></math> by user <math alttext="i"><mi>i</mi></math>
+    written as <math alttext="r Subscript i comma x"><msub><mi>r</mi> <mrow><mi>i</mi><mo>,</mo><mi>x</mi></mrow></msub></math>
+    . *Note the slight change in notation from earlier for reasons that will become
+    clear momentarily.* In a usual ML paradigm, we might claim that estimating this
+    score is done via properties of the item and the user, and frequently those properties
+    would be described as features, and thus <math alttext="bold i"><mi>𝐢</mi></math>
+    and <math alttext="bold x"><mi>𝐱</mi></math> can be the user and item vectors,
+    respectively, composed of these features.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, we consider user <math alttext="i"><mi>i</mi></math> with their collection
+    of previously interacted-with items <math alttext="script upper R Subscript i"><msub><mi>ℛ</mi>
+    <mi>i</mi></msub></math> , and consider <math alttext="script upper I equals StartSet
+    bold x vertical-bar x element-of script upper R Subscript i Baseline EndSet"><mrow><mi>ℐ</mi>
+    <mo>=</mo> <mo>{</mo> <mi>𝐱</mi> <mo>|</mo> <mi>x</mi> <mo>∈</mo> <msub><mi>ℛ</mi>
+    <mi>i</mi></msub> <mo>}</mo></mrow></math> the set of vectors associated to those
+    items in this feature space. We can then map this collection of vectors to a representation
+    to yield a *content-based feature vector for <math alttext="i"><mi>i</mi></math>
+    .* [Figure 9-1](#fig:content-feature-vector) illustrates an example mapping.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Map a user''s read books to a single feature vector](assets/brpj_0901.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9-1\. Content-to-feature vector
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: This extremely simple approach can turn a collection of item features and user-item
+    interactions into features of the user. Much of the following will be increasingly
+    rich ways of doing this. Thinking very hard about the map, the features, and the
+    requirements for *interaction* yields many of the key insights in the rest of
+    the book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s take the preceding mapping, <math alttext="bold i colon equals upper F
+    left-parenthesis script upper I right-parenthesis"><mrow><mi>𝐢</mi> <mo>:</mo>
+    <mo>=</mo> <mi>F</mi> <mfenced close=")" open="("><mi>ℐ</mi></mfenced></mrow></math>
+    , to be a simple aggregation like dimension-wise average. Then recognize that
+    the mapping will provide a vector of the same dimension as the items. Now we have
+    a user vector in the same “space” as the items, and we can ask a similarity question
+    as we did in our discussion of latent space in [Chapter 3](ch03.html#ch:math).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We need to move back to the mathematical framings to set up how to use these
+    vectors. Ultimately, we’re now in a latent space with users and items, but how
+    can we do anything with that? Well you may already remember how to compare vector
+    similarity. Let’s define the similarity to be *cosine-similarity*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="s i m left-parenthesis bold i comma bold x right-parenthesis
+    equals StartFraction bold i dot bold x Over StartAbsoluteValue bold i EndAbsoluteValue
+    asterisk StartAbsoluteValue bold x EndAbsoluteValue EndFraction" display="block"><mrow><mi>s</mi>
+    <mi>i</mi> <mi>m</mi> <mrow><mo>(</mo> <mi>𝐢</mi> <mo>,</mo> <mi>𝐱</mi> <mo>)</mo></mrow>
+    <mo>=</mo> <mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mi>𝐢</mi><mo>·</mo><mi>𝐱</mi></mrow>
+    <mrow><mfenced close="|" open="|"><mi>𝐢</mi></mfenced><mo>*</mo><mfenced close="|"
+    open="|"><mi>𝐱</mi></mfenced></mrow></mfrac></mstyle></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we precompose our similarity with vector normalization, this is simply the
+    inner product—*and this is an essential first step toward recommendation systems*.
+    For convenience, let’s always assume this space we’re working in is after normalization,
+    so all similarity measures are done on the unit sphere:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="r Subscript i comma x Baseline tilde s i m left-parenthesis bold
+    i comma bold x right-parenthesis equals sigma-summation Underscript k Endscripts
+    bold i Subscript k Baseline asterisk bold x Subscript k" display="block"><mrow><msub><mi>r</mi>
+    <mrow><mi>i</mi><mo>,</mo><mi>x</mi></mrow></msub> <mo>∼</mo> <mi>s</mi> <mi>i</mi>
+    <mi>m</mi> <mrow><mo>(</mo> <mi>𝐢</mi> <mo>,</mo> <mi>𝐱</mi> <mo>)</mo></mrow>
+    <mo>=</mo> <munder><mo>∑</mo> <mi>k</mi></munder> <msub><mi>𝐢</mi> <mi>k</mi></msub>
+    <mo>*</mo> <msub><mi>𝐱</mi> <mi>k</mi></msub></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This now approximates our ratings. But wait, dear reader, where are the learnable
+    parameters? Let’s go ahead and make this a weighted summation, via a diagonal
+    matrix <math alttext="upper A"><mi>A</mi></math> :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="r Subscript i comma x Baseline tilde s i m Superscript upper
+    A Baseline left-parenthesis bold i comma bold x right-parenthesis equals sigma-summation
+    Underscript k Endscripts a Subscript k Baseline asterisk bold i Subscript k Baseline
+    asterisk bold x Subscript k" display="block"><mrow><msub><mi>r</mi> <mrow><mi>i</mi><mo>,</mo><mi>x</mi></mrow></msub>
+    <mo>∼</mo> <mi>s</mi> <mi>i</mi> <msup><mi>m</mi> <mi>A</mi></msup> <mrow><mo>(</mo>
+    <mi>𝐢</mi> <mo>,</mo> <mi>𝐱</mi> <mo>)</mo></mrow> <mo>=</mo> <munder><mo>∑</mo>
+    <mi>k</mi></munder> <msub><mi>a</mi> <mi>k</mi></msub> <mo>*</mo> <msub><mi>𝐢</mi>
+    <mi>k</mi></msub> <mo>*</mo> <msub><mi>𝐱</mi> <mi>k</mi></msub></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This slight generalization already puts us in the world of statistical learning.
+    You can probably already see how <math alttext="upper A"><mi>A</mi></math> can
+    be used to learn which of the dimensions in this space are most important for
+    approximating the ratings, but before we make that precise, let’s generalize yet
+    once more:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="r Subscript i comma x Baseline tilde s i m Superscript upper
+    A Baseline left-parenthesis bold i comma bold x right-parenthesis equals sigma-summation
+    Underscript k comma l Endscripts a Subscript k l Baseline asterisk bold i Subscript
+    k Baseline asterisk bold x Subscript l" display="block"><mrow><msub><mi>r</mi>
+    <mrow><mi>i</mi><mo>,</mo><mi>x</mi></mrow></msub> <mo>∼</mo> <mi>s</mi> <mi>i</mi>
+    <msup><mi>m</mi> <mi>A</mi></msup> <mrow><mo>(</mo> <mi>𝐢</mi> <mo>,</mo> <mi>𝐱</mi>
+    <mo>)</mo></mrow> <mo>=</mo> <munder><mo>∑</mo> <mrow><mi>k</mi><mo>,</mo><mi>l</mi></mrow></munder>
+    <msub><mi>a</mi> <mrow><mi>k</mi><mi>l</mi></mrow></msub> <mo>*</mo> <msub><mi>𝐢</mi>
+    <mi>k</mi></msub> <mo>*</mo> <msub><mi>𝐱</mi> <mi>l</mi></msub></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This nets us even more parameters! We see that now <math alttext="s i m Superscript
+    upper A Baseline left-parenthesis bold i comma bold x right-parenthesis equals
+    bold i upper A bold x"><mrow><mi>s</mi> <mi>i</mi> <msup><mi>m</mi> <mi>A</mi></msup>
+    <mrow><mo>(</mo> <mi>𝐢</mi> <mo>,</mo> <mi>𝐱</mi> <mo>)</mo></mrow> <mo>=</mo>
+    <mi>𝐢</mi> <mi>A</mi> <mi>𝐱</mi></mrow></math> , and we are only one step away
+    from the familiar ground of linear regression. Currently, our model is in the
+    form of a *bilinear regression*, so let’s utilize a little linear algebra. For
+    the sake of exposition, let <math alttext="bold i element-of double-struck upper
+    R Superscript n"><mrow><mi>𝐢</mi> <mo>∈</mo> <msup><mi>ℝ</mi> <mi>n</mi></msup></mrow></math>
+    , <math alttext="bold x element-of double-struck upper R Superscript m"><mrow><mi>𝐱</mi>
+    <mo>∈</mo> <msup><mi>ℝ</mi> <mi>m</mi></msup></mrow></math> , and <math alttext="upper
+    A element-of double-struck upper R Superscript n times m"><mrow><mi>A</mi> <mo>∈</mo>
+    <msup><mi>ℝ</mi> <mrow><mi>n</mi><mo>×</mo><mi>m</mi></mrow></msup></mrow></math>
+    , and then we have this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="bold vect left-parenthesis bold i asterisk bold x Superscript
+    upper T Baseline right-parenthesis element-of double-struck upper R Superscript
+    n asterisk m" display="block"><mrow><mi>𝐯𝐞𝐜𝐭</mi> <mfenced close=")" open="("
+    separators=""><mi>𝐢</mi> <mo>*</mo> <msup><mi>𝐱</mi> <mi>T</mi></msup></mfenced>
+    <mo>∈</mo> <msup><mi>ℝ</mi> <mrow><mi>n</mi><mo>*</mo><mi>m</mi></mrow></msup></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can simplify to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="s i m Superscript upper A Baseline left-parenthesis bold i comma
+    bold x right-parenthesis equals bold i upper A bold x equals bold vect left-parenthesis
+    bold i asterisk bold x Superscript upper T Baseline right-parenthesis asterisk
+    bold vect left-parenthesis upper A right-parenthesis" display="block"><mrow><mi>s</mi>
+    <mi>i</mi> <msup><mi>m</mi> <mi>A</mi></msup> <mrow><mo>(</mo> <mi>𝐢</mi> <mo>,</mo>
+    <mi>𝐱</mi> <mo>)</mo></mrow> <mo>=</mo> <mi>𝐢</mi> <mi>A</mi> <mi>𝐱</mi> <mo>=</mo>
+    <mi>𝐯𝐞𝐜𝐭</mi> <mfenced close=")" open="(" separators=""><mi>𝐢</mi> <mo>*</mo>
+    <msup><mi>𝐱</mi> <mi>T</mi></msup></mfenced> <mo>*</mo> <mi>𝐯𝐞𝐜𝐭</mi> <mfenced
+    close=")" open="("><mi>A</mi></mfenced></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we make up notation for the right-hand side, you’ll find your friend linear
+    regression waiting for you:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="bold v Subscript i x Baseline colon equals bold vect left-parenthesis
+    bold i asterisk bold x Superscript upper T Baseline right-parenthesis comma beta
+    colon equals bold vect left-parenthesis upper A right-parenthesis" display="block"><mrow><msub><mi>𝐯</mi>
+    <mrow><mi>i</mi><mi>x</mi></mrow></msub> <mo>:</mo> <mo>=</mo> <mi>𝐯𝐞𝐜𝐭</mi> <mfenced
+    close=")" open="(" separators=""><mi>𝐢</mi> <mo>*</mo> <msup><mi>𝐱</mi> <mi>T</mi></msup></mfenced>
+    <mo>,</mo> <mi>β</mi> <mo>:</mo> <mo>=</mo> <mi>𝐯𝐞𝐜𝐭</mi> <mfenced close=")" open="("><mi>A</mi></mfenced></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Thus:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="r Subscript i comma x Baseline tilde s i m Superscript upper
+    A Baseline left-parenthesis bold i comma bold x right-parenthesis equals bold
+    v Subscript i x Baseline beta" display="block"><mrow><msub><mi>r</mi> <mrow><mi>i</mi><mo>,</mo><mi>x</mi></mrow></msub>
+    <mo>∼</mo> <mi>s</mi> <mi>i</mi> <msup><mi>m</mi> <mi>A</mi></msup> <mrow><mo>(</mo>
+    <mi>𝐢</mi> <mo>,</mo> <mi>𝐱</mi> <mo>)</mo></mrow> <mo>=</mo> <msub><mi>𝐯</mi>
+    <mrow><mi>i</mi><mi>x</mi></mrow></msub> <mi>β</mi></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: With this computation behind us, we see that whether we wish to compute binary
+    ratings, ordinal ratings, or likelihood estimation, the tools in our linear models
+    toolbox can enter the party. We have available to us regularization and optimizers
+    and any other fun we’re interested in from the linear models world.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If these equations feel frustrating or painful, let me try to offer you a geometric
+    mental model. Each item and user is in a high-dimensional space, and ultimately
+    we’re trying to figure out which ones are closest to one another. People frequently
+    misunderstand these geometries by imagining the tips of the vectors being near
+    one another; this is not the case. These spaces are extremely high-dimensional,
+    which results in the analogy being far from the truth. Instead, ask if *the values
+    are similarly large in some of the vector indices.* This is a much simpler, but
+    also more accurate, geometric view: there are some subspaces in the extremely
+    high-dimensional space where the vectors point in the same direction.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This forms the foundation for where we are going but has serious limitations
+    for large-scale recommender problems. You will see, however, that the feature-based
+    learning still has its place in the cold-start regime.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that in addition to the preceding approach of building content-based features
+    for a user, we may also have obvious user features that are obtained via queries
+    to the user, or implicitly via other data collection; examples of these features
+    include location, age range, and height.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Feature-Based Warm Starting
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As you saw in [Chapter 7](ch07.html#serving-and-architecture), there are a variety
+    of ways to use features alongside some of the collaborative filtering (CF) and
+    MF approaches we’ve presented. In particular, you saw how encoders built via a
+    two-towers architecture can be used for fast feature-based recommendations in
+    the cold-start scenario. Let’s look into this deeper and think carefully about
+    features for new users or items.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [Chapter 9](#feature-counting), we built our bilinear factor model as a
+    simple regression and, in fact, saw that all the standard ML modeling approaches
+    would apply. However, we took the user embedding to be features learned from item
+    interactions: that is, the content-based feature vector. If our goal is to build
+    a recommendation algorithm that does not need a history of user ratings, obviously
+    this construction will not suffice.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We might begin by asking if the preceding factor regression approach could
+    work in the pure user-feature setting—leave aside worries about the inner product
+    that depended on a mutual embedding and just take everything to be pure matrices.
+    While this is a reasonable idea that can yield some results, we may quickly identify
+    the coarseness of this model: each user would then need to provide answers to
+    queries <math alttext="q Subscript k"><msub><mi>q</mi> <mi>k</mi></msub></math>
+    such that <math alttext="bold i element-of double-struck upper R Superscript k"><mrow><mi>𝐢</mi>
+    <mo>∈</mo> <msup><mi>ℝ</mi> <mi>k</mi></msup></mrow></math> . Because the dimensionality
+    of these user vectors scales linearly with the number of questions we’re willing
+    and able to ask the user, we are passing along the difficulty of the problem to
+    our user experience.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Because we intend on using CF via MF as our core model, we’d really like to
+    find a way to smoothly transition from the feature-based model into this MF, ensuring
+    we take advantage of user/item ratings as they emerge. In [“The Evaluation Flywheel”](ch07.html#sec:eval_flywheel),
+    we discussed using inference results and their subsequent outcomes in real time
+    to update the model, but how do we account for that in the modeling paradigm?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In a latent-factor model obtained via MF, we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="bold u Subscript i Baseline bold v Subscript x" display="block"><mrow><msub><mi>𝐮</mi>
+    <mi>i</mi></msub> <msub><mi>𝐯</mi> <mi>x</mi></msub></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: Here, <math alttext="bold u Subscript i"><msub><mi>𝐮</mi> <mi>i</mi></msub></math>
+    has a Gaussian prior with zero mean; this is why new users won’t yield useful
+    ratings before they have interaction data. We thus say that the *user-matrix*
+    has *zero-concentrated priors.* Our first strategy to including features in our
+    MF is to simply build a better priors distribution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'More mathematically: we learn a regression model <math alttext="upper G left-parenthesis
+    bold i right-parenthesis tilde bold u Subscript i"><mrow><mi>G</mi> <mrow><mo>(</mo>
+    <mi>𝐢</mi> <mo>)</mo></mrow> <mo>∼</mo> <msub><mi>𝐮</mi> <mi>i</mi></msub></mrow></math>
+    for initialization of our learned factor matrix, and this means we’re learning
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="s left-parenthesis i comma x right-parenthesis tilde bold w Subscript
+    i x Baseline gamma plus alpha Subscript i Baseline plus beta Subscript x Baseline
+    plus bold u Subscript i Baseline bold v Subscript x" display="block"><mrow><mi>s</mi>
+    <mrow><mo>(</mo> <mi>i</mi> <mo>,</mo> <mi>x</mi> <mo>)</mo></mrow> <mo>∼</mo>
+    <msub><mi>𝐰</mi> <mrow><mi>i</mi><mi>x</mi></mrow></msub> <mi>γ</mi> <mo>+</mo>
+    <msub><mi>α</mi> <mi>i</mi></msub> <mo>+</mo> <msub><mi>β</mi> <mi>x</mi></msub>
+    <mo>+</mo> <msub><mi>𝐮</mi> <mi>i</mi></msub> <msub><mi>𝐯</mi> <mi>x</mi></msub></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: Here, our <math alttext="bold w Subscript i x Baseline gamma"><mrow><msub><mi>𝐰</mi>
+    <mrow><mi>i</mi><mi>x</mi></mrow></msub> <mi>γ</mi></mrow></math> is now a standard
+    bilinear feature regression from user and item features, the bias terms are learned
+    to estimate popularity or *rank inflation*, and our familiar MF terms are <math
+    alttext="bold u Subscript i Baseline bold v Subscript x"><mrow><msub><mi>𝐮</mi>
+    <mi>i</mi></msub> <msub><mi>𝐯</mi> <mi>x</mi></msub></mrow></math> .
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that this approach provides a general strategy for including features into
+    an MF model. How we fit the factors-features model is totally up to us, as are
+    the optimization methods we wish to employ.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Also note that instead of regression-based approaches, priors can be established
+    via *k*-nearest neighbors in a purely feature-based embedding space. This modeling
+    strategy is explored in great detail in [“Eliciting Auxiliary Information for
+    Cold Start User Recommendation: A Survey”](https://oreil.ly/N4Ast) by Nor Aniza
+    Abdullah et al. Compare this with the item-item content-based recommender from
+    [Chapter 5](ch05.html#ch:pinterest-content), where the query is an item and similarity
+    in item space is the link between the last item and the next.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We have established a strategy and a collection of approaches to building our
+    models via features. We’ve even seen how our MF will fall over for new users,
+    only to be saved by a feature-based model. So why not stick to features? Why introduce
+    factors at all?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Segmentation Models and Hybrids
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Similar to our preceding discussion of warm-starting via features is the closely
+    related concept of *demographic-based systems.* Note that *demographic* in this
+    context need not refer explicitly to personally identifiable information and can
+    refer to the user data collected during the sign-up process. Simple examples from
+    book recommendations might include a user’s favorite genres, self-identified price
+    preference, book-length preferences, and favorite author. Standard methods of
+    clustering-based regression can be helpful in converting a small set of user features
+    into recommendations for new users. For these coarse user features, building simple
+    feature-based models like naive Bayes, can be especially effective.
+  prefs: []
+  type: TYPE_NORMAL
+- en: More generally, given user feature vectors, we can formulate a similarity measure
+    and then user segments to make new-user recommendations. This should feel similar
+    to feature-based recommenders, but instead of requiring usage of user features,
+    we model the user’s containment in a segment and then build our factor model from
+    the segment to different items.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One way to imagine this approach is to consider the modeling problem as estimating
+    the following for C, a user cluster:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="r Subscript upper C comma x Baseline colon equals Avg left-parenthesis
+    r Subscript bold i comma x Baseline bar bold i element-of upper C right-parenthesis"
+    display="block"><mrow><msub><mi>r</mi> <mrow><mi>C</mi><mo>,</mo><mi>x</mi></mrow></msub>
+    <mo>:</mo> <mo>=</mo> <mtext>Avg</mtext> <mrow><mo>(</mo> <msub><mi>r</mi> <mrow><mi>𝐢</mi><mo>,</mo><mi>x</mi></mrow></msub>
+    <mo>∣</mo> <mi>𝐢</mi> <mo>∈</mo> <mi>C</mi> <mo>)</mo></mrow></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then we estimate <math alttext="upper P left-parenthesis bold j element-of upper
+    C right-parenthesis"><mrow><mi>P</mi> <mo>(</mo> <mi>𝐣</mi> <mo>∈</mo> <mi>C</mi>
+    <mo>)</mo></mrow></math> , the probability a user <math alttext="bold j"><mi>𝐣</mi></math>
+    is a member of <math alttext="upper C"><mi>C</mi></math> . We can easily imagine
+    that we instead wish to use the probability associated with each cluster to build
+    a bagging model, and have each cluster contributed to a weighted average rating.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While these ideas may not seem like interesting extensions to what we’ve built
+    previously, in practice they can be enormously useful for fast, explainable recommendations
+    for new users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Also note that nothing in this construction is particular to the users; we can
+    consider the *dual model* that takes the clustering to be at the level of the
+    items and performs a similar process. Combining these models can provide the coarsest
+    model of simply user segments to item groups, and utilizing several of these modeling
+    approaches simultaneously can provide important and flexible models.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tag-Based Recommenders
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: One special case of the segmentation model for item-based recommenders is a
+    *tag-based recommender*. This is a quite common first recommender to try when
+    you have some human labels and need to quickly turn it into a working recommender.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s talk through a toy example: you have a personal digital wardrobe, where
+    you’ve logged many features about each article of clothing in your personal closet.
+    You want your fashion recommender to give you suggestions for what else to wear,
+    given that you’ve selected one piece for the day. You wake up and see that it’s
+    rainy outside, so you start by choosing a cozy cardigan. The model you’ve trained
+    has found that cardigan has tags *outerwear* and *cozy*, which it knows correlate
+    well with *bottoms* and *warm*—so it’s likely to recommend heavier jeans today.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The upside of a tag recommender is how explainable and understandable the recommendations
+    are. The downside is that performance is directly tied to the amount of effort
+    that’s put into tagging items.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s discuss a slightly more involved example of a tag-based recommender that
+    one of the authors built in collaboration with Ashraf Shaik and Eric Bunch for
+    recommending blog posts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The goal was to warm-start the blog-post recommender by utilizing high-quality
+    tags that classified the blogs into themes. One special aspect of this system
+    was its rich hierarchical tagging maintained by the marketing team. In particular,
+    each *tag type* had several values, and there were 11 tag types with up to 10
+    values each. Blogs had values for each tag type and sometimes had multiple tags
+    in a single tag type for the blog. This may sound a bit complicated, but suffice
+    it to say that each blog post could have some of the 47 tags, and the tags were
+    further grouped into types.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One of the first potential tasks is to use those tags to build a simple recommender,
+    and we did, but doing so would mean missing a significant additional opportunity
+    when afforded such high-quality tag data: evaluating our embeddings.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, we needed to understand how we could build user embeddings. Our plan
+    was to average the blog embeddings a user had seen, a simple CF approach when
+    you have a clear item embedding. Thus we wanted to train the best embedding model
+    possible for these blogs. We started by considering models like BERT but were
+    unsure whether the highly technical content would be meaningfully captured by
+    our embedding model. This led us to realize that we could use the tags as a classifier
+    dataset for our embedding. If we could test several embedding models by training
+    a simple multilayer perceptron (MLP) to perform multilabel multiclassification
+    for each tag type, where the input features were the embedding dimensions, then
+    our embedding space would capture the content well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some of the embedding models were of varying dimensions, and some were quite
+    large, so we also first used a dimension reduction (UMAP) to a standard size before
+    we trained the MLP. We used [F1 scores](https://oreil.ly/rYGsU) to determine which
+    of the embedding models led to the best classification model for tags, and we
+    used visual inspection to ensure the groups were as we’d hoped. This worked quite
+    well and showed that some embeddings were much better than others.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hybridization
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You saw in the previous section how to blend our MF with simpler models by
+    taking priors from the simpler models and learning how to transition away. Coarser
+    approaches to this process of *hybridization* exist:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Weighted combinations of models
+  prefs: []
+  type: TYPE_NORMAL
+- en: This approach is incredibly powerful, and the weights can be learned in a standard
+    Bayesian framework.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Multilevel modeling
+  prefs: []
+  type: TYPE_NORMAL
+- en: This approach can include learning a model to select which recommendation model
+    should be used, and then learning models in each regime. For example, we could
+    use a tree-based model on user features when the user has fewer than 10 historical
+    ratings and then use MF after that. A variety of multilevel approaches exist,
+    including *switching* and *cascading*, which correspond roughly to voting and
+    boosting, respectively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Feature augmentation
+  prefs: []
+  type: TYPE_NORMAL
+- en: This allows multiple vectors of features to be concatenated and a larger model
+    to be learned. By definition, if we wish to combine feature vectors with factor
+    vectors, like those coming from a CF, we will expect substantial nullity. Learning
+    despite that nullity allows a somewhat naive combination of the different kinds
+    of features to be fed into the model and operated on in all regimes of user activity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can combine these models in a variety of useful ways. However, we take the
+    position that instead of more complicated combinations of several models that
+    work well in different paradigms, we will attempt to stick to a relatively straightforward
+    model-service architecture by doing the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Training the best model we can by using MF-based CF
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using user and item feature-based models for cold start
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s see why we think feature-based modeling might not be the best strategy,
+    even if we do it via neural networks and latent factor models.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Limitations of Bilinear Models
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We started this chapter by describing *bilinear modeling* approaches, and immediately
+    you should take warning—they’re linear relationships. You can immediately wonder,
+    “Are there really linear relationships between the features of my users and items
+    and the pairwise affinity?”
+  prefs: []
+  type: TYPE_NORMAL
+- en: The answer to this question might depend on the number of features, or it might
+    not. Either way, skepticism is appropriate, and in practice the answer is overwhelmingly
+    *no*. You might think, “Well then, as it is a linear approximation, MF also cannot
+    succeed,” but that’s not so clear-cut. In fact, MF suggests that the linear relationship
+    is *between the latent factors*, not the actual features. This subtle difference
+    makes a world of difference.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One important callout before we move on to simpler ideas is that neural networks
+    with nonlinear activation functions can be used to build feature-based methods.
+    This domain has had some successes, but ultimately a surprising and important
+    result is that [neural CF does not outperform matrix factorization](https://oreil.ly/rFWaS).
+    This doesn’t suggest that there are no useful approaches for feature-based models
+    utilizing MLPs, but it does defray some of our worries about MF being *too linear*.
+    So why not use more feature-based approaches?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first most obvious challenge for content-based, demographic-based, and
+    any other feature-based method is *getting the features*. Let’s consider the dual
+    problems:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Features for users
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we want to collect features for users, we need to either ask them a series
+    of queries or infer those features implicitly. Inferring these via exogenous signals
+    is noisy and limited, but each query that we ask the user increases the likelihood
+    of onboarding drop-off. When we think of user-onboarding funnels, we know that
+    each additional prompt or question incurs another chance that the user will not
+    complete the onboarding. This effect accumulates quickly, and without users making
+    it through the funnel, the recommendation system won’t be very useful.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Features for items
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the flip side, creating features for items is a heavily manual task. While
+    many businesses need to do this task to serve other purposes as well, it still
+    incurs a significant cost in many cases. If the features are to be useful, they
+    need to be of high quality, which incurs more debt. But most importantly, if the
+    number of items is extremely large, the cost may quickly get out of reach. For
+    large-scale recommendation problems, manually adding features is simply infeasible.
+    This is where automatic feature-engineering models can help.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another significant issue in these feature-based models is *separability* or
+    *distinguishability*. These models are not useful if the features cannot separate
+    the items or users well. This leads to compounding problems as the cardinality
+    increases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, in many recommendation problems, we start with the assumption that
+    taste or preference is extremely personal. We fundamentally believe that our interest
+    in a book will have less to do with the number of pages and publication date than
+    how it connects with us and our personal experience (*our deepest apologies to
+    anyone who bought this book based on page number and publication date*). CF—while
+    simple in concept—speaks better to these connections via a *shared experience
+    network*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Counting Recommenders
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Here we will use the simplest feature type, simple counting. Counting the frequency
+    and pairwise frequencies will provide a simple but useful set of initial models.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Return to the Most-Popular-Item Recommender
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Our super simple scheme from before, implementing the MPIR, provided us with
+    a convenient toy model, but what are the practical considerations of deploying
+    an MPIR? It turns out that the MPIR provides an excellent framework for getting
+    started on a Bayesian approximation approach to recommendations. Note that in
+    this section, we’re not even considering a personalized recommender; everything
+    here is reward maximization across the entire user population. We follow the treatment
+    in [*Statistical Methods for Recommender Systems*](https://oreil.ly/kKulC) by
+    Deepak K. Agarwal and Bee-Chung Chen (Cambridge University Press).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the sake of simplicity, let’s consider *click-through rate* (*CTR*) as
+    our simple metric to optimize. Our formulation is as follows: we have <math alttext="script
+    upper I equals StartSet i EndSet"><mrow><mi>ℐ</mi> <mo>=</mo> <mfenced close="}"
+    open="{"><mi>i</mi></mfenced></mrow></math> items available to recommend and initially
+    *only one time period* in which to do it, and we’re interested in an *allocation
+    plan*, or a set of proportions <math alttext="x Subscript i Baseline comma sigma-summation
+    Underscript i element-of script upper I Endscripts x Subscript i Baseline equals
+    1 comma"><mrow><msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo> <msub><mo>∑</mo>
+    <mrow><mi>i</mi><mo>∈</mo><mi>ℐ</mi></mrow></msub> <msub><mi>x</mi> <mi>i</mi></msub>
+    <mo>=</mo> <mn>1</mn> <mo>,</mo></mrow></math> for how to recommend items. This
+    can be seen as a very simple multiarmed bandit problem with the reward given by
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="upper R left-parenthesis bold x bold comma bold c right-parenthesis
+    equals sigma-summation Underscript i element-of script upper I Endscripts c Subscript
+    i Baseline asterisk left-parenthesis upper N asterisk x Subscript i Baseline right-parenthesis"
+    display="block"><mrow><mi>R</mi> <mrow><mo>(</mo> <mi>𝐱</mi> <mo>,</mo> <mi>𝐜</mi>
+    <mo>)</mo></mrow> <mo>=</mo> <munder><mo>∑</mo> <mrow><mi>i</mi><mo>∈</mo><mi>ℐ</mi></mrow></munder>
+    <msub><mi>c</mi> <mi>i</mi></msub> <mo>*</mo> <mrow><mo>(</mo> <mi>N</mi> <mo>*</mo>
+    <msub><mi>x</mi> <mi>i</mi></msub> <mo>)</mo></mrow></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: Here, <math alttext="c Subscript i"><msub><mi>c</mi> <mi>i</mi></msub></math>
+    represents prior distributions of CTR for each item. It’s plain to see that maximizing
+    this reward is achieved by allocating all recommendations to the item with greatest
+    <math alttext="p Subscript i"><msub><mi>p</mi> <mi>i</mi></msub></math> , i.e.,
+    picking the most popular item in terms of CTR.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This setup makes it obvious that if we have strong confidence in our priors,
+    this problem seems trivial. So let’s move to a case where we have a mismatch in
+    confidence.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s consider *two time periods*, <math alttext="upper N 0"><msub><mi>N</mi>
+    <mn>0</mn></msub></math> and <math alttext="upper N 1"><msub><mi>N</mi> <mn>1</mn></msub></math>
+    , as indicating the number of user visits. Note that we think of 0 as the past
+    and 1 as the future in this model. Let’s assume that we offer *only two items*
+    and that, somewhat mysteriously, for one item we have 100% confidence in its CTR
+    in each time period: <math alttext="q 0"><msub><mi>q</mi> <mn>0</mn></msub></math>
+    and <math alttext="q 1"><msub><mi>q</mi> <mn>1</mn></msub></math> will denote
+    these rates, respectively. In contrast, we have only priors for our second item:
+    <math alttext="p 0 tilde script upper P left-parenthesis theta 0 right-parenthesis"><mrow><msub><mi>p</mi>
+    <mn>0</mn></msub> <mo>∼</mo> <mi>𝒫</mi> <mrow><mo>(</mo> <msub><mi>θ</mi> <mn>0</mn></msub>
+    <mo>)</mo></mrow></mrow></math> and <math alttext="p 1 tilde script upper P left-parenthesis
+    theta 1 right-parenthesis"><mrow><msub><mi>p</mi> <mn>1</mn></msub> <mo>∼</mo>
+    <mi>𝒫</mi> <mrow><mo>(</mo> <msub><mi>θ</mi> <mn>1</mn></msub> <mo>)</mo></mrow></mrow></math>
+    will denote these rates, respectively, and we regard <math alttext="theta Subscript
+    i"><msub><mi>θ</mi> <mi>i</mi></msub></math> as a state vector. We again notate
+    the allocations with <math alttext="x Subscript i comma t"><msub><mi>x</mi> <mrow><mi>i</mi><mo>,</mo><mi>t</mi></mrow></msub></math>
+    , where now the second index refers to time period. Then we can simply compute
+    the expected number of clicks as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="double-struck upper E left-bracket upper N 0 asterisk x 0 left-parenthesis
+    p 0 minus q 0 right-parenthesis plus upper N 1 asterisk x 1 left-parenthesis p
+    1 minus q 1 right-parenthesis right-bracket plus q 0 upper N 0 plus q 1 upper
+    N 1" display="block"><mrow><mi>𝔼</mi> <mfenced close="]" open="[" separators=""><msub><mi>N</mi>
+    <mn>0</mn></msub> <mo>*</mo> <msub><mi>x</mi> <mn>0</mn></msub> <mfenced close=")"
+    open="(" separators=""><msub><mi>p</mi> <mn>0</mn></msub> <mo>-</mo> <msub><mi>q</mi>
+    <mn>0</mn></msub></mfenced> <mo>+</mo> <msub><mi>N</mi> <mn>1</mn></msub> <mo>*</mo>
+    <msub><mi>x</mi> <mn>1</mn></msub> <mfenced close=")" open="(" separators=""><msub><mi>p</mi>
+    <mn>1</mn></msub> <mo>-</mo> <msub><mi>q</mi> <mn>1</mn></msub></mfenced></mfenced>
+    <mo>+</mo> <msub><mi>q</mi> <mn>0</mn></msub> <msub><mi>N</mi> <mn>0</mn></msub>
+    <mo>+</mo> <msub><mi>q</mi> <mn>1</mn></msub> <msub><mi>N</mi> <mn>1</mn></msub></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is maximized by assuming a distribution for <math alttext="p 1"><msub><mi>p</mi>
+    <mn>1</mn></msub></math> as a function of <math alttext="x 0"><msub><mi>x</mi>
+    <mn>0</mn></msub></math> and <math alttext="p 0"><msub><mi>p</mi> <mn>0</mn></msub></math>
+    . With distributional assumptions that <math alttext="p 0"><msub><mi>p</mi> <mn>0</mn></msub></math>
+    is gamma distributed and <math alttext="p 1"><msub><mi>p</mi> <mn>1</mn></msub></math>
+    is normally distributed, we can treat this as a convex optimization problem to
+    maximize the clicks. See *Statistical Methods for Recommender Systems* for a full
+    treatment of the statistics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This toy example extends in both dimensions to model larger item sets and more
+    time windows and provides us with relatively straightforward intuition about the
+    relationship between our priors for each item and time step during this step-forward
+    optimization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s put this recommender in context: we’ve started with item popularity and
+    generalized to a Bayesian recommender that learns with respect to user feedback.
+    You might consider a recommender like this for a very trend-based recommendations
+    context like news; popular stories are often important, but that can change rapidly,
+    and we want to be learning from user behavior.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Correlation Mining
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We’ve seen ways to use correlations between features of items and recommendations,
+    but we should not forget to use correlations between items themselves. Think back
+    to our early discussions of cheese in [Chapter 2](ch02.html#ch:user-item) ([Figure 2-1](ch02.html#fig:cheese-ratings));
+    we said that our CF gave us a way to find mutual cheese tastes to recommend new
+    cheeses. This was built on the notion of ratings, but we can abstract away from
+    the ratings and simply look at the correlations of items a user chooses. You can
+    imagine for an ecommerce bookseller that a user’s choice of one book to read may
+    be useful in recommending others—even if that user chooses not to rate the first
+    book. We also saw this phenomena in [Chapter 8](ch08.html#ch:wikipedia-e2e) as
+    we used the co-occurrence of tokens in Wikipedia entries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We introduced the co-occurrence matrix as the multidimensional array of counts
+    where two items, <math alttext="i"><mi>i</mi></math> and <math alttext="j"><mi>j</mi></math>
+    , co-occur. Let’s take a moment to discuss co-occurrence a bit more deeply.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Co-occurrence is context dependent; for our Wikipedia articles, we considered
+    co-occurrence of tokens in an article. In the case of ecommerce, co-occurrence
+    can be two items purchased by the same user. For ads, co-occurrence can be two
+    things that the user clicked, and so on. Mathematically, given users and items,
+    we construct an *incidence vector* for each user, the binary vector of one-hot
+    encoded features for each item that they interacted with. Those vectors are stacked
+    into a vector to yield a <math alttext="number-sign left-parenthesis u s e r s
+    right-parenthesis times number-sign left-parenthesis i t e m s right-parenthesis"><mrow><mo>#</mo>
+    <mo>(</mo> <mi>u</mi> <mi>s</mi> <mi>e</mi> <mi>r</mi> <mi>s</mi> <mo>)</mo> <mo>×</mo>
+    <mo>#</mo> <mo>(</mo> <mi>i</mi> <mi>t</mi> <mi>e</mi> <mi>m</mi> <mi>s</mi> <mo>)</mo></mrow></math>
+    matrix in which each row is a user, each column is an item, and the elements equal
+    1 when a user-item pair has interacted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To be mathematically precise, a *user-item incidence structure* is a collection
+    of sets of user interactions, <math alttext="StartSet y Subscript u Baseline EndSet
+    Subscript u element-of upper U"><msub><mfenced close="}" open="{" separators=""><msub><mi>y</mi>
+    <mi>u</mi></msub></mfenced> <mrow><mi>u</mi><mo>∈</mo><mi>U</mi></mrow></msub></math>
+    , with items <math alttext="StartSet x Subscript i Baseline EndSet Subscript i
+    element-of upper I"><msub><mfenced close="}" open="{" separators=""><msub><mi>x</mi>
+    <mi>i</mi></msub></mfenced> <mrow><mi>i</mi><mo>∈</mo><mi>I</mi></mrow></msub></math>
+    , where <math alttext="upper U"><mi>U</mi></math> indexes users and <math alttext="upper
+    I"><mi>I</mi></math> indexes items.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The associated *user-item incidence matrix*, <math alttext="script upper U"><mi>𝒰</mi></math>
+    , is the binary matrix with rows indexed by sets, and columns indexed by nodes,
+    such that elements are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="e Subscript y Sub Subscript u Subscript comma x Sub Subscript
+    i Subscript Baseline equals StartLayout Enlarged left-brace 1st Row 1st Column
+    1 2nd Column x Subscript i Baseline element-of y Subscript u Baseline 2nd Row
+    1st Column 0 2nd Column otherwise EndLayout" display="block"><mrow><msub><mi>e</mi>
+    <mrow><msub><mi>y</mi> <mi>u</mi></msub> <mo>,</mo><msub><mi>x</mi> <mi>i</mi></msub></mrow></msub>
+    <mo>=</mo> <mfenced close="" open="{" separators=""><mtable><mtr><mtd columnalign="left"><mn>1</mn></mtd>
+    <mtd columnalign="left"><mrow><msub><mi>x</mi> <mi>i</mi></msub> <mo>∈</mo> <msub><mi>y</mi>
+    <mi>u</mi></msub></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mn>0</mn></mtd>
+    <mtd columnalign="left"><mtext>otherwise</mtext></mtd></mtr></mtable></mfenced></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The *co-occurrence of* <math alttext="x Subscript a"><msub><mi>x</mi> <mi>a</mi></msub></math>
+    *and* <math alttext="x Subscript b"><msub><mi>x</mi> <mi>b</mi></msub></math>
+    is the order of the set <math alttext="StartSet y Subscript u Baseline bar x Subscript
+    a Baseline element-of y Subscript u Baseline and x Subscript b Baseline element-of
+    y Subscript u Baseline EndSet"><mfenced close="}" open="{" separators=""><msub><mi>y</mi>
+    <mi>u</mi></msub> <mo>∣</mo> <msub><mi>x</mi> <mi>a</mi></msub> <mo>∈</mo> <msub><mi>y</mi>
+    <mi>u</mi></msub> <mtext>and</mtext> <msub><mi>x</mi> <mi>b</mi></msub> <mo>∈</mo>
+    <msub><mi>y</mi> <mi>u</mi></msub></mfenced></math> . We can also write that as
+    a matrix that can be computed via a simple formula; let <math alttext="upper C
+    Subscript script upper I"><msub><mi>C</mi> <mi>ℐ</mi></msub></math> be the co-occurrences
+    matrix—i.e., the matrix with rows and columns indexed by <math alttext="StartSet
+    x Subscript i Baseline EndSet Subscript i element-of upper I"><msub><mfenced close="}"
+    open="{" separators=""><msub><mi>x</mi> <mi>i</mi></msub></mfenced> <mrow><mi>i</mi><mo>∈</mo><mi>I</mi></mrow></msub></math>
+    and with elements that are the co-occurrences of the indices. Then we use the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="upper C Subscript script upper I Baseline equals script upper
+    I Superscript upper T Baseline asterisk script upper I" display="block"><mrow><msub><mi>C</mi>
+    <mi>ℐ</mi></msub> <mo>=</mo> <msup><mi>ℐ</mi> <mi>T</mi></msup> <mo>*</mo> <mi>ℐ</mi></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: As mentioned in [“Customers Also Bought”](ch08.html#CaB), we can build a new
+    variant of our MPIR by considering the rows or columns of the co-occurence matrix.
+    The *conditional MPIR* is the recommender that returns the max of the elements
+    in the row corresponding to <math alttext="x Subscript i"><msub><mi>x</mi> <mi>i</mi></msub></math>
+    , given the user’s last interaction was the item <math alttext="x Subscript i"><msub><mi>x</mi>
+    <mi>i</mi></msub></math> .
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In practice, we often think of the row corresponding to <math alttext="x Subscript
+    i"><msub><mi>x</mi> <mi>i</mi></msub></math> as a *basis vector*, i.e., a vector
+    <math alttext="q Subscript x Sub Subscript i"><msub><mi>q</mi> <msub><mi>x</mi>
+    <mi>i</mi></msub></msub></math> with one nonzero element in the <math alttext="x
+    Subscript i"><msub><mi>x</mi> <mi>i</mi></msub></math> th position:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="q Subscript x Sub Subscript i Subscript comma j Baseline equals
+    StartLayout Enlarged left-brace 1st Row 1st Column 1 2nd Column j equals x Subscript
+    i Baseline 2nd Row 1st Column 0 2nd Column otherwise EndLayout equals Start 5
+    By 1 Matrix 1st Row  0 2nd Row  vertical-ellipsis 3rd Row  1 4th Row  vertical-ellipsis
+    5th Row  0 EndMatrix" display="block"><mrow><msub><mi>q</mi> <mrow><msub><mi>x</mi>
+    <mi>i</mi></msub> <mo>,</mo><mi>j</mi></mrow></msub> <mo>=</mo> <mfenced close=""
+    open="{" separators=""><mtable><mtr><mtd columnalign="left"><mn>1</mn></mtd> <mtd
+    columnalign="left"><mrow><mi>j</mi> <mo>=</mo> <msub><mi>x</mi> <mi>i</mi></msub></mrow></mtd></mtr>
+    <mtr><mtd columnalign="left"><mn>0</mn></mtd> <mtd columnalign="left"><mtext>otherwise</mtext></mtd></mtr></mtable></mfenced>
+    <mo>=</mo> <mfenced close="]" open="[" separators=""><mtable><mtr><mtd><mn>0</mn></mtd></mtr>
+    <mtr><mtd><mo>⋮</mo></mtd></mtr> <mtr><mtd><mn>1</mn></mtd></mtr> <mtr><mtd><mo>⋮</mo></mtd></mtr>
+    <mtr><mtd><mn>0</mn></mtd></mtr></mtable></mfenced></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then we can consider max—or even softmax—of the preceding dot products:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="upper C Subscript script upper I Baseline equals script upper
+    I Superscript upper T Baseline dot script upper I asterisk q Subscript x Sub Subscript
+    i" display="block"><mrow><msub><mi>C</mi> <mi>ℐ</mi></msub> <mo>=</mo> <msup><mi>ℐ</mi>
+    <mi>T</mi></msup> <mo>·</mo> <mi>ℐ</mi> <mo>*</mo> <msub><mi>q</mi> <msub><mi>x</mi>
+    <mi>i</mi></msub></msub></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: This yields the vector of co-occurrence counts between <math alttext="x Subscript
+    i"><msub><mi>x</mi> <mi>i</mi></msub></math> and each other item. Here we frequently
+    will call <math alttext="q Subscript x Sub Subscript i"><msub><mi>q</mi> <msub><mi>x</mi>
+    <mi>i</mi></msub></msub></math> a *query* to indicate that it’s the input to our
+    co-occurrence recommendation model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How Do You Store This Data?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We can think about co-occurrence data in a *lot* of ways. The main reason is
+    because we expect that co-occurrences for recommendation systems are incredibly
+    sparse. This means that the preceding method of matrix multiplication—which is
+    approximately <math alttext="upper O left-parenthesis n cubed right-parenthesis"><mrow><mi>O</mi>
+    <mo>(</mo> <msup><mi>n</mi> <mn>3</mn></msup> <mo>)</mo></mrow></math> —is going
+    to be relatively slow to compute fewer nonzero entries. Because of this and concerns
+    about storing huge matrices full of zeros, computer scientists have taken seriously
+    the problem of representing sparse matrices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[Max Grossman](https://oreil.ly/c3Gif) claims there are 101 ways, but in practice
+    there are only a few. JAX supports [BCOO](https://oreil.ly/AB5vk), or *batched
+    coordinate format*, which is essentially a list of coordinates for nonzero elements,
+    and then what those elements are.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In our binary case of interactions, those are 1s, and for the co-occurrence
+    matrix, those are the counts. The structure of these matrices can be written as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Pointwise Mutual Information via Co-occurrences
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'An early recommendation system for articles used *pointwise mutual information*,
+    or PMI, which is closely related to co-occurrences. In the context of NLP, PMI
+    attempts to express how much more frequent co-occurrence is than random chance.
+    Given what we’ve seen before, you can think of this as a normalized co-occurrences
+    model. Computational linguists frequently use PMI as an estimator for word similarity
+    or word meaning following from the distributional hypothesis:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You shall know a word by the company it keeps.
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: ''
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: John R. Firth, British linguist
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: 'In the context of recommendation ranking, items with very high PMI are said
+    to have a highly meaningful co-occurrence. This can thus be used as an estimator
+    for *complementary* items: given you’ve interacted with one of them, you should
+    interact with the other.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'PMI is computed for two items, <math alttext="x Subscript i Baseline comma
+    x Subscript j Baseline"><mrow><msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo> <msub><mi>x</mi>
+    <mi>j</mi></msub></mrow></math> , via the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: <math alttext="StartFraction p left-parenthesis x Subscript i Baseline comma
+    x Subscript j Baseline right-parenthesis Over p left-parenthesis x Subscript i
+    Baseline right-parenthesis asterisk p left-parenthesis x Subscript j Baseline
+    right-parenthesis EndFraction equals StartFraction left-parenthesis upper C Subscript
+    script upper I Baseline right-parenthesis Subscript x Sub Subscript i Subscript
+    comma x Sub Subscript j Subscript Baseline asterisk number-sign left-parenthesis
+    normal t normal o normal t normal a normal l normal i normal n normal t normal
+    e normal r normal a normal c normal t normal i normal o normal n normal s right-parenthesis
+    Over number-sign left-parenthesis x Subscript i Baseline right-parenthesis asterisk
+    number-sign left-parenthesis x Subscript j Baseline right-parenthesis EndFraction"
+    display="block"><mrow><mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><mi>p</mi><mo>(</mo><msub><mi>x</mi>
+    <mi>i</mi></msub> <mo>,</mo><msub><mi>x</mi> <mi>j</mi></msub> <mo>)</mo></mrow>
+    <mrow><mi>p</mi><mrow><mo>(</mo><msub><mi>x</mi> <mi>i</mi></msub> <mo>)</mo></mrow><mo>*</mo><mi>p</mi><mrow><mo>(</mo><msub><mi>x</mi>
+    <mi>j</mi></msub> <mo>)</mo></mrow></mrow></mfrac></mstyle> <mo>=</mo> <mstyle
+    displaystyle="true" scriptlevel="0"><mfrac><mrow><msub><mfenced close=")" open="("
+    separators=""><msub><mi>C</mi> <mi>ℐ</mi></msub></mfenced> <mrow><msub><mi>x</mi>
+    <mi>i</mi></msub> <mo>,</mo><msub><mi>x</mi> <mi>j</mi></msub></mrow></msub> <mo>*</mo><mo>#</mo><mrow><mo>(</mo>
+    <mi>total</mi> <mi>interactions</mi> <mo>)</mo></mrow></mrow> <mrow><mo>#</mo><mrow><mo>(</mo><msub><mi>x</mi>
+    <mi>i</mi></msub> <mo>)</mo></mrow><mo>*</mo><mo>#</mo><mrow><mo>(</mo><msub><mi>x</mi>
+    <mi>j</mi></msub> <mo>)</mo></mrow></mrow></mfrac></mstyle></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: The PMI calculation allows us to modify all our work on co-occurrence to a more
+    normalized computation, and thus is a bit more meaningful. This process is related
+    to the GloVE model we learned in [“GloVE Model Definition”](ch08.html#Glove).
+    The negative PMI values allow us to understand when two things are not often witnessed
+    together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These PMI calculations can be used to recommend *another item in a cart* when
+    an item has been added and you find those with very high PMI. It can be used as
+    a retrieval method by looking at the set of items a user has already interacted
+    with and finding items that have high PMI with several of them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s look at how to turn co-occurrences into other similarity measures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Is PMI a Distance Measurement?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A good question to consider at this point is “Is PMI between two objects a measurement
+    of distance? Can I define similarity directly as the PMI between two items, and
+    thus yield a convenient geometry in which to consider distances?” The answer is
+    no. Recall that one of the axioms of a distance function is the triangle inequality;
+    a useful exercise is to consider why the triangle inequality would not be true
+    for PMI.
+  prefs: []
+  type: TYPE_NORMAL
+- en: But all is not lost. In the next section, we’ll show you how to formulate some
+    important similarity measurements from co-occurrence structures. Further, in the
+    next chapter, we’ll discuss Wasserstein distance, which allows you to turn the
+    co-occurrence counts into a distance metric directly. The key difference will
+    be considering the co-occurrence counts of all other items simultaneously as a
+    distribution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Similarity from Co-occurrence
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Earlier, we discussed similarity measures and how they come from the Pearson
+    correlation. The Pearson correlation is a special case of similarity when we have
+    explicit ratings, so let’s instead look at when we don’t.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Consider incidence sets associated to users, <math alttext="StartSet y Subscript
+    u Baseline EndSet Subscript u element-of upper U"><msub><mfenced close="}" open="{"
+    separators=""><msub><mi>y</mi> <mi>u</mi></msub></mfenced> <mrow><mi>u</mi><mo>∈</mo><mi>U</mi></mrow></msub></math>
+    , as we define three distance metrics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Jaccard similarity, <math alttext="upper J a c left-parenthesis minus right-parenthesis"><mrow><mi>J</mi>
+    <mi>a</mi> <mi>c</mi> <mo>(</mo> <mo>-</mo> <mo>)</mo></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ratio of shared items by two users to the total items those users have interacted
+    with
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sørensen-Dice similarity, <math alttext="upper D upper S upper C left-parenthesis
+    minus right-parenthesis"><mrow><mi>D</mi> <mi>S</mi> <mi>C</mi> <mo>(</mo> <mo>-</mo>
+    <mo>)</mo></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: Twice the ratio of shared items by two users to the sum of total items each
+    user has interacted with
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cosine similarity, <math alttext="upper C o s i m left-parenthesis minus right-parenthesis"><mrow><mi>C</mi>
+    <mi>o</mi> <mi>s</mi> <mi>i</mi> <mi>m</mi> <mo>(</mo> <mo>-</mo> <mo>)</mo></mrow></math>
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ratio of shared items by two users to the product of total items each user
+    has interacted with
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These are all very related metrics with slightly different strengths. Here
+    are some points to consider:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Jaccard similarity is a real distance metric that has some nice properties for
+    geometry; neither of the other two is.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: All three are on the interval <math alttext="left-parenthesis 0 comma 1 right-parenthesis"><mfenced
+    close=")" open="(" separators=""><mn>0</mn> <mo>,</mo> <mn>1</mn></mfenced></math>
+    , but you’ll often see cosine extended to <math alttext="left-parenthesis negative
+    1 comma 1 right-parenthesis"><mfenced close=")" open="(" separators=""><mo>-</mo>
+    <mn>1</mn> <mo>,</mo> <mn>1</mn></mfenced></math> by including negative ratings.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Cosine can accommodate “thumbs-up/thumbs-down” by merely extending all interactions
+    to have a polarity of <math alttext="plus-or-minus 1"><mrow><mo>±</mo> <mn>1</mn></mrow></math>
+    .
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Cosine can accommodate “multiple interactions” if you allow the vectors to be
+    nonbinary and count the number of times a user interacts with an item.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Jaccard and Dice are related by the simple equation <math alttext="upper S equals
+    2 upper J slash left-parenthesis 1 plus upper J right-parenthesis"><mrow><mi>S</mi>
+    <mo>=</mo> <mn>2</mn> <mi>J</mi> <mo>/</mo> <mo>(</mo> <mn>1</mn> <mo>+</mo> <mi>J</mi>
+    <mo>)</mo></mrow></math> , and you can easily compute one from the other.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Notice that we’ve defined all these similarity measures between users. We’ll
+    show in the next section how to extend these definitions to items and how to turn
+    these into recommendations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Similarity-Based Recommendations
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In each of the preceding distance metrics, we’ve defined a similarity measure,
+    but we haven’t yet discussed how similarity measures turn into recommendations.
+    As we discussed in [“Nearest Neighbors”](ch03.html#nearest_neighbors), we utilize
+    similarity measures in our retrieval step; we wish to find a space in that items
+    that are *close* to one another are good recommendations. In the context of ranking,
+    our similarity measure can be used directly to order the recommendations in terms
+    of how likely the recommendation is relevant. In the next chapter, we’ll talk
+    more about metrics of relevance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the preceding section, we looked at three similarity scores, but we need
+    to expand our notion of the relevant sets for these measures. Let’s consider Jaccard
+    similarity as a prototype.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Given a user <math alttext="y Subscript u"><msub><mi>y</mi> <mi>u</mi></msub></math>
+    and an unseen item <math alttext="x Subscript i"><msub><mi>x</mi> <mi>i</mi></msub></math>
+    , let’s ask, “What is the Jaccard similarity between this user and item?” Let’s
+    remember that Jaccard similarity is the similarity between two sets, and in the
+    definition those sets were both *incidence sets of users’ interactions*. Here
+    are three ways to use this approach for recommendations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: User-user
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using our preceding definition, find the <math alttext="k"><mi>k</mi></math>
+    users with maximum Jaccard similarity. Compute the percentage of these users who
+    have interacted with <math alttext="x Subscript i"><msub><mi>x</mi> <mi>i</mi></msub></math>
+    . You may also wish to normalize this by popularity of the item <math alttext="x
+    Subscript i"><msub><mi>x</mi> <mi>i</mi></msub></math> .
+  prefs: []
+  type: TYPE_NORMAL
+- en: Item-item
+  prefs: []
+  type: TYPE_NORMAL
+- en: Compute the set of users that each item has interacted with, and compute the
+    <math alttext="k"><mi>k</mi></math> items most similar to <math alttext="x Subscript
+    i"><msub><mi>x</mi> <mi>i</mi></msub></math> with respect to Jaccard similarity
+    of these item-user incidence sets. Compute the percentage of these items that
+    are in <math alttext="y Subscript u"><msub><mi>y</mi> <mi>u</mi></msub></math>
+    ’s set of interactions. You may also wish to normalize this by total interactions
+    of <math alttext="y Subscript u"><msub><mi>y</mi> <mi>u</mi></msub></math> or
+    the popularity of the similar items.
+  prefs: []
+  type: TYPE_NORMAL
+- en: User-item
+  prefs: []
+  type: TYPE_NORMAL
+- en: Compute the user <math alttext="y Subscript u"><msub><mi>y</mi> <mi>u</mi></msub></math>
+    ’s set of items they’ve interacted with, and the set of items co-occurring with
+    <math alttext="x Subscript i"><msub><mi>x</mi> <mi>i</mi></msub></math> in any
+    user’s incidence set of interaction. Compute the Jaccard similarity between these
+    two sets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Frequently in designing ranking systems, we specify the *query*, which refers
+    to which nearest neighbors you’re looking for. We then specify how you use those
+    neighbors to yield a recommendation. The items that may become the recommendation
+    are the candidates, but as you saw in the preceding example, the neighbors may
+    not be the candidates themselves. An additional complication is that you usually
+    need to compute many candidate scores simultaneously, which requires optimized
+    computations that we’ll see in [Chapter 16](ch16.html#acceleration_structures).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we’ve begun to dig deeper into notions of similarity—building
+    on our intuition from retrieval that users’ preferences might be captured by the
+    interactions they’ve already demonstrated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We started out with simple models based on features about users and built linear
+    models relating them to our target outcomes. We then combined those simple models
+    with other aspects of feature modeling and hybrid systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, we moved into discussing counting—in particular, counting the co-occurrence
+    of items, users, or baskets. By looking at frequent co-occurrence, we can build
+    models that capture “If you liked *a*, you may like *b*.” These models are simple
+    to understand, but we can use these basic correlation structures to build similarity
+    measures, and thus latent spaces where ANN-based retrieval can yield good candidates
+    for recommendations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One point that you may have noticed about the featurization of all the items
+    and the building of our co-occurrence matrices is that the number of features
+    is astronomically large—one dimension for each item! This is the area of investigation
+    we’ll tackle in the next chapter: how to reduce the dimensionality of your *latent
+    space*.'
+  prefs: []
+  type: TYPE_NORMAL
