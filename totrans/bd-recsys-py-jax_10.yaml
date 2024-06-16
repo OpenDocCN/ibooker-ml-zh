@@ -1,35 +1,51 @@
 - en: 'Chapter 8\. Putting It All Together: Data Processing and Counting Recommender'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 第8章。将所有内容整合在一起：数据处理和计数推荐
 - en: Now that we have discussed the broad outline of recommender systems, this chapter
     will put it into a concrete implementation so that we can talk about the choices
     of technologies and specifics of how the implementation works in real life.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们已经讨论了推荐系统的大致轮廓，本章将对其进行具体实现，以便我们可以讨论技术选择和实现在现实生活中的工作方式的细节。
 - en: 'This chapter covers the following topics:'
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章涵盖以下主题：
 - en: Data representation with protocol buffers
+  id: totrans-3
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用协议缓冲区进行数据表示
 - en: Data processing frameworks
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 数据处理框架
 - en: A PySpark sample program
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个 PySpark 示例程序
 - en: GloVE embedding model
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: GloVE 嵌入模型
 - en: Additional foundational techniques in JAX, Flax, and Optax
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: JAX、Flax 和 Optax 中的额外基础技术
 - en: We will show step-by-step how to go from a downloaded Wikipedia dataset to a
     recommender system that can recommend words from Wikipedia based on the co-occurrence
     with words in a Wikipedia article. We use a natural language example because words
@@ -39,8 +55,10 @@
     connection. This idea of co-occurrence can be generalized to any co-occurring
     collection of items, such as watching a video in the same session or purchasing
     cheeses in the same shopping bag.
+  id: totrans-8
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将逐步展示如何从下载的维基百科数据集转化为一个推荐系统，该系统可以根据与维基百科文章中词的共现来推荐单词。我们选择自然语言示例是因为单词易于理解，并且它们的关系很容易被抓住，因为我们可以看到相关单词在句子中彼此靠近。此外，维基百科语料库可以轻松下载并由任何有互联网连接的人浏览。这种共现的想法可以推广到任何共同出现的集合，比如在同一会话中观看视频或在同一购物袋中购买奶酪。
 - en: This chapter will demonstrate concrete implementations of an item-item and a
     feature-item recommender. Items in this case are the words in an article, and
     the features are word-count similarity—a MinHash or a kind of locality sensitive
@@ -52,12 +70,16 @@
     features such as likes, these can be used as features for a feature-item recommender.
     The principles of co-occurrence are the same, but by using Wikipedia as an example,
     you can download the data and play with it by using the tools provided.
+  id: totrans-9
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将演示一个基于项目-项目和特征-项目的具体实现。在这种情况下，项目是文章中的单词，而特征是单词计数的相似性——例如 MinHash 或一种用于单词的局部敏感哈希。[第16章](ch16.html#acceleration_structures)将更详细地讨论局部敏感哈希，但现在我们将这些简单的哈希函数视为内容的编码函数，使具有相似属性的内容映射到相似的共域。这个一般的想法可以作为在缺乏日志数据的新语料库上的热启动机制使用，如果我们有用户-项目特征（如喜欢），这些特征可以作为特征-项目推荐系统的特征使用。共现的原则是相同的，但通过使用维基百科作为示例，您可以下载数据并使用提供的工具进行操作。
 - en: Tech Stack
+  id: totrans-10
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术栈
 - en: A set of technologies used together is commonly called a *technology stack*,
     or *tech stack*. Each component of a tech stack can usually be replaced by other
     similar technologies. We will list a few alternatives for each component but not
@@ -65,90 +87,126 @@
     of the deployment will affect the choice of components. For example, your company
     might already use a particular component, so for familiarity and support, you
     might wish to use that one.
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 技术栈（*technology stack*或*tech stack*）是一组常一起使用的技术。每个技术栈的组件通常可以被其他类似技术替代。我们将列举每个组件的几个替代方案，但不会详细讨论它们的利弊，因为可能有很多情况影响部署组件的选择。例如，您的公司可能已经使用了特定的组件，所以出于熟悉度和支持的考虑，您可能希望继续使用它。
 - en: This chapter covers some of the technology choices for processing the data that
     goes into building a concrete implementation of a collector.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章涵盖了构建具体实现收集器所需数据处理技术的一些技术选择。
 - en: The sample code is available on [GitHub](https://github.com/BBischof/ESRecsys).
     You might want to clone the code into a local directory.
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 示例代码可以在[GitHub](https://github.com/BBischof/ESRecsys)上找到。您可能想要将代码克隆到本地目录。
 - en: Data Representation
+  id: totrans-14
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 数据表示
 - en: 'The first choice of technology we need to make will determine how we represent
     the data. Some of the choices are as follows:'
+  id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们需要做的第一个技术选择将决定我们如何表示数据。以下是一些选择：
 - en: '[Protocol buffers](https://oreil.ly/Oc0cE)'
+  id: totrans-16
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[协议缓冲区](https://oreil.ly/Oc0cE)'
 - en: '[Apache Thrift](https://oreil.ly/BUHkW)'
+  id: totrans-17
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[Apache Thrift](https://oreil.ly/BUHkW)'
 - en: '[JSON](https://oreil.ly/_QwWR)'
+  id: totrans-18
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[JSON](https://oreil.ly/_QwWR)'
 - en: '[XML](https://oreil.ly/JigfM)'
+  id: totrans-19
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[XML](https://oreil.ly/JigfM)'
 - en: '[CSV](https://oreil.ly/it5TA)'
+  id: totrans-20
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[CSV](https://oreil.ly/it5TA)'
 - en: In this implementation, we’re mostly using protocol buffers because of the ease
     of specifying a schema and then subsequently serializing and deserializing it.
+  id: totrans-21
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个实现中，我们主要使用协议缓冲区，因为它易于指定模式，然后序列化和反序列化。
 - en: For the file format, we’re using serialized protocol buffers that are uuencoded
     and written as a single line per record and then bzipped up for compression. This
     is just for convenience so that we can parse the files easily without having dependencies
     on too many libraries. Your company might instead store data in a data warehouse
     that is accessible by SQL, for example.
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于文件格式，我们使用序列化的协议缓冲区，将其编码为单行每个记录，然后使用Bzip进行压缩。这仅仅是为了方便，以便我们可以轻松地解析文件，而不需要依赖太多库。例如，您的公司可能会将数据存储在可通过SQL访问的数据仓库中。
 - en: Protocol buffers are generally easier to parse and handle than raw data. In
     our implementation, we will parse the Wikipedia XML into protocol buffers for
     easier handling using *xml2proto.py*. You can see from the code that XML parsing
     is a complicated affair, whereas protocol buffer parsing is as simple as calling
     the `ParseFromString` method, and all the data is then subsequently available
     as a convenient Python object.
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 协议缓冲区通常比原始数据更易于解析和处理。在我们的实现中，我们将解析维基百科XML为协议缓冲区，以便更轻松地处理，使用*xml2proto.py*。您可以从代码中看到，XML解析是一件复杂的事情，而协议缓冲区解析则简单得多，只需调用`ParseFromString`方法，然后所有数据随后都以便捷的Python对象形式可用。
 - en: As of June 2022, the Wikipedia dump is about 20 GB in size, and converting to
     protocol buffer format takes about 10 minutes. Please follow the steps described
     in the README in the GitHub repo for the most up-to-date steps to run the programs.
+  id: totrans-24
   prefs: []
   type: TYPE_NORMAL
+  zh: 截至2022年6月，维基百科转储文件约为20 GB大小，转换为协议缓冲区格式大约需要10分钟。请按照GitHub存储库中README中描述的步骤运行程序的最新步骤。
 - en: 'In the *proto* directory, take a look at some of the protocol messages defined.
     This, for example, is how we might store the text from a Wikipedia page:'
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 在*proto*目录中，查看一些定义的协议消息。例如，这是我们可能存储维基百科页面文本的方式：
 - en: '[PRE0]'
+  id: totrans-26
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: The types supported and the schema definitions can be found on the protocol
     buffer documentation page. This schema is converted into code by using the protocol
     buffer compiler. This compiler’s job is to convert the schema into code that you
     can call in different languages, which in our case is Python. The installation
     of the protocol buffer compiler depends on the platform, and installation instructions
     can be found in the [protocol buffer documentation](https://oreil.ly/k2QEv).
+  id: totrans-27
   prefs: []
   type: TYPE_NORMAL
+  zh: 支持的类型和模式定义可以在协议缓冲区文档页面上找到。此模式通过使用协议缓冲区编译器转换为代码。该编译器的工作是将模式转换为您可以在不同语言中调用的代码，而在我们的情况下是Python。协议缓冲区编译器的安装取决于平台，安装说明可以在[协议缓冲区文档](https://oreil.ly/k2QEv)中找到。
 - en: Each time you change the schema, you will have to use the protocol buffer compiler
     to get a new version of the protocol buffer code. This step can easily be automated
     by using a build system like Bazel, but this is out of scope for this book. For
     the purposes of this book, we will simply generate the protocol buffer code once
     and check it into the repository for simplicity.
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 每次更改模式时，您都需要使用协议缓冲区编译器获取新版本的协议缓冲区代码。可以通过使用像Bazel这样的构建系统轻松自动化此步骤，但这超出了本书的范围。为了本书的目的，我们将简单地生成协议缓冲区代码一次，并将其检入存储库以保持简单。
 - en: Following the directions on the GitHub README, download a copy of the Wikipedia
     dataset and then run *xml2proto.py* to convert the data to a protocol buffer format.
     Optionally, use *codex.py* to see what the protocol buffer format looks like.
@@ -156,33 +214,47 @@
     Linux. The XML parser used doesn’t parallelize very well, so this step is fundamentally
     serial. We’ll next discuss how we would distribute the work in parallel either
     among multiple cores locally or on a cluster.
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 按照GitHub的README上的说明，下载维基百科数据集的副本，然后运行*xml2proto.py*将数据转换为协议缓冲区格式。可选择使用*codex.py*查看协议缓冲区格式的样子。在使用Windows子系统来运行Windows工作站的Windows工作站上，这些步骤花费了10分钟。使用的XML解析器并不很好地并行化，因此这一步是基本上串行的。接下来，我们将讨论如何将工作并行分配，无论是在本地的多个核心之间还是在集群上。
 - en: Big Data Frameworks
+  id: totrans-30
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 大数据框架
 - en: 'The next technology we choose will process data at scale on multiple machines.
     Some options are listed here:'
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们选择的下一个技术将在多台机器上规模化处理数据。这里列出了一些选项：
 - en: '[Apache Spark](https://spark.apache.org)'
+  id: totrans-32
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[Apache Spark](https://spark.apache.org)'
 - en: '[Apache Beam](https://beam.apache.org)'
+  id: totrans-33
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[Apache Beam](https://beam.apache.org)'
 - en: '[Apache Flink](https://flink.apache.org)'
+  id: totrans-34
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[Apache Flink](https://flink.apache.org)'
 - en: In this implementation, we’re using Apache Spark in Python, or PySpark. The
     README in the repository shows how to install a copy of PySpark locally using
     `pip install`.
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个实现中，我们在Python中使用Apache Spark，或者称为PySpark。仓库中的README显示了如何使用`pip install`在本地安装PySpark的副本。
 - en: 'The first step implemented in PySpark is tokenization and URL normalization.
     The code is in [*tokenize_wiki_pyspark.py*](https://oreil.ly/TF_vU), but we won’t
     go over it here because a lot of the processing is simply distributed natural
@@ -191,87 +263,122 @@
     tokens (the *words* in the article) and some statistics about the word counts.
     However, we will run the code just to see what the Spark usage experience looks
     like. Spark programs are run using the program `spark-submit` as follows:'
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: PySpark 中实现的第一步是标记化和URL标准化。代码在[*tokenize_wiki_pyspark.py*](https://oreil.ly/TF_vU)，但我们不会在这里详细介绍，因为很多处理只是分布式自然语言解析和将数据写入协议缓冲区格式。我们将详细讨论第二步，即制作一个字典以及有关单词计数的一些统计信息。但是，我们将运行代码，以查看Spark使用体验如何。Spark程序使用`spark-submit`程序运行，如下所示：
 - en: '[PRE1]'
+  id: totrans-37
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: Running the Spark submit script allows you to execute the controller program,
     in this case, [*tokenize_wiki_pyspark.py*](https://oreil.ly/pQp7r), on a local
     machine as we have in the command line—note that the line `local[4]` means use
     up to four cores. The same command can be used to submit the job to a YARN cluster
     for running on hundreds of machines, but for the purposes of trying out PySpark,
     a decent enough workstation should be able to process all the data in minutes.
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 运行Spark提交脚本允许您在本地机器上执行控制程序，例如，在命令行中我们使用了[*tokenize_wiki_pyspark.py*](https://oreil.ly/pQp7r)，请注意，`local[4]`表示使用最多四个核心。相同的命令可以用于将作业提交到YARN集群，以在数百台机器上运行，但是出于尝试PySpark的目的，一个足够好的工作站应该能够在几分钟内处理所有数据。
 - en: This tokenization program converts from a source-specific format (in this case,
     a Wikipedia protocol buffer) into a more generic text document used for NLP. In
     general, it’s a good idea to use a generic format that all your sources of data
     can be converted into because that simplifies the data processing downstream.
     The data conversion can be done from each corpus into a standard format that is
     handled uniformly by all the later programs in the pipeline.
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 此标记化程序将从特定于源的格式（在本例中，是维基百科协议缓冲区）转换为用于自然语言处理的更通用的文本文档。一般来说，最好使用一个所有数据源都可以转换成的通用格式，因为这样可以简化下游的数据处理。可以将数据转换为每个语料库的标准格式，这个格式被流水线中所有后续程序统一处理。
 - en: After submitting the job, you can navigate to the Spark UI (shown in [Figure 8-1](#spark_ui))
     on your local machine at *localhost:4040/stages/*. You should see the job executing
     in parallel, using up all the cores in your machine. You might want to play with
     the `local[4]` parameter; using `local[*]` will use up all the free cores on your
     machine. If you have access to a cluster, you can also point to the appropriate
     cluster URL.
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 提交作业后，您可以在本地机器上导航至Spark UI（在[图 8-1](#spark_ui)中显示）。您应该会看到作业并行执行，使用您机器上的所有核心。您可能想要尝试使用`local[4]`参数；使用`local[*]`将使用您机器上的所有空闲核心。如果您可以访问集群，还可以指向适当的集群URL。
 - en: '![Spark UI showing the stages of computation](assets/brpj_0801.png)'
+  id: totrans-41
   prefs: []
   type: TYPE_IMG
+  zh: '![Spark UI 显示计算阶段](assets/brpj_0801.png)'
 - en: Figure 8-1\. Spark UI
+  id: totrans-42
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
+  zh: 图 8-1\. Spark UI
 - en: Cluster Frameworks
+  id: totrans-43
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 集群框架
 - en: The nice thing about writing a Spark program is that it can scale from a single
     machine with multiple cores to a cluster of many machines with thousands of cores.
     The full list of cluster types can be found in the [Spark “Submitting Applications”
     documentation](https://oreil.ly/0apFm).
+  id: totrans-44
   prefs: []
   type: TYPE_NORMAL
+  zh: 编写 Spark 程序的好处在于它可以从单机多核扩展到拥有数千核的多机集群。完整的集群类型列表可以在[Spark“提交应用程序”文档](https://oreil.ly/0apFm)中找到。
 - en: 'Spark can run on the following cluster types:'
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: Spark 可以运行在以下几种集群类型上：
 - en: '[Spark Standalone cluster](https://oreil.ly/NIiwB)'
+  id: totrans-46
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[Spark 独立集群](https://oreil.ly/NIiwB)'
 - en: '[Mesos cluster](https://oreil.ly/lHzRG)'
+  id: totrans-47
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[Mesos 集群](https://oreil.ly/lHzRG)'
 - en: '[YARN cluster](https://oreil.ly/nuEQh)'
+  id: totrans-48
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[YARN 集群](https://oreil.ly/nuEQh)'
 - en: '[Kubernetes cluster](https://oreil.ly/sXIfK)'
+  id: totrans-49
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '[Kubernetes 集群](https://oreil.ly/sXIfK)'
 - en: Depending on the kind of cluster your company or institution has set up, most
     of the time submitting the job is just a matter of pointing to the correct URL.
     Many companies such as Databricks and Google also have fully managed Spark solutions
     that allow you to set up a Spark cluster with little effort.
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: 根据您的公司或机构设置的集群类型不同，大多数情况下提交作业只是指向正确 URL 的问题。许多公司，如 Databricks 和 Google，还提供了完全托管的
+    Spark 解决方案，可以让您轻松设置一个 Spark 集群。
 - en: PySpark Example
+  id: totrans-51
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: PySpark 示例
 - en: 'Counting words turns out to be a powerful tool in information retrieval, as
     we can use handy tricks like term frequency, inverse document frequency (TF-IDF),
     which is simply the count of words in the documents divided by the number of documents
     the word has occurred in. This is represented as follows:'
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 统计单词实际上是信息检索中的一个强大工具，因为我们可以使用方便的技巧，比如词频、逆文档频率（TF-IDF），它简单地是文档中单词出现次数除以单词出现在文档中的次数。表示如下：
 - en: <math alttext="t f i d f Subscript word Baseline left-parenthesis i right-parenthesis
     equals StartFraction log Subscript 10 Baseline left-parenthesis number of times
     w o r d Subscript i Baseline has occurred in corpus right-parenthesis Over number
@@ -282,27 +389,45 @@
     <mi>i</mi></msub> <mtext>has</mtext><mtext>occurred</mtext><mtext>in</mtext><mtext>corpus</mtext></mfenced></mrow>
     <mrow><mtext>number</mtext><mtext>of</mtext><mtext>documents</mtext><mtext>in</mtext><mtext>corpus</mtext><mtext>containing</mtext><mi>w</mi><mi>o</mi><mi>r</mi><msub><mi>d</mi>
     <mi>i</mi></msub></mrow></mfrac></mstyle></mrow></math>
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="t f i d f Subscript word Baseline left-parenthesis i right-parenthesis
+    equals StartFraction log Subscript 10 Baseline left-parenthesis number of times
+    w o r d Subscript i Baseline has occurred in corpus right-parenthesis Over number
+    of documents in corpus containing w o r d Subscript i Baseline EndFraction" display="block"><mrow><mi>t</mi>
+    <mi>f</mi> <mi>i</mi> <mi>d</mi> <msub><mi>f</mi> <mtext>word</mtext></msub> <mrow><mo>(</mo>
+    <mi>i</mi> <mo>)</mo></mrow> <mo>=</mo> <mstyle displaystyle="true" scriptlevel="0"><mfrac><mrow><msub><mo
+    form="prefix">log</mo> <mn>10</mn></msub> <mfenced close=")" open="(" separators=""><mtext>number</mtext><mtext>of</mtext><mtext>times</mtext><mi>w</mi><mi>o</mi><mi>r</mi><msub><mi>d</mi>
+    <mi>i</mi></msub> <mtext>has</mtext><mtext>occurred</mtext><mtext>in</mtext><mtext>corpus</mtext></mfenced></mrow>
+    <mrow><mtext>number</mtext><mtext>of</mtext><mtext>documents</mtext><mtext>in</mtext><mtext>corpus</mtext><mtext>containing</mtext><mi>w</mi><mi>o</mi><mi>r</mi><msub><mi>d</mi>
+    <mi>i</mi></msub></mrow></mfrac></mstyle></mrow></math>
 - en: For example, because the word *the* appears frequently, we might think it is
     an important word. But by dividing by the document frequency, *the* becomes less
     special and drops in importance. This trick is quite handy in simple NLP to get
     a better-than-random weighting of word importance.
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，因为单词 *the* 经常出现，我们可能认为它很重要。但通过除以文档频率，*the* 就变得不那么特殊，重要性降低了。这个技巧在简单的自然语言处理中非常方便，可以得到比随机加权更好的单词重要性。
 - en: Therefore, our next step is to run [*make_dictionary.py*](https://oreil.ly/lESlx).
     As the name indicates, this program simply counts the words and documents and
     makes a dictionary with the number of times a word has occurred.
+  id: totrans-55
   prefs: []
   type: TYPE_NORMAL
+  zh: 因此，我们的下一步是运行 [*make_dictionary.py*](https://oreil.ly/lESlx)。如其名称所示，这个程序简单地统计单词和文档，并创建一个字典，记录单词出现的次数。
 - en: We have some concepts to cover in order for you to properly grok how Spark helps
     process data in a distributed manner. The entry point of most Spark programs is
     `SparkContext`. This Python object is created on the controller. The *controller*
     is the central program that launches workers that actually process the data. The
     workers can be run locally on a single machine as a process or on many machines
     on the cloud as separate workers.
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们有一些概念要介绍，以便您正确理解 Spark 如何以分布式方式处理数据。大多数 Spark 程序的入口点是 `SparkContext`。这个 Python
+    对象是在控制器上创建的。*控制器* 是启动实际处理数据的工作节点的中央程序。这些工作节点可以作为进程在单台机器上本地运行，也可以作为独立的工作节点在云上的许多机器上运行。
 - en: '`SparkContext` can be used to create resilient distributed datasets, or RDDs.
     These are references to data streams that can be manipulated on the controller,
     and processing on the RDD can be farmed out to all the workers. `SparkContext`
@@ -311,16 +436,24 @@
     `textFile` method, we are returned a handle to an RDD. A stateless function can
     then be applied or mapped on the RDD to transform it from one RDD to another by
     repeatedly applying the function to the contents of the RDD.'
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: '`SparkContext` 可以用于创建弹性分布式数据集，或称 RDD。这些是对数据流的引用，可以在控制器上进行操作，并且可以将 RDD 上的处理分配到所有工作节点上。`SparkContext`
+    允许您加载存储在分布式文件系统（如 Hadoop 分布式文件系统（HDFS）或云存储桶）中的数据文件。通过调用 `SparkContext` 的 `textFile`
+    方法，我们得到了一个 RDD 的句柄。然后可以对 RDD 应用或映射一个无状态函数，通过重复应用函数到 RDD 的内容，将其从一个 RDD 转换为另一个 RDD。'
 - en: 'For example, this program fragment loads a text file and converts all lines
     to lowercase by running an anonymous lambda function that converts single lines
     to lowercase:'
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，这个程序片段加载一个文本文件，并通过运行一个匿名的 lambda 函数将所有行转换为小写：
 - en: '[PRE2]'
+  id: totrans-59
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: In a single-machine implementation, we would simply load up each Wikipedia article,
     keep a running dictionary in RAM, and count each token and then add 1 to the token
     count in the dictionary. A *token* is an atomic element of a document that is
@@ -333,44 +466,62 @@
     into maps, where a function is applied statelessly on each document in parallel.
     Spark also has a reduce function, where the outputs of separate maps are joined
     together.
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 在单机实现中，我们简单地加载每篇维基百科文章，在RAM中保持运行中的字典，并对每个标记进行计数，然后在字典中将标记计数加1。*标记*是文档的原子元素，被分成片段。在常规英语中，它可能是一个词，但维基百科文档还有其他实体，如文档引用本身，需要单独跟踪，因此我们称其为*标记化*的分割和原子元素为*标记*。单机实现将花费一些时间浏览维基百科的成千上万篇文章，这就是为什么我们使用Spark等分布式处理框架的原因。在Spark范式中，计算被分成映射，其中一个函数在每个文档上并行无状态地应用。Spark还具有减少函数，其中单独映射的输出被连接在一起。
 - en: 'For example, suppose we have a list of word counts and want to sum up the values
     of words that occur in different documents. The input to the reducer will be something
     like this:'
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，假设我们有一个单词计数列表，并想要对出现在不同文档中的单词的值进行求和。减少器的输入将类似于这样：
 - en: (apple, 10)
+  id: totrans-62
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: (苹果, 10)
 - en: (orange, 20)
+  id: totrans-63
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: (橙子, 20)
 - en: (apple, 7)
+  id: totrans-64
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: (苹果, 7)
 - en: 'Then we call the Spark function `reduceByKey(lambda a, b: a+ b)`, which adds
     all the values with the same key together and returns the following:'
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: '然后我们调用Spark函数`reduceByKey(lambda a, b: a+ b)`，它将所有具有相同键的值加在一起，并返回以下内容：'
 - en: (orange, 20)
+  id: totrans-66
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: (橙子, 20)
 - en: (apple, 17)
+  id: totrans-67
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: (苹果, 17)
 - en: If you look at the code in [*make_dictionary.py*](https://oreil.ly/lESlx), the
     *map phase* is where we take a document as input and then break it into tuples
     of (token, 1). In the *reduce phase*, the map outputs are joined by the key, which
     in this case is the token itself, and the reduce function is simply to sum up
     all the counts of tokens.
+  id: totrans-68
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你查看[*make_dictionary.py*](https://oreil.ly/lESlx)中的代码，*映射阶段*是我们将文档作为输入，然后将其分解为（标记，1）元组的地方。在*减少阶段*，映射输出由键连接在一起，这里的键是标记本身，而减少函数只是简单地对所有标记的计数求和。
 - en: Note that the reduce function assumes that the reduction is associative—that
     is, <math alttext="left-parenthesis a plus b plus c right-parenthesis equals left-parenthesis
     a plus b right-parenthesis plus c equals a plus left-parenthesis b plus c right-parenthesis"><mrow><mo>(</mo>
@@ -381,8 +532,15 @@
     in memory on the map phase (in some frameworks, this is called the *combine step*,
     where you run part of the reduction on the output of the map phase on the mapper
     machine) and then sum them up over several passes on the reduce phase.
+  id: totrans-69
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，减少函数假设缩减是可结合的——也就是说，<math alttext="left-parenthesis a plus b plus c right-parenthesis
+    equals left-parenthesis a plus b right-parenthesis plus c equals a plus left-parenthesis
+    b plus c right-parenthesis"><mrow><mo>(</mo> <mi>a</mi> <mo>+</mo> <mi>b</mi>
+    <mo>+</mo> <mi>c</mi> <mo>)</mo> <mo>=</mo> <mo>(</mo> <mi>a</mi> <mo>+</mo> <mi>b</mi>
+    <mo>)</mo> <mo>+</mo> <mi>c</mi> <mo>=</mo> <mi>a</mi> <mo>+</mo> <mo>(</mo> <mi>b</mi>
+    <mo>+</mo> <mi>c</mi> <mo>)</mo></mrow></math>。这使得Spark框架能够在内存中对映射阶段的标记字典的某些部分进行求和（在某些框架中，这称为*合并步骤*，其中在映射器机器上运行减少的一部分结果）然后在减少阶段的多次传递中对它们进行求和。
 - en: As an optimization, we use the Spark function `mapPartitions`. Map runs the
     provided function once per line (for which we have encoded an entire Wikipedia
     document as a protocol buffer, uuencoded as a single text line), whereas `mapPartitions`
@@ -393,8 +551,12 @@
     good tip in general for these data processing pipelines to reduce network bandwidth
     (which is generally the most time-consuming part of data processing compared to
     computation).
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 作为一种优化，我们使用了 Spark 函数`mapPartitions`。Map 对每一行运行一次提供的函数（我们已将整个维基百科文档编码为协议缓冲区，并将其
+    uuencode 为单个文本行），而`mapPartitions`在整个分区上运行它，通常是许多文档，通常为 64 MB。这种优化使我们能够在整个分区上构建一个小的
+    Python 字典，因此我们有更少的令牌计数对要减少。这节省了网络带宽，因此 mapper 需要发送给 reducer 的数据较少，并且总体上对于这些数据处理管道来说是一个不错的提示，以减少网络带宽（通常是数据处理中最耗时的部分之一，与计算相比）。
 - en: Next we show a complete Spark program that reads in documents in the protocol
     buffer format of `TextDocument` shown in the preceding code block and then counts
     how often the words, or tokens, occur in the entire corpus. The file in the GitHub
@@ -404,8 +566,11 @@
     for clarity. Here, we present first the dependencies and flags, then the main
     body, and then the functions being called by the main body so that the purposes
     of the functions are clearer.
+  id: totrans-71
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，我们展示了一个完整的 Spark 程序，它读取了上一节代码块中所示的`TextDocument`的协议缓冲区格式的文档，然后计算整个语料库中单词或标记出现的频率。GitHub
+    仓库中的文件是[*make_dictionary.py*](https://oreil.ly/lESlx)。以下代码与仓库文件略有不同，因为为了可读性将其分成了三个片段，并且将主程序和子程序的顺序进行了交换以便更清晰地展示。在这里，我们首先呈现依赖项和标志，然后是主体部分，然后是主体调用的函数，以便更清楚地了解函数的目的。
 - en: 'First, let’s look at the dependencies. The main ones are the protocol buffer
     representing the text document of the Wikipedia article, as discussed earlier.
     This is the input we are expecting. For the output, we have the `TokenDictionary`
@@ -417,11 +582,16 @@
     absl flags library is pretty handy for parsing and explaining the purposes of
     command-line flags and also retrieving the set values of flags easily. Here are
     the dependencies and flags:'
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，让我们看一下依赖项。主要的依赖项是代表维基百科文章的文本文档的协议缓冲区，如前所述。这是我们期望的输入。对于输出，我们有`TokenDictionary`协议缓冲区，它主要统计文章中单词的出现次数。我们将使用单词的共现来形成文章的相似性图，然后将其用作基于热启动的推荐系统的基础。我们还依赖于
+    PySpark，这是我们用来处理数据的数据处理框架，以及一个处理程序选项的标志库。absl 标志库非常方便，可以解析和解释命令行标志的目的，并且可以轻松地检索标志的集合值。以下是依赖项和标志：
 - en: '[PRE3]'
+  id: totrans-73
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'Next, we have the main body of the program, which is where all the subroutines
     are called. We first create `SparkContext`, which is the entry point into the
     Spark data processing system, and then call its `textFile` method to read in the
@@ -433,26 +603,36 @@
     using the token dictionary and an article-to-article recommender using the title
     dictionary, as titles are identifiers for the Wikipedia article. Here’s the main
     body:'
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来是程序的主体部分，在这里调用所有的子程序。我们首先创建`SparkContext`，这是进入Spark数据处理系统的入口点，然后调用其`textFile`方法来读取压缩的维基百科文章。请阅读存储库上的README文件以了解它是如何生成的。接着，我们解析文本文档，并将RDD发送到两个处理管道，一个用于创建文章正文的字典，另一个用于创建标题的字典。我们可以选择为两者创建一个统一的字典，但将它们分开允许我们使用标记字典创建基于内容的推荐器，并使用标题字典创建文章对文章的推荐器，因为标题是维基百科文章的标识符。这是主体部分：
 - en: '[PRE4]'
+  id: totrans-75
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'Finally, we have the subroutines called by the main function, all decomposed
     into smaller subroutines for counting the tokens in the article body and the titles:'
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们有由主函数调用的子程序，所有这些都分解为更小的子程序，用于计算文章正文和标题中的标记数量：
 - en: '[PRE5]'
+  id: totrans-77
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: As you can see, Spark makes it easy to scale a program from a single machine
     to run on a cluster of many machines! Starting from the main function, we create
     `SparkContext`, read in the input file as a text file, parse it, and then make
     the token and title dictionaries. The RDD is passed around as arguments of the
     processing function and can be used multiple times and fed to various map functions
     (such as the token and title dictionary methods).
+  id: totrans-78
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，Spark使得将程序从单台计算机扩展到运行在多台计算机集群上变得非常容易！从主函数开始，我们创建`SparkContext`，将输入文件作为文本文件读取，解析它，然后制作标记和标题字典。RDD作为处理函数的参数传递，并可以多次使用，并馈送到各种映射函数（如标记和标题字典方法）中。
 - en: The heavy lifting in the make-dictionary methods is done by the process-partitions
     functions, which are map functions that are applied to entire partitions at once.
     *Partitions* are large chunks of the input, typically about 64 MB in size and
@@ -461,8 +641,10 @@
     as well as after joining by the key (which in this case is the token) and summing
     up the counts. The reason we do this is to save on network bandwidth, which is
     typically the slowest part of data processing pipelines after disk access.
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 制作字典方法中的重要工作由处理分区函数完成，这些函数是一次应用于整个分区的映射函数。*分区*是输入的大块，通常约为64 MB大小，并且作为一个块一次处理，这样我们通过执行映射端组合可以节省网络带宽。这是一种技术，重复应用于映射分区以及通过键（在本例中为标记）进行连接后对计数求和的减少器。我们这样做的原因是为了节省网络带宽，通常是数据处理流水线中磁盘访问后最慢的部分。
 - en: You can view the output of the `make_dictionary` phase by using the utility
     *codex.py*, which dumps protocol buffers of different kinds registered in the
     program. Since all our data is serialized as bzipped and uuencoded text files,
@@ -475,17 +657,23 @@
     is a string or float or int, or having a field as a string in some files and as
     an int in others. Having an explicit typed schema saves us from a lot of these
     mistakes.
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 您可以通过使用实用程序*codex.py*查看`make_dictionary`阶段的输出，它会转储程序中注册的不同类型的协议缓冲区。由于我们所有的数据都被序列化为压缩和编码的文本文件，唯一的区别是使用哪种协议缓冲区模式来解码序列化数据，因此我们可以使用同一个程序来打印出用于调试的数据的前几个元素。尽管将数据存储为JSON、XML或CSV文件可能更简单，但拥有模式将使您免受未来烦恼，因为协议缓冲区是可扩展的并支持可选字段。它们还是有类型的，这可以使您免受在JSON中出现意外错误的影响，例如不知道一个值是字符串、浮点数还是整数，或者在某些文件中将字段作为字符串，而在其他文件中将字段作为整数。拥有显式类型化的模式可以使我们避免许多这些错误。
 - en: 'The next step in the pipeline is *make_cooccurrence.py*. As the name implies,
     this program simply counts the number of times each token occurs with another
     token. This is essentially a sparse way of representing a graph. In *nlp.proto*,
     each row of the sparse co-occurrence matrix is as follows:'
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 管道中的下一步是*make_cooccurrence.py*。顾名思义，这个程序只是计算每个标记与另一个标记共现的次数。这本质上是表示图的一种稀疏方式。在*nlp.proto*中，稀疏共现矩阵的每一行如下所示：
 - en: '[PRE6]'
+  id: totrans-82
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: In a *co-occurrence matrix*, each row *i* has an entry at column *j* that represents
     the number of times token *j* has co-occurred with token *i*. This is a handy
     way of associating the similarity between tokens *i* and *j* because if they co-occur
@@ -497,19 +685,26 @@
     indices). In this encoding, small integers take fewer bits to represent than large
     integers; since we reverse-sorted the dictionary by frequency, the most commonly
     occurring tokens have the smallest indices.
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 在*共现矩阵*中，每行*i*在列*j*处有一个条目，表示标记*j*与标记*i*共现的次数。这是一种方便的方法，可以将标记*i*和*j*之间的相似性关联起来，因为如果它们经常共同出现，它们必须比不共同出现的标记更相关。在协议缓冲区格式中，这些被存储为两个并行数组`other_index`和`count`。我们使用索引是因为它们比存储原始单词要小，特别是使用协议缓冲区的变化编码（即由标记索引的行和列的矩阵，以及元素是索引的共现）。在这种编码中，小整数需要的位数比大整数少；由于我们按频率反向排序了字典，因此最常出现的标记具有最小的索引。
 - en: At this stage, if you wanted to make a very simple recommender based on frequent
     item similarity co-occurrence, you would look up the row for token *i* and return
     by count order the tokens <math alttext="j"><mi>j</mi></math> . The simple recommender
     would make a good variant on the popular item recommender as described in the
     earlier chapters.
+  id: totrans-84
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个阶段，如果您想基于频繁项相似性共现构建一个非常简单的推荐系统，您可以查找标记*i*的行并按计数顺序返回标记<math alttext="j"><mi>j</mi></math>
+    。这个简单的推荐系统将是对前几章中描述的流行物品推荐系统的一个很好的变体。
 - en: Customers Also Bought
+  id: totrans-85
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 客户还购买了
 - en: This concept of co-occurrences will be developed further in [Chapter 9](ch09.html#feature-counting),
     but let’s take a moment to reflect on this concept of the MPIR and co-occurrences.
     When we look at the co-occurrence matrix for items, we can take row sums or column
@@ -518,16 +713,21 @@
     we look at the MPIR for a particular row corresponding to an item the user has
     seen, that’s simply the *conditional MPIR*—i.e., the most popular item, given
     that the user has seen item <math alttext="i"><mi>i</mi></math> .
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 这种共现概念将在[第9章](ch09.html#feature-counting)进一步发展，但让我们花一点时间来思考MPIR和共现概念。当我们查看物品的共现矩阵时，我们可以对行求和或列求和，以确定每个物品被看到（或购买）的次数。这就是我们在[第2章](ch02.html#ch:user-item)中构建MPIR的方式。如果我们查看对应于用户已看到物品的特定行的MPIR，那么这就是*条件MPIR*——即给定用户已看到物品<math
+    alttext="i"><mi>i</mi></math> 的最受欢迎的物品。
 - en: However, here we can choose to do an embedding or low-rank representation of
     the co-occurrence matrix. An embedding representation of a matrix is handy because
     it allows us to represent each item as a vector. One way to factor the matrix
     is via singular value decomposition, or SVD (see [“Latent Spaces”](ch10.html#latent-spaces)),
     but we won’t be doing that here. Instead we will be learning GloVE embeddings,
     which were developed for NLP.
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 但是，在这里我们可以选择对共现矩阵进行嵌入或低秩表示。矩阵的嵌入表示很方便，因为它允许我们将每个项表示为向量。通过奇异值分解或SVD（参见[“潜在空间”](ch10.html#latent-spaces)）来分解矩阵的一种方法，但我们在这里不会这样做。相反，我们将学习用于自然语言处理的GloVE嵌入。
 - en: The objective function of GloVE embedding is to learn two vectors such that
     their dot product is proportional to the log count of co-occurrence between the
     two vectors. The reason this loss function works is that the dot product will
@@ -535,15 +735,21 @@
     occur together will have a larger dot product than words that do not. To compute
     the embeddings, we need to have the co-occurrence matrix handy, and luckily the
     previous step in the pipeline has generated such a matrix for us to process.
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: GloVE 嵌入的目标函数是学习两个向量，使得它们的点积与两个向量之间共现的对数计数成比例。这种损失函数有效的原因是点积将成比例于共现的对数计数；因此，经常一起出现的单词的点积将大于不经常一起出现的单词。为了计算嵌入，我们需要有共现矩阵可用，幸运的是，管道中的上一步已经为我们生成了这样一个矩阵供我们处理。
 - en: GloVE Model Definition
+  id: totrans-89
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: GloVE 模型定义
 - en: For this section, please refer to the code at [*train_coccurence.py*](https://oreil.ly/exOH2).
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于本节，请参考[*train_coccurence.py*](https://oreil.ly/exOH2)中的代码。
 - en: 'Suppose we have tokens *i* and *j* from the token dictionary. We know that
     they have co-occurred with each other *N* times. We want to somehow generate an
     embedding space such that the vectors <math alttext="x left-parenthesis i right-parenthesis
@@ -552,8 +758,13 @@
     are proportional to log(*N*). The arguments for log count and the exact equation
     are derived in the [“GloVe: Global Vectors for Word Representation”](https://oreil.ly/cMHB3)
     by Jeffrey Pennington et al. We will show just the derived result:'
+  id: totrans-91
   prefs: []
   type: TYPE_NORMAL
+  zh: '假设我们有来自令牌字典的令牌 *i* 和 *j*。我们知道它们相互共现了 *N* 次。我们希望以某种方式生成一个嵌入空间，使得向量<math alttext="x
+    left-parenthesis i right-parenthesis asterisk x left-parenthesis j right-parenthesis"><mrow><mi>x</mi>
+    <mo>(</mo> <mi>i</mi> <mo>)</mo> <mo>*</mo> <mi>x</mi> <mo>(</mo> <mi>j</mi> <mo>)</mo></mrow></math>与
+    log(*N*) 成比例。对于 log 计数和确切的方程式，是由 Jeffrey Pennington 等人在[“GloVe: 全局词向量表示”](https://oreil.ly/cMHB3)中推导出来的。我们只展示推导出的结果：'
 - en: <math alttext="y Subscript predicted Baseline equals x left-parenthesis i right-parenthesis
     ModifyingAbove x With dot left-parenthesis j right-parenthesis plus bias left-parenthesis
     i right-parenthesis plus bias left-parenthesis j right-parenthesis" display="block"><mrow><msub><mi>y</mi>
@@ -561,20 +772,33 @@
     <mo>)</mo></mrow> <mover accent="true"><mi>x</mi> <mo>˙</mo></mover> <mrow><mo>(</mo>
     <mi>j</mi> <mo>)</mo></mrow> <mo>+</mo> <mtext>bias</mtext> <mrow><mo>(</mo> <mi>i</mi>
     <mo>)</mo></mrow> <mo>+</mo> <mtext>bias</mtext> <mrow><mo>(</mo> <mi>j</mi> <mo>)</mo></mrow></mrow></math>
+  id: totrans-92
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="y Subscript predicted Baseline equals x left-parenthesis i right-parenthesis
+    ModifyingAbove x With dot left-parenthesis j right-parenthesis plus bias left-parenthesis
+    i right-parenthesis plus bias left-parenthesis j right-parenthesis" display="block"><mrow><msub><mi>y</mi>
+    <mtext>predicted</mtext></msub> <mo>=</mo> <mi>x</mi> <mrow><mo>(</mo> <mi>i</mi>
+    <mo>)</mo></mrow> <mover accent="true"><mi>x</mi> <mo>˙</mo></mover> <mrow><mo>(</mo>
+    <mi>j</mi> <mo>)</mo></mrow> <mo>+</mo> <mtext>bias</mtext> <mrow><mo>(</mo> <mi>i</mi>
+    <mo>)</mo></mrow> <mo>+</mo> <mtext>bias</mtext> <mrow><mo>(</mo> <mi>j</mi> <mo>)</mo></mrow></mrow></math>
 - en: Here, <math alttext="x"><mi>x</mi></math> is the embedding lookup. In the code,
     we use 64-dimensional vectors, which are not too small as to have insufficient
     capacity to represent the embedding space but are not too large that it would
     take up too much memory when we have an embedding for the entire dictionary. The
     bias terms are there to soak up the large counts from very popular items such
     as *the*, *a*, and *and* that co-occur with many other terms.
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里，<math alttext="x"><mi>x</mi></math>是嵌入查找。在代码中，我们使用 64 维向量，它们不会太小以至于容量不足以表示嵌入空间，但也不会太大，以至于当我们对整个字典进行嵌入时会占用太多内存。偏置项用于吸收与许多其他项共现的非常流行的项的大计数，例如
+    *the*、*a* 和 *and*。
 - en: 'The loss we want to minimize is the squared difference between the prediction
     and the actual value:'
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们要最小化的损失是预测值与实际值之间的平方差：
 - en: <math alttext="StartLayout 1st Row 1st Column Blank 2nd Column y Subscript target
     Baseline equals 1 plus log Subscript 10 Baseline left-parenthesis upper N right-parenthesis
     2nd Row 1st Column Blank 2nd Column weight equals min left-parenthesis 1 comma
@@ -590,23 +814,47 @@
     columnalign="left"><mrow><mtext>loss</mtext> <mo>=</mo> <mtext>weight</mtext>
     <mo>*</mo> <msup><mrow><mo>(</mo><msub><mi>y</mi> <mtext>predicted</mtext></msub>
     <mo>-</mo><msub><mi>y</mi> <mtext>target</mtext></msub> <mo>)</mo></mrow> <mn>2</mn></msup></mrow></mtd></mtr></mtable></math>
+  id: totrans-95
   prefs: []
   type: TYPE_NORMAL
+  zh: <math alttext="StartLayout 1st Row 1st Column Blank 2nd Column y Subscript target
+    Baseline equals 1 plus log Subscript 10 Baseline left-parenthesis upper N right-parenthesis
+    2nd Row 1st Column Blank 2nd Column weight equals min left-parenthesis 1 comma
+    upper N slash 100 right-parenthesis Superscript 0.75 Baseline 3rd Row 1st Column
+    Blank 2nd Column loss equals weight asterisk left-parenthesis y Subscript predicted
+    Baseline minus y Subscript target Baseline right-parenthesis squared EndLayout"
+    display="block"><mtable displaystyle="true"><mtr><mtd columnalign="left"><mrow><msub><mi>y</mi>
+    <mtext>target</mtext></msub> <mo>=</mo> <mn>1</mn> <mo>+</mo> <msub><mtext>log</mtext>
+    <mn>10</mn></msub> <mrow><mo>(</mo> <mi>N</mi> <mo>)</mo></mrow></mrow></mtd></mtr>
+    <mtr><mtd columnalign="left"><mrow><mtext>weight</mtext> <mo>=</mo> <mtext>min</mtext>
+    <msup><mfenced close=")" open="(" separators=""><mn>1</mn><mo>,</mo><mi>N</mi><mo>/</mo><mn>100</mn></mfenced>
+    <mrow><mn>0</mn><mo>.</mo><mn>75</mn></mrow></msup></mrow></mtd></mtr> <mtr><mtd
+    columnalign="left"><mrow><mtext>loss</mtext> <mo>=</mo> <mtext>weight</mtext>
+    <mo>*</mo> <msup><mrow><mo>(</mo><msub><mi>y</mi> <mtext>predicted</mtext></msub>
+    <mo>-</mo><msub><mi>y</mi> <mtext>target</mtext></msub> <mo>)</mo></mrow> <mn>2</mn></msup></mrow></mtd></mtr></mtable></math>
 - en: The weighting term in the loss function is to prevent domination by very popular
     co-occurrences as well as to downweight rarer co-occurrences.
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: 损失函数中的加权项是为了防止非常流行的共现项的主导以及减少较少见的共现项的权重。
 - en: GloVE Model Specification in JAX and Flax
+  id: totrans-97
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: JAX 和 Flax 中的 GloVE 模型规范
 - en: 'Let’s look at the implementation of the GloVE model based on JAX and Flax.
     This is in the file *wikipedia/models.py* on the GitHub repository:'
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们来看看基于 JAX 和 Flax 的 GloVE 模型的实现。这在 GitHub 仓库的文件*wikipedia/models.py*中：
 - en: '[PRE7]'
+  id: totrans-99
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'Flax is rather simple to use; all networks inherit from Flax’s linen neural
     network library and are modules. Flax modules are also Python dataclasses, so
     any hyper-parameters for the module are defined at the start of the module as
@@ -614,16 +862,22 @@
     want, which corresponds to the number of tokens in the dictionary, and the dimension
     of the embedding vectors. Next, in the setup of the module, we actually create
     the layers we want, which is just the bias term and embedding for each token.'
+  id: totrans-100
   prefs: []
   type: TYPE_NORMAL
+  zh: Flax 使用起来相当简单；所有网络都继承自 Flax 的亚麻神经网络库，并且都是模块。Flax 模块也是 Python 的数据类，因此模块的任何超参数都在模块开头定义为变量。对于这个简单的模型，我们只有两个超参数：我们想要的嵌入数量，对应于字典中的令牌数量，以及嵌入向量的维度。接下来，在模块的设置中，我们实际上创建了我们想要的层，这只是每个令牌的偏置项和嵌入。
 - en: The next part of the definition is the default method that is called when we
     use this module. In this case, we want to pass in a pair of tokens, *i*, *j*;
     convert them to embeddings, <math alttext="x left-parenthesis i right-parenthesis
     comma x left-parenthesis j right-parenthesis"><mrow><mi>x</mi> <mo>(</mo> <mi>i</mi>
     <mo>)</mo> <mo>,</mo> <mi>x</mi> <mo>(</mo> <mi>j</mi> <mo>)</mo></mrow></math>
     ; and then compute the predicted log(*count*(*y*[predicted])).
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: 定义的下一部分是当我们使用此模块时调用的默认方法。在这种情况下，我们想传入一对标记，*i*，*j*；将它们转换为嵌入，<math alttext="x
+    left-parenthesis i right-parenthesis comma x left-parenthesis j right-parenthesis"><mrow><mi>x</mi>
+    <mo>(</mo> <mi>i</mi> <mo>)</mo> <mo>,</mo> <mi>x</mi> <mo>(</mo> <mi>j</mi> <mo>)</mo></mrow></math>；然后计算预测的log(*count*(*y*[predicted])。
 - en: In this section of code, we encounter the first difference between JAX and NumPy—namely,
     a vectorized map, or `vmap`. A `vmap` takes in a function and applies it in the
     same way across axes of tensors; this makes coding easier because you just have
@@ -639,8 +893,10 @@
     an array of the dot products. However, by converting this process to a function,
     we allow JAX to push this loop into JITable code that can be compiled to run fast
     on a GPU.
+  id: totrans-102
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这段代码的这一部分，我们遇到了JAX和NumPy之间的第一个区别——即向量化映射或`vmap`。`vmap`接受一个函数，并在张量的轴上以相同的方式应用它；这使得编码更容易，因为您只需考虑原始函数如何在较低秩张量（如向量）上操作。在这个例子中，由于我们正在传入一批标记对并对它们进行嵌入，我们实际上有一批向量，因此我们希望在批次维度上运行点积。我们传入JAX的dot函数，它接受向量，沿批次维度（即轴0）运行，并告诉`vmap`将输出作为另一个批次维度（轴0）返回。这使我们可以简单高效地编写处理低维张量的代码，并通过`vmap`处理额外的轴获得可以操作高维张量的函数。从概念上讲，这就好像我们在第一维上循环并返回一个点积数组。然而，通过将此过程转换为函数，我们允许JAX将此循环推入可即时编译的代码中，在GPU上快速运行。
 - en: Finally, we also declare the helper function [`score_all`](https://oreil.ly/-zYon),
     which takes one token and scores it against all the other tokens. Again, we use
     `vmap` to take the dot product with the particular token <math alttext="x left-parenthesis
@@ -657,20 +913,32 @@
     bias terms. We don’t use the bias term in scoring because it was used in part
     to soak up the popularity of very common tokens, and our scoring function would
     be more interesting if we just used the dot product part of it for scoring.
+  id: totrans-103
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们还声明助手函数[`score_all`](https://oreil.ly/-zYon)，它接受一个标记并针对所有其他标记进行评分。再次，我们使用`vmap`来与特定标记的点积，但是运行它与所有其他标记的嵌入。这里的区别在于，因为<math
+    alttext="x left-parenthesis i right-parenthesis"><mrow><mi>x</mi> <mo>(</mo> <mi>i</mi>
+    <mo>)</mo></mrow></math>已经是一个向量，我们不需要对其进行`vmap`。因此，在`in_axes`中，我们提供`[None, 0]`，这意味着不要在第一个参数的轴上进行`vmap`，而是在第二个参数的轴0上进行`vmap`，即所有标记的所有嵌入的批处理。然后我们返回结果，这是<math
+    alttext="x left-parenthesis i right-parenthesis"><mrow><mi>x</mi> <mo>(</mo> <mi>i</mi>
+    <mo>)</mo></mrow></math>与所有其他嵌入的点积，但没有偏置项。我们在评分中不使用偏置项，因为它被用来吸收非常常见标记的流行度，如果仅使用其点积部分进行评分，我们的评分函数会更有趣。
 - en: GloVE Model Training with Optax
+  id: totrans-104
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用Optax训练GloVE模型
 - en: 'Next, let’s take a look at [*wikipedia/train_coocurrence.py*](https://oreil.ly/A1o24).
     Let’s look specifically at the part where the model is called to dig into some
     JAX specifics:'
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，让我们看一下[*wikipedia/train_coocurrence.py*](https://oreil.ly/A1o24)。让我们特别看一下调用模型以深入了解一些JAX特定细节的部分：
 - en: '[PRE8]'
+  id: totrans-106
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: The first point you will notice is the function decorator, `@jax.jit`. This
     tells JAX that everything in the function is JITable. There are some requirements
     for a function to be JITable—mostly that it is pure, which is a computer science
@@ -682,15 +950,19 @@
     You can give hints to the compiler that certain parameters are constants with
     `static_argnums`, but these arguments shouldn’t change too frequently, or else
     a lot of time will be spent compiling a program for each of these constants.
+  id: totrans-107
   prefs: []
   type: TYPE_NORMAL
+  zh: 第一个要注意的是函数装饰器，`@jax.jit`。这告诉JAX函数中的所有内容都可以进行即时编译（JIT）。要使函数可以进行即时编译，有一些要求——主要是函数必须是纯函数，这是计算机科学术语，表示如果你用相同的参数调用函数，你会期望得到相同的结果。该函数不应该有任何副作用，也不应该依赖于缓存状态，比如私有计数器或具有隐式状态的随机数生成器。作为参数传入的张量可能也应该具有固定的形状，因为每个新的形状都会触发新的JIT编译。你可以用`static_argnums`来给编译器一些参数是常量的提示，但这些参数不应该经常变化，否则将花费大量时间为每个常量编译程序。
 - en: One consequence of this pure function philosophy is that the model structure
     and model parameters are separated. This way, the model functions are pure and
     the parameters are passed in to the model functions, allowing the model functions
     to be jitted. This is why we apply the model’s `apply_fn` to the parameters rather
     than simply having the parameters as part of the model.
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 纯函数哲学的一个结果是模型结构和模型参数是分开的。这样，模型函数是纯函数，参数传递给模型函数，允许模型函数进行即时编译。这就是为什么我们将模型的`apply_fn`应用于参数，而不是简单地将参数作为模型的一部分的原因。
 - en: This `apply_model` function can then be compiled to implement the GloVE loss
     that we described earlier. The other new functionality that JAX provides above
     NumPy is automatically computing gradients of functions. The JAX function `value_and_grad`
@@ -699,27 +971,37 @@
     descent to go the other way and minimize the loss. The Optax library has a few
     optimizers to pick from, including SGD (stochastic gradient descent with momentum)
     and ADAM.
+  id: totrans-109
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后可以编译这个`apply_model`函数来实现我们之前描述的GloVE损失。JAX提供的另一个新功能是自动计算函数的梯度。JAX函数`value_and_grad`计算损失相对于参数的梯度。由于梯度总是指向损失增加的方向，我们可以使用梯度下降去减少损失。Optax库提供了几种优化器可供选择，包括SGD（带动量的随机梯度下降）和ADAM。
 - en: When you run the training program, it will loop over the co-occurence matrix
     and try to generate a succinct form of it by using the GloVE loss function. After
     about an hour, you should be able to see the highest-scoring term.
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 当你运行训练程序时，它将循环遍历共现矩阵，并尝试通过使用GloVE损失函数生成其简洁形式。大约一个小时后，你应该能够看到得分最高的术语。
 - en: 'The nearest neighbors for “democracy,” for example, are as follows: democracy:1.064498,
     liberal:1.024733, reform:1.000746, affairs:0.961664, socialist:0.952792, organizations:0.935910,
     political:0.919937, policy:0.917884, policies:0.907138, and --date:0.889342.'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，“民主”的最近邻包括：民主：1.064498，自由主义：1.024733，改革：1.000746，事务：0.961664，社会主义：0.952792，组织：0.935910，政治：0.919937，政策：0.917884，政策：0.907138，以及--日期：0.889342。
 - en: As you can see, the query token itself is usually the highest-scoring neighbor,
     but this is not necessarily true, as a very popular token might actually be higher
     scoring to the token than the query token itself.
+  id: totrans-112
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如你所见，查询令牌本身通常是评分最高的邻居，但这并不一定是真的，因为一个非常受欢迎的令牌实际上可能比查询令牌本身得分更高。
 - en: Summary
+  id: totrans-113
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 总结
 - en: After reading this chapter, you should have a good overview of the basic ingredients
     for assembling a recommender system. You have seen how to set up a basic Python
     development environment; manage packages; specify inputs and outputs with flags;
@@ -727,11 +1009,15 @@
     data with a distributed framework with PySpark. You also learned how to compress
     gigabytes of data into a few megabytes of a model that is able to generalize and
     quickly score items, given a query item.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 阅读完本章后，你应该对组装推荐系统的基本要素有了很好的概述。你已经学习了如何搭建基本的Python开发环境；管理包；使用标志指定输入和输出；以各种方式编码数据，包括使用协议缓冲区；并且用PySpark处理数据的分布式框架。你还学会了如何将几十GB的数据压缩成几MB的模型，这个模型能够在给定查询项的情况下进行泛化并快速评分。
 - en: Take some time to play with the code and read the documentation of the various
     packages referenced to get a good sense of the basics. These foundational examples
     have widespread applications, and having a firm grasp on them will make your production
     environments more accurate.
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: 请花些时间去尝试这些代码，并阅读各种引用包的文档，以对基础知识有个清晰的理解。这些基础示例具有广泛的应用，熟练掌握它们将使你的生产环境更加准确。
