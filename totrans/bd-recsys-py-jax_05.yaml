@@ -3,6 +3,7 @@
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 第4章\. 推荐系统的系统设计
 - en: Now that you have a foundational understanding of how recommendation systems
     work, let’s take a closer look at the elements needed and at designing a system
     that is capable of serving recommendations at industrial scale. *Industrial scale*
@@ -13,6 +14,8 @@
   id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在您已经对推荐系统的工作原理有了基础理解，让我们更仔细地看一下所需的要素，并设计一个能够在工业规模下提供推荐的系统。在我们的背景下，“工业规模”主要指的是“合理规模”（由Ciro
+    Greco、Andrea Polonioli和Jacopo Tagliabue在[“ML and MLOps at a Reasonable Scale”](https://oreil.ly/jNIRY)中引入的术语）——适用于有数十到数百名工程师致力于产品开发的公司的生产应用，而不是千人以上。
 - en: In theory, a recommendation system is a collection of math formulas that can
     take historical data about user-item interactions and return probability estimates
     for a user-item-pair’s affinity. In practice, a recommendation system is 5, 10,
@@ -22,17 +25,21 @@
   id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 理论上，推荐系统是一组数学公式，可以利用用户与物品的历史交互数据返回用户-物品对亲和性的概率估计。实际上，推荐系统是5、10或者可能是20个软件系统，实时通信并且使用有限信息，受限物品可用性和永远的样本外行为，所有这些都是为了确保用户看到*某些东西*。
 - en: This chapter is heavily influenced by [“System Design for Recommendations and
     Search”](https://oreil.ly/UBMB2) by Eugene Yan and [“Recommender Systems, Not
     Just Recommender Models”](https://oreil.ly/G2aiH) by Even Oldridge and Karl Byleen-Higley.
   id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章受到[Eugene Yan的“System Design for Recommendations and Search”](https://oreil.ly/UBMB2)和[Even
+    Oldridge与Karl Byleen-Higley的“Recommender Systems, Not Just Recommender Models”](https://oreil.ly/G2aiH)的深刻影响。
 - en: Online Versus Offline
   id: totrans-4
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 在线与离线
 - en: ML systems consist of the stuff that you do in advance and the stuff that you
     do on the fly. This division, between online and offline, is a practical consideration
     about the information necessary to perform tasks of various types. To observe
@@ -44,15 +51,18 @@
   id: totrans-5
   prefs: []
   type: TYPE_NORMAL
+  zh: 机器学习系统由您预先完成的工作和即时完成的工作组成。在线与离线之间的这种分工是关于执行各种类型任务所需信息的实际考虑。要观察和学习大规模模式，系统需要访问大量数据；这是离线组件。然而，执行推理只需要训练过的模型和相关输入数据。这就是为什么许多机器学习系统架构是这样构建的原因。您经常会遇到描述在线-离线范式两侧的术语*批处理*和*实时*（见[图 4-1](#fig:realtimevsbatch)）。
 - en: '![Online vs. Offline](assets/brpj_0401.png)'
   id: totrans-6
   prefs: []
   type: TYPE_IMG
+  zh: '![在线 vs 离线](assets/brpj_0401.png)'
 - en: Figure 4-1\. Real-time versus batch
   id: totrans-7
   prefs:
   - PREF_H6
   type: TYPE_NORMAL
+  zh: 图4-1\. 实时对比批处理
 - en: A *batch process* does not require user input, often has longer expected time
     periods for completion, and is able to have all the necessary data available simultaneously.
     Batch processes often include tasks like training a model on historical data,
@@ -63,6 +73,7 @@
   id: totrans-8
   prefs: []
   type: TYPE_NORMAL
+  zh: '*批处理*不需要用户输入，通常需要更长的完成时间，并且能够同时拥有所有必要的数据。批处理通常包括训练基于历史数据的模型、通过额外的特征集合增强数据集或转换计算密集型数据等任务。在批处理中更频繁见到的另一个特征是，它们使用涉及的完整相关数据集，而不仅仅是按时间切片或其他方式切分的数据实例。'
 - en: A *real-time* *process* is carried out at the time of the request; said differently,
     it is evaluated during the inference process. Examples include providing a recommendation
     upon page load, updating the next episode after the user finishes the last, and
@@ -73,26 +84,31 @@
   id: totrans-9
   prefs: []
   type: TYPE_NORMAL
+  zh: '*实时* *过程* 是在请求时执行的；换句话说，在推断过程中进行评估。例如，在页面加载时提供推荐、在用户完成上一集后更新下一集、在某个推荐标记为*不感兴趣*后重新排名推荐等。由于需要快速响应，实时过程通常受到资源限制的影响；但与该领域的许多事物一样，随着世界计算资源的扩展，我们改变了资源限制的定义。'
 - en: Let’s return to the components introduced in [Chapter 1](ch01.html#CH0)—the
     collector, ranker, and server—and consider their roles in offline and online systems.
   id: totrans-10
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们回到[第一章](ch01.html#CH0)中介绍的组件——收集器、排名器和服务器，并考虑它们在离线和在线系统中的作用。
 - en: Collector
   id: totrans-11
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 收集器
 - en: The collector’s role is to know what is in the collection of items that may
     be recommended and the necessary features or attributes of those items.
   id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 收集器的角色是了解可能推荐的项目集合及这些项目的必要特征或属性。
 - en: Offline Collector
   id: totrans-13
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 离线收集器
 - en: The *offline collector* has access to and is responsible for the largest datasets.
     Understanding all user-item interactions, user similarities, item similarities,
     feature stores for users and items, and indices for nearest-neighbor lookup are
@@ -104,17 +120,20 @@
   id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: '*离线收集器* 具有对最大数据集的访问权限，并对其负责。理解所有用户-项目交互、用户相似性、项目相似性、用户和项目的特征存储以及最近邻居查找索引都在离线收集器的监管范围内。离线收集器需要能够非常快速地访问相关数据，有时还需要大批量操作。为此，离线收集器通常实现亚线性搜索函数或专门调整的索引结构。它们还可能利用分布式计算进行这些转换。'
 - en: It’s important to remember that the offline collector not only needs access
     and knowledge of these datasets but will also be responsible for writing the necessary
     downstream datasets to be used in real time.
   id: totrans-15
   prefs: []
   type: TYPE_NORMAL
+  zh: 需要记住的是，离线收集器不仅需要访问和了解这些数据集，还要负责编写必要的下游数据集，以供实时使用。
 - en: Online Collector
   id: totrans-16
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 在线收集器
 - en: The *online collector* uses the information indexed and prepared by the offline
     collector to provide real-time access to the parts of this data necessary for
     inference. This includes techniques like searching for nearest neighbors, augmenting
@@ -124,6 +143,7 @@
   id: totrans-17
   prefs: []
   type: TYPE_NORMAL
+  zh: '*在线收集器* 使用离线收集器索引和准备的信息，实时提供对数据部分的访问，这对推断过程至关重要。这包括技术如寻找最近邻居、从特征存储中增补观察、了解完整的库存目录等。在线收集器还需要处理最近的用户行为；当我们在[第17章](ch17.html#Attention)中看到顺序推荐器时，这将变得尤为重要。'
 - en: One additional role the online collector may take on is encoding a request.
     In the context of a search recommender, we want to take the query and encode it
     into the *search space* via an embedding model. For contextual recommenders, we
@@ -131,11 +151,13 @@
   id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 在线收集器可能还承担另一个角色，即对请求进行编码。在搜索推荐系统的上下文中，我们希望将查询编码成*搜索空间*，通过嵌入模型。对于上下文推荐系统，我们也需要将上下文编码到*潜在空间*，同样使用嵌入模型。
 - en: Embedding Models
   id: totrans-19
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 嵌入模型
 - en: One popular subcomponent in the collector’s work will involve an embedding step;
     see [*Machine Learning Design Patterns*](https://www.oreilly.com/library/view/machine-learning-design/9781098115777/)
     by Valliappa Lakshmanan et al. (O’Reilly). The embedding step on the offline side
@@ -224,6 +246,7 @@
   id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: '*在线排名器*受到很多赞赏，但实际上是利用了其他组件的辛勤工作。在线排名器首先进行过滤，利用离线构建的过滤基础设施，例如索引查找或布隆过滤器应用。过滤后，候选推荐的数量已经被控制住，因此我们实际上可以来完成最臭名昭著的任务：排名推荐。'
 - en: In the online ranking phase, usually a feature store is accessed to take the
     candidates and embellish them with the necessary details, and then a scoring and
     ranking model is applied. Scoring or ranking may happen in several independent
@@ -233,22 +256,26 @@
   id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 在在线排名阶段，通常会访问特征存储来获取候选项并为其添加必要的细节，然后应用评分和排名模型。评分或排名可能会在几个独立的维度上进行，然后汇总为一个最终排名。在多目标范式中，你可能会有几个与排名器返回的候选列表相关联的这些排名。
 - en: Server
   id: totrans-32
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 服务器
 - en: The server’s role is to take the ordered subset provided by the ranker, ensure
     that the necessary data schema is satisfied (including essential business logic),
     and return the requested number of recommendations.
   id: totrans-33
   prefs: []
   type: TYPE_NORMAL
+  zh: 服务器的角色是接收排名器提供的有序子集，确保满足必要的数据模式（包括基本业务逻辑），并返回请求的推荐数量。
 - en: Offline Server
   id: totrans-34
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 离线服务器
 - en: The *offline server* is responsible for high-level alignment of the hard requirements
     of recommendations returned from the system. In addition to establishing and enforcing
     schema, these rules can be more nuanced things like “never return this pair of
@@ -258,6 +285,7 @@
   id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: '*离线服务器*负责系统返回的推荐的硬需求的高级对齐。除了建立和执行架构外，这些规则可能更细化，比如“在推荐这种上装时，永远不要推荐这条裤子”。通常被视为“业务逻辑”，离线服务器负责创建有效的方式，以在返回的推荐中施加顶级优先级。'
 - en: An additional responsibility for the offline server is handling tasks like experimentation.
     At some point, you’ll likely want to run online experiments to test out all the
     amazing recommendation systems you build with this book. The offline server is
@@ -266,11 +294,13 @@
   id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 离线服务器的另一个责任是处理像实验这样的任务。在某些时候，你可能想运行在线实验，以测试你用本书构建的所有惊人推荐系统。离线服务器是你将实现实验决策逻辑并以在线服务器可以实时使用的方式提供其影响的地方。
 - en: Online Server
   id: totrans-37
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 在线服务器
 - en: The *online server* takes the rules, requirements, and configurations established
     and makes their final application to the ranked recommendations. A simple example
     is diversification rules; as you will see later, diversification of recommendations
@@ -280,11 +310,13 @@
   id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: '*在线服务器*接受已经建立的规则、要求和配置，并将它们最终应用到排名推荐上。一个简单的例子是多样化规则；正如稍后将看到的，推荐多样化对用户体验的质量有显著影响。在线服务器可以从离线服务器读取多样化要求，并将其应用到排名列表中，以返回预期数量的多样化推荐。'
 - en: Summary
   id: totrans-39
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 总结
 - en: It’s important to remember that the online server is the endpoint from which
     other systems will be getting a response. While it’s usually where the message
     is coming from, many of the most complicated components in the system are upstream.
@@ -294,6 +326,7 @@
   id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 记住在线服务器是其他系统获取响应的端点很重要。虽然通常它是消息的来源，但系统中最复杂的组件多数是上游的。务必以一种方式来监测这个系统，使得当响应变慢时，每个系统都足够可观察，从而可以确定性能降级的原因所在。
 - en: Now that we’ve established the framework and you understand the functions of
     the core components, we will discuss the aspects of ML systems next and the kinds
     of technologies associated with them.
