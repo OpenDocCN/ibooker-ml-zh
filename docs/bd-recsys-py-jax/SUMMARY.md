@@ -1,3 +1,4 @@
++   [Python 与 Jax 现代推荐系统构建指南](README.md)
 +   [前言](bd-recsys-py-jax_00.md)
 +   [第一部分：热身](bd-recsys-py-jax_01.md)
 +   [第一章：介绍](bd-recsys-py-jax_02.md)
