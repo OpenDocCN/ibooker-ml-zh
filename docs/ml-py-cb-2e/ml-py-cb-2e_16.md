@@ -1,4 +1,4 @@
-# 第十六章 Logistic 回归
+# 第十六章：Logistic 回归
 
 # 16.0 引言
 

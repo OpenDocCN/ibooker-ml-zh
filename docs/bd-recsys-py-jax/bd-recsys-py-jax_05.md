@@ -1,4 +1,4 @@
-# 第四章\. 推荐系统的系统设计
+# 第四章：推荐系统的系统设计
 
 现在您已经对推荐系统的工作原理有了基础理解，让我们更仔细地看一下所需的要素，并设计一个能够在工业规模下提供推荐的系统。在我们的背景下，“工业规模”主要指的是“合理规模”（由 Ciro Greco、Andrea Polonioli 和 Jacopo Tagliabue 在[“ML and MLOps at a Reasonable Scale”](https://oreil.ly/jNIRY)中引入的术语）——适用于有数十到数百名工程师致力于产品开发的公司的生产应用，而不是千人以上。
 
