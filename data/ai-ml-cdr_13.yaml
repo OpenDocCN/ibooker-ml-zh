@@ -1,0 +1,1049 @@
+- en: Chapter 11\. Using Convolutional and Recurrent Methods for Sequence Models
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第11章\. 使用序列模型的卷积和递归方法
+- en: The last few chapters introduced you to sequence data. You saw how to predict
+    it first using statistical methods, then basic machine learning methods with a
+    deep neural network. You also explored how to tune the model’s hyperparameters
+    using Keras Tuner. In this chapter, you’ll look at additional techniques that
+    may further enhance your ability to predict sequence data using convolutional
+    neural networks as well as recurrent neural networks.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最近的几章介绍了序列数据。您看到了如何首先使用统计方法，然后是基本的机器学习方法和深度神经网络来预测它。您还探索了如何使用Keras调谐器调整模型的超参数。在本章中，您将看到可能进一步增强您使用卷积神经网络和递归神经网络预测序列数据能力的其他技术。
+- en: Convolutions for Sequence Data
+  id: totrans-2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 序列数据的卷积
+- en: 'In [Chapter 3](ch03.xhtml#going_beyond_the_basics_detecting_featu) you were
+    introduced to convolutions where a 2D filter was passed over an image to modify
+    it and potentially extract features. Over time, the neural network learned which
+    filter values were effective at matching the modifications made to the pixels
+    to their labels, effectively extracting features from the image. The same technique
+    can be applied to numeric time series data, but with one modification: the convolution
+    will be one-dimensional instead of two-dimensional.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第3章](ch03.xhtml#going_beyond_the_basics_detecting_featu)中，您介绍了卷积，其中2D滤波器通过图像以修改它并可能提取特征。随着时间的推移，神经网络学会了哪些滤波器值有效匹配修改后的像素到它们的标签，有效地从图像中提取特征。相同的技术可以应用于数值时间序列数据，但有一个修改：卷积将是一维而不是二维。
+- en: Consider, for example, the series of numbers in [Figure 11-1](#a_sequence_of_numbers).
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，考虑[图11-1](#a_sequence_of_numbers)中的数字序列。
+- en: '![A sequence of numbers](Images/aiml_1101.png)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![一系列数字](Images/aiml_1101.png)'
+- en: Figure 11-1\. A sequence of numbers
+  id: totrans-6
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-1\. 一系列数字
+- en: A 1D convolution could operate on these as follows. Consider the convolution
+    to be a 1 × 3 filter with filter values of –0.5, 1, and –0.5, respectively. In
+    this case, the first value in the sequence will be lost, and the second value
+    will be transformed from 8 to –1.5, as shown in [Figure 11-2](#using_a_convolution_with_the_number_seq).
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 1D卷积可以如下操作。考虑卷积是一个1 × 3的滤波器，滤波器值分别为-0.5, 1 和 -0.5。在这种情况下，序列中的第一个值将丢失，第二个值将从8转换为-1.5，如[图11-2](#using_a_convolution_with_the_number_seq)所示。
+- en: '![Using a convolution with the number sequence](Images/aiml_1102.png)'
+  id: totrans-8
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用数字序列的卷积](Images/aiml_1102.png)'
+- en: Figure 11-2\. Using a convolution with the number sequence
+  id: totrans-9
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-2\. 使用数字序列的卷积
+- en: The filter will then stride across the values, calculating new ones as it goes.
+    So, for example, in the next stride 15 will be transformed to 3, as shown in [Figure 11-3](#an_additional_stride_in_the_oned_convol).
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 滤波器将跨值进行步幅，计算新值。例如，在下一个步幅中，15将被转换为3，如[图11-3](#an_additional_stride_in_the_oned_convol)所示。
+- en: '![An additional stride in the 1D convolution](Images/aiml_1103.png)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![1D卷积中的额外步幅](Images/aiml_1103.png)'
+- en: Figure 11-3\. An additional stride in the 1D convolution
+  id: totrans-12
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-3\. 1D卷积中的额外步幅
+- en: Using this method, it’s possible to extract the patterns between values and
+    learn the filters that extract them successfully, in much the same way as convolutions
+    on the pixels in images are able to extract features. In this instance there are
+    no labels, but the convolutions that minimize overall loss could be learned.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种方法，可以提取数值之间的模式并学习成功提取它们的过滤器，这与图像中的卷积在像素上提取特征的方式非常相似。在这种情况下没有标签，但可以学习最小化总体损失的卷积。
+- en: Coding Convolutions
+  id: totrans-14
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 编写卷积
+- en: 'Before coding convolutions, you’ll have to adjust the windowed dataset generator
+    that you used in the previous chapter. This is because when coding the convolutional
+    layers, you have to specify the dimensionality. The windowed dataset was a single
+    dimension, but it wasn’t defined as a 1D tensor. This simply requires adding a
+    `tf.expand_dims` statement at the beginning of the `windowed_dataset` function
+    like this:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在编写卷积之前，您需要调整在前一章中使用的窗口数据集生成器。这是因为在编写卷积层时，您需要指定维度。窗口数据集是单维度的，但未定义为1D张量。这只需在`windowed_dataset`函数的开头添加一个`tf.expand_dims`语句，如下所示：
+- en: '[PRE0]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Now that you have an amended dataset, you can add a convolutional layer before
+    the dense layers that you had previously:'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您有了修改后的数据集，可以在之前的密集层之前添加一个卷积层：
+- en: '[PRE1]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'In the `Conv1D` layer, you have a number of parameters:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`Conv1D`层中，您有许多参数：
+- en: '`filters`'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`filters`'
+- en: Is the number of filters that you want the layer to learn. It will generate
+    this number, and adjust them over time to fit your data as it learns.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 是您希望该层学习的滤波器数量。它会生成这些数量，并随着学习过程调整以适应数据。
+- en: '`kernel_size`'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`kernel_size`'
+- en: Is the size of the filter—earlier we demonstrated a filter with the values –0.5,
+    1, –0.5, which would be a kernel size of 3.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 是滤波器的大小 —— 之前我们演示了一个具有值 -0.5、1、-0.5 的滤波器，这将是一个大小为3的内核尺寸。
+- en: '`strides`'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`strides`'
+- en: Is the size of the “step” that the filter will take as it scans across the list.
+    This is typically 1.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是滤波器在扫描列表时采取的“步长”。通常为1。
+- en: '`padding`'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`padding`'
+- en: Determines the behavior of the list with regard to which end data is dropped
+    from. A 3 × 1 filter will “lose” the first and last value of the list because
+    it cannot calculate the prior value for the first, or the subsequent value for
+    the last. Typically with sequence data you’ll use `causal` here, which will only
+    take data from the current and previous time steps, never future ones. So, for
+    example, a 3 × 1 filter would take the current time step along with the previous
+    two.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 决定了关于列表的行为，关于从哪一端丢弃数据。一个3×1的滤波器将“丢失”列表的第一个和最后一个值，因为它无法计算第一个的先前值或最后一个的后续值。通常在序列数据中，您会在这里使用`causal`，它只会从当前和前两个时间步中获取数据，永远不会从未来获取。因此，例如，一个3×1的滤波器将使用当前时间步和前两个时间步的数据。
+- en: '`activation`'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`activation`'
+- en: Is the activation function. In this case, `relu` means to effectively reject
+    negative values coming out of the layer.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 是激活函数。在这种情况下，`relu` 意味着有效地拒绝来自层的负值。
+- en: '`input_shape`'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`input_shape`'
+- en: As always, is the input shape of the data being passed into the network. As
+    this is the first layer, you have to specify it.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一如既往，这是数据输入网络的形状。作为第一层，您必须指定它。
+- en: Training with this will give you a model as before, but to get predictions from
+    the model, given that the input layer has changed shape, you’ll need to modify
+    your prediction code somewhat.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用此进行训练将会得到一个与之前相同的模型，但是为了从模型中获得预测，由于输入层已经改变了形状，您需要适当修改您的预测代码。
+- en: 'Also, instead of predicting each value, one by one, based on the previous window,
+    you can actually get a single prediction for an entire series if you’ve correctly
+    formatted the series as a dataset. To simplify things a bit, here’s a helper function
+    that can predict an entire series based on the model, with a specified window
+    size:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，与其基于先前窗口逐个预测每个值，您实际上可以获得整个系列的单个预测，如果您正确将系列格式化为数据集的话。为了简化事情，这里有一个辅助函数，它可以基于模型预测整个系列，指定窗口大小：
+- en: '[PRE2]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'If you want to use the model to predict this series, you simply pass the series
+    in with a new axis to handle the `Conv1D`s needed for the layer with the extra
+    axis. You can do it like this:'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您想使用模型来预测此系列，您只需将系列传递进去，并添加一个新的轴来处理需要额外轴的层。您可以这样做：
+- en: '[PRE3]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'And you can split this forecast into just the predictions for the validation
+    set using the predetermined split time:'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并且您可以使用预先确定的分割时间仅将此预测拆分为验证集的预测：
+- en: '[PRE4]'
+  id: totrans-38
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: A plot of the results against the series is in [Figure 11-4](#convolutional_neural_network_with_time_).
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果与系列的绘图见[图 11-4](#convolutional_neural_network_with_time_)。
+- en: The MAE in this case is 4.89, which is slightly worse than for the previous
+    prediction. This could be because we haven’t tuned the convolutional layer appropriately,
+    or it could be that convolutions simply don’t help. This is the type of experimentation
+    you’ll need to do with your data.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，MAE 是 4.89，稍微比之前的预测差一些。这可能是因为我们没有适当调整卷积层，或者简单地说，卷积并没有帮助。这是您需要对您的数据进行的实验类型。
+- en: Do note that this data has a random element in it, so values will change across
+    sessions. If you’re using code from [Chapter 10](ch10.xhtml#creating_ml_models_to_predict_sequences)
+    and then running this code separately, you will, of course, have random fluctuations
+    affecting your data, and thus your MAE.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，此数据具有随机元素，因此数值会在不同会话之间发生变化。如果您使用来自[第10章](ch10.xhtml#creating_ml_models_to_predict_sequences)的代码，然后单独运行此代码，当然会有随机波动影响您的数据和平均绝对误差。
+- en: '![Convolutional neural network with time sequence data prediction](Images/aiml_1104.png)'
+  id: totrans-42
+  prefs: []
+  type: TYPE_IMG
+  zh: '![卷积神经网络与时间序列数据预测](Images/aiml_1104.png)'
+- en: Figure 11-4\. Convolutional neural network with time sequence data prediction
+  id: totrans-43
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-4. 卷积神经网络与时间序列数据预测
+- en: 'But when using convolutions, the question always comes up: Why choose the parameters
+    that we chose? Why 128 filters? Why size 3 × 1? The good news is that you can
+    experiment with them using [Keras Tuner](https://oreil.ly/doxhE), as shown previously.
+    We’ll explore that next.'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是在使用卷积时，总是会有一个问题：为什么选择我们选择的参数？为什么是128个滤波器？为什么是大小为3×1的内核？好消息是，你可以使用[Keras调优器](https://oreil.ly/doxhE)进行实验，如之前所示。接下来我们将探索这一点。
+- en: Experimenting with the Conv1D Hyperparameters
+  id: totrans-45
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 尝试Conv1D超参数
+- en: In the previous section, you saw a 1D convolution that was hardcoded with parameters
+    for things like filter number, kernel size, number of strides, etc. When training
+    the neural network with it, it appeared that the MAE went up slightly, so we got
+    no benefit from using the `Conv1D`. This may not always be the case, depending
+    on your data, but it could be because of suboptimal hyperparameters. So, in this
+    section, you’ll see how Keras Tuner can optimize them for you.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的部分中，你看到了一个硬编码了参数的1D卷积，比如滤波器数量、内核大小、步幅数等。当用它训练神经网络时，似乎MAE稍微上升，所以我们没有从Conv1D中获得任何好处。这在你的数据中可能并非总是如此，但这可能是由于次优的超参数。因此，在本节中，你将看到Keras调优器如何为你优化它们。
+- en: 'In this example, you’ll experiment with the hyperparameters for the number
+    of filters, the size of the kernel, and the size of the stride, keeping the other
+    parameters static:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，你将尝试调整滤波器数量、内核大小和步幅大小的超参数，保持其他参数不变：
+- en: '[PRE5]'
+  id: totrans-48
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: The filter values will start at 128 and then step upwards toward 256 in increments
+    of 64\. The kernel size will start at 3 and increase to 9 in steps of 3, and the
+    strides will start at 1 and be stepped up to 3.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 滤波器值将从128开始，然后以64的增量向上增加到256。内核大小将从3开始，以3的步长增加到9，步幅将从1开始增加到3。
+- en: There are a lot of combinations of values here, so the experiment will take
+    some time to run. You could also try other changes, like using a much smaller
+    starting value for `filters` to see the impact they have.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有很多值的组合，所以实验需要一些时间才能运行。你也可以尝试其他更改，比如使用一个更小的起始值作为`filters`，看看它们的影响。
+- en: 'Here’s the code to do the search:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里是进行搜索的代码：
+- en: '[PRE6]'
+  id: totrans-52
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: When I ran the experiment, I discovered that 128 filters, with size 9 and stride
+    1, gave the best results. So, compared to the initial model, the big difference
+    was to change the filter size—which makes sense with such a large body of data.
+    With a filter size of 3, only the immediate neighbors have an impact, whereas
+    with 9, neighbors further afield also have an impact on the result of applying
+    the filter. This would warrant a further experiment, starting with these values
+    and trying larger filter sizes and perhaps fewer filters. I’ll leave that to you
+    to see if you can improve the model further!
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我运行实验时，我发现128个滤波器，大小为9和步幅为1，给出了最佳结果。所以，与初始模型相比，改变滤波器大小是最大的不同之处——这在有这么大量数据的情况下是有道理的。使用大小为3的滤波器，只有直接的邻居对应用滤波器的结果产生影响，而使用大小为9的滤波器，更远的邻居也会对结果产生影响。这将需要进一步的实验，从这些值开始尝试更大的滤波器大小，也许是更少的滤波器。我会留给你看看是否可以进一步改进模型！
+- en: 'Plugging these values into the model architecture, you’ll get this:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将这些值插入模型架构，你将得到以下结果：
+- en: '[PRE7]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: After training with this, the model had improved accuracy compared with both
+    the naive CNN created earlier *and* the original DNN, giving [Figure 11-5](#optimized_cnn_predictions).
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用这个模型进行训练后，与早期创建的简单CNN和原始DNN相比，模型的准确性有了提高，给出了[图11-5](#optimized_cnn_predictions)。
+- en: '![Optimized CNN predictions](Images/aiml_1105.png)'
+  id: totrans-57
+  prefs: []
+  type: TYPE_IMG
+  zh: '![优化的CNN预测](Images/aiml_1105.png)'
+- en: Figure 11-5\. Optimized CNN predictions
+  id: totrans-58
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-5\. 优化的CNN预测
+- en: This resulted in an MAE of 4.39, which is a slight improvement over the 4.47
+    we got without using the convolutional layer. Further experimentation with the
+    CNN hyperparameters may improve this further.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这导致了一个MAE值为4.39，略优于我们在不使用卷积层时得到的4.47。进一步尝试CNN的超参数可能会进一步改善结果。
+- en: Beyond convolutions, the techniques we explored in the chapters on natural language
+    processing with RNNs, including LSTMs, may be powerful when working with sequence
+    data. By their very nature, RNNs are designed for maintaining context, so previous
+    values can have an effect on later ones. You’ll explore using them for sequence
+    modeling next. But first, let’s move on from a synthetic dataset and start looking
+    at real data. In this case, we’ll consider weather data.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在卷积之外，我们在使用RNN进行自然语言处理的章节中探索的技术，包括LSTM，在处理序列数据时可能会非常有用。由于它们的本质，RNN设计用于维持上下文，因此先前的值可能会影响后续的值。接下来，你将探索在序列建模中使用它们。但首先，让我们从合成数据集转移到真实数据。在这种情况下，我们将考虑天气数据。
+- en: Using NASA Weather Data
+  id: totrans-61
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用NASA天气数据
+- en: One great resource for time series weather data is the [NASA Goddard Institute
+    for Space Studies (GISS) Surface Temperature analysis](https://oreil.ly/6IixP).
+    If you follow the [Station Data link](https://oreil.ly/F9Hmw), on the right side
+    of the page you can pick a weather station to get data from. For example, I chose
+    the Seattle Tacoma (SeaTac) airport and was taken to the page in [Figure 11-6](#surface_temperature_data_from_giss).
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 时间序列天气数据的一个很好的资源是[NASA戈达德太空研究所（GISS）表面温度分析](https://oreil.ly/6IixP)。如果你点击[站点数据链接](https://oreil.ly/F9Hmw)，在页面的右侧你可以选择一个气象站获取数据。例如，我选择了西雅图塔科马（SeaTac）机场，并被带到了[图 11-6](#surface_temperature_data_from_giss)中的页面。
+- en: '![Surface temperature data from GISS](Images/aiml_1106.png)'
+  id: totrans-63
+  prefs: []
+  type: TYPE_IMG
+  zh: '![GISS的表面温度数据](Images/aiml_1106.png)'
+- en: Figure 11-6\. Surface temperature data from GISS
+  id: totrans-64
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-6\. GISS的表面温度数据
+- en: You can see a link to download monthly data as CSV at the bottom of this page.
+    Select this, and a file called *station.csv* will be downloaded to your device.
+    If you open this, you’ll see that it’s a grid of data with a year in each row
+    and a month in each column, like in [Figure 11-7](#exploring_the_data).
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在本页面底部看到一个链接，用于下载月度CSV数据。选择此链接，将会下载一个名为*station.csv*的文件到你的设备上。如果你打开这个文件，你会看到它是一个包含年份和每列是一个月份的数据网格，就像[图 11-7](#exploring_the_data)中所示。
+- en: '![Exploring the data](Images/aiml_1107.png)'
+  id: totrans-66
+  prefs: []
+  type: TYPE_IMG
+  zh: '![数据探索](Images/aiml_1107.png)'
+- en: Figure 11-7\. Exploring the data
+  id: totrans-67
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-7\. 数据探索
+- en: As this is CSV data, it’s pretty easy to process in Python, but as with any
+    dataset, do note the format. When reading CSV, you tend to read it line by line,
+    and often each line has one data point that you’re interested in. In this case
+    there are at least 12 data points of interest per line, so you’ll have to consider
+    this when reading the data.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这是CSV数据，在Python中处理起来非常容易，但是像处理任何数据集一样，注意数据的格式。读取CSV时，通常是逐行读取，每一行通常都包含你感兴趣的一个数据点。在这种情况下，每行至少有12个感兴趣的数据点，因此在读取数据时需要考虑这一点。
+- en: Reading GISS Data in Python
+  id: totrans-69
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在Python中读取GISS数据
+- en: 'The code to read the GISS data is shown here:'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 读取GISS数据的代码如下所示：
+- en: '[PRE8]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: This will open the file at the indicated path (yours will of course differ)
+    and read in the entire file as a set of lines, where the line split is the new
+    line character (`\n`). It will then loop through each line, ignoring the first
+    line, and split them on the comma character into a new array called `linedata`.
+    The items from 1 through 13 in this array will indicate the values for the months
+    January through February as strings. These values are converted to floats and
+    added to the array called `temperatures`. Once it’s completed it will be turned
+    into a Numpy array called `series`, and another Numpy array called `time` will
+    be created that’s the same size as `series`. As it is created using `np.arange`,
+    the first element will be 1, the second 2, etc. Thus, this function will return
+    `time` in steps from 1 to the number of data points, and `series` as the data
+    for that time.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将会在指定的路径中打开文件（当然你的路径可能会不同），并将其作为一组行读取，其中行分隔是换行符（`\n`）。然后它将循环遍历每一行，忽略第一行，并在逗号字符上将它们分割成一个名为`linedata`的新数组。此数组中从1到13的项目将指示为字符串的一月到二月的值。这些值被转换为浮点数并添加到名为`temperatures`的数组中。一旦完成，它将被转换为一个名为`series`的Numpy数组，并创建一个与`series`大小相同的名为`time`的另一个Numpy数组。由于它是使用`np.arange`创建的，因此第一个元素将是1，第二个是2，依此类推。因此，这个函数将返回从1到数据点数的步长的`time`，以及作为该时间数据的`series`。
+- en: 'Now if you want a time series that is normalized, you can simply run this code:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在如果你需要一个归一化的时间序列，你可以简单地运行这段代码：
+- en: '[PRE9]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'This can be split into training and validation sets as before. Choose your
+    split time based on the size of the data—in this case I had ~840 data items, so
+    I split at 792 (reserving four years’ worth of data points for validation):'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可以像以前一样分成训练集和验证集。根据数据的大小选择分割时间点 —— 在这个案例中我有大约 840 个数据项，所以我在 792 处进行了分割（保留了四年的数据点用于验证）：
+- en: '[PRE10]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'Because the data is now a Numpy array, you can use the same code as before
+    to create a windowed dataset from it to train a neural network:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为数据现在是一个 Numpy 数组，你可以像之前一样使用相同的代码来创建窗口数据集，用于训练神经网络：
+- en: '[PRE11]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: This should use the same `windowed_dataset` function as the convolutional network
+    earlier in this chapter, adding a new dimension. When using RNNs, GRUs, and LSTMs,
+    you will need the data in that shape.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这应该使用与本章前面的卷积网络相同的 `windowed_dataset` 函数，增加一个新的维度。当使用 RNN、GRU 和 LSTM 时，你需要按照那种形状准备数据。
+- en: Using RNNs for Sequence Modeling
+  id: totrans-80
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 用于序列建模的 RNN
+- en: 'Now that you have the data from the NASA CSV in a windowed dataset, it’s relatively
+    easy to create a model to train a predictor for it. (It’s a bit more difficult
+    to train a *good* one!) Let’s start with a simple, naive model using RNNs. Here’s
+    the code:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经将 NASA CSV 中的数据转换成了一个窗口数据集，相对来说很容易创建一个用于训练预测器的模型（但要训练一个*好的*模型有点难！）。让我们从一个简单的、天真的模型开始，使用
+    RNN。以下是代码：
+- en: '[PRE12]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: In this case, the Keras `SimpleRNN` layer is used. RNNs are a class of neural
+    networks that are powerful for exploring sequence models. You first saw them in
+    [Chapter 7](ch07.xhtml#recurrent_neural_networks_for_natural_l) when you were
+    looking at natural language processing. I won’t go into detail on how they work
+    here, but if you’re interested and you skipped that chapter, take a look back
+    at it now. Notably, an RNN has an internal loop that iterates over the time steps
+    of a sequence while maintaining an internal state of the time steps it has seen
+    so far. A `SimpleRNN` has the output of each time step fed into the next time
+    step.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，使用了 Keras 的 `SimpleRNN` 层。RNN 是一类强大的神经网络，适用于探索序列模型。你在[第 7 章](ch07.xhtml#recurrent_neural_networks_for_natural_l)中首次见到它们，当时你在研究自然语言处理。我不会在这里详细介绍它们的工作原理，但如果你感兴趣并跳过了那一章，现在可以回头看看。值得注意的是，RNN
+    具有一个内部循环，遍历序列的时间步长，同时保持它已经看到的时间步的内部状态。`SimpleRNN` 将每个时间步的输出馈送到下一个时间步中。
+- en: 'You can compile and fit the model with the same hyperparameters as before,
+    or use Keras Tuner to see if you can find better ones. For simplicity, you can
+    use these settings:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以使用与之前相同的超参数来编译和拟合模型，或者使用 Keras 调优器来找到更好的参数。为简单起见，你可以使用以下设置：
+- en: '[PRE13]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Even one hundred epochs is enough to get an idea of how it can predict values.
+    [Figure 11-8](#results_of_the_simplernn) shows the results.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 甚至一百个 epoch 就足以了解它如何预测数值。[图 11-8](#results_of_the_simplernn) 显示了结果。
+- en: '![Results of the SimpleRNN](Images/aiml_1108.png)'
+  id: totrans-87
+  prefs: []
+  type: TYPE_IMG
+  zh: '![SimpleRNN 的结果](Images/aiml_1108.png)'
+- en: Figure 11-8\. Results of the SimpleRNN
+  id: totrans-88
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-8\. SimpleRNN 的结果
+- en: As you can see, the results were pretty good. It may be a little off in the
+    peaks, and when the pattern changes unexpectedly (like at time steps 815 and 828),
+    but on the whole it’s not bad. Now let’s see what happens if we train it for 1,500
+    epochs ([Figure 11-9](#rnn_trained_over_onecommafivezerozero_e)).
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所见，结果相当不错。在峰值处可能有些偏差，在模式意外更改时（例如时间步骤 815 和 828），但总体来说还不错。现在让我们看看如果我们将其训练 1,500
+    个 epoch 会发生什么（[图 11-9](#rnn_trained_over_onecommafivezerozero_e)）。
+- en: '![RNN trained over 1,500 epochs](Images/aiml_1109.png)'
+  id: totrans-90
+  prefs: []
+  type: TYPE_IMG
+  zh: '![训练了 1,500 个 epoch 的 RNN](Images/aiml_1109.png)'
+- en: Figure 11-9\. RNN trained over 1,500 epochs
+  id: totrans-91
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-9\. 训练了 1,500 个 epoch 的 RNN
+- en: There’s not much of a difference, except that some of the peaks are smoothed
+    out. If you look at the history of loss on both the validation and training sets,
+    it looks like [Figure 11-10](#training_and_validation_loss_for_the_si).
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有太大的不同，只是一些峰值被平滑了。如果你查看验证集和训练集上损失的历史记录，看起来像是 [图 11-10](#training_and_validation_loss_for_the_si)。
+- en: '![Training and validation loss for the SimpleRNN](Images/aiml_1110.png)'
+  id: totrans-93
+  prefs: []
+  type: TYPE_IMG
+  zh: '![SimpleRNN 的训练和验证损失](Images/aiml_1110.png)'
+- en: Figure 11-10\. Training and validation loss for the SimpleRNN
+  id: totrans-94
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-10\. SimpleRNN 的训练和验证损失
+- en: As you can see, there’s a healthy match between the training loss and the validation
+    loss, but as the epochs increase, the model begins to overfit on the training
+    set. Perhaps a better number of epochs would be around five hundred.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所见，训练损失和验证损失之间有良好的匹配，但随着 epoch 的增加，模型开始在训练集上过拟合。也许最佳的 epoch 数应该在五百左右。
+- en: One reason for this could be the fact that the data, being monthly weather data,
+    is highly seasonal. Another is that there is a very large training set and a relatively
+    small validation set. Next, we’ll explore using a larger climate dataset.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中一个原因可能是数据是月度天气数据，具有很强的季节性。另一个原因是训练集非常大，而验证集相对较小。接下来，我们将探索使用更大的气候数据集。
+- en: Exploring a Larger Dataset
+  id: totrans-97
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 探索更大的数据集
+- en: The [KNMI Climate Explorer](https://oreil.ly/J8CP0) allows you to explore granular
+    climate data from many locations around the world. I downloaded a [dataset](https://oreil.ly/OCqrj)
+    consisting of daily temperature readings from the center of England from 1772
+    until 2020\. This data is structured differently from the GISS data, with the
+    date as a string, followed by a number of spaces, followed by the reading.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[KNMI气候探索器](https://oreil.ly/J8CP0)允许您探索世界各地许多位置的详细气候数据。我下载了一个[数据集](https://oreil.ly/OCqrj)，包括从1772年到2020年的英格兰中部地区的每日温度读数。这些数据的结构与GISS数据不同，日期作为字符串，后跟一些空格，然后是读数。'
+- en: 'I’ve prepared the data, stripping the headers and removing the extraneous spaces.
+    That way it’s easy to read with code like this:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我已经准备好了数据，剥离了标题并删除了多余的空格。这样用像这样的代码很容易阅读：
+- en: '[PRE14]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'This dataset has 90,663 data points in it, so, before training your model,
+    be sure to split it appropriately. I used a split time of 80,000, leaving 10,663
+    records for validation. Also, update the window size, batch size, and shuffle
+    buffer size appropriately. Here’s an example:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此数据集中有90,663个数据点，因此，在训练模型之前，请确保适当地拆分它。我使用了80000的拆分时间，留下10663条记录用于验证。还要适当更新窗口大小、批处理大小和洗牌缓冲区大小。这里是一个示例：
+- en: '[PRE15]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: Everything else can remain the same. As you can see in [Figure 11-11](#plot_of_predictions_against_real_data),
+    after training for one hundred epochs, the plot of the predictions against the
+    validation set looks pretty good.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他都可以保持不变。正如你在[图 11-11](#plot_of_predictions_against_real_data)中所看到的，在经过一百个周期的训练后，预测与验证集的绘图看起来非常不错。
+- en: '![Plot of predictions against real data](Images/aiml_1111.png)'
+  id: totrans-104
+  prefs: []
+  type: TYPE_IMG
+  zh: '![预测与真实数据的绘图](Images/aiml_1111.png)'
+- en: Figure 11-11\. Plot of predictions against real data
+  id: totrans-105
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-11\. 预测与真实数据的绘图
+- en: There’s a lot of data here, so let’s zoom in to the last hundred days’ worth
+    ([Figure 11-12](#results_for_onezerozero_daysapostrophe_)).
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有大量的数据，所以让我们放大到最近一百天的数据（[图 11-12](#results_for_onezerozero_daysapostrophe_)）。
+- en: '![Results for one hundred days’ worth of data](Images/aiml_1112.png)'
+  id: totrans-107
+  prefs: []
+  type: TYPE_IMG
+  zh: '![一百天数据的结果](Images/aiml_1112.png)'
+- en: Figure 11-12\. Results for one hundred days’ worth of data
+  id: totrans-108
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-12\. 一百天数据的结果
+- en: While the chart generally follows the curve of the data, and is getting the
+    trends roughly correct, it is pretty far off, particularly at the extreme ends,
+    so there’s room for improvement.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然图表通常遵循数据的曲线，并且大致上正确地捕捉了趋势，但在极端端点处相差很远，所以还有改进的空间。
+- en: It’s also important to remember that we normalized the data, so while our loss
+    and MAE may look low, that’s because they are based on the loss and MAE of normalized
+    values that have a much lower variance than the real ones. So, [Figure 11-13](#loss_and_validation_loss_for_large_data),
+    showing loss of less than 0.1, might lead you into a false sense of security.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还要记住，我们对数据进行了归一化处理，因此虽然我们的损失和MAE可能看起来很低，但这是因为它们基于归一化值的损失和MAE，这些值的方差远低于实际值。因此，显示损失小于0.1的[图
+    11-13](#loss_and_validation_loss_for_large_data)，可能会让你产生一种错误的安全感。
+- en: '![Loss and validation loss for large dataset](Images/aiml_1113.png)'
+  id: totrans-111
+  prefs: []
+  type: TYPE_IMG
+  zh: '![大数据集的损失和验证损失](Images/aiml_1113.png)'
+- en: Figure 11-13\. Loss and validation loss for large dataset
+  id: totrans-112
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-13\. 大数据集的损失和验证损失
+- en: 'To denormalize the data, you can do the inverse of normalization: first multiply
+    by the standard deviation, and then add back the mean. At that point, if you wish,
+    you can calculate the real MAE for the prediction set as done previously.'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要对数据进行反归一化，您可以执行归一化的逆操作：首先乘以标准偏差，然后加回均值。在那一点上，如果您希望，您可以像之前一样计算预测集的实际MAE。
+- en: Using Other Recurrent Methods
+  id: totrans-114
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用其他递归方法
+- en: In addition to the `SimpleRNN`, TensorFlow has other recurrent layer types,
+    such as gated recurrent units (GRUs) and long short-term memory layers (LSTMs),
+    discussed in [Chapter 7](ch07.xhtml#recurrent_neural_networks_for_natural_l).
+    When using the `TFRecord`-based architecture for your data that you’ve been using
+    throughout this chapter, it becomes relatively simple to just drop in these RNN
+    types if you want to experiment.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了`SimpleRNN`，TensorFlow还有其他递归层类型，如门控递归单元（GRUs）和长短期记忆层（LSTMs），在[第7章](ch07.xhtml#recurrent_neural_networks_for_natural_l)中讨论。如果要尝试，可以使用本章节始终使用的基于`TFRecord`的架构来简单地插入这些RNN类型。
+- en: 'So, for example, if you consider the simple naive RNN that you created earlier:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以，例如，如果您考虑之前创建的简单朴素RNN：
+- en: '[PRE16]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'Replacing this with a GRU becomes as easy as:'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将其替换为GRU变得如此简单：
+- en: '[PRE17]'
+  id: totrans-119
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'With an LSTM, it’s similar:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用LSTM，情况类似：
+- en: '[PRE18]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: It’s worth experimenting with these layer types as well as with different hyperparameters,
+    loss functions, and optimizers. There’s no one-size-fits-all solution, so what
+    works best for you in any given situation will depend on your data and your requirements
+    for prediction with that data.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值得尝试这些层类型以及不同的超参数、损失函数和优化器。并没有一种适合所有情况的解决方案，因此在任何特定情况下，最适合您的将取决于您的数据以及您对该数据预测的需求。
+- en: Using Dropout
+  id: totrans-123
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用Dropout
+- en: If you encounter overfitting in your models, where the MAE or loss for the training
+    data is much better than with the validation data, you can use dropout. As discussed
+    in [Chapter 3](ch03.xhtml#going_beyond_the_basics_detecting_featu) in the context
+    of computer vision, with dropout, neighboring neurons are randomly dropped out
+    (ignored) during training to avoid a familiarity bias. When using RNNs, there’s
+    also a *recurrent dropout* parameter that you can use.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您在模型中遇到过拟合问题，在训练数据的MAE或损失明显优于验证数据时，您可以使用dropout。如在[第3章](ch03.xhtml#going_beyond_the_basics_detecting_featu)中讨论的，在计算机视觉环境下，使用dropout时，随机忽略相邻神经元以避免熟悉偏差。当使用RNN时，还有一个*递归丢失*参数可供使用。
+- en: What’s the difference? Recall that when using RNNs you typically have an input
+    value, and the neuron calculates an output value and a value that gets passed
+    to the next time step. Dropout will randomly drop out the input values. Recurrent
+    dropout will randomly drop out the recurrent values that get passed to the next
+    step.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有什么不同？回想一下，当使用RNN时，通常有一个输入值，神经元计算一个输出值和一个传递到下一个时间步的值。Dropout会随机丢弃输入值。递归丢失会随机丢弃传递到下一步的递归值。
+- en: For example, consider the basic recurrent neural network architecture shown
+    in [Figure 11-14](#recurrent_neural_network).
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，考虑在[图 11-14](#recurrent_neural_network)中显示的基本递归神经网络架构。
+- en: '![Recurrent neural network](Images/aiml_1114.png)'
+  id: totrans-127
+  prefs: []
+  type: TYPE_IMG
+  zh: '![递归神经网络](Images/aiml_1114.png)'
+- en: Figure 11-14\. Recurrent neural network
+  id: totrans-128
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-14\. 递归神经网络
+- en: Here you can see the inputs to the layers at different time steps (*x*). The
+    current time is *t*, and the steps shown are *t* – 2 through *t* + 1\. The relevant
+    outputs at the same time steps (*y*) are also shown. The recurrent values passed
+    between time steps are indicated by the dotted lines and labeled as *r*.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，您可以看到不同时间步骤的层的输入（*x*）。当前时间是*t*，显示的步骤是*t* – 2至*t* + 1。还显示了相同时间步骤的相关输出（*y*）。通过时间步骤传递的递归值由虚线表示，并标记为*r*。
+- en: Using *dropout* will randomly drop out the *x* inputs. Using *recurrent dropout*
+    will randomly drop out the *r* recurrent values.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用*dropout*会随机丢弃*x*输入。使用*递归丢失*会随机丢弃*r*递归值。
+- en: You can learn more about how recurrent dropout works from a deeper mathematical
+    perspective in the paper [“A Theoretically Grounded Application of Dropout in
+    Recurrent Neural Networks”](https://arxiv.org/pdf/1512.05287.pdf) by Yarin Gal
+    and Zoubin Ghahramani.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以从更深入的数学角度了解递归丢失的工作原理，详见Yarin Gal和Zoubin Ghahramani撰写的论文[“A Theoretically
+    Grounded Application of Dropout in Recurrent Neural Networks”](https://arxiv.org/pdf/1512.05287.pdf)。
+- en: One thing to consider when using recurrent dropout is discussed by Gal in his
+    research around [uncertainty in deep learning](https://arxiv.org/abs/1506.02142),
+    where he demonstrates that the same pattern of dropout units should be applied
+    at every time step, and that a similar constant dropout mask should be applied
+    at every time step. While dropout is typically random, Gal’s work was built into
+    Keras, so when using `tf.keras` the consistency recommended by his research is
+    maintained.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用递归丢弃时需要考虑的一件事由 Gal 在他围绕 [深度学习中的不确定性](https://arxiv.org/abs/1506.02142) 的研究中讨论过，他证明了应该在每个时间步骤应用相同的丢弃单元模式，并且在每个时间步骤应用类似的恒定丢弃掩码。虽然丢弃通常是随机的，但
+    Gal 的工作已经融入了 Keras，因此在使用 `tf.keras` 时，建议保持其研究推荐的一致性。
+- en: 'To add dropout and recurrent dropout, you simply use the relevant parameters
+    on your layers. For example, adding them to the simple GRU from earlier would
+    look like this:'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要添加丢弃和递归丢弃，您只需在您的层上使用相关参数。例如，将它们添加到早期的简单 GRU 中将如下所示：
+- en: '[PRE19]'
+  id: totrans-134
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Each parameter takes a value between 0 and 1 indicating the proportion of values
+    to drop out. A value of 0.1 will drop out 10% of the requisite values.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个参数都接受一个介于 0 和 1 之间的值，表示要丢弃的值的比例。值为 0.1 将丢弃 10% 的必需值。
+- en: RNNs using dropout will often take longer to converge, so be sure to train them
+    for more epochs to test for this. [Figure 11-15](#training_a_gru_with_dropout)
+    shows the results of training the preceding GRU with dropout and recurrent dropout
+    on each layer set to 0.1 over 1,000 epochs.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用丢弃的 RNNs 通常需要更长时间才能收敛，因此请确保为它们进行更多的 epoch 进行测试。[图 11-15](#training_a_gru_with_dropout)
+    显示了在每层设置为 0.1 的丢弃和递归丢弃下，训练前述的 GRU 过程中的结果。
+- en: '![Training a GRU with dropout](Images/aiml_1115.png)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_IMG
+  zh: '![训练带有丢弃的 GRU](Images/aiml_1115.png)'
+- en: Figure 11-15\. Training a GRU with dropout
+  id: totrans-138
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-15\. 训练带有丢弃的 GRU
+- en: As you can see, the loss and MAE decreased rapidly until about epoch 300, after
+    which they continued to decline, but quite noisily. You’ll often see noise like
+    this in the loss when using dropout, and it’s an indication that you may want
+    to tweak the amount of dropout as well as the parameters of the loss function,
+    such as learning rate. Predictions with this network were shaped quite nicely,
+    as you can see in [Figure 11-16](#predictions_using_a_gru_with_dropout), but there’s
+    room for improvement, in that the peaks of the predictions are much lower than
+    the real peaks.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您所看到的，损失和 MAE 在大约 300 个 epoch 之前迅速下降，之后继续下降，但噪声相当明显。当使用丢弃时，您经常会看到这种损失中的噪声，这表明您可能希望调整丢弃的数量以及损失函数的参数，如学习率。正如您在
+    [图 11-16](#predictions_using_a_gru_with_dropout) 中看到的，这个网络的预测形状相当不错，但是有改进的空间，即预测的峰值远低于实际峰值。
+- en: '![Predictions using a GRU with dropout](Images/aiml_1116.png)'
+  id: totrans-140
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用带有丢弃的 GRU 进行预测](Images/aiml_1116.png)'
+- en: Figure 11-16\. Predictions using a GRU with dropout
+  id: totrans-141
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-16\. 使用带有丢弃的 GRU 进行预测
+- en: As you’ve seen in this chapter, predicting time sequence data using neural networks
+    is a difficult proposition, but tweaking their hyperparameters (particularly with
+    tools such as Keras Tuner) can be a powerful way to improve your model and its
+    subsequent predictions.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您在本章中所看到的，使用神经网络预测时间序列数据是一个困难的任务，但通过调整它们的超参数（特别是使用 Keras Tuner 等工具）可以是改善模型及其后续预测的强大方式。
+- en: Using Bidirectional RNNs
+  id: totrans-143
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用双向 RNNs
+- en: Another technique to consider when classifying sequences is to use bidirectional
+    training. This may seem counterintuitive at first, as you might wonder how future
+    values could impact past ones. But recall that time series values can contain
+    seasonality, where values repeat over time, and when using a neural network to
+    make predictions all we’re doing is sophisticated pattern matching. Given that
+    data repeats, a signal for how data can repeat might be found in future values—and
+    when using bidirectional training, we can train the network to try to spot patterns
+    going from time *t* to time *t* + x, as well as going from time *t* + x to time
+    *t*.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在分类序列时考虑的另一种技术是使用双向训练。这一开始可能看起来有些反直觉，因为您可能会想知道未来值如何影响过去值。但请记住，时间序列值可能包含季节性，即值随时间重复，并且当使用神经网络进行预测时，我们只是进行复杂的模式匹配。鉴于数据重复，可以在未来值中找到数据如何重复的信号。当使用双向训练时，我们可以训练网络试图识别从时间
+    *t* 到时间 *t* + x 的模式，以及从时间 *t* + x 到时间 *t* 的模式。
+- en: Fortunately, coding this is simple. For example, consider the GRU from the previous
+    section. To make this bidirectional, you simply wrap each GRU layer in a `tf.keras.layers.Bidirectional`
+    call. This will effectively train twice on each step—once with the sequence data
+    in the original order, and once with it in reverse order. The results are then
+    merged before proceeding to the next step.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，编写这个很简单。例如，考虑前一节中的GRU。要使其双向，只需将每个GRU层包装在`tf.keras.layers.Bidirectional`调用中。这将在每一步上有效地两次训练——一次是原始顺序的序列数据，一次是反向顺序的数据。然后将结果合并，再进行下一步。
+- en: 'Here’s an example:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是一个例子：
+- en: '[PRE20]'
+  id: totrans-147
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: A plot of the results of training with a bidirectional GRU with dropout on the
+    time series is shown in [Figure 11-17](#training_with_a_bidirectional_gru). As
+    you can see, there’s no major difference here, and the MAE ends up being similar.
+    However, with a larger data series, you may see a decent accuracy difference,
+    and additionally tweaking the training parameters—particularly `window_size`,
+    to get multiple seasons—can have a pretty big impact.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用带有丢失的双向GRU训练时间序列的结果图示在[图 11-17](#training_with_a_bidirectional_gru)中展示。正如你所看到的，这里没有主要的差异，MAE最终也相似。然而，对于更大的数据系列，你可能会看到相当大的准确度差异，而且调整训练参数——特别是`window_size`，以获取多个季节——可能会产生相当大的影响。
+- en: '![Training with a bidirectional GRU](Images/aiml_1117.png)'
+  id: totrans-149
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用双向GRU进行训练](Images/aiml_1117.png)'
+- en: Figure 11-17\. Training with a bidirectional GRU
+  id: totrans-150
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-17\. 使用双向GRU进行训练
+- en: 'This network has an MAE (on the normalized data) of about .48, chiefly because
+    it doesn’t seem to do too well on the high peaks. Retraining it with a larger
+    window and bidirectionality produces better results: it has a significantly lower
+    MAE of about .28 ([Figure 11-18](#larger_windowcomma_bidirectional_gru_re)).'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个网络在标准化数据上的MAE约为0.48，主要是因为它在高峰值上表现不佳。使用更大的窗口和双向性重新训练会产生更好的结果：它的MAE显著降低至约0.28（[图 11-18](#larger_windowcomma_bidirectional_gru_re)）。
+- en: '![Larger window, bidirectional GRU results](Images/aiml_1118.png)'
+  id: totrans-152
+  prefs: []
+  type: TYPE_IMG
+  zh: '![更大窗口，双向GRU结果](Images/aiml_1118.png)'
+- en: Figure 11-18\. Larger window, bidirectional GRU results
+  id: totrans-153
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-18\. 更大窗口，双向GRU结果
+- en: As you can see, you can experiment with different network architectures and
+    different hyperparameters to improve your overall predictions. The ideal choices
+    are very much dependent on the data, so the skills you’ve learned in this chapter
+    will help you with your specific datasets!
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所见，你可以尝试不同的网络架构和不同的超参数来提高整体预测效果。理想选择非常依赖于数据，因此你在本章学到的技能将帮助你处理特定的数据集！
+- en: Summary
+  id: totrans-155
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: In this chapter, you explored different network types for building models to
+    predict time series data. You built on the simple DNN from [Chapter 10](ch10.xhtml#creating_ml_models_to_predict_sequences),
+    adding convolutions, and experimented with recurrent network types such as simple
+    RNNs, GRUs, and LSTMs. You saw how you can tweak hyperparameters and the network
+    architecture to improve your model’s accuracy, and you practiced working with
+    some real-world datasets, including one massive dataset with hundreds of years’
+    worth of temperature readings. You’re now ready to get started building networks
+    for a variety of datasets, with a good understanding of what you need to know
+    to optimize them!
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你探索了不同的网络类型来构建用于预测时间序列数据的模型。你在简单的DNN（来自[第10章](ch10.xhtml#creating_ml_models_to_predict_sequences)）的基础上增加了卷积，并尝试了简单RNN、GRU和LSTM等递归网络类型。你看到了如何调整超参数和网络架构来提高模型的准确性，并且实践了处理一些真实世界数据集，包括一组包含数百年温度读数的大型数据集。现在你已准备好开始构建适用于各种数据集的网络，并对如何优化它们有了很好的理解！

@@ -1,0 +1,1660 @@
+- en: Chapter 4\. Robustness
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第四章 鲁棒性
+- en: We know that ML models are not very generalizable—change a few things to the
+    input, and the model breaks. A model’s ability to be resilient to variation in
+    data is called *robustness*. To put things intuitively, no matter how good your
+    training data is, the model is going to encounter unexpected things in the real
+    world, and robustness is about making sure it’s ready for them.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们知道，机器学习模型的泛化能力并不太强——稍微改变输入，模型就可能失效。模型在面对数据变化时的抵抗能力被称为 *鲁棒性*。直观地说，无论你的训练数据有多好，模型在现实世界中都会遇到意想不到的情况，而鲁棒性就是确保它做好应对这些情况的准备。
+- en: Tip
+  id: totrans-2
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: At the core of this problem is the fact that you’re almost always training a
+    model to solve for a proxy problem. For example, if you’re trying to make a dog
+    versus cat image classifier, optimizing an image classifier to minimize the error
+    on your limited training set is just a proxy. Your real goal is to distinguish
+    cats and dogs in all possible cases, but the best you can do is this proxy because
+    your computing resources are finite.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个问题的核心在于，你几乎总是在训练一个模型来解决一个代理问题。例如，如果你试图制作一个区分狗和猫的图像分类器，优化一个图像分类器以在有限的训练集上最小化错误只是一个代理。你真正的目标是在所有可能的情况下区分猫和狗，但你能做到的最好只是这个代理，因为你的计算资源是有限的。
+- en: Sometimes, optimizing for your proxy won’t bring you very close to your real
+    goal. Sometimes, if you optimize your proxy too much, your overoptimizing will
+    cause you to do worse on your true goal. AI safety researchers have demonstrated
+    that this applies to every single proxy measure ever (whether it’s an AI or human
+    or group of humans doing the optimizing).^([1](ch04.html#idm45621836156256)) Your
+    best bet is to know what to look out for and spot early the signs that you’re
+    overoptimizing.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时，为你的代理进行优化并不会让你离真正的目标更近。有时，如果你过度优化你的代理，你的过度优化会导致你在真正的目标上表现更差。AI安全研究人员已经证明，这适用于每一个代理度量指标（无论是AI还是人类或一群人在进行优化）。^([1](ch04.html#idm45621836156256))
+    你最好的选择是知道要注意什么，并早早发现你过度优化的迹象。
+- en: 'There are two kinds of robustness: train-time robustness and test-time robustness.
+    *Train-time robustness* focuses on the model’s ability to be resilient to adversarial
+    examples added to the training data. *Test-time robustness* focuses on the model’s
+    ability to generalize during testing to instances not necessarily seen during
+    training. Since unexpected behavior during test time is most important to prevent
+    in production settings, we will focus on test-time robustness in this chapter.'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有两种鲁棒性：训练时鲁棒性和测试时鲁棒性。 *训练时鲁棒性* 着重于模型对添加到训练数据中的对抗性示例的抵抗能力。 *测试时鲁棒性* 着重于模型在测试过程中对未必在训练中见过的实例的泛化能力。由于在生产环境中防止测试时出现的意外行为最为重要，本章节将侧重于测试时鲁棒性。
+- en: "Note that there are also application-specific definitions of robustness. For\
+    \ example, in the NLP setting, researchers often refer to certified robustness.\
+    \ For notation, let’s denote a model as <math alttext=\"f\"><mi>f</mi></math>\
+    \ and example sentences as <math alttext=\"x\"><mi>x</mi></math> . The model predictions\
+    \ would be <math alttext=\"f left-parenthesis x right-parenthesis\"><mrow><mi>f</mi>\
+    \ <mo>(</mo> <mi>x</mi> <mo>)</mo></mrow></math> , which are many times discrete\
+    \ (or potentially a sequence of discrete for multilabel settings) numbers. Let\
+    \ <math alttext=\"y\"><mi>y</mi></math> be the correct label for <math alttext=\"\
+    x\"><mi>x</mi></math> . Let <math alttext=\"x prime\"><mrow><mi>x</mi> <mi>â</mi>\
+    \ <mi>\x80</mi> <mi>\x99</mi></mrow></math> be <math alttext=\"x\"><mi>x</mi></math>\
+    \ modified with word substitutions, in which a word is swapped with its synonyms\
+    \ (usually defined using retrofitted word embeddings). A model is certifiably\
+    \ robust if, for any example sentence <math alttext=\"x\"><mi>x</mi></math> ,\
+    \ and sentences <math alttext=\"x prime\"><mrow><mi>x</mi> <mi>â</mi> <mi>\x80\
+    </mi> <mi>\x99</mi></mrow></math> that consist of <math alttext=\"x\"><mi>x</mi></math>\
+    \ modified with word substitutions, <math alttext=\"f left-parenthesis x right-parenthesis\
+    \ equals f left-parenthesis x prime right-parenthesis equals y\"><mrow><mi>f</mi>\
+    \ <mrow><mo>(</mo> <mi>x</mi> <mo>)</mo></mrow> <mo>=</mo> <mi>f</mi> <mrow><mo>(</mo>\
+    \ <msup><mi>x</mi> <mo>'</mo></msup> <mo>)</mo></mrow> <mo>=</mo> <mi>y</mi></mrow></math>\
+    \ . Intuitively, this means that the model <math alttext=\"f\"><mi>f</mi></math>\
+    \ , given two examples that are different but semantically equivalent, is able\
+    \ to preserve predictions."
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: "注意，鲁棒性的定义也可能因应用而异。例如，在自然语言处理（NLP）领域，研究人员经常提到认证的鲁棒性。在符号表示方面，让我们将一个模型表示为 <math\
+    \ alttext=\"f\"><mi>f</mi></math>，将示例句子表示为 <math alttext=\"x\"><mi>x</mi></math>\
+    \ 。模型的预测结果将是 <math alttext=\"f left-parenthesis x right-parenthesis\"><mrow><mi>f</mi>\
+    \ <mo>(</mo> <mi>x</mi> <mo>)</mo></mrow></math> ，通常是离散的（或者对于多标签设置可能是离散序列）。让 <math\
+    \ alttext=\"y\"><mi>y</mi></math> 是 <math alttext=\"x\"><mi>x</mi></math> 的正确标签。让\
+    \ <math alttext=\"x prime\"><mrow><mi>x</mi> <mi>â</mi> <mi>\x80</mi> <mi>\x99\
+    </mi></mrow></math> 表示通过词替换修改的 <math alttext=\"x\"><mi>x</mi></math>，其中一个词与其同义词交换（通常使用修正后的词嵌入进行定义）。如果对于任何例句\
+    \ <math alttext=\"x\"><mi>x</mi></math> 及由 <math alttext=\"x\"><mi>x</mi></math>\
+    \ 修改词进行替换的句子 <math alttext=\"x prime\"><mrow><mi>x</mi> <mi>â</mi> <mi>\x80</mi>\
+    \ <mi>\x99</mi></mrow></math> ，都有 <math alttext=\"f left-parenthesis x right-parenthesis\
+    \ equals f left-parenthesis x prime right-parenthesis equals y\"><mrow><mi>f</mi>\
+    \ <mrow><mo>(</mo> <mi>x</mi> <mo>)</mo></mrow> <mo>=</mo> <mi>f</mi> <mrow><mo>(</mo>\
+    \ <msup><mi>x</mi> <mo>'</mo></msup> <mo>)</mo></mrow> <mo>=</mo> <mi>y</mi></mrow></math>，那么模型\
+    \ <math alttext=\"f\"><mi>f</mi></math> 就是可以认证为鲁棒的。直觉上来说，这意味着给定两个不同但语义上等效的例句，模型能够保持其预测。"
+- en: At its core, when a model lacks robustness, it cannot effectively generalize
+    to test distributions that differ from training data distributions. Essentially,
+    no matter how good your training data is, the model is going to encounter unexpected
+    things in the real world, and robustness is about making sure it’s ready to handle
+    noise in the real world.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本质上，当模型缺乏鲁棒性时，它无法有效地推广到与训练数据分布不同的测试分布。基本上，无论您的训练数据有多好，模型都将在现实世界中遇到意想不到的事物，鲁棒性就是确保它能够处理现实世界中的噪音的问题。
+- en: There are natural parallels between fairness and robustness; specifically, you
+    can think of *fairness* as robustness to perturbations that stem from demographic
+    factors. For example, in NLP settings, demographic groups can be loosely identified
+    by speech and language patterns. A non-robust model that was largely trained on
+    transcribed examples of spoken utterances by people of a certain demographic would
+    not be able to generalize well outside that group, so it would show low performance
+    on demographic groups with speech and language patterns not seen in the training
+    dataset. Research has empirically shown a relationship between these two trustworthiness
+    goals.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在公平性和鲁棒性之间存在自然的相似之处；具体而言，可以将*公平性*视为对源自人口统计因素的扰动具有鲁棒性。例如，在NLP设置中，人口统计群体可以通过言语和语言模式进行松散的识别。一个非鲁棒的模型，如果主要是在特定人口统计群体的口语示例的基础上进行训练，将不能很好地推广到训练数据集中未见过的人群，因此在具有未在训练数据集中见过的语音和语言模式的人口统计群体上表现出低性能。研究已经实证显示了这两个信任目标之间的关系。
+- en: Robustness is important because it shows us what will break the model. It also
+    helps train the model to be ready for inputs that it may see in real life. This
+    is especially important in critical and high-stakes applications like self-driving
+    cars.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鲁棒性很重要，因为它展示了什么会使模型崩溃。它还有助于训练模型以准备好接受在现实生活中可能遇到的输入。这在关键和高风险应用（如自动驾驶汽车）中尤为重要。
+- en: Imagine you’re working on a model for a self-driving car system created by a
+    large company. So far, the model has been trained mostly on data from suburban
+    US towns. Now, these cars have a consumer base that covers the United States,
+    including urban, rural, and suburban settings. If this model is not robust, it
+    may not adapt well to the driving patterns and additional visual noise of roads
+    in urban settings. Since problems with self-driving cars could lead to accidents
+    or even deaths, this lack of generalization is dangerous. You need to be confident
+    that the system behaves correctly in any situations the car encounters. You also
+    need to keep it safe from attackers, such as those outlined in Chapters [2](ch02.html#chapter2)
+    and [3](ch03.html#chapter3).
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你正在为一家大公司创建的自动驾驶汽车系统建模。到目前为止，该模型主要是在美国郊区城镇的数据基础上进行训练的。现在，这些汽车的消费者群体覆盖了美国的城市、农村和郊区地区。如果这个模型不够健壮，它可能无法很好地适应城市环境中的驾驶模式和额外的视觉噪声。由于自动驾驶汽车的问题可能导致事故甚至死亡，这种泛化能力不足是危险的。你需要确信系统在车辆遇到的任何情况下行为正确。你还需要保护它免受攻击者的攻击，例如第
+    [2](ch02.html#chapter2) 章和第 [3](ch03.html#chapter3) 章中所述的攻击者。
+- en: Evaluating Robustness
+  id: totrans-11
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 评估健壮性
+- en: 'There are several methods for evaluating and improving a model’s robustness.
+    We can group them into two categories:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几种评估和改进模型健壮性的方法。我们可以将它们分为两类：
+- en: '*Non-adversarial*'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*非敌对*'
+- en: Non-adversarial robustness methods are made up of explicit, predetermined transformations
+    designed to test the ability of classifiers to generalize to low-probability but
+    realistic instances that are present in real-world settings but may not be present
+    in the training data.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 非敌对健壮性方法由显式的、预定的转换组成，旨在测试分类器对现实世界设置中存在但在训练数据中可能不存在的低概率但现实情况的泛化能力。
+- en: '*Adversarial*'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*敌对*'
+- en: Adversarial robustness methods are made up of learned transformations that use
+    machine learning models to modify and create inputs that fool the model. These
+    are designed to develop classifiers that are robust to such attacks.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 敌对健壮性方法由学习转换组成，使用机器学习模型修改和创建输入，以愚弄模型。这些方法旨在开发能够抵御此类攻击的分类器。
+- en: Adversarial methods include targeted and untargeted attacks. Targeted attacks
+    are designed to fool the model into predicting a particular incorrect class, while
+    untargeted attacks are designed to fool the model into predicting any incorrect
+    class. For example, a targeted attack on an object detection model used in a self-driving
+    car system might try to get the model to classify a dog as a cat; an untargeted
+    attack would try to get it to classify a dog as anything other than a dog. While
+    this may be a less critical error, targeted attacks can also cause models to create
+    more harmful predictions.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 敌对方法包括定向攻击和非定向攻击。定向攻击旨在愚弄模型以预测特定的错误类别，而非定向攻击旨在愚弄模型以预测任何错误类别。例如，在自动驾驶汽车系统中使用的目标检测模型上进行的定向攻击可能会尝试让模型将狗分类为猫；非定向攻击则试图让模型将狗分类为除狗以外的任何东西。尽管这可能是一个较不严重的错误，定向攻击也可能导致模型产生更具破坏性的预测。
+- en: Let’s take a look at examples of these transformations.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看一些这些转换的例子。
+- en: Non-Adversarial Robustness
+  id: totrans-19
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 非敌对健壮性
+- en: First, let’s explore ways to evaluate for robustness by applying explicit, predetermined
+    transformations designed to test the ability of classifiers to generalize to low-probability
+    but realistic instances. There are several steps to applying non-adversarial robustness.
+    First, given an example, apply perturbations. Second, calculate the similarity
+    constraint keeping only perturbations that satisfy the constraint. We will now
+    explain each step in turn.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们通过应用显式的、预定的转换方式来探索评估健壮性的方法，这些转换方式旨在测试分类器在低概率但现实情况下的泛化能力。应用非敌对健壮性有几个步骤。首先，给定一个例子，应用扰动。其次，计算相似性约束，仅保留满足约束的扰动。接下来我们将依次解释每个步骤。
+- en: 'Step 1: Apply Perturbations'
+  id: totrans-21
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第一步：应用扰动
+- en: In computer vision, perturbations occur at the pixel level. This may mean inputting
+    pixels into the black-white color space (converting a picture to black-and-white)
+    or zeroing out certain pixels (obscuring certain parts of an image). In NLP, you
+    can add noise by replacing words in a sentence without changing its meaning (such
+    as by adding filler words like “like” or “you know” or by paraphrasing). Let’s
+    look at some examples.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在计算机视觉中，扰动发生在像素级别。这可能意味着将像素输入到黑白色彩空间（将图片转换为黑白）或将某些像素置零（遮挡图像的某些部分）。在NLP中，您可以通过替换句子中的单词而不改变其含义来添加噪声（例如通过添加诸如“like”或“you
+    know”的填充词或者改写句子）。让我们看一些例子。
+- en: Computer vision
+  id: totrans-23
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 计算机视觉
+- en: '[Table 4-1](#table-image-perturbations) lists non-adversarial robustness methods
+    for computer vision, with an example image for each.'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 4-1](#table-image-perturbations)列出了计算机视觉中的非对抗性鲁棒性方法，并附带每种方法的示例图像。'
+- en: Table 4-1\. Non-adversarial robustness methods for computer vision
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表4-1\. 计算机视觉中的非对抗性鲁棒性方法
+- en: '| Version | Image |'
+  id: totrans-26
+  prefs: []
+  type: TYPE_TB
+  zh: '| 版本 | 图像 |'
+- en: '| --- | --- |'
+  id: totrans-27
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| Original | ![](assets/ptml_04in01.png) |'
+  id: totrans-28
+  prefs: []
+  type: TYPE_TB
+  zh: '| 原始 | ![](assets/ptml_04in01.png) |'
+- en: '| Cropping—only showing a portion of the image | ![](assets/ptml_04in02.png)
+    |'
+  id: totrans-29
+  prefs: []
+  type: TYPE_TB
+  zh: '| 裁剪——显示图像的一部分 | ![](assets/ptml_04in02.png) |'
+- en: '| Occlusion—blocking a portion of the image | ![](assets/ptml_04in03.png) |'
+  id: totrans-30
+  prefs: []
+  type: TYPE_TB
+  zh: '| 遮挡——阻塞图像的一部分 | ![](assets/ptml_04in03.png) |'
+- en: '|'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '[Shearing](https://oreil.ly/zjJPo)—slides one edge of an image along the X
+    or Y axis'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[剪切](https://oreil.ly/zjJPo)——沿X轴或Y轴滑动图像的一个边缘'
+- en: '| ![](assets/ptml_04in04.png) |'
+  id: totrans-33
+  prefs: []
+  type: TYPE_TB
+  zh: '| ![](assets/ptml_04in04.png) |'
+- en: '| Rotate—rotating an image | ![](assets/ptml_04in05.png) |'
+  id: totrans-34
+  prefs: []
+  type: TYPE_TB
+  zh: '| 旋转——旋转图像 | ![](assets/ptml_04in05.png) |'
+- en: To see how you can add noise to images, you’ll take code from the [Augmentor
+    library](https://oreil.ly/NMtOl).^([2](ch04.html#idm45621836067888))
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解如何给图像添加噪声，您可以使用来自[Augmentor库](https://oreil.ly/NMtOl)的代码。^([2](ch04.html#idm45621836067888))
+- en: '[PRE0]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: This will shear all images in the directory by a maximum of 25 degrees to the
+    left or right, with a probability of 0.2, and write 50 images to the */path/to/images/folder/output/*
+    folder. This means that 20% of the time, a sampled and saved image will be sheared.
+    [Figure 4-1](#debiasing-workflow-ch5) shows an example of one of these sampled
+    images.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将使目录中的所有图像向左或向右最多剪切25度，并且概率为0.2，并将50张图像写入到*/path/to/images/folder/output/*文件夹中。这意味着有20%的时间会采样和保存一个被剪切的图像。[图 4-1](#debiasing-workflow-ch5)展示了其中一个被采样图像的示例。
+- en: The image in [Figure 4-1](#debiasing-workflow-ch5) is slightly slanted, or sheared,
+    to the left.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 4-1](#debiasing-workflow-ch5)中的图像稍微倾斜或剪切到左侧。'
+- en: '![ptml 0401](assets/ptml_0401.png)'
+  id: totrans-39
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ptml 0401](assets/ptml_0401.png)'
+- en: Figure 4-1\. Sample output from shearing images
+  id: totrans-40
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图4-1\. 剪切图像的示例输出
+- en: Language
+  id: totrans-41
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 语言
+- en: Let’s take a look at examples of data perturbations in NLP.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看NLP中数据扰动的示例。
+- en: 'Here is a question someone might ask Alexa or another AI: `"What is the full
+    name of Thailand''s capital city?"` [Table 4-2](#table-nlp-perturbations1) shows
+    some different ways you could phrase this question without changing its meaning.'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是某人可能会问Alexa或其他AI的问题：““泰国的首都的全名是什么？”[表 4-2](#table-nlp-perturbations1)展示了您可以以不改变含义的方式提出此问题的不同方式。
+- en: Table 4-2\. Examples of data perturbation techniques in NLP
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表4-2\. NLP中数据扰动技术的示例
+- en: '| Perturbation type | Description | Example perturbation | Advantages of perturbation
+    type | Disadvantages of perturbation type |'
+  id: totrans-45
+  prefs: []
+  type: TYPE_TB
+  zh: '| 扰动类型 | 描述 | 示例扰动 | 扰动类型优点 | 扰动类型缺点 |'
+- en: '| --- | --- | --- | --- | --- |'
+  id: totrans-46
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- |'
+- en: '| Token-level perturbation | Deleting, replacing, or inserting tokens into
+    the original utterance but still preserving the semantic meaning | “What is the
+    extended name of Thailand’s capital city?” | Algorithmically more straightforward
+    | Can be computation-intensive; does not allow more complex perturbations such
+    as phrase substitution or paraphrasing; relies on quality of word synonym lexicon
+    |'
+  id: totrans-47
+  prefs: []
+  type: TYPE_TB
+  zh: '| Token级扰动 | 删除、替换或插入原始话语中的令牌，但仍保留语义意义 | “泰国的首都的扩展名称是什么？” | 算法上更为简单 | 可能会消耗大量计算资源；不允许更复杂的扰动，如短语替换或改写；依赖于词汇同义词库的质量
+    |'
+- en: '| Filler word addition | Including various speech-related noise, such as filler
+    words | Uh, what’s the full name of Thailand’s capital city? | Algorithmically
+    more straightforward | Limited to speech-related applications only |'
+  id: totrans-48
+  prefs: []
+  type: TYPE_TB
+  zh: '| 填充词添加 | 包括各种语音相关噪声，如填充词 | 嗯，泰国的首都全称是什么？ | 算法上更为简单 | 仅限于语音相关的应用 |'
+- en: '| Paraphrasing | Rephrasing the original sentence | “What is Bangkok’s full
+    name?” | Captures the complexity of variation in the human language | Relies on
+    the quality of the paraphrasing model |'
+  id: totrans-49
+  prefs: []
+  type: TYPE_TB
+  zh: '| 改写 | 重新表达原始句子 | “What is Bangkok’s full name?” | 捕捉人类语言复杂变化 | 依赖于改写模型的质量
+    |'
+- en: '| Speech-to-text errors | Including phonetically similar words, homophones,
+    or pronunciation in varied accents | “What is the full mane of Thailand’s capital
+    city?” | Accurately captures variation in spoken settings | Can be hard to compute;
+    depending on STT settings used in production, may not reflect real-world variation
+    |'
+  id: totrans-50
+  prefs: []
+  type: TYPE_TB
+  zh: '| 语音转文本错误 | 包括发音相似的单词、同音异义词或不同口音的发音 | “What is the full mane of Thailand’s
+    capital city?” | 准确捕捉口语环境中的变化 | 可能难以计算；根据用于生产的语音转文本设置，可能无法反映现实世界中的变化 |'
+- en: '| Vernacular change | In spoken dialogue systems, there may be certain patterns
+    of speech that are prevalent among certain subpopulations | “Whit’s th’ stowed
+    oot name o’ Thailand’s capital toon?” (Scottish) | Depending on customer base,
+    can reflect differences in speech patterns seen in production | Can be difficult
+    to generate examples of |'
+  id: totrans-51
+  prefs: []
+  type: TYPE_TB
+  zh: '| 本地语言变化 | 在口语对话系统中，可能存在某些特定人群中普遍存在的语音模式 | “Whit’s th’ stowed oot name o’ Thailand’s
+    capital toon?” (苏格兰语) | 根据客户群体，可以反映在生产中看到的语音模式差异 | 可能难以生成示例 |'
+- en: 'Step 2: Defining and Applying Constraints'
+  id: totrans-52
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第二步：定义和应用约束条件
+- en: Once we have these perturbations, in order to identify which ones are satisfactory,
+    we need to define constraints. Let’s delve into some popular constraints in both
+    NLP and computer vision.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们有了这些扰动，为了确定哪些扰动是令人满意的，我们需要定义约束条件。让我们深入探讨一些在自然语言处理和计算机视觉中流行的约束条件。
+- en: Natural language processing
+  id: totrans-54
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 自然语言处理
+- en: 'For text, it is crucial to ensure that perturbations are fluent: that is, that
+    they are legitimate, natural-sounding sentences and are semantically equivalent
+    to the original sentences. Let’s break down how to evaluate generated sentences
+    for each of these aspects.'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于文本而言，确保扰动流畅至关重要：即它们是合法的、自然的句子，并且在语义上等效于原始句子。让我们详细分析如何评估生成的句子在每个方面的表现。
+- en: Fluency
+  id: totrans-56
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 流畅性
+- en: You can use a language model (LM) to evaluate the fluency of a sentence. Language
+    models will assign high probabilities to grammatically correct sentences and low
+    probabilities to grammatically incorrect or unlikely sentences, so you’ll want
+    to use evaluation metrics that take advantage of this. In terms of choice of language
+    model, pre-trained language models are usually used, although those that have
+    been fine-tuned or trained for the type of language you are evaluating fluency
+    on are preferred (e.g., an LM that has been trained on Twitter if you are evaluating
+    the fluency of a tweet).
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用语言模型（LM）来评估句子的流畅性。语言模型会为语法正确的句子分配高概率，而为语法不正确或不太可能的句子分配低概率，因此您需要使用利用这一点的评估指标。在选择语言模型方面，通常使用预训练的语言模型，尽管最好是针对您评估流畅性的语言类型进行了微调或训练的模型（例如，如果您评估推特上的句子流畅性，则应使用已经在推特上训练过的LM）。
+- en: 'Two common metrics are log probability and perplexity. The equations for the
+    two metrics are as follows, where <math alttext="x Subscript t"><msub><mi>x</mi>
+    <mi>t</mi></msub></math> refers to a token at timestep *t*:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两种常见的度量指标是对数概率和困惑度。这两种度量指标的方程如下，其中<math alttext="x Subscript t"><msub><mi>x</mi>
+    <mi>t</mi></msub></math>指的是时间步*t*处的标记：
+- en: '*Log probability*'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*对数概率*'
+- en: <math alttext="sigma-summation Underscript t equals upper N Overscript 1 Endscripts
+    log Subscript 2 Baseline p left-parenthesis x Subscript t Baseline vertical-bar
+    x Subscript t Baseline right-parenthesis"><mrow><msubsup><mo>∑</mo> <mrow><mi>t</mi><mo>=</mo><mi>N</mi></mrow>
+    <mn>1</mn></msubsup> <msub><mo form="prefix">log</mo> <mn>2</mn></msub> <mi>p</mi>
+    <mrow><mo>(</mo> <msub><mi>x</mi> <mi>t</mi></msub> <mo>|</mo> <msub><mi>x</mi>
+    <mrow><mo><</mo><mi>t</mi></mrow></msub> <mo>)</mo></mrow></mrow></math>
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="sigma-summation Underscript t equals upper N Overscript 1 Endscripts
+    log Subscript 2 Baseline p left-parenthesis x Subscript t Baseline vertical-bar
+    x Subscript t Baseline right-parenthesis"><mrow><msubsup><mo>∑</mo> <mrow><mi>t</mi><mo>=</mo><mi>N</mi></mrow>
+    <mn>1</mn></msubsup> <msub><mo form="prefix">log</mo> <mn>2</mn></msub> <mi>p</mi>
+    <mrow><mo>(</mo> <msub><mi>x</mi> <mi>t</mi></msub> <mo>|</mo> <msub><mi>x</mi>
+    <mrow><mo><</mo><mi>t</mi></mrow></msub> <mo>)</mo></mrow></mrow></math>
+- en: '*Perplexity*'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*困惑度*'
+- en: <math alttext="upper P left-parenthesis x 1 comma x 2 comma ellipsis comma x
+    Subscript upper N Baseline right-parenthesis Superscript minus StartFraction 1
+    Over upper N EndFraction"><mrow><mi>P</mi> <msup><mrow><mo>(</mo><msub><mi>x</mi>
+    <mn>1</mn></msub> <mo>,</mo><msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo><mo>...</mo><mo>,</mo><msub><mi>x</mi>
+    <mi>N</mi></msub> <mo>)</mo></mrow> <mrow><mo>-</mo><mfrac><mn>1</mn> <mi>N</mi></mfrac></mrow></msup></mrow></math>
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="upper P left-parenthesis x 1 comma x 2 comma ellipsis comma x
+    Subscript upper N Baseline right-parenthesis Superscript minus StartFraction 1
+    Over upper N EndFraction"><mrow><mi>P</mi> <msup><mrow><mo>(</mo><msub><mi>x</mi>
+    <mn>1</mn></msub> <mo>,</mo><msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo><mo>...</mo><mo>,</mo><msub><mi>x</mi>
+    <mi>N</mi></msub> <mo>)</mo></mrow> <mrow><mo>-</mo><mfrac><mn>1</mn> <mi>N</mi></mfrac></mrow></msup></mrow></math>
+- en: Perplexity can also be reframed as the exponent of the cross-entropy loss:^([3](ch04.html#idm45621835661808))
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 困惑度也可以重新表述为交叉熵损失的指数：^([3](ch04.html#idm45621835661808))
+- en: <math alttext="2 Superscript minus StartFraction 1 Over upper N EndFraction
+    sigma-summation Underscript t equals upper N Overscript 1 Endscripts log Super
+    Subscript 2 Superscript p left-parenthesis x Super Subscript t Superscript vertical-bar
+    x Super Subscript t Superscript right-parenthesis" display="block"><msup><mn>2</mn>
+    <mrow><mo>-</mo><mfrac><mn>1</mn> <mi>N</mi></mfrac><msubsup><mo>∑</mo> <mrow><mi>t</mi><mo>=</mo><mi>N</mi></mrow>
+    <mn>1</mn></msubsup> <msub><mo form="prefix">log</mo> <mn>2</mn></msub> <mi>p</mi><mrow><mo>(</mo><msub><mi>x</mi>
+    <mi>t</mi></msub> <mo>|</mo><msub><mi>x</mi> <mrow><mo><</mo><mi>t</mi></mrow></msub>
+    <mo>)</mo></mrow></mrow></msup></math>
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="2 Superscript minus StartFraction 1 Over upper N EndFraction
+    sigma-summation Underscript t equals upper N Overscript 1 Endscripts log Super
+    Subscript 2 Superscript p left-parenthesis x Super Subscript t Superscript vertical-bar
+    x Super Subscript t Superscript right-parenthesis" display="block"><msup><mn>2</mn>
+    <mrow><mo>-</mo><mfrac><mn>1</mn> <mi>N</mi></mfrac><msubsup><mo>∑</mo> <mrow><mi>t</mi><mo>=</mo><mi>N</mi></mrow>
+    <mn>1</mn></msubsup> <msub><mo form="prefix">log</mo> <mn>2</mn></msub> <mi>p</mi><mrow><mo>(</mo><msub><mi>x</mi>
+    <mi>t</mi></msub> <mo>|</mo><msub><mi>x</mi> <mrow><mo><</mo><mi>t</mi></mrow></msub>
+    <mo>)</mo></mrow></mrow></msup></math>
+- en: Note that while more performant language models will assign a higher log probability
+    to well-formed sentences, they will have a lower perplexity score. This is because,
+    for perplexity, as log probability increases (in the negative fractional exponent),
+    perplexity decreases.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要注意的是，虽然性能更好的语言模型会为形式良好的句子分配更高的对数概率，但其困惑度分数会较低。这是因为对于困惑度而言，随着对数概率的增加（以负分数指数表示），困惑度会降低。
+- en: You might be wondering how you can calculate the probabilities in the definitions
+    for the fluency metrics. It is common practice to use language models to evaluate
+    the fluency of each synonym-substituted sentence and only keep sentences that
+    have a similar fluency score to the original sentence. Note that this comes with
+    limitations, since these language models themselves are imperfect.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 也许你会想知道如何计算流畅度度量中定义的概率。通常做法是使用语言模型评估每个同义替换句子的流畅度，并仅保留具有与原始句子相似流畅度得分的句子。请注意，由于这些语言模型本身并不完美，因此这种方法有其局限性。
+- en: Let’s see what it looks like to compute perplexity.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看如何计算混乱度。
+- en: '[PRE1]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: While for certain scenarios fluency may be a satisfactory constraint, it is
+    not enough for most cases.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然对于某些情景来说，流畅度可能是一个令人满意的约束条件，但对于大多数情况来说，这是不够的。
+- en: 'Explore your own understanding of fluency: what are some examples of two sentences
+    that are individually fluent, are similar except for noun substitution, but are
+    not similar in meaning?'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 探索你对流畅度的理解：有哪些例子是两个句子分别流畅，除了名词替换之外相似，但意义不相似的？
+- en: Preserving semantic meaning
+  id: totrans-71
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 保持语义意义
+- en: Perplexity does not indicate if the perturbations preserve semantic meaning.
+    Semantic similarity metrics can be used to fill this gap. One popular method to
+    calculate the semantic similarity of two sentences is to embed them both using
+    sentence-level encoders, then calculate their similarity (or other distance measures),
+    such that sentences that are more similar in meaning will have higher similarity
+    than those that are less similar.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 混乱度并不表明扰动是否保留语义意义。可以使用语义相似性度量来填补这一空白。一种流行的计算两个句子语义相似性的方法是使用句子级编码器嵌入它们，然后计算它们的相似性（或其他距离度量），这样意义更相似的句子将比意义较少相似的句子具有更高的相似性。
+- en: 'A standard metric for textual similarity is cosine similarity of embeddings.
+    Given the embedding *A*1 and *B*, the cosine similarity of these embeddings can
+    be computed with the following:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 文本相似性的一个标准度量是嵌入的余弦相似度。给定嵌入*A*1和*B*，这些嵌入的余弦相似度可以用以下公式计算：
+- en: <math alttext="sigma-summation Underscript t equals 1 Overscript upper N Endscripts
+    StartFraction upper A Subscript i Baseline upper B Subscript i Baseline Over StartRoot
+    sigma-summation Underscript t equals 1 Overscript upper N Endscripts upper A Subscript
+    i Superscript 2 Baseline EndRoot StartRoot sigma-summation t equals upper N Superscript
+    1 Baseline upper B Subscript i Superscript 2 Baseline EndRoot EndFraction" display="block"><mrow><munderover><mo>∑</mo>
+    <mrow><mi>t</mi><mo>=</mo><mn>1</mn></mrow> <mi>N</mi></munderover> <mfrac><mrow><msub><mi>A</mi>
+    <mi>i</mi></msub> <msub><mi>B</mi> <mi>i</mi></msub></mrow> <mrow><msqrt><mrow><msubsup><mo>∑</mo>
+    <mrow><mi>t</mi><mo>=</mo><mn>1</mn></mrow> <mi>N</mi></msubsup> <msubsup><mi>A</mi>
+    <mrow><mi>i</mi></mrow> <mn>2</mn></msubsup></mrow></msqrt> <msqrt><mrow><mo>∑</mo><msup><mrow><mi>t</mi><mo>=</mo><mi>N</mi></mrow>
+    <mn>1</mn></msup> <msubsup><mi>B</mi> <mrow><mi>i</mi></mrow> <mn>2</mn></msubsup></mrow></msqrt></mrow></mfrac></mrow></math>
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="sigma-summation Underscript t equals 1 Overscript upper N Endscripts
+    StartFraction upper A Subscript i Baseline upper B Subscript i Baseline Over StartRoot
+    sigma-summation Underscript t equals 1 Overscript upper N Endscripts upper A Subscript
+    i Superscript 2 Baseline EndRoot StartRoot sigma-summation t equals upper N Superscript
+    1 Baseline upper B Subscript i Superscript 2 Baseline EndRoot EndFraction" display="block"><mrow><munderover><mo>∑</mo>
+    <mrow><mi>t</mi><mo>=</mo><mn>1</mn></mrow> <mi>N</mi></munderover> <mfrac><mrow><msub><mi>A</mi>
+    <mi>i</mi></msub> <msub><mi>B</mi> <mi>i</mi></msub></mrow> <mrow><msqrt><mrow><msubsup><mo>∑</mo>
+    <mrow><mi>t</mi><mo>=</mo><mn>1</mn></mrow> <mi>N</mi></msubsup> <msubsup><mi>A</mi>
+    <mrow><mi>i</mi></mrow> <mn>2</mn></msubsup></mrow></msqrt> <msqrt><mrow><mo>∑</mo><msup><mrow><mi>t</mi><mo>=</mo><mi>N</mi></mrow>
+    <mn>1</mn></msup> <msubsup><mi>B</mi> <mrow><mi>i</mi></mrow> <mn>2</mn></msubsup></mrow></msqrt></mrow></mfrac></mrow></math>
+- en: Take the example of ALBERT, a sentence-level encoder. For a particular sentence,
+    you get the embedding by taking the mean of the relevant embeddings to get a fixed
+    vector, regardless of the length of the sentence. We will use the SentenceTransformer
+    package, which allows us to train, evaluate, and run inference on models specifically
+    trained to create useful embeddings. You can read more about the [pooling process
+    online](https://oreil.ly/tqzbm).
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以ALBERT为例，一个句子级的编码器。对于一个特定的句子，通过取相关嵌入的均值来获得嵌入，从而得到一个固定向量，不考虑句子的长度。我们将使用SentenceTransformer包，它允许我们训练、评估和推理特定训练用途的模型。你可以在[在线池化过程](https://oreil.ly/tqzbm)中了解更多。
+- en: Then, given the embeddings of both sentences, we can find the cosine similarity.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，给定两个句子的嵌入，我们可以找到它们的余弦相似性。
+- en: '[PRE2]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Now let’s test this function out on a valid paraphrased sentence.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们在一个有效的释义句子上测试这个函数。
+- en: '[PRE3]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: To compare, let’s do the same thing with two sentences that are not paraphrases
+    of each other.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了比较，让我们用两个不是彼此释义的句子做同样的事情。
+- en: '[PRE4]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: You can see that the cosine similarity and semantic meaning are pretty similar.
+    See [the notebooks](https://oreil.ly/icUDM) for the full code snippet.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以看到余弦相似度和语义意义非常相似。请查看[笔记本](https://oreil.ly/icUDM)获取完整的代码片段。
+- en: As the name might suggest, ALBERT is part of a family of encoders based on BERT
+    that can detect semantic similarity this way (another example being RoBERTa),
+    and more encoders are released every month. However, for this kind of evaluation,
+    it’s important to use models shown to be highly accurate in evaluating language
+    of the same source and type as the example. An example that contains more formal
+    language, for instance, might not work well with a model trained on tweets.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如名称可能暗示的那样，ALBERT是基于BERT的编码器系列的一部分，可以通过这种方式检测语义相似性（另一个例子是RoBERTa），每个月都会发布更多的编码器。然而，对于这种类型的评估，使用已被证明在评估与示例相同源和类型语言时非常准确的模型是很重要的。例如，包含更正式语言的示例可能不适合在训练于推文上的模型上运行。
+- en: 'Semantic similarity also depends on the task at hand. Imagine you are testing
+    the robustness of an intent classification model in a task-oriented dialogue system
+    that allows a user to book a restaurant that serves a specific type of cuisine.
+    To get accurate results, the model might need to perturb utterances while fixing
+    certain attributes, such as type of intent. For example, a person might ask, “Can
+    you find cheap restaurants that serve Indian food?” One way to perturb this sentence
+    is to keep the attributes of Indian food: “Can you bookmark Baar Baar as a great
+    restaurant that serves Indian food?” Another way is to keep the intent (finding
+    restaurants) and perturb the attribute of type of food: “Can you find cheap restaurants
+    that serve Thai food?” Thus, it is important to evaluate a model’s generations
+    based on the task at hand.'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 语义相似性也取决于具体任务。想象一下，你正在测试一个面向任务型对话系统中意图分类模型的鲁棒性，该系统允许用户预订特定类型菜肴的餐馆。为了得到准确的结果，模型可能需要在保持某些属性（如意图类型）的同时，对话中的句子进行扰动。例如，一个人可能会问：“你能找到便宜的印度餐馆吗？”对这个句子进行扰动的一种方式是保持印度餐食品属性：“你能收藏巴巴尔作为一家提供印度食品的优秀餐馆吗？”另一种方式是保持意图（寻找餐馆）并扰动食品类型属性：“你能找到便宜的餐馆供应泰国食品吗？”因此，根据具体任务评估模型生成的结果非常重要。
+- en: Computer vision
+  id: totrans-85
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 计算机视觉
+- en: For computer vision, instead of embeddings of tokens and sentences, we are concerned
+    with pixel vectors. We can then use metrics such as cosine similarity, as well
+    as L2 distance, which is commonly used in computer vision.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于计算机视觉，我们关注的是像素向量而不是标记和句子的嵌入。因此，我们可以使用余弦相似度以及在计算机视觉中常用的 L2 距离。
+- en: 'Representing the pixel values of an image by the matrix <math alttext="upper
+    X equals left-parenthesis left-parenthesis x Subscript i j Baseline right-parenthesis
+    right-parenthesis element-of upper R Superscript m times n"><mrow><mi>X</mi> <mo>=</mo>
+    <mrow><mo>(</mo> <mrow><mo>(</mo> <msub><mi>x</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub>
+    <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>∈</mo> <msup><mi>R</mi> <mrow><mi>m</mi><mo>×</mo><mi>n</mi></mrow></msup></mrow></math>
+    , we compute the absolute and relative L2 distances:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过矩阵 <math alttext="upper X equals left-parenthesis left-parenthesis x Subscript
+    i j Baseline right-parenthesis right-parenthesis element-of upper R Superscript
+    m times n"><mrow><mi>X</mi> <mo>=</mo> <mrow><mo>(</mo> <mrow><mo>(</mo> <msub><mi>x</mi>
+    <mrow><mi>i</mi><mi>j</mi></mrow></msub> <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>∈</mo>
+    <msup><mi>R</mi> <mrow><mi>m</mi><mo>×</mo><mi>n</mi></mrow></msup></mrow></math>
+    表示图像的像素值，我们计算绝对和相对 L2 距离：
+- en: <math alttext="d Subscript a b s Baseline equals sigma-summation Underscript
+    i comma j Endscripts StartAbsoluteValue x Subscript i j Baseline minus x Subscript
+    i j Superscript a d v Baseline EndAbsoluteValue squared comma d Subscript r e
+    l Baseline equals StartFraction d Subscript a b s Baseline Over sigma-summation
+    Underscript i j Endscripts x Subscript i j Superscript 2 Baseline EndFraction"
+    display="block"><mrow><msub><mi>d</mi> <mrow><mi>a</mi><mi>b</mi><mi>s</mi></mrow></msub>
+    <mo>=</mo> <munder><mo>∑</mo> <mrow><mi>i</mi><mo>,</mo><mi>j</mi></mrow></munder>
+    <msup><mrow><mo>|</mo><msub><mi>x</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub>
+    <mo>-</mo><msubsup><mi>x</mi> <mrow><mi>i</mi><mi>j</mi></mrow> <mrow><mi>a</mi><mi>d</mi><mi>v</mi></mrow></msubsup>
+    <mo>|</mo></mrow> <mn>2</mn></msup> <mo>,</mo> <msub><mi>d</mi> <mrow><mi>r</mi><mi>e</mi><mi>l</mi></mrow></msub>
+    <mo>=</mo> <mfrac><msub><mi>d</mi> <mrow><mi>a</mi><mi>b</mi><mi>s</mi></mrow></msub>
+    <mrow><msub><mo>∑</mo> <mrow><mi>i</mi><mi>j</mi></mrow></msub> <msubsup><mi>x</mi>
+    <mrow><mi>i</mi><mi>j</mi></mrow> <mn>2</mn></msubsup></mrow></mfrac></mrow></math>
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="d Subscript a b s Baseline equals sigma-summation Underscript
+    i comma j Endscripts StartAbsoluteValue x Subscript i j Baseline minus x Subscript
+    i j Superscript a d v Baseline EndAbsoluteValue squared comma d Subscript r e
+    l Baseline equals StartFraction d Subscript a b s Baseline Over sigma-summation
+    Underscript i j Endscripts x Subscript i j Superscript 2 Baseline EndFraction"
+    display="block"><mrow><msub><mi>d</mi> <mrow><mi>a</mi><mi>b</mi><mi>s</mi></mrow></msub>
+    <mo>=</mo> <munder><mo>∑</mo> <mrow><mi>i</mi><mo>,</mo><mi>j</mi></mrow></munder>
+    <msup><mrow><mo>|</mo><msub><mi>x</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub>
+    <mo>-</mo><msubsup><mi>x</mi> <mrow><mi>i</mi><mi>j</mi></mrow> <mrow><mi>a</mi><mi>d</mi><mi>v</mi></mrow></msubsup>
+    <mo>|</mo></mrow> <mn>2</mn></msup> <mo>,</mo> <msub><mi>d</mi> <mrow><mi>r</mi><mi>e</mi><mi>l</mi></mrow></msub>
+    <mo>=</mo> <mfrac><msub><mi>d</mi> <mrow><mi>a</mi><mi>b</mi><mi>s</mi></mrow></msub>
+    <mrow><msub><mo>∑</mo> <mrow><mi>i</mi><mi>j</mi></mrow></msub> <msubsup><mi>x</mi>
+    <mrow><mi>i</mi><mi>j</mi></mrow> <mn>2</mn></msubsup></mrow></mfrac></mrow></math>
+- en: '[Table 4-3](#table-nlp-perturbations2) lists types of semantic similarity metrics,
+    many of which can be computed for both computer vision and NLP.'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 4-3](#table-nlp-perturbations2) 列出了许多可用于计算计算机视觉和自然语言处理的语义相似性度量类型。'
+- en: Table 4-3\. Types of semantic similarity metrics
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 4-3\. 语义相似性度量类型
+- en: '| Semantic similarity | Advantages | Disadvantages | Specific to NLP or computer
+    vision |'
+  id: totrans-91
+  prefs: []
+  type: TYPE_TB
+  zh: '| 语义相似度 | 优点 | 缺点 | 特定于自然语言处理或计算机视觉 |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-92
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| Cosine similarity |'
+  id: totrans-93
+  prefs: []
+  type: TYPE_TB
+  zh: '| 余弦相似度 |'
+- en: Commonly used
+  id: totrans-94
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 常用
+- en: Easy to compute
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 易于计算
+- en: Implemented in multiple packages
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在多个包中实现
+- en: '| May not correlate with human notions of similarity | Both |'
+  id: totrans-97
+  prefs: []
+  type: TYPE_TB
+  zh: '| 可能与人类相似性概念不相关 | 两者皆是 |'
+- en: '| L2 distance |'
+  id: totrans-98
+  prefs: []
+  type: TYPE_TB
+  zh: '| L2 距离 |'
+- en: Commonly used
+  id: totrans-99
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 常用
+- en: Easy to compute
+  id: totrans-100
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 易于计算
+- en: Implemented in multiple packages
+  id: totrans-101
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在多个包中实现
+- en: '| May not correlate with human notions of similarity | Both |'
+  id: totrans-102
+  prefs: []
+  type: TYPE_TB
+  zh: '| 可能与人类相似性概念不相关 | 两者皆是 |'
+- en: '| Paraphrase classification | Correlate more closely with human notions of
+    similarity | Rely on performance of models | NLP |'
+  id: totrans-103
+  prefs: []
+  type: TYPE_TB
+  zh: '| 释义分类 | 更符合人类相似性概念 | 依赖模型性能 | 自然语言处理 |'
+- en: 'Deep Dive: Word Substitution with Cosine Similarity Constraints'
+  id: totrans-104
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 深入探讨：余弦相似性约束下的词语替换
+- en: Now let’s return to the word substitution function and tie in the constraints
+    to get acceptable perturbations.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们返回到词语替换功能，并结合约束条件以获取可接受的扰动。
+- en: A perturbation is fluent if the perplexity score of the resulting sentence is
+    within 30 points of the score of the original sentence. An increase in perplexity
+    of more than 30 may mean that the generated sentence is gibberish. We only keep
+    a perturbation if it fulfills both fluency and semantic similarity constraints.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果生成的句子的困惑度得分与原始句子的得分相差不超过30分，则扰动流畅。困惑度增加超过30可能意味着生成的句子是无意义的。我们只保留同时满足流畅性和语义相似性约束的扰动。
+- en: '[PRE5]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Try running the following function with the input `**Hate is the opposite of
+    love**`. You will get the following perturbations.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尝试运行以下函数，输入 `**Hate is the opposite of love**`。你将得到以下扰动。
+- en: '[PRE6]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'Noun-based word substitutions are very computation intensive, especially when
+    done over hundreds of thousands of examples. To address this, we can use methods
+    such as AttackToTrain (a2t) to only substitute important words, or nouns, rather
+    than all nouns. Instead of perturbing every single noun to see the effect on the
+    model prediction, you could perturb only the most important nouns. (Here, importance
+    is based on Yoo and Qi’s definition: “how much the target model’s confidence on
+    the ground truth label changes when the word is deleted from the input.”)^([4](ch04.html#idm45621834960544))'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于名词的单词替换非常耗费计算资源，特别是在处理数十万个示例时。为了解决这个问题，我们可以使用AttackToTrain（a2t）等方法仅替换重要的单词或名词，而不是所有名词。与其扰动每个单个名词以查看对模型预测的影响，不如只扰动最重要的名词。在这里，重要性基于Yoo和Qi的定义：“目标模型对地面真实标签的置信度在删除单词时如何改变。”^([4](ch04.html#idm45621834960544))
+- en: For example, take the following input.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，采用以下输入。
+- en: '[PRE7]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Instead of perturbing both `dress` and `wedding`, for an intent classification
+    model, you would perturb `dress`, since the intent is to buy a particular article
+    of clothing. This importance can be calculated by the gradient of the loss of
+    the task at hand (in this example, the cross-entropy loss for the intent classification
+    model) with respect to the word. This speeds up computation by calculating word
+    importance with one pass for each example, rather than multiple passes for each
+    word.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于意图分类模型，您可以只扰动`dress`而不是`wedding`，因为意图是购买特定的服装。这种重要性可以通过与任务的损失梯度（例如，意图分类模型的交叉熵损失）相对于单词的计算来计算。通过一次计算每个示例的单词重要性，而不是为每个单词进行多次计算，可以加快计算速度。
+- en: AttackToTrain uses a gradient-based word importance ranking method to replace
+    each word in an input, iteratively, with synonyms generated from a counterfeited
+    word embedding. Let’s use the following sentences as input.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AttackToTrain使用基于梯度的单词重要性排名方法，逐次替换输入中的每个单词，用从伪造的单词嵌入生成的同义词代替。让我们以以下句子作为输入。
+- en: '[PRE8]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: We can use the TextAttack package to find adversarial examples and use paraphrase
+    classification models to identify which perturbations to keep. The tool kit houses
+    a set of attack and constraint evaluation methods, including the a2t adversarial
+    method.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用TextAttack包找到对抗性示例，并使用改写分类模型来确定要保留的扰动。该工具包包含一组攻击和约束评估方法，包括a2t对抗方法。
+- en: Let’s try it on the Walmart example, which is from the Microsoft Research Paraphrase
+    Corpus (MRPC) dataset. We will use the DistilBERT-based paraphrase model, which
+    has been fine tuned on MRPC, to generate the word-importance rankings.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们以来自微软研究改写语料库（MRPC）数据集的沃尔玛示例来尝试一下。我们将使用基于DistilBERT的改写模型，该模型已在MRPC上进行了微调，以生成单词重要性排名。
+- en: '[PRE9]'
+  id: totrans-118
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: '[Table 4-4](#table-nlp-perturbations3) shows some of the paraphrases this generates.'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Table 4-4](#table-nlp-perturbations3)显示了这些改写生成的一些释义。'
+- en: Table 4-4\. Paraphrasing with word importance ranking
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Table 4-4\. 带有单词重要性排名的释义
+- en: '| Input | Output |  |'
+  id: totrans-121
+  prefs: []
+  type: TYPE_TB
+  zh: '| 输入 | 输出 |  |'
+- en: '| --- | --- | --- |'
+  id: totrans-122
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Walmart said it would check all of its million-plus domestic workers to ensure
+    they were legally employed. | Walmart said it would check all of its million-plus
+    domestic workers to ensure they were legitimately employed. |  |'
+  id: totrans-123
+  prefs: []
+  type: TYPE_TB
+  zh: '| 沃尔玛表示将检查其百万以上的国内员工以确保他们合法就业。 | 沃尔玛表示将检查其百万以上的国内员工以确保他们合法就业。 |  |'
+- en: '| It has also said it would review all of its domestic employees more than
+    1 million to ensure they have legal status. | It has also said it would be reviewing
+    all of its domestic employees more than 1 million to ensure they have lawful status.
+    |  |'
+  id: totrans-124
+  prefs: []
+  type: TYPE_TB
+  zh: '| 还表示将审查其超过100万名国内雇员，以确保其具有法律地位。 | 还表示将审查其超过100万名国内雇员，以确保其具有法律地位。 |  |'
+- en: You can see more details on how to use the TextAttack tool kit in its [documentation](https://oreil.ly/x2ife).
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在其[文档](https://oreil.ly/x2ife)中详细了解如何使用TextAttack工具包。
+- en: To summarize, a good generation from a data corruption method is one that (1)
+    maintains a similar level of fluency to the original sentence (similar perplexity
+    or log probability) and (2) preserves the meaning of the original sentence (the
+    sentence embedding has high cosine similarity to that of the original sentence).
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结一下，从数据损坏方法中获得的良好生成，其一是（1）保持与原始句子类似的流畅度（类似的困惑度或对数概率），其二是保留原始句子的含义（句子嵌入与原始句子具有高余弦相似度）。
+- en: These non-adversarial methods, using methods such as Attack2Train, create test
+    data of examples that the model will most likely encounter in production. These
+    examples can then be added to the test data to identify potential weaknesses in
+    a model’s ability to generalize. However, it is impossible (or at best difficult)
+    to ensure a model is robust to all types of inputs that can be expected in very
+    open-domain settings. This is the motivation behind adversarial robustness methods,
+    which use a more automated method to find the data perturbations that are most
+    likely to break the model.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些非对抗性方法使用诸如Attack2Train的方法创建测试数据，这些数据是模型在生产中可能遇到的示例。然后，可以将这些示例添加到测试数据中，以识别模型泛化能力的潜在弱点。然而，在非常开放的领域设置中，确保模型对所有可能的输入都具有鲁棒性是不可能的（或者说至少是困难的）。这正是对抗鲁棒性方法的动机，它们使用更自动化的方法来找到最有可能破坏模型的数据扰动。
+- en: Adversarial Robustness
+  id: totrans-128
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 对抗鲁棒性
+- en: At the beginning of this chapter, we told you that adversarial robustness methods
+    are learned transformations that use machine learning models to modify and create
+    inputs that fool the model. In short, you train an adversary model that aims to
+    modify inputs to trick the predictor, or the main model (we’ll call it <math alttext="f"><mi>f</mi></math>
+    ). The main difference between adversarial and non-adversarial robustness is that
+    adversarial robustness uses gradient-based approaches to create an input that
+    fools the model, whereas non-adversarial robustness methods modify an input (with
+    no guarantee of fooling the model).
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的开头，我们告诉您对抗鲁棒性方法是利用机器学习模型修改和创建输入，以欺骗模型的学习转换。简而言之，您训练一个对手模型，旨在修改输入以欺骗预测器或主模型（我们称之为<math
+    alttext="f"><mi>f</mi></math>）。对抗和非对抗鲁棒性的主要区别在于，对抗鲁棒性使用基于梯度的方法来创建欺骗模型的输入，而非对抗性鲁棒性方法修改输入（并不能保证欺骗模型）。
+- en: Adversarial robustness is helpful in high-stakes environments where users could
+    misuse your model to get particular predictions. The examples these methods create
+    are unlikely to reflect the bulk of your day-to-day inputs, so it helps to use
+    both adversarial and non-adversarial robustness methods to benchmark your ML systems.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对抗鲁棒性在高风险环境中非常有帮助，用户可能会误用您的模型来获得特定的预测。这些方法创建的示例不太可能反映您日常输入的大部分内容，因此建议同时使用对抗和非对抗鲁棒性方法来评估您的机器学习系统。
+- en: Let’s take a neural model with weights <math alttext="theta"><mi>θ</mi></math>
+    and an input <math alttext="x"><mi>x</mi></math> . Adversarial robustness aims
+    to maximize the error of model <math alttext="f"><mi>f</mi></math> with respect
+    to <math alttext="x"><mi>x</mi></math> , to find an <math alttext="x"><mi>x</mi></math>
+    that fools the model. There are multiple ways to formulate this, for example,
+    <math alttext="1 minus upper P left-parenthesis y vertical-bar x semicolon theta
+    right-parenthesis"><mrow><mn>1</mn> <mo>-</mo> <mi>P</mi> <mo>(</mo> <mi>y</mi>
+    <mo>|</mo> <mi>x</mi> <mo>;</mo> <mi>θ</mi> <mo>)</mo></mrow></math> , where <math
+    alttext="upper P left-parenthesis y vertical-bar x semicolon theta right-parenthesis"><mrow><mi>P</mi>
+    <mo>(</mo> <mi>y</mi> <mo>|</mo> <mi>x</mi> <mo>;</mo> <mi>θ</mi> <mo>)</mo></mrow></math>
+    is the confidence of the model with weights <math alttext="theta"><mi>θ</mi></math>
+    on the correct label <math alttext="y"><mi>y</mi></math> for <math alttext="x"><mi>x</mi></math>
+    .
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们考虑一个带有权重<math alttext="θ"><mi>θ</mi></math>和输入<math alttext="x"><mi>x</mi></math>的神经模型。对抗鲁棒性旨在最大化模型<math
+    alttext="f"><mi>f</mi></math>相对于<math alttext="x"><mi>x</mi></math>的误差，以找到一个欺骗模型的<math
+    alttext="x"><mi>x</mi></math>。有多种方式可以进行公式化，例如<math alttext="1 minus upper P left-parenthesis
+    y vertical-bar x semicolon theta right-parenthesis"><mrow><mn>1</mn> <mo>-</mo>
+    <mi>P</mi> <mo>(</mo> <mi>y</mi> <mo>|</mo> <mi>x</mi> <mo>;</mo> <mi>θ</mi> <mo>)</mo></mrow></math>，其中<math
+    alttext="upper P left-parenthesis y vertical-bar x semicolon theta right-parenthesis"><mrow><mi>P</mi>
+    <mo>(</mo> <mi>y</mi> <mo>|</mo> <mi>x</mi> <mo>;</mo> <mi>θ</mi> <mo>)</mo></mrow></math>是带有权重<math
+    alttext="theta"><mi>θ</mi></math>的模型对于正确标签<math alttext="y"><mi>y</mi></math>在<math
+    alttext="x"><mi>x</mi></math>上的置信度。
+- en: To see how adversarial robustness works, let’s look at an example.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了看看对抗鲁棒性是如何工作的，让我们看一个例子。
+- en: 'Deep Dive: Adversarial Attacks in Computer Vision'
+  id: totrans-133
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 深入探讨：计算机视觉中的对抗攻击
+- en: 'In this section, we’ll dive deeper using two examples from computer vision:
+    a HopSkipJump attack and a simple transparent adversarial attack. The first shows
+    how the effectiveness of typical adversarial attacks varies based on the properties
+    of the test image. The second illustrates how to craft adversarial attacks, even
+    without sophisticated developing expertise.'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一节中，我们将通过计算机视觉中的两个示例进行更深入的探讨：HopSkipJump 攻击和简单的透明对抗攻击。第一个示例展示了典型对抗攻击的有效性如何基于测试图像的属性而变化。第二个示例说明了如何制作对抗攻击，即使没有复杂的开发技能也可以实现。
+- en: The HopSkipJump attack on ImageNet
+  id: totrans-135
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: ImageNet 上的 HopSkipJump 攻击
+- en: The HopSkipJump adversarial attack on a (non-probabilistic) classification model
+    aims to craft an adversarial sample close to a target test image, as per L2 or
+    Linf distance, that has a different predicted label than the prediction for the
+    target image it is attacking. HopSkipJump works in steps. It initializes at an
+    image of a different label far away from the target image, then iteratively generates
+    adversarial sample images that are closer and closer to the target image, but
+    still have a different label. If you continue this process for a large number
+    of steps, eventually you’ll end up with an image that is visually indistinguishable
+    from the target image, but has a different label predicted by the model being
+    attacked.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: HopSkipJump 对（非概率性）分类模型的对抗攻击旨在制作一个与目标测试图像接近的对抗样本，具有与攻击目标图像不同的预测标签，如 L2 或 Linf
+    距离所示。HopSkipJump 逐步进行。它从一个与目标图像有很大距离的不同标签的图像开始初始化，然后迭代生成越来越接近目标图像的对抗样本图像，但仍具有不同的标签。如果你持续进行大量步骤，最终会得到一个在视觉上与目标图像无法区分的图像，但是模型预测的标签不同。
+- en: We build upon the tutorial notebook part of IBM’s [Adversarial Robustness Toolbox
+    documentation](https://oreil.ly/psgt2). We start by initializing a Keras classifier
+    on a ResNet50 model with pre-trained ImageNet weights.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们基于 IBM 的[对抗鲁棒性工具箱文档](https://oreil.ly/psgt2)中的教程笔记本进行了扩展。我们首先通过使用预训练的 ImageNet
+    权重初始化一个 Keras 分类器上的 ResNet50 模型。
+- en: '[PRE10]'
+  id: totrans-138
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: As test data, we use a group of 16 images from ImageNet Stubs. The code loads
+    the data and obtains predictions for each image.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为测试数据，我们使用了来自 ImageNet 样本的 16 张图片。代码加载数据并为每张图片获取预测结果。
+- en: '[PRE11]'
+  id: totrans-140
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'Observe in [Table 4-5](#table-imagenet-stubs) that the maximum predicted probability
+    varies across the board for different images: from around 0.5 (malamute, beagle,
+    standard_poodle) to very close to 1 (mitten, koala, manhole_cover). So, what happens
+    when we try to craft adversarial attacks for a sure shot image like koala versus
+    something relatively uncertain like beagle? Let’s find out.'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请在[表 4-5](#table-imagenet-stubs)中观察，不同图片的最大预测概率变化非常明显：从约 0.5（malamute, beagle,
+    standard_poodle）到接近 1（mitten, koala, manhole_cover）。那么，当我们尝试为像树袋熊这样确定的图像制作对抗攻击时，与相对不确定的比格尔有何不同？让我们来看看。
+- en: 'Table 4-5\. ImageNet Stubs: for each image, we report the actual label (name),
+    predicted label (label), and the probability of predicted label (probability)'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 4-5\. ImageNet 样本：对于每张图片，我们报告实际标签（名称）、预测标签（标签）和预测标签的概率（概率）
+- en: '| Name | Label | Probability |'
+  id: totrans-143
+  prefs: []
+  type: TYPE_TB
+  zh: '| Name | Label | Probability |'
+- en: '| --- | --- | --- |'
+  id: totrans-144
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| malamute | Eskimo dog, husky | 0.494 |'
+  id: totrans-145
+  prefs: []
+  type: TYPE_TB
+  zh: '| malamute | 爱斯基摩犬, 哈士奇 | 0.494 |'
+- en: '| beagle | beagle | 0.530 |'
+  id: totrans-146
+  prefs: []
+  type: TYPE_TB
+  zh: '| beagle | 雪纳瑞犬 | 0.530 |'
+- en: '| standard_poodle | standard poodle | 0.569 |'
+  id: totrans-147
+  prefs: []
+  type: TYPE_TB
+  zh: '| standard_poodle | 标准贵宾犬 | 0.569 |'
+- en: '| marmoset | titi, titi monkey | 0.623 |'
+  id: totrans-148
+  prefs: []
+  type: TYPE_TB
+  zh: '| marmoset | 提汀猴, 提提猴 | 0.623 |'
+- en: '| tractor | tractor | 0.791 |'
+  id: totrans-149
+  prefs: []
+  type: TYPE_TB
+  zh: '| tractor | 拖拉机 | 0.791 |'
+- en: '| koala | koala, koala bear, kangaroo bear | 0.99 |'
+  id: totrans-150
+  prefs: []
+  type: TYPE_TB
+  zh: '| koala | 树袋熊, 树熊, 袋熊 | 0.99 |'
+- en: '| bagle | bagel, beigel | 0.997 |'
+  id: totrans-151
+  prefs: []
+  type: TYPE_TB
+  zh: '| bagle | 百吉饼, 贝格尔 | 0.997 |'
+- en: We take five images with varying values of predicted probabilities, and perform
+    40 steps HopSkipJump for each image. At steps 0, 10, 20, 30 and 40, we compute
+    L2 distances between the original and adversarial images to see how different
+    the perturbed image is from the original, as shown in [Figure 4-2](#figure_62).
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们选取了五张具有不同预测概率值的图像，并为每张图像执行了 40 步的 HopSkipJump。在步骤 0、10、20、30 和 40，我们计算了原始图像与对抗图像之间的
+    L2 距离，以查看扰动图像与原始图像有多大差异，如[图 4-2](#figure_62)所示。
+- en: A number of important observations come up.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 出现了一些重要的观察结果。
+- en: The L2 error is smallest for beagle, which had the most uncertainty, with probability
+    0.53 for the majority class ([Table 4-5](#table-imagenet-stubs)). This means that
+    the fewest perturbations had to be applied to the original image to fool the model.
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于雪纳瑞犬来说，L2 误差最小，其不确定性最高，主要类的概率为 0.53（见[表 4-5](#table-imagenet-stubs)）。这意味着需要对原始图像应用最少的扰动来愚弄模型。
+- en: Koala had the highest majority-class probability and the highest L2 error.
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Koala具有最高的多数类概率和最高的L2误差。
+- en: The predicted label for beagle is bluetick, which is a dog breed with a similarly
+    shaped face.
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于beagle的预测标签是bluetick，这是一种脸部形状类似的狗品种。
+- en: In general, images with smaller majority-class probability generate adversarial
+    images with more *similar* labels than those with larger majority-class probability.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，具有较小多数类概率的图像生成的对抗图像与具有较大多数类概率的图像生成的对抗图像有更多*相似*的标签。
+- en: '![ptml 0402](assets/ptml_0402.png)'
+  id: totrans-158
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ptml 0402](assets/ptml_0402.png)'
+- en: Figure 4-2\. Three images from ImageNet Stubs, with each row showing its original
+    version (left), an adversarial version at step 0 (middle), and an adversarial
+    version at step 40 (right) (arranged top to bottom by increasing values for maximum
+    predicted probability)
+  id: totrans-159
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 4-2\. ImageNet Stubs中的三幅图像，每行显示其原始版本（左）、步骤0处的对抗版本（中）、步骤40处的对抗版本（右）（按最大预测概率递增排序从上到下排列）
+- en: The preceding outputs underline the fact that prediction difficulty influences
+    what adversarial images the attack mechanism creates, both in terms of the adversarial
+    image itself and its predicted label. Adversarial versions of more ambiguous,
+    harder-to-predict images are much closer to the original image than those of easier-to-predict
+    images, as shown in [Figure 4-3](#ch05_hsj_plot).
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前述输出强调了预测困难如何影响攻击机制创建的对抗图像，无论是对抗图像本身还是其预测标签。更模糊、更难预测的图像的对抗版本比更容易预测的图像的对抗版本更接近原始图像，如[图 4-3](#ch05_hsj_plot)所示。
+- en: '![ptml 0403](assets/ptml_0403.png)'
+  id: totrans-161
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ptml 0403](assets/ptml_0403.png)'
+- en: Figure 4-3\. Absolute and relative L2 errors for ImageNet Stubs images (absolute
+    errors are in log scale, and relative errors are ratios of the non-log L2 error
+    to the L2 norm of the original image)
+  id: totrans-162
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 4-3\. ImageNet Stubs图像的绝对和相对L2误差（绝对误差为对数刻度，相对误差为非对数L2误差与原始图像L2范数的比率）
+- en: Do you notice anything weird about malamute and marmoset in [Table 4-5](#table-imagenet-stubs)?
+    Use the code in the [notebook](https://oreil.ly/F2ayX) to examine the HopSkipJump
+    attacks on them. What do you think is going on here?
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[表 4-5](#table-imagenet-stubs)中，你注意到malamute和marmoset有什么奇怪的地方吗？使用[notebook](https://oreil.ly/F2ayX)中的代码来检查对它们的HopSkipJump攻击。你觉得这里发生了什么？
+- en: Creating Adversarial Examples
+  id: totrans-164
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 创建对抗样本
+- en: 'Many adversarial attack techniques, including HopSkipJump, are computation-intensive
+    and require a basic knowledge of Python programming. However, a 2021 research
+    paper suggests an embarrassingly simple attack known as *Simple Transparent Adversarial
+    Examples*.^([5](ch04.html#idm45621834399424)) This method can break publicly deployed
+    image recognition APIs by embedding small amounts of high-transparency text into
+    an image. No coding knowledge is required: there are many free online text-embedding
+    tools available. These tools also allow users to adjust the text’s transparency,
+    size, and angle of rotation.'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多对抗攻击技术，包括HopSkipJump，都需要计算密集型，并需要基本的Python编程知识。然而，2021年的一篇研究论文提出了一种尴尬简单的攻击方法，称为*简明透明对抗样本*。^([5](ch04.html#idm45621834399424))
+    该方法可以通过将少量高透明度文本嵌入图像来破坏公开部署的图像识别API。无需编码知识：有许多免费在线文本嵌入工具可用。这些工具还允许用户调整文本的透明度、大小和旋转角度。
+- en: 'Let’s check out how this works. After choosing a font size, rotation angle,
+    and opacity, there are two ways of embedding text: single and repeated. In single
+    embedding, the phrase is embedded once at a certain coordinate within an image.
+    In repeated embedding, the phrase is embedded repeatedly at the coordinates of
+    a grid inside the original image. The following code creates a Python class to
+    embed a given text in an image. The class `SimpleTransparentExamples` is initialized
+    with the image, a text to embed, and a font style to embed in. The text is embedded
+    in the image using parameters in `generate`, e.g., transparency, angle, and position.'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看这是如何工作的。选择字体大小、旋转角度和不透明度后，有两种嵌入文本的方式：单次和重复。在单次嵌入中，短语一次性嵌入到图像中的某个坐标。在重复嵌入中，短语在原始图像内的网格坐标上重复嵌入。以下代码创建了一个Python类来在图像中嵌入给定文本。类`SimpleTransparentExamples`用图像、要嵌入的文本和要嵌入的字体样式进行初始化。文本是使用`generate`中的参数（如透明度、角度和位置）嵌入到图像中的。
+- en: '[PRE12]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: '[Figure 4-4](#ch05_stax_beagle) plots the results of running the preceding
+    code on the beagle image. The first one is the original image. While the three
+    images look identical to the human eye, the second and third result in different
+    model predictions. In actuality, the second image has a red “Hello World” embedded
+    at 30 degrees rotation, 16 px font size, and 0.1 opacity at x = 40, y = 20, while
+    the third image has black “Hello World” embedded at 30 degrees rotation, 8 px
+    font size, and 0.5 opacity at 20 px grids.'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 4-4](#ch05_stax_beagle) 展示了在比格尔图像上运行前述代码的结果。第一个是原始图像。虽然对人眼来说这三幅图看起来一样，但第二和第三幅图导致了不同的模型预测。事实上，第二幅图在30度旋转时嵌入了红色的“Hello
+    World”，字体大小为16像素，透明度为0.1，位置在x = 40, y = 20，而第三幅图在30度旋转时嵌入了黑色的“Hello World”，字体大小为8像素，透明度为0.5，位置在20像素的网格上。'
+- en: It takes only seconds to find these adversarial images. You simply pick the
+    alpha (transparency) and angle parameters, then do a grid search across values
+    of the *x*-*y* coordinate pairs. For the single-occurrence example, you try placing
+    the phrase at different points in the original image—the two closest points differ
+    by 20 pixels on either the *x* or *y* coordinates. For the repeated occurrence
+    example, you continue placing *Hello World* on this 20-pixel grid of points until
+    the output label changes. You can find the code to do this in [this notebook](https://oreil.ly/Q-HdF).
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 找到这些对抗性图像只需几秒钟。您只需选择alpha（透明度）和角度参数，然后在*x*-*y*坐标对的值范围内进行网格搜索。对于单次出现的例子，您可以尝试在原始图像中的不同点上放置短语——最接近的两个点在*x*或*y*坐标上相差20像素。对于重复出现的例子，您可以继续在这20像素网格点上放置“Hello
+    World”，直到输出标签发生变化。您可以在[这个笔记本](https://oreil.ly/Q-HdF)中找到执行此操作的代码。
+- en: '![ptml 0404](assets/ptml_0404.png)'
+  id: totrans-170
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ptml 0404](assets/ptml_0404.png)'
+- en: Figure 4-4\. Simple transparent adversarial examples
+  id: totrans-171
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 4-4\. 简单透明对抗性示例
+- en: The outcomes in this example show that creating adversarial samples is actually
+    really, really easy—you don’t require sophisticated code/ML to do this! We did
+    use Python code to create a mechanism to embed text into the image, but someone
+    with basic computer literacy can instead use one of the many freely available
+    online tools to do that, and they can find an adversarial image that looks basically
+    the same as the original image simply by trial and error.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个例子中的结果表明，创建对抗样本实际上非常容易——你并不需要复杂的代码或机器学习来实现这一点！我们确实使用Python代码创建了一个机制来将文本嵌入图像，但是具备基本计算机素养的人可以使用众多免费在线工具之一来完成这个任务，通过试错他们可以找到一个外观基本与原始图像相同的对抗性图像。
+- en: As you examine [Figure 4-4](#ch05_stax_beagle), can you spot the texts? Try
+    to break predictions for other images using this method. Is it less or more difficult?
+    Why?
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您查看[图 4-4](#ch05_stax_beagle)时，能否发现文本？尝试使用此方法打破其他图像的预测。这更容易还是更难？为什么？
+- en: Adversarial methods for testing robustness in NLP are more difficult than those
+    in computer vision. Words and sentences are more discrete than pixels and cannot
+    be used in a gradient in the same way.^([6](ch04.html#idm45621834062160)) Additionally,
+    definitions of distance in the input space are more constrained and varied, and
+    perturbations to sentences can be costly. For example, to use word perturbations,
+    you must first build a dictionary of suitable substitutions for each word, then
+    use it to create perturbations for each word in an input.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在NLP中测试鲁棒性的对抗方法比计算机视觉中的更困难。词语和句子比像素更离散，无法像像素那样在梯度中使用。^[6](ch04.html#idm45621834062160)
+    此外，输入空间中的距离定义更加严格和多样，对句子的扰动可能会很昂贵。例如，要使用词汇扰动，您必须首先构建每个单词适当替换的字典，然后用它来为输入中的每个单词创建扰动。
+- en: Improving Robustness
+  id: totrans-175
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 提高鲁棒性
+- en: 'The research we’ve shown you in this chapter has made clear that models trained
+    with certain types of noise are unable to generalize to other types of noise not
+    seen in the training data. Thus, you may need to incorporate robustness methods
+    in your model-training regimes as well. We’ll finish the chapter with a quick
+    look at some ways to do that:'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章展示的研究清楚地表明，使用某些类型的噪声训练的模型无法推广到训练数据中未见过的其他类型的噪声。因此，您可能需要在模型训练中引入鲁棒性方法。我们将在章节末尝试快速浏览一些实现方法：
+- en: '*Simple data augmentation*'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*简单的数据增强*'
+- en: Adding data that encompasses minority samples to training data is a way to improve
+    robustness. Examples from libraries like TextAttack for NLP are a good place to
+    start.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 向训练数据中加入包含少数样本的数据是提高鲁棒性的一种方式。像TextAttack这样的NLP库中的示例是一个很好的起点。
+- en: '*Regularization methods*'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*正则化方法*'
+- en: 'Regularization can be used to improve robustness in models by encouraging the
+    model to learn features that can more easily generalize to out-of-domain distribution
+    examples. Some work in this vein includes HiddenCut, InfoBert, and causality-based
+    regularization:'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正则化可通过鼓励模型学习更容易泛化到域外分布示例的特征来提高模型的鲁棒性。在这方面的一些工作包括 HiddenCut、InfoBert 和基于因果的正则化：
+- en: HiddenCut is a technique that modifies dropout to strike out adjacent words
+    that are more likely to contain similar and redundant information.^([7](ch04.html#idm45621834046672))
+    HiddenCut drops hidden units more structurally by masking the entirety of the
+    hidden information of contiguous spans of tokens after every encoding layer. This
+    encourages the models to fully utilize all task-related information instead of
+    learning spurious patterns during training.
+  id: totrans-181
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: HiddenCut 是一种修改辍学以淘汰更可能包含相似和冗余信息的相邻单词的技术。^([7](ch04.html#idm45621834046672))
+    HiddenCut 通过在每个编码层后屏蔽连续令牌跨度的隐藏单元的整体信息更结构性地降低隐藏单元。这鼓励模型充分利用所有与任务相关的信息，而不是在训练期间学习虚假模式。
+- en: InfoBERT uses several regularizers, including one that suppresses noisy mutual
+    information between the input and the feature representation and another that
+    increases the mutual information between local robust features and global features.^([8](ch04.html#idm45621834041200))
+    Some papers have started to improve robustness (and fairness) with techniques
+    from causal inference (see [Chapter 3](ch03.html#chapter3)).^([9](ch04.html#idm45621834038272))
+    Others look into integrating loss functions that penalize reliance on spurious
+    features and encourage causal features. We leave the details of this to [Chapter 6](ch06.html#chapter6).
+  id: totrans-182
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: InfoBERT 使用多种正则化器，包括抑制输入和特征表示之间嘈杂互信息的正则化器，以及增加本地鲁棒特征与全局特征之间互信息的正则化器。^([8](ch04.html#idm45621834041200))
+    一些论文开始使用因果推断的技术来改善鲁棒性（和公平性）（见[第 3 章](ch03.html#chapter3)）。^([9](ch04.html#idm45621834038272))
+    其他人则研究整合惩罚依赖于虚假特征并鼓励因果特征的损失函数的细节。我们将这些细节留给[第 6 章](ch06.html#chapter6)。
+- en: '*Adversarial training*'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*对抗训练*'
+- en: Adversarial training is a natural extension of adversarial attacks. It uses
+    examples created by an adversary to train the model (in addition to the original
+    training set). You can also perform such training in a loop ([Figure 4-5](#process)),
+    alternating between training the adversary (fixing the model) and training the
+    model (fixing the adversary). The TextAttack library also supports adversarial
+    training (see [the documentation for more](https://oreil.ly/HH6pe)).
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对抗训练是对抗攻击的自然延伸。它使用对手创建的示例来训练模型（除了原始训练集）。您还可以在一个循环中执行这样的训练（见[图 4-5](#process)），交替训练对手（固定模型）和训练模型（固定对手）。TextAttack
+    库也支持对抗训练（详见[文档](https://oreil.ly/HH6pe)）。
+- en: '![ptml 0405](assets/ptml_0405.png)'
+  id: totrans-185
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ptml 0405](assets/ptml_0405.png)'
+- en: Figure 4-5\. Depiction of the adversarial training process
+  id: totrans-186
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 4-5\. 对抗训练过程的描绘
+- en: A variety of tool kits have been developed to test the robustness of machine
+    learning systems. [Table 4-6](#table-nlp-perturbations4) offers a sample to explore.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 已开发了多种工具包来测试机器学习系统的鲁棒性。表 4-6 提供了一个探索的样本。
+- en: Table 4-6\. Tool kits for evaluating and improving robustness
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 4-6\. 评估和提高鲁棒性的工具包
+- en: '| Tool kit name | Features | Domain |'
+  id: totrans-189
+  prefs: []
+  type: TYPE_TB
+  zh: '| 工具包名称 | 特性 | 领域 |'
+- en: '| --- | --- | --- |'
+  id: totrans-190
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '|'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '[Robustness Gym](https://oreil.ly/vHjdG)'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Robustness Gym](https://oreil.ly/vHjdG)'
+- en: '|'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: Adversarial training
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对抗训练
+- en: Has token-level attacks (perturbations)
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 有令牌级攻击（扰动）
+- en: Evaluating models
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 评估模型
+- en: Creating adversarial examples
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建对抗性示例
+- en: '| NLP |'
+  id: totrans-198
+  prefs: []
+  type: TYPE_TB
+  zh: '| 自然语言处理 |'
+- en: '|'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '[OpenAttack](https://oreil.ly/sYFHe)'
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[OpenAttack](https://oreil.ly/sYFHe)'
+- en: '| Has all of the preceding and sentence-level attacks | NLP |'
+  id: totrans-201
+  prefs: []
+  type: TYPE_TB
+  zh: '| 包括所有前述和句子级攻击 | 自然语言处理 |'
+- en: '|'
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '[Madry Lab robustness tool kit](https://oreil.ly/eK0xC)'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Madry 实验室鲁棒性工具包](https://oreil.ly/eK0xC)'
+- en: '| Image augmentation, training, and evaluating CV models | Computer vision
+    |'
+  id: totrans-204
+  prefs: []
+  type: TYPE_TB
+  zh: '| 图像增强、训练和评估 CV 模型 | 计算机视觉 |'
+- en: '|'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '[Albumentations.ai](https://oreil.ly/mkKUl)'
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Albumentations.ai](https://oreil.ly/mkKUl)'
+- en: '| Image augmentation | Computer Vision |'
+  id: totrans-207
+  prefs: []
+  type: TYPE_TB
+  zh: '| 图像增强 | 计算机视觉 |'
+- en: '|'
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '[CleverHans](https://oreil.ly/OR3FU)'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[聪明的汉斯](https://oreil.ly/OR3FU)'
+- en: '| Attacks based on adversarial examples and defenses to improve the robustness
+    of machine learning models | Computer vision |'
+  id: totrans-210
+  prefs: []
+  type: TYPE_TB
+  zh: '| 基于对抗示例的攻击和提高机器学习模型鲁棒性的防御 | 计算机视觉 |'
+- en: Conclusion
+  id: totrans-211
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: As you’ve seen in this chapter, while models are able to achieve impressive
+    feats such as generating beautiful art or writing poetry, they are still susceptible
+    to noise and biases. Thus, for high-stakes real-world use cases, it is imperative
+    to conduct robustness testing to ensure that models will work well in the wild.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如本章所示，尽管模型能够实现诸如生成美丽艺术或写诗等印象深刻的成就，但它们仍然容易受到噪声和偏见的影响。因此，对于高风险的现实世界应用案例，进行鲁棒性测试是至关重要的，以确保模型在野外能够良好运行。
+- en: ^([1](ch04.html#idm45621836156256-marker)) Simon Zhaung and Dylan Hadfield-Menell,
+    [“Consequences of Misaligned AI”](https://arxiv.org/pdf/2102.03896.pdf), *34th
+    Conference on Neural Information Processing Systems* (2020).
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch04.html#idm45621836156256-marker)) Simon Zhaung 和 Dylan Hadfield-Menell,
+    [“AI 对齐不良的后果”](https://arxiv.org/pdf/2102.03896.pdf), *第34届神经信息处理系统会议* (2020).
+- en: '^([2](ch04.html#idm45621836067888-marker)) Marcus D Bloice et al., [“Biomedical
+    Image Augmentation Using Augmentor”](https://doi.org/10.1093/bioinformatics/btz259),
+    *Bioinformatics* 35, no. 21 (November 2019): 4522–24.'
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([2](ch04.html#idm45621836067888-marker)) Marcus D Bloice 等, [“使用 Augmentor
+    进行生物医学图像增强”](https://doi.org/10.1093/bioinformatics/btz259), *Bioinformatics*
+    35, no. 21 (2019年11月): 4522–24.'
+- en: ^([3](ch04.html#idm45621835661808-marker)) Aerin Kim, [“Perplexity Intuition
+    (And Its Derivation)”](https://oreil.ly/Ep5cY), *Towards Data Science* (blog),
+    October 11, 2018.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch04.html#idm45621835661808-marker)) Aerin Kim, [“困惑度直觉（及其推导）”](https://oreil.ly/Ep5cY),
+    *Towards Data Science* (博客), 2018年10月11日.
+- en: ^([4](ch04.html#idm45621834960544-marker)) Jin Yong Yoo and Yanjun Qi, [“Towards
+    Improving Adversarial Training of NLP Models”](https://arxiv.org/abs/2109.00544),
+    *arXiv preprint* (2021).
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch04.html#idm45621834960544-marker)) Jin Yong Yoo 和 Yanjun Qi, [“改进自然语言处理模型对抗训练的研究”](https://arxiv.org/abs/2109.00544),
+    *arXiv 预印本* (2021).
+- en: ^([5](ch04.html#idm45621834399424-marker)) Jaydeep Borkar and Pin-Yu Chen, [“Simple
+    Transparent Adversarial Examples”](https://arxiv.org/abs/2105.09685), *ICLR 2021
+    Workshop on Security and Safety in Machine Learning Systems* (2021).
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch04.html#idm45621834399424-marker)) Jaydeep Borkar 和 Pin-Yu Chen, [“简单透明的对抗样本”](https://arxiv.org/abs/2105.09685),
+    *ICLR 2021 机器学习系统安全和安全研讨会* (2021).
+- en: '^([6](ch04.html#idm45621834062160-marker)) Workaround methods for discrete
+    sampling in text generation, such as Gumbel-Softmax, are advanced topics outside
+    the scope of this book. See Eric Jang et al., [“Categorical Reparameterization
+    with Gumbel-Softmax”](https://arxiv.org/abs/1611.01144), *arXiv preprint* (2016);
+    Matt J. Kusner and José Miguel Hernández-Lobato, [“GANS for Sequences of Discrete
+    Elements with the Gumbel-softmax Distribution”](https://arxiv.org/abs/1611.04051),
+    *arXiv preprint* (2016); and Ivan Fursov et al., [“A Differentiable Language Model
+    Adversarial Attack on Text Classifiers”](https://oreil.ly/hi6yh), *IEEE Access*
+    10 (2022): 17966-76.'
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([6](ch04.html#idm45621834062160-marker)) 文本生成中离散采样的解决方法，例如 Gumbel-Softmax，是本书讨论范围之外的高级主题。参见
+    Eric Jang 等, [“带有 Gumbel-Softmax 的分类重参数化”](https://arxiv.org/abs/1611.01144),
+    *arXiv 预印本* (2016); Matt J. Kusner 和 José Miguel Hernández-Lobato, [“GANS 用于离散元素序列的
+    Gumbel-softmax 分布”](https://arxiv.org/abs/1611.04051), *arXiv 预印本* (2016); 以及
+    Ivan Fursov 等, [“基于可微语言模型的文本分类器对抗性攻击”](https://oreil.ly/hi6yh), *IEEE Access*
+    10 (2022): 17966-76.'
+- en: '^([7](ch04.html#idm45621834046672-marker)) Jiaao Chen et al., [“HiddenCut:
+    Simple Data Augmentation for Natural Language Understanding with Better Generalizability”](https://oreil.ly/AUA9F),
+    *Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics
+    and the 11th International Joint Conference on Natural Language Processing* (2021):
+    4380–90.'
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([7](ch04.html#idm45621834046672-marker)) Jiaao Chen 等, [“HiddenCut：增强自然语言理解的简单数据增强方法”](https://oreil.ly/AUA9F),
+    *第59届计算语言学年会和第11届国际联合自然语言处理会议* (2021): 4380–90.'
+- en: '^([8](ch04.html#idm45621834041200-marker)) Boxin Wang et al., [“InfoBERT: Improving
+    Robustness of Language Models from an Information Theoretic Perspective”](https://arxiv.org/abs/2010.02329),
+    *arXiv preprint* (2021).'
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch04.html#idm45621834041200-marker)) Boxin Wang 等, [“InfoBERT：从信息理论角度改进语言模型的鲁棒性”](https://arxiv.org/abs/2010.02329),
+    *arXiv 预印本* (2021).
+- en: '^([9](ch04.html#idm45621834038272-marker)) Zhao Wang et al., [“Enhancing Model
+    Robustness and Fairness with Causality: A Regularization Approach”](https://arxiv.org/abs/2110.00911),
+    *arXiv preprint* (2021).'
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch04.html#idm45621834038272-marker)) Zhao Wang 等, [“通过因果关系提升模型的鲁棒性和公平性：一种正则化方法”](https://arxiv.org/abs/2110.00911),
+    *arXiv 预印本* (2021).

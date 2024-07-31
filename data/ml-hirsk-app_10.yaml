@@ -1,0 +1,1674 @@
+- en: Chapter 7\. Explaining a PyTorch Image Classifier
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 7 章。解释 PyTorch 图像分类器
+- en: '[Chapter 6](ch06.html#unique_chapter_id_6) focused on using explainable models
+    and post hoc explanations for models trained on tabular data. In this chapter,
+    we’ll discuss these same concepts in the context of deep learning (DL) models
+    trained on unstructured data, with a particular focus on image data. Code examples
+    for the chapter are [available online](https://oreil.ly/machine-learning-high-risk-apps-code),
+    and remember that [Chapter 2](ch02.html#unique_chapter_id_2) introduces the concepts
+    of explainable models and post hoc explanation.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第 6 章](ch06.html#unique_chapter_id_6) 着重于使用可解释模型和事后解释来解释基于表格数据训练的模型。在本章中，我们将讨论相同的概念，但针对训练在非结构化数据上的深度学习（DL）模型，特别是图像数据。本章的代码示例可以在
+    [线上获取](https://oreil.ly/machine-learning-high-risk-apps-code)，并且请记住 [第 2 章](ch02.html#unique_chapter_id_2)
+    介绍了可解释模型和事后解释的概念。'
+- en: We’ll begin this chapter with an introduction to the hypothetical use case demonstrated
+    through technical examples in this chapter. Then we’ll proceed much as we did
+    in [Chapter 6](ch06.html#unique_chapter_id_6). First, we’ll present a concept
+    refresher on explainable models and feature attribution methods for deep neural
+    networks—focusing on perturbation—and gradient-based explanation methods. We’ll
+    also continue a thread from [Chapter 6](ch06.html#unique_chapter_id_6) by outlining
+    how explainability techniques can inform model debugging, a topic we’ll expand
+    on even further in Chapters [8](ch08.html#unique_chapter_id_8) and [9](ch09.html#unique_chapter_id_9).
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将从一个关于在本章技术示例中展示的假设使用案例介绍这一章。然后我们将像我们在 [第 6 章](ch06.html#unique_chapter_id_6)
+    中做的那样继续。首先，我们将对深度神经网络的可解释模型和特征归因方法进行概念复习—重点是扰动和基于梯度的解释方法。我们还将继续一个来自 [第 6 章](ch06.html#unique_chapter_id_6)
+    的主题，概述可解释性技术如何影响模型调试，这是我们将在第 [8](ch08.html#unique_chapter_id_8) 和 [9](ch09.html#unique_chapter_id_9)
+    章进一步扩展的主题。
+- en: 'Next, we’ll discuss inherently explainable models in more detail. We put forward
+    a short section on explainable DL models in hopes that some readers will be able
+    to build their own explainable models, because as of today, that’s the best hope
+    for truly explainable results. We’ll introduce prototype-based image classification
+    models, like [*ProtoPNet Digital Mammography*](https://oreil.ly/Jht4n)—a promising
+    direction for explainable computer vision. After that, we’ll discuss post hoc
+    explanation techniques. We will highlight four methods in detail: occlusions (a
+    common type of perturbation), input * gradient, integrated gradients, and layer-wise
+    relevance propagation. We’ll use our hypothetical pneumonia X-ray use case to
+    show the different properties that these methods exhibit, and highlight some important
+    implementation details along the way.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将更详细地讨论固有可解释模型。我们推出了一个关于可解释 DL 模型的简短部分，希望一些读者能够构建自己的可解释模型，因为截至今天，这是获得真正可解释结果的最佳希望。我们将介绍基于原型的图像分类模型，如
+    [*ProtoPNet 数字乳腺摄影*](https://oreil.ly/Jht4n)—这是一个有前途的解释性计算机视觉方向。之后，我们将讨论事后解释技术。我们将详细介绍四种方法：遮蔽（一种常见的扰动类型）、输入
+    * 梯度、整合梯度和逐层相关性传播。我们将利用我们假设的肺炎 X 光应用案例展示这些方法展示的不同特性，并在途中突出一些重要的实施细节。
+- en: Note
+  id: totrans-4
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Recall from [Chapter 2](ch02.html#unique_chapter_id_2) that an *interpretation*
+    is a high-level, meaningful mental representation that contextualizes a stimulus
+    and leverages human background knowledge, whereas an *explanation* is a low-level,
+    detailed mental representation that seeks to describe a complex process. Interpretation
+    is a much higher bar than explanation and is rarely achieved by technical approaches
+    alone.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [第 2 章](ch02.html#unique_chapter_id_2) 中我们提到，*解释* 是一种高层次的、有意义的心理表征，用于将刺激置于背景知识的语境中，并利用人类的背景知识；而
+    *解释* 是一种低层次、详细的心理表征，旨在描述复杂过程。解释要求的门槛比解释高得多，单靠技术手段很难实现。
+- en: How do we know if our post hoc explanations are any good? To address this, we’ll
+    discuss the research on evaluating explanations too. We’ll demonstrate an experiment,
+    first described in [“Sanity Checks for Saliency Maps”](https://oreil.ly/64UAi),
+    which will show that many post hoc explanation techniques don’t necessarily reveal
+    much of anything about our model!
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何确定我们的事后解释是否有效呢？为了解决这个问题，我们将讨论评估解释的研究。我们将展示一个实验，首次描述在 [“Saliency Maps 的常识性检查”](https://oreil.ly/64UAi)，该实验将表明，许多事后解释技术并不一定能揭示模型的实质信息！
+- en: We’ll conclude the chapter by summarizing the lessons learned. This chapter
+    will show that readers should be wary to implement a standard DL solution in a
+    high-risk application where model explanations are necessary. Post hoc explanations
+    are often difficult to implement, difficult to interpret, and sometimes entirely
+    meaningless. Furthermore, the wide range of different explanation techniques means
+    that we run the risk of selecting the method that confirms our prior beliefs about
+    how our model *should* behave. (See discussions of confirmation bias in Chapters
+    [4](ch04.html#unique_chapter_id_4) and [12](ch12.html#conclusion).) Even worse
+    than an unexplainable model is an unexplainable model paired with an incorrect
+    model explanation bolstered by confirmation bias.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将通过总结所学到的教训来结束本章。本章将展示读者应当谨慎在需要模型解释的高风险应用中实施标准的深度学习解决方案。事后解释通常难以实施、难以解释，有时完全毫无意义。此外，不同的解释技术范围广泛，这意味着我们可能会选择证实我们对模型*应该*表现如何的先前信念的方法（见第
+    [4](ch04.html#unique_chapter_id_4) 和 [12](ch12.html#conclusion) 章的确认偏见讨论）。比一个无法解释的模型更糟糕的是，一个无法解释的模型与由确认偏见支持的错误模型解释相结合。
+- en: Explaining Chest X-Ray Classification
+  id: totrans-8
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 解释胸部X射线分类
+- en: We’ll use a working example of a pneumonia image classifier model. We’ll maintain
+    a hypothetical use case of a model prediction and explanation being passed up
+    to an expert user (e.g., a physician) to aid in diagnoses. [Figure 7-1](#use_case_schematic)
+    provides a simplified schematic showing how the model is used in conjunction with
+    an *explanation engine* to aid in the diagnosis of pneumonia by an expert.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用肺炎图像分类器模型的工作示例。我们将保持一个假想的使用案例，即将模型预测和解释传递给专家用户（例如医生），以帮助诊断。[图 7-1](#use_case_schematic)提供了一个简化的示意图，显示了模型如何与*解释引擎*结合使用，帮助专家诊断肺炎。
+- en: Post hoc explanations have a history of accepted usage in the context of consumer
+    credit. The use of model explanations to aid in interpreting medical imaging does
+    not share this history. Moreover, important works are critical of post hoc techniques
+    and use cases just like our hypothetical one, e.g., [“The False Hope of Current
+    Approaches to Explainable Artificial Intelligence in Health Care”](https://oreil.ly/KY6LD)
+    and [“The Doctor Just Won’t Accept That!”](https://oreil.ly/ZOlTk). Even if the
+    use case is justified, ML systems—even carefully developed ones—can perform poorly
+    on out-of-sample data. See [“Deep Learning Predicts Hip Fracture Using Confounding
+    Patient and Healthcare Variables”](https://oreil.ly/V87hi) for an example of a
+    model picking up on correlations in the training data that didn’t work well once
+    deployed. See [“Diagnostic Accuracy and Failure Mode Analysis of a Deep Learning
+    Algorithm for the Detection of Intracranial Hemorrhage”](https://oreil.ly/V4krV)
+    for a somewhat similar use case to the one presented in this chapter, but with
+    the addition of an analysis of real-world outcomes. We’ll discuss all these issues
+    in greater detail as we work through some post hoc examples and conclude the chapter.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在消费信用背景下，事后解释已被接受使用。但使用模型解释来帮助解释医学成像并没有这样的历史。此外，一些重要的作品批评事后技术和与我们假设的类似用例，例如
+    [“当前解释人工智能在医疗保健中的虚假希望”](https://oreil.ly/KY6LD) 和 [“医生就是不会接受这一点！”](https://oreil.ly/ZOlTk)。即使使用案例是合理的，即使是精心开发的ML系统也可能在样本外数据上表现不佳。例如，查看
+    [“使用混杂患者和医疗保健变量深度学习预测髋部骨折”](https://oreil.ly/V87hi) 中一个模型在训练数据中捕捉到的关联性，但在实施后表现不佳。查看
+    [“深度学习算法用于检测颅内出血的诊断准确性和失效模式分析”](https://oreil.ly/V4krV) ，这是与本章介绍的类似用例有些相似，但还包括对真实世界结果的分析。随着我们深入研究一些事后示例并总结本章内容，我们将更详细地讨论所有这些问题。
+- en: '![mlha 0701](assets/mlha_0701.png)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0701](assets/mlha_0701.png)'
+- en: Figure 7-1\. The hypothetical use case maintained throughout this chapter. A
+    model and post hoc explanation engine (a) pass up predictions and explanations
+    to a human-readable dashboard. The information on the dashboard is used to aid
+    in a physician’s diagnosis of pneumonia (b).
+  id: totrans-12
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-1\. 本章中维持的假想使用案例。一个模型和事后解释引擎（a）传递预测和解释到一个可读的仪表板上。仪表板上的信息用于帮助医生诊断肺炎（b）。
+- en: 'Concept Refresher: Explainable Models and Post Hoc Explanation Techniques'
+  id: totrans-13
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概念复习：可解释模型和事后解释技术
+- en: 'In this section, we’ll discuss the basic ideas behind the chapter. We’ll start
+    with explainable models—which we won’t treat with code. Then, in the post hoc
+    explanation section of the chapter, we will demonstrate a few techniques on our
+    model, and we will survey many more of the foundational techniques in the field.
+    These techniques can mainly be categorized into two groups: perturbation-based
+    (often *occlusion* in DL) and gradient-based methods; we will discuss the differences
+    between these categories next. We will also highlight how these techniques can
+    be applied to the problem of model debugging and architecture selection.'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将讨论章节背后的基本思想。我们将从不使用代码处理的可解释模型开始。然后，在本章的事后解释部分，我们将在我们的模型上演示一些技术，并对该领域中的许多基础技术进行概述。这些技术主要可以分为两组：基于扰动的（通常在DL中为*遮挡*）和基于梯度的方法；我们将在接下来讨论这些类别之间的差异。我们还将强调如何将这些技术应用于模型调试和架构选择的问题。
+- en: Explainable Models Overview
+  id: totrans-15
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 可解释模型概述
+- en: Recall from [Chapter 2](ch02.html#unique_chapter_id_2) that explainable models
+    have inherently explainable structures, characteristics, or results. Also, explainable
+    models exist on a spectrum. Some might be directly explainable to end users, whereas
+    some might only make sense to highly skilled data scientists. Explainable DL models
+    are definitely on the more complex side of the explainability spectrum, but we
+    still think they are very important. As we’ll highlight, and as many other researchers
+    have pointed out, we have to be really careful with post hoc explanation in DL.
+    If we have an explainable model, we are able to understand it directly without
+    the use of questionable post hoc techniques, and we can also compare post hoc
+    explanation results to the explainable mechanisms of the model to test and verify
+    the model and the explanations.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如在[第2章](ch02.html#unique_chapter_id_2)中提到的，可解释模型具有固有的可解释结构、特性或结果。此外，可解释模型存在于一个谱系上。有些可能直接向最终用户解释，而有些可能只对高技能的数据科学家有意义。可解释的DL模型显然处于解释谱系的更复杂一侧，但我们仍认为它们非常重要。正如我们将强调的，并且正如许多其他研究者所指出的那样，我们在DL中的事后解释必须非常小心。如果我们有一个可解释的模型，我们能够直接理解它，无需使用可疑的事后技术，我们还可以将事后解释的结果与模型的可解释机制进行比较，以测试和验证模型和解释。
+- en: Occlusion Methods
+  id: totrans-17
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 遮挡方法
+- en: 'Occlusion methods are based on the idea of perturbing, removing, or masking
+    features and examining the resulting change in model output. In computer vision,
+    this often means obscuring patches of pixels. As discussed in [“Explaining by
+    Removing: A Unified Framework for Model Explanation”](https://oreil.ly/6hGen),
+    many different explanation techniques can be traced back to this idea of feature
+    occlusion.'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 遮挡方法基于扰动、移除或遮蔽特征，并检查模型输出的变化。在计算机视觉中，这通常意味着遮蔽像素块。如在[“通过移除进行解释：模型解释的统一框架”](https://oreil.ly/6hGen)中讨论的，许多不同的解释技术可以追溯到这种特征遮挡的想法。
+- en: 'Occlusion-based techniques can be especially valuable when gradients are not
+    available, or when the model we are trying to explain is a complex decision-making
+    pipeline including ML, business rules, heuristics, and other nondifferentiable
+    components. Occlusion-based methods all have to grapple with the same complication:
+    for most models, we can’t just remove features and generate model predictions.
+    Put another way, if our model has been trained on features `x1`, `x2`, and `x3`,
+    we can’t simply pass it values for `x1` and `x2` and expect it to make a prediction.
+    We need to pass in *some* value for `x3`. This detail is at the heart of many
+    of the different occlusion-based methods.'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于遮挡的技术，在梯度不可用时或者我们试图解释的模型是一个包括ML、业务规则、启发式和其他不可微分组件的复杂决策流水线时尤为重要。所有基于遮挡的方法都必须应对同样的复杂情况：对于大多数模型，我们不能简单地移除特征并生成模型预测。换句话说，如果我们的模型是在特征`x1`、`x2`和`x3`上训练的，我们不能简单地为`x1`和`x2`传递值并期望它进行预测。我们需要为`x3`传递*某些*值。这个细节是许多不同基于遮挡的方法的核心所在。
+- en: Gradient-Based Methods
+  id: totrans-20
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 基于梯度的方法
+- en: 'As discussed in [Chapter 2](ch02.html#unique_chapter_id_2), the gradients of
+    a model’s outcome with respect to its parameters can be used to construct local
+    explanations. This is a generalization of the idea behind interpreting regression
+    coefficients. Remember that a gradient is just a local linear approximation to
+    a complex function: our ML model. Since the vast majority of DL architectures
+    are designed to be trained with gradient-based optimizers, we almost always have
+    access to some gradients in our DL models, and evaluating gradients has become
+    much easier with contemporary DL toolkits. This is part of what makes gradient-based
+    explanation techniques so popular for DL. However, for tree-based models or complex
+    pipelines where taking gradients is not possible, we’ll have to fall back to occlusion.'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如在[第2章](ch02.html#unique_chapter_id_2)中讨论的那样，模型输出对其参数的梯度可以用来构建局部解释。这是解释回归系数背后思想的一般化。请记住，梯度只是对我们的ML模型这种复杂函数的局部线性逼近。由于绝大多数DL架构都设计成可以使用基于梯度的优化器进行训练，我们几乎总是可以访问一些梯度，并且随着当代DL工具包的发展，评估梯度变得更加容易。这是使基于梯度的解释技术在DL中如此受欢迎的部分原因。然而，对于基于树的模型或复杂流水线，无法进行梯度计算的情况下，我们将不得不退而使用遮挡方法。
+- en: 'Explanations in this category fundamentally ask: “Which features, if we change
+    them a little bit, result in the largest change in our model’s output?” Researchers
+    have developed many variations on this theme to tease out subtly different flavors
+    of explanations. We’ll cover the details behind these techniques later in the
+    chapter, looking into input * gradient, integrated gradients, and layer-wise relevance
+    propagation.'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此类解释基本上问：“如果我们稍微改变哪些特征，会导致我们模型输出的最大变化？”研究人员已经针对这个主题开发了许多变体，以揭示微妙不同的解释方法。我们将在本章稍后详细介绍这些技术，包括输入*梯度、集成梯度和层内相关传播。
+- en: Explainable AI for Model Debugging
+  id: totrans-23
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 用于模型调试的可解释人工智能
+- en: 'In [Chapter 6](ch06.html#unique_chapter_id_6), we saw how model explanation
+    techniques such as partial dependence and ICE plots can reveal undesirable model
+    behavior, such as sensitivity to spurious noise in the training data. Explanations
+    can serve the same purpose for DL models, and that may be the highest purpose
+    of explainable artificial intelligence (XAI) in DL to date. The ability of DL
+    explainability techniques to help debug and improve models has been noted by prominent
+    researchers on many occasions. The most famous example may be the [classic Google
+    blog post](https://oreil.ly/5Qj0O) that popularized neural network “dreams.” The
+    authors use the technique from [“Deep Inside Convolutional Networks: Visualising
+    Image Classification Models and Saliency Maps”](https://oreil.ly/5BqAj) to debug
+    their model by asking it to show them its concept of a dumbbell:'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第6章](ch06.html#unique_chapter_id_6)，我们看到了模型解释技术如偏依赖图和ICE图如何揭示模型的不良行为，比如对训练数据中的噪声过于敏感。解释可以为深度学习（DL）模型服务，这可能是解释型人工智能（XAI）在DL中迄今为止的最高目标。DL可解释性技术帮助调试和改进模型的能力已被著名研究人员多次提及。最著名的例子可能是[经典的Google博客文章](https://oreil.ly/5Qj0O)，该文章推广了神经网络“梦想”的概念。作者使用了来自[“深入卷积网络内部：可视化图像分类模型和显著性地图”](https://oreil.ly/5BqAj)的技术，通过要求模型展示哑铃的概念来调试他们的模型：
+- en: There are dumbbells in there alright, but it seems no picture of a dumbbell
+    is complete without a muscular weightlifter there to lift them. In this case,
+    the network failed to completely distill the essence of a dumbbell. Maybe it’s
+    never been shown a dumbbell without an arm holding it. Visualization can help
+    us correct these kinds of training mishaps.
+  id: totrans-25
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 那里确实有哑铃，但似乎没有一张完整的哑铃图片是没有一个肌肉发达的举重运动员在旁边举起的。在这种情况下，网络未能完全提取出哑铃的本质。可视化可以帮助我们纠正这些训练中的错误。
+- en: 'Some additional examples of explanations as debugging tools in DL literature
+    include the following:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DL文献中作为调试工具的解释的一些额外例子包括以下内容：
+- en: '[“Visualizing Higher-Layer Features of a Deep Network”](https://oreil.ly/vIG4Y)'
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“深层网络高阶特征的可视化”](https://oreil.ly/vIG4Y)'
+- en: '[“Visualizing and Understanding Convolutional Networks”](https://oreil.ly/aEkYG)'
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“可视化和理解卷积网络”](https://oreil.ly/aEkYG)'
+- en: '[“Deconvolutional Networks”](https://oreil.ly/NmiDE)'
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“反卷积网络”](https://oreil.ly/NmiDE)'
+- en: We call these resources to readers’ attention for two reasons. First, although
+    the popular DL explanation techniques we’ll explore in this chapter may not always
+    work, some of the other techniques in these papers are definitely worth checking
+    out. Second, while explanation techniques may let us down when it comes to precise
+    understanding, they can still hint at issues in our models. Think about this as
+    you’re reading this chapter. In [Chapter 9](ch09.html#unique_chapter_id_9), we’re
+    going to take a deep dive into how to apply benchmarking, sensitivity analysis,
+    and residual analysis for debugging our DL models.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之所以将这些资源推荐给读者，有两个原因。首先，尽管本章中将探讨的流行的深度学习解释技术并非总是有效，但这些论文中的其他技术确实值得一试。其次，尽管解释技术在精确理解上可能会让我们失望，但它们仍然可以提示出模型中的问题。在阅读本章时，请考虑这一点。在[第九章](ch09.html#unique_chapter_id_9)，我们将深入探讨如何应用基准测试、敏感性分析和残差分析来调试我们的深度学习模型。
+- en: Explainable Models
+  id: totrans-31
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 可解释模型
+- en: We’ll begin the technical portion of this chapter by discussing explainable
+    models for DL applications, because they are our current best bet for explainable
+    results in DL. But they are not easy to work with yet. Readers will learn that
+    there are few off-the-shelf explainable DL models that we can plug into our application.
+    Contrast this with what we saw in [Chapter 6](ch06.html#unique_chapter_id_6),
+    where we were able to choose from a wealth of highly explainable architectures,
+    from monotonic XGBoost, to explainable boosting machines, to generalized linear
+    models (GLMs) and generalized additive models (GAMs). So what is the difference?
+    Why are there so few ready-made explainable DL models? One issue is that explainable
+    models for structured data date back to the work of Gauss in the 1800s—not so
+    with DL. But there is more going on.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将通过讨论适用于深度学习应用的可解释模型开始本章的技术部分，因为它们是我们目前在深度学习中获得可解释结果的最佳选择。但是，它们目前仍然不容易使用。读者将了解到，我们可以直接在应用程序中使用的现成可解释深度学习模型并不多。这与我们在[第六章](ch06.html#unique_chapter_id_6)中看到的情况形成鲜明对比，那里我们可以选择从单调XGBoost、可解释提升机器到广义线性模型（GLMs）和广义可加模型（GAMs）等丰富可解释的架构。那么区别在哪里？为什么现成的可解释深度学习模型如此之少？其中一个问题是，结构化数据的可解释模型可以追溯到19世纪高斯的工作，但深度学习并非如此。但这还有更多的问题存在。
+- en: 'When we train a DL model on unstructured data, we’re really asking the model
+    to perform two functions: the first is feature extraction to create a latent space
+    representation, or learning the proper representation of the data in a (usually)
+    lower-dimensional input space. Second, it must use that latent space representation
+    to make predictions. Contrast this with the tabular data we analyzed in [Chapter 6](ch06.html#unique_chapter_id_6).
+    With tabular data, the “correct” representation of our data is typically assumed
+    to be right there in the training data, especially if we’ve done our job correctly
+    and chosen a reasonable set of uncorrelated features with a known causal relationship
+    to the target. This difference (learned versus already-supplied features) helps
+    to highlight why explainable DL models are so difficult to develop, and why off-the-shelf
+    implementations are hard to come by.'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们对非结构化数据训练深度学习模型时，我们实际上要求模型执行两个功能：第一个是特征提取以创建潜在空间表示，或学习在（通常是）低维输入空间中的数据的适当表示。其次，它必须使用该潜在空间表示进行预测。与我们在[第六章](ch06.html#unique_chapter_id_6)中分析的表格数据相比，这就是一个明显的区别。对于表格数据，我们通常假定数据的“正确”表示已经在训练数据中，特别是如果我们已经正确选择了一组不相关的特征，并且这些特征与目标之间有已知的因果关系。这种差异（学习的特征与已提供的特征）有助于突显为什么可解释的深度学习模型如此难以开发，并且为什么现成的实现难以获得。
+- en: The common thread among the explainable DL architectures that *do* exist today
+    is that they intervene on this feature-learning directly. Oftentimes, explainable
+    models shift the burden of feature engineering away from the model and onto the
+    model developer. This increased burden is both a blessing and a curse. On the
+    one hand, it means that training these models is simply more work than training
+    unexplainable models. On the other hand, these architectures can demand higher-quality,
+    sometimes expertly annotated data, meaning that humans were deeply involved in
+    the modeling process end-to-end. Since we should already be designing our models
+    with the care that these architectures demand, this isn’t bad. As we saw in [Chapter 6](ch06.html#unique_chapter_id_6),
+    the more domain expertise we can encode in our models, the more trust we can place
+    on their ability to perform in the real world.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当今已存在的可解释DL架构中的共同特征是，它们直接干预特征学习。通常情况下，可解释模型将特征工程的负担从模型转移到模型开发者身上。这增加了负担，既是一种祝福也是一种诅咒。一方面，这意味着训练这些模型比训练不可解释模型更费力。另一方面，这些架构可能需要更高质量的、有时是专家标注的数据，这意味着人类在建模过程中深度参与。由于我们应该已经在设计我们的模型时考虑到这些架构的需求，这并不坏。正如我们在[第6章](ch06.html#unique_chapter_id_6)中看到的，我们能够在我们的模型中编码更多领域专业知识，我们就能在实际世界中更加信任它们的性能。
+- en: In the following sections, we’ll discuss different architectures for explainable
+    DL models while maintaining our primary focus on the image classification problem.
+    We’ll pay special attention to recent developments on prototype-based architectures,
+    which provide the likeliest path forward for true turnkey explainable image classification.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将讨论不同的可解释DL模型架构，同时将我们的主要关注点保持在图像分类问题上。我们将特别关注基于原型的架构的最新发展，这提供了真正可用的解释性图像分类的最有可能的路径。
+- en: ProtoPNet and Variants
+  id: totrans-36
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: ProtoPNet 和其变种
+- en: 'In their 2019 paper [“This Looks Like That: Deep Learning for Interpretable
+    Image Recognition”](https://oreil.ly/k69Dx), the Duke team led by Prof. Cynthia
+    Rudin introduced a new, promising architecture for explainable image classification.
+    The new model is called *ProtoPNet*, and it is based on the concept of prototypes.'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在他们2019年的论文["这看起来像那样：用于可解释图像识别的深度学习"](https://oreil.ly/k69Dx)中，由辛西娅·鲁丁教授领导的杜克团队介绍了一种新的、有前景的解释性图像分类架构。这个新模型被称为*ProtoPNet*，它基于原型的概念。
+- en: Remember from [Chapter 2](ch02.html#unique_chapter_id_2) that prototypes are
+    data points that are representative of a larger group of observations. Consider
+    explaining why an observation was grouped into a particular cluster in *k*-means
+    clustering. We could put the observation side-by-side with the cluster centroid
+    and say, “Well, this observation looks like that cluster center.” ProtoPNet generates
+    explanations of exactly this type. Furthermore, ProtoPNet’s explanations are faithful
+    to how the model actually makes predictions. So how does it work?
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住从[第2章](ch02.html#unique_chapter_id_2)中得知，原型是代表较大观察组的数据点。考虑解释为什么一个观察被分组到*k*-means聚类中的特定群集中。我们可以将观察与群集中心并排放置，并说，“嗯，这个观察看起来像那个群集中心。”ProtoPNet生成了确切这种类型的解释。此外，ProtoPNet的解释忠实于模型实际进行预测的方式。那么它是如何工作的呢？
+- en: First, ProtoPNet identifies prototypical *patches* for each class. These patches
+    capture the fundamental properties that distinguish one class from another. Then,
+    to make predictions, the model looks for patches on the input image that are similar
+    to the prototypes for a particular class. The resulting similarity scores for
+    each prototype are added together to produce the odds of the input belonging to
+    each class. The final result is a model that is additive (each prediction is a
+    sum of similarity scores across prototypical image parts) as well as sparse (there
+    are only a few prototypes per class). Best of all, each prediction comes immediately
+    with a faithful explanation.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，ProtoPNet 为每个类别识别出原型*patch*。这些patch捕捉了区分一个类别与另一个类别的基本特性。然后，为了进行预测，模型会在输入图像中寻找与特定类别原型相似的patch。每个原型的相似性得分会被加在一起，从而产生输入属于每个类别的概率。最终的结果是一个模型，具有可加性（每个预测是跨原型图像部分相似性得分的总和）以及稀疏性（每个类别只有少数几个原型）。更重要的是，每个预测都立即伴随着一个忠实的解释。
+- en: Note
+  id: totrans-40
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: ProtoPNet builds on the idea of part-level attention models, a broad class of
+    explainable deep neural networks that are not covered in this chapter. The difference
+    between these models and ProtoPNet is faithfulness. ProtoPNet really makes predictions
+    by summing similarity scores with certain patches of each image and certain class
+    prototypes. Other part-level attention models make no such guarantees.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ProtoPNet建立在部分注意力模型的思想上，这是一类广泛的可解释深度神经网络，但本章未涵盖。这些模型与ProtoPNet之间的区别在于其信实性。ProtoPNet通过将每个图像的某些补丁和某些类原型的相似性得分进行累加来进行预测。而其他部分级注意力模型则不提供这种保证。
+- en: 'Since being published in 2019, this promising direction for explainable image
+    classification has been picked up by other researchers. There’s [ProtoPShare](https://oreil.ly/phO4I),
+    which allows for sharing prototypes between classes, resulting in a smaller number
+    of prototypes. There is also [ProtoTree](https://oreil.ly/OKEp0), which creates
+    an explainable decision tree over prototype features. This architecture allows
+    the model to mimic human reasoning even more clearly. Finally, Kim et al. analyzed
+    chest X-rays using an architecture very similar to ProtoPNet in [“XProtoNet: Diagnosis
+    in Chest Radiography with Global and Local Explanations”](https://oreil.ly/qv-oO).'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '自2019年发布以来，这种有前途的解释性图像分类方法已被其他研究人员采用。例如[ProtoPShare](https://oreil.ly/phO4I)，允许在类之间共享原型，从而减少原型的数量。还有[ProtoTree](https://oreil.ly/OKEp0)，它通过原型特征创建可解释的决策树。该架构允许模型更清晰地模仿人类推理。最后，Kim等人在《“XProtoNet:
+    Diagnosis in Chest Radiography with Global and Local Explanations”》中使用了一种与ProtoPNet非常相似的架构来分析胸部X射线。'
+- en: Other Explainable Deep Learning Models
+  id: totrans-43
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 其他可解释的深度学习模型
+- en: In [“Towards Robust Interpretability with Self-Explaining Neural Networks”](https://oreil.ly/DWY6w),
+    authors David Alvarez-Melis and Tommi S. Jaakkola introduce self-explaining neural
+    networks (SENN). As we discussed, one difficulty with creating explainable models
+    on unstructured data is that we ask our models to create a latent space representation
+    of our data and to make predictions. Self-explaining neural networks confront
+    this difficulty by introducing *interpretable basis concepts* in lieu of raw features.
+    These basis concepts can be learned as part of model training, taken from representative
+    observations in the training data, or—ideally—designed by domain experts. In their
+    paper, Alvarez-Melis and Jaakkola generate these interpretable basis concepts
+    using an autoencoder, and ensure that the learned concepts are explainable by
+    providing prototypical observations that maximally express the concept.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在《“Towards Robust Interpretability with Self-Explaining Neural Networks”》中，David
+    Alvarez-Melis和Tommi S. Jaakkola介绍了自解释神经网络（SENN）。正如我们讨论过的那样，在非结构化数据上创建可解释模型的一个困难是，我们要求我们的模型创建数据的潜在空间表示并进行预测。自解释神经网络通过引入可解释的基础概念来应对这一困难，而不是使用原始特征。这些基础概念可以作为模型训练的一部分学习，来自训练数据中的代表性观察结果，或者最理想情况下由领域专家设计。在他们的论文中，Alvarez-Melis和Jaakkola使用自编码器生成这些可解释的基础概念，并确保所学习的概念通过提供最大程度表达该概念的原型观察结果而具有可解释性。
+- en: Note
+  id: totrans-45
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: An autoencoder is a type of neural network that learns to extract features from
+    training data without making predictions on a single modeling target. Autoencoders
+    are great for data visualization and anomaly detection too.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自编码器是一种类型的神经网络，它学习从训练数据中提取特征，而无需对单一建模目标进行预测。自编码器也非常适合数据可视化和异常检测。
+- en: So far, we’ve mostly focused on techniques for computer vision models. Explainable
+    models have been developed for deep neural nets used in [reinforcement learning](https://oreil.ly/PgthB),
+    [visual reasoning](https://oreil.ly/wRYFJ), [tabular data](https://oreil.ly/My88p),
+    and [time series forecasting](https://oreil.ly/qUUzF).
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们主要关注于计算机视觉模型的技术。为了[强化学习](https://oreil.ly/PgthB)，[视觉推理](https://oreil.ly/wRYFJ)，[表格数据](https://oreil.ly/My88p)，和[时间序列预测](https://oreil.ly/qUUzF)，已经开发了可解释的深度神经网络模型。
+- en: Training and Explaining a PyTorch Image Classifier
+  id: totrans-48
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 训练和解释PyTorch图像分类器
+- en: 'In this use case, we outline how we trained an image classifier, then we demonstrate
+    how to generate explanations using four different techniques: occlusion, input
+    * gradient, integrated gradients, and layer-wise relevance propagation.'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个用例中，我们概述了如何训练图像分类器，然后演示了如何使用四种不同的技术生成解释：遮挡、输入*梯度、综合梯度和逐层相关传播。
+- en: Training Data
+  id: totrans-50
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 训练数据
+- en: First, we need to build an image classifier to diagnose chest X-ray images,
+    consistent with the hypothetical use case in [Figure 7-1](#use_case_schematic).
+    The dataset we’ll use for training is available from [Kaggle](https://oreil.ly/jfmsi),
+    and it consists of 5,863 X-ray images of patients, which have been split into
+    two distinct categories—one containing pneumonia and the other being normal. [Figure 7-2](#training_set_samples)
+    shows a random collection of images from the training data.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们需要建立一个用于诊断胸部X光图像的图像分类器，与[图7-1](#use_case_schematic)中的假设用例一致。我们将用于训练的数据集可以从[Kaggle](https://oreil.ly/jfmsi)获取，它包含5,863张病人的X光图像，被分为两个明确的类别——一个包含肺炎，另一个正常。[图7-2](#training_set_samples)展示了从训练数据中随机选取的图像集合。
+- en: '![mlha 0702](assets/mlha_0702.png)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0702](assets/mlha_0702.png)'
+- en: Figure 7-2\. A random selection of training set samples from the Kaggle chest
+    X-ray data; chest X-rays with pneumonia are cloudier than those without it
+  id: totrans-53
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-2\. Kaggle胸部X光数据集训练集样本的随机选择；患有肺炎的胸部X光片比没有肺炎的更模糊。
+- en: We’re not doctors or radiologists, and it’s important to acknowledge that the
+    author group does not have the medical domain knowledge to truly validate this
+    model. From our understanding, images from pneumonia patients should show cloudy
+    areas of infection. Bacterial pneumonia and viral pneumonia tend to have different
+    visual characteristics as well. The hope in the sections that follow is that XAI
+    methods will focus on these cloudy areas, enabling us to understand why an image
+    is classified as pneumonia versus normal. (Prepare to be disappointed.) To learn
+    more about the dataset, see its [Kaggle page](https://oreil.ly/hAhUz) and the
+    associated paper, [“Identifying Medical Diagnoses and Treatable Diseases by Image-Based
+    Deep Learning”](https://oreil.ly/SOcBD).
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不是医生或放射科医生，承认我们的作者组没有医学领域的知识来真正验证这个模型是很重要的。根据我们的理解，来自肺炎患者的图像应显示感染区域的浑浊。细菌性肺炎和病毒性肺炎也倾向于具有不同的视觉特征。希望接下来的部分能够利用可解释的AI方法集中于这些浑浊区域，使我们能够理解为什么一个图像被分类为肺炎而不是正常。（准备好失望吧。）要了解更多关于数据集的信息，请参阅其[Kaggle页面](https://oreil.ly/hAhUz)和相关论文，《“通过基于图像的深度学习识别医学诊断和可治疗疾病”》([“Identifying
+    Medical Diagnoses and Treatable Diseases by Image-Based Deep Learning”](https://oreil.ly/SOcBD))。
+- en: Warning
+  id: totrans-55
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: If we’re working in a high-risk application area with machine learning, we *need*
+    domain expertise to help train and validate our models. Failure to consult with
+    domain experts may result in harmful, nonsense models deployed in high-risk use
+    cases.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们在高风险的机器学习应用领域工作，*需要*专业领域知识来帮助训练和验证我们的模型。未咨询领域专家可能导致在高风险用例中部署有害或无意义的模型。
+- en: 'Like most datasets from [Kaggle](https://oreil.ly/lOADp), a lot of the hard
+    work of curating the data has been done for us. Low-quality scans have been eliminated,
+    and the labels have been verified as correct. However, like many datasets in medical
+    applications, this data has a class imbalance problem: there are 1,342 normal
+    scans, but 3,876 scans labeled as indicating pneumonia. Another cause for concern
+    is the presence of very few images in the given validation dataset. The validation
+    data consists of only nine images for the pneumonia class and another nine for
+    the normal class. This is not a sufficient number to adequately validate the model,
+    so we’ll address that and other issues before proceeding with model training.'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 像大多数来自[Kaggle](https://oreil.ly/lOADp)的数据集一样，数据的大部分筛选工作已经完成。低质量的扫描已经被消除，标签也经过验证确认是正确的。然而，像许多医学应用中的数据集一样，这些数据存在类别不平衡的问题：有1,342个正常扫描，但有3,876个标记为显示肺炎的扫描。另一个令人担忧的问题是给定验证数据集中图像数量很少。验证数据集仅包含九张肺炎类别的图像和九张正常类别的图像。这些数量不足以充分验证模型，因此在进行模型训练之前我们将解决这个问题以及其他问题。
+- en: Addressing the Dataset Imbalance Problem
+  id: totrans-58
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 解决数据集不平衡问题
+- en: 'In our training data, the pneumonia X-ray scans outnumber the normal scans
+    three to one. Any model trained on such a dataset might overfit to the majority
+    class. There are several ways to address the issue of a class imbalance problem:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的训练数据中，肺炎X光扫描比正常扫描多出三倍。任何在这样的数据集上训练的模型可能会过拟合到多数类别。有几种方法可以解决类别不平衡问题：
+- en: Oversampling of the minority class
+  id: totrans-60
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对少数类别进行过采样
+- en: Undersampling of the majority class
+  id: totrans-61
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对多数类别进行欠采样
+- en: Modifying the loss function to weight the majority and minority classes differently
+  id: totrans-62
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 修改损失函数以不同权重处理多数和少数类别。
+- en: These techniques, and the detrimental effects of the class imbalance problem,
+    have been nicely summarized in a paper titled [“A Systematic Study of the Class
+    Imbalance Problem in Convolutional Neural Networks”](https://oreil.ly/Gp-OY).
+    In this example, we will oversample the normal images to even out the class imbalance.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些技术以及类别不平衡问题的有害影响已在题为[“卷积神经网络中类别不平衡问题的系统研究”](https://oreil.ly/Gp-OY)的论文中得到了很好的总结。在这个例子中，我们将过采样正常图像以平衡类别不平衡。
+- en: Data Augmentation and Image Cropping
+  id: totrans-64
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据增强和图像裁剪
+- en: '[PyTorch](https://oreil.ly/Uagd2) is an open source ML framework. [torchvision](https://oreil.ly/LaOh8)
+    is a domain library for PyTorch built to support research and experimentation
+    for computer vision. torchvision consists of some popular datasets, pretrained
+    model architectures, and some image transformations for computer vision tasks.
+    We’ll first increase the proportion of the validation set by moving some of the
+    training set images into it. After this, we’ll use some of torchvision’s image
+    transformations to handle the class imbalance in our training set. In the following
+    code snippet, we scale images to the same size, then apply various transformations
+    to increase the size of data and to introduce training examples that should enhance
+    the robustness of our model. The `get_augmented_data` function makes ample use
+    of the `RandomRotation` and `RandomAffine` transformations to create new, altered
+    training images, along with using various other transformations to format and
+    normalize images:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[PyTorch](https://oreil.ly/Uagd2) 是一个开源的机器学习框架。[torchvision](https://oreil.ly/LaOh8)
+    是为了支持计算机视觉研究和实验而构建的PyTorch领域库。torchvision包括一些流行的数据集、预训练的模型架构，以及一些用于计算机视觉任务的图像变换。我们首先通过将一些训练集图像移动到验证集来增加验证集的比例。之后，我们将使用torchvision的一些图像转换来处理训练集中的类别不平衡。在下面的代码片段中，我们将图像缩放到相同大小，然后应用各种转换来增加数据大小，并引入应增强我们模型鲁棒性的训练示例。`get_augmented_data`函数大量使用`RandomRotation`和`RandomAffine`转换来创建新的、修改后的训练图像，同时使用其他各种转换来格式化和归一化图像。'
+- en: '[PRE0]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Since the basic idea of data augmentation is to create more images, let’s check
+    that outcome:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于数据增强的基本思想是创建更多的图像，让我们来检查一下结果：
+- en: '[PRE1]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: '[Figure 7-3](#transformed_samples) shows some of the synthetic training samples
+    generated using rotations and translations.'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 7-3](#transformed_samples) 展示了使用旋转和平移生成的一些合成训练样本。'
+- en: '![mlha 0703](assets/mlha_0703.png)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0703](assets/mlha_0703.png)'
+- en: Figure 7-3\. Synthetic training samples generated using rotations and translations
+  id: totrans-71
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-3\. 使用旋转和平移生成的合成训练样本
+- en: Looks about right. With class imbalance and data augmentation handled, we’ll
+    proceed with model training.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 看起来差不多了。处理了类别不平衡和数据增强后，我们将继续进行模型训练。
+- en: Warning
+  id: totrans-73
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Make sure data augmentation does not create unrealistic training samples. Chest
+    X-rays will show variation in color scale, zooming, etc. However, flipping the
+    images about their vertical axis would be a huge mistake, since our organs are
+    bilaterally asymmetric (not the same on the left and right sides). After deployment,
+    this model will never see a chest X-ray with the patient’s heart on their right
+    side, so it should not be trained on vertically flipped images.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保数据增强不会生成不现实的训练样本。胸部X光片会显示颜色尺度、缩放等变化。然而，围绕垂直轴翻转图像将是一个巨大的错误，因为我们的器官在左右两侧不对称。在部署后，这个模型将不会看到心脏位于右侧的胸部X光片，因此不应该使用垂直翻转的图像进行训练。
+- en: Another preprocessing technique that we used for the dataset is image cropping.
+    We cropped some of the images in the training set so as to highlight only the
+    lung region (see [Figure 7-4](#Cropped_image)). Cropping helps to eliminate any
+    annotation or other kinds of markings on the chest X-ray images and focuses the
+    model on the region of interest in the images. We saved these images as a separate
+    dataset to be used to fine-tune the network at a later stage of training.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们为数据集使用的另一种预处理技术是图像裁剪。我们对训练集中的一些图像进行了裁剪，以突出只有肺部区域（见[图 7-4](#Cropped_image)）。裁剪有助于消除胸部X光图像上的任何注释或其他类型的标记，并将模型集中在图像中感兴趣的区域。我们将这些图像保存为单独的数据集，以便在后续训练阶段对网络进行微调使用。
+- en: Warning
+  id: totrans-76
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: It wasn’t until we went through the exercise of manually cropping hundreds of
+    images that we noticed that the training data contains multiple scans from the
+    same patient. As a result, when we added images to our validation data we had
+    to be sure to keep the same patient in either training or validation data, *but
+    not both*. This detail is a great example of a data leak, and emphasizes the importance
+    of really getting to know our data.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 直到我们手动裁剪了数百张图像的练习，我们才注意到训练数据包含同一患者的多次扫描。因此，当我们将图像添加到验证数据时，我们必须确保在训练数据或验证数据中保留相同的患者，*但不同时存在*。这个细节是数据泄漏的一个很好的例子，强调了真正了解我们的数据的重要性。
+- en: '![mlha 0704](assets/mlha_0704.png)'
+  id: totrans-78
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0704](assets/mlha_0704.png)'
+- en: Figure 7-4\. A chest X-ray image after before and after cropping
+  id: totrans-79
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-4\. 胸部X光图像裁剪前后的图像
+- en: Model Training
+  id: totrans-80
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型训练
+- en: '[Convolutional neural networks (CNNs)](https://oreil.ly/bfzDc) are commonly
+    used architectures employed in medical imaging. Some well-known examples of CNNs
+    for image classification are [ResNets](https://oreil.ly/2JqoN), [DenseNets](https://oreil.ly/T3b0q),
+    and [EfficientNets](https://oreil.ly/-AWuI). Training a CNN from scratch is very
+    expensive, both in terms of data and computation time. As such, a prevalent technique
+    is to use models that have been previously trained on a large-scale image dataset—such
+    as [ImageNet](https://oreil.ly/8MHlU)—and then reuse that network as a starting
+    point for another task.'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[卷积神经网络（CNNs）](https://oreil.ly/bfzDc)是医学图像中常用的架构。图像分类的一些知名CNN的例子包括[ResNets](https://oreil.ly/2JqoN)、[DenseNets](https://oreil.ly/T3b0q)和[EfficientNets](https://oreil.ly/-AWuI)。从头开始训练一个CNN非常昂贵，无论是在数据还是计算时间上。因此，一个流行的技术是使用先前在大规模图像数据集上训练过的模型，例如[ImageNet](https://oreil.ly/8MHlU)，然后将该网络作为另一个任务的起点重用。'
+- en: The core idea behind this technique is that the lower layers in a CNN learn
+    broadly applicable representations like edges and corners, which can be generalized
+    to a wide variety of tasks. When we use layers of a CNN for our own tasks, we
+    refer to them as *pretrained*. The higher layers, on the other hand, capture features
+    that are more high-level and specific to a task. As a result, the output of these
+    layers will not be suitable for our use case. We can thus freeze the features
+    learned in the lower layers and retrain the higher layers in a step called *fine-tuning*.
+    Together, pretraining and fine-tuning constitute a simple form of [*transfer learning*](https://oreil.ly/tybad),
+    in which knowledge learned by an ML model in one domain is used in another domain.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种技术的核心思想是，CNN中的低层次学习广泛适用的表示，如边缘和角落，可以推广到各种任务中。当我们为自己的任务使用CNN的层时，我们称之为*预训练*。另一方面，较高层次捕获的特征更高级且更具体于任务。因此，这些层的输出不适合我们的用例。因此，我们可以冻结在低层次学习的特征，并在称为*微调*的步骤中重新训练较高层次。预训练和微调共同构成了一种简单的[*迁移学习*](https://oreil.ly/tybad)形式，在这种形式中，ML模型在一个领域学习的知识被用于另一个领域。
+- en: To start, we’ll use a [DenseNet-121](https://oreil.ly/Wq743) architecture trained
+    on an ImageNet dataset. DenseNet models have been shown to perform particularly
+    well for X-ray image classification, as they [improve flow of information and
+    gradients through the network](https://oreil.ly/_fO24), ideally increasing the
+    performance and generalization of the classifier.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 起初，我们将使用[DenseNet-121](https://oreil.ly/Wq743)架构，该架构在ImageNet数据集上训练。已经显示DenseNet模型在X光图像分类方面表现特别出色，因为它们[改善了信息和梯度在网络中的流动](https://oreil.ly/_fO24)，理想情况下增加了分类器的性能和泛化能力。
+- en: Warning
+  id: totrans-84
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Don’t forget about [EvilModel](https://oreil.ly/UMwPx). It has been shown that
+    malware can be delivered through pretrained neural networks. Such malware may
+    not affect performance and may trick anti-virus software. (Or we might be lazy
+    and forget to scan our model artifacts.) The lessons from [Chapter 5](ch05.html#unique_chapter_id_5)
+    teach us to take nothing for granted, not even the pretrained models we download
+    from the internet.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要忘记关于[EvilModel](https://oreil.ly/UMwPx)。已经表明，恶意软件可以通过预训练的神经网络传递。这类恶意软件可能不会影响性能，并可能欺骗反病毒软件。（或者我们可能会懒得扫描我们的模型工件。）[第5章](ch05.html#unique_chapter_id_5)的教训告诉我们，不要对我们从互联网下载的预训练模型抱有任何假设。
+- en: While performing transfer learning, an important question is whether to retrain
+    all the layers of the pretrained model or only a few of them. The answer to this
+    question lies in the makeup of the dataset. Is the new dataset large enough? Does
+    it resemble the dataset on which the pretrained model has been trained? Since
+    our dataset is small and differs considerably from the original dataset, it makes
+    sense to retrain some of the lower layers as well as the higher ones. This is
+    because the low layers learn generic features compared to the higher ones, which
+    learn more dataset-specific features. In this case, when we refer to retraining
+    layers, it doesn’t mean to start training from scratch or with random weights;
+    instead, we’ll utilize pretrained weights as a starting point and then continue
+    from there.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在执行迁移学习时，一个重要的问题是是否重新训练预训练模型的所有层或仅部分层。这个问题的答案在于数据集的组成。新数据集足够大吗？它是否类似于预训练模型所训练的数据集？由于我们的数据集较小且与原始数据集差异很大，因此重新训练一些较低层次和较高层次是有意义的。这是因为低层次学习相对通用的特征，而高层次学习更多特定于数据集的特征。在这种情况下，重新训练层次并不意味着从头开始或使用随机权重；相反，我们将利用预训练的权重作为起点，然后从那里继续。
+- en: 'In the following code, we unfreeze all of the layers of the pretrained model
+    and replace the last layer with our own linear classifier. For this dataset, this
+    setting gave the best performance on the test data. We also experimented by unfreezing
+    only a few layers, but none of them outperformed our first setting:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下代码中，我们解冻预训练模型的所有层，并用我们自己的线性分类器替换最后一层。对于这个数据集，这种设置在测试数据上表现最佳。我们还尝试过仅解冻少数层，但它们都没有超过我们的第一种设置：
+- en: '[PRE2]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'Finally, we fine-tuned the model a second time, using only the images that
+    we manually cropped to focus on the lungs. The double fine-tuning process ended
+    up looking something like this:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们第二次对模型进行了微调，仅使用我们手动裁剪以便聚焦于肺部的图像。这种双重微调过程看起来是这样的：
+- en: Load the pretrained DenseNet-121 model.
+  id: totrans-90
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 载入预训练的DenseNet-121模型。
+- en: Train the model on the augmented dataset using uncropped images.
+  id: totrans-91
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用未裁剪图像对扩增数据集进行模型训练。
+- en: Freeze the early layers of the model and continue training on cropped images.
+  id: totrans-92
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 冻结模型的早期层，并继续在裁剪图像上进行训练。
+- en: The idea behind this double fine-tuning process is to utilize the features learned
+    by the pretrained model, as well as those in our domain-specific dataset. Finally,
+    the use of cropped images for the final round of training mitigates the risk of
+    the model using features that will not generalize to unseen data, such as X-ray
+    artifacts outside of the lungs.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个双重微调过程的理念是利用预训练模型学到的特征以及我们领域特定数据集中的特征。最后，使用裁剪图像进行最后一轮训练有助于减少模型使用那些不适用于未见数据的特征的风险，例如肺部之外的X光伪影。
+- en: Evaluation and Metrics
+  id: totrans-94
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 评估与度量
+- en: The performance of the model is evaluated on a validation set. In Tables [7-1](#confusion_matrix)
+    and [7-2](#metrics), we also report some performance metrics on the unseen test
+    dataset. Measuring this performance is essential to understanding whether our
+    model will generalize well.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在验证集上评估模型的性能。在表格[7-1](#confusion_matrix)和[7-2](#metrics)中，我们还报告了一些未见测试数据集上的性能指标。评估这种性能对于理解我们的模型是否会良好泛化至关重要。
+- en: Table 7-1\. A confusion matrix showing the pneumonia classifier model performance
+    on the test dataset
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格7-1. 显示肺炎分类器模型在测试数据集上的混淆矩阵
+- en: '|  | Predicted normal | Predicted pneumonia |'
+  id: totrans-97
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | 预测正常 | 预测肺炎 |'
+- en: '| --- | --- | --- |'
+  id: totrans-98
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| **Actual normal** | 199 | 35 |'
+  id: totrans-99
+  prefs: []
+  type: TYPE_TB
+  zh: '| **实际正常** | 199 | 35 |'
+- en: '| **Actual pneumonia** | 11 | 379 |'
+  id: totrans-100
+  prefs: []
+  type: TYPE_TB
+  zh: '| **实际肺炎** | 11 | 379 |'
+- en: Table 7-2\. Additional performance metrics on the test dataset
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格7-2. 测试数据集上的附加性能指标
+- en: '|  | Prevalence | Precision | Recall | F1 |'
+  id: totrans-102
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | 流行率 | 精度 | 召回率 | F1分数 |'
+- en: '| --- | --- | --- | --- | --- |'
+  id: totrans-103
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- |'
+- en: '| **Normal** | 234 | 0.95 | 0.85 | 0.90 |'
+  id: totrans-104
+  prefs: []
+  type: TYPE_TB
+  zh: '| **正常** | 234 | 0.95 | 0.85 | 0.90 |'
+- en: '| **Pneumonia** | 390 | 0.92 | 0.97 | 0.94 |'
+  id: totrans-105
+  prefs: []
+  type: TYPE_TB
+  zh: '| **肺炎** | 390 | 0.92 | 0.97 | 0.94 |'
+- en: Performance looks good here, but be sure to check out [Chapter 9](ch09.html#unique_chapter_id_9)
+    to see how in silico validation and test measurements can be misleading. Now it’s
+    time to start explaining our model’s predictions.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的性能看起来不错，但务必查看[第9章](ch09.html#unique_chapter_id_9)以了解虚拟验证和测试测量可能会误导。现在是时候开始解释我们模型的预测了。
+- en: Generating Post Hoc Explanations Using Captum
+  id: totrans-107
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用Captum生成事后解释
+- en: In this section, we’ll elaborate on a few post hoc techniques, and show their
+    application to our pneumonia image classifier. The explanations that are generated
+    are all *local*, in that they apply to individual observations—single X-ray images
+    of a patient. Furthermore, all of the explanations will take the form of a heatmap,
+    where the color of each pixel is meant to be proportional to the significance
+    of that pixel in making the final classification. In the coming sections, we’ll
+    examine with a critical eye whether these methods accomplish that aim, but the
+    purpose of this section is to first simply show what kinds of outputs can be expected
+    from various techniques.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将详细讨论一些事后技术，并展示它们在我们的肺炎图像分类器中的应用。生成的解释都是*局部*的，适用于单个观测——患者的单张X射线图像。此外，所有的解释都将以热图的形式呈现，其中每个像素的颜色意味着该像素对最终分类的重要性成比例。在接下来的章节中，我们将以批判的眼光检验这些方法是否实现了这一目标，但本节的目的首先是展示各种技术可能产生的输出类型。
+- en: To implement the different techniques, we’ll use [Captum](https://oreil.ly/RjBoD).
+    Captum is a model explanation library built on PyTorch, and it supports many models
+    out-of-the-box. It offers implementations of many explanation algorithms that
+    work nicely with various PyTorch models.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现不同的技术，我们将使用[Captum](https://oreil.ly/RjBoD)。Captum是一个建立在PyTorch上的模型解释库，支持多种模型的开箱即用。它提供了许多解释算法的实现，这些算法与各种PyTorch模型良好地配合。
+- en: Occlusion
+  id: totrans-110
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 遮挡
+- en: '[Occlusion](https://oreil.ly/rdX1o) is a perturbation-based method and works
+    on a simple idea: remove a particular input feature from a model and assess the
+    difference in the model’s prediction capability before and after the removal.
+    A more significant difference implies that the feature is important, and vice
+    versa. Occlusion involves replacing certain portions of the input image and examining
+    the effect on the model’s output. It is often implemented by sliding a rectangular
+    window of predefined size and stride over the image. The window is then replaced
+    with a baseline value (usually zero) at each location, resulting in a gray patch.
+    As we slide this gray patch around the image, we are occluding parts of the image
+    and checking how confident or accurate the model is in making predictions on the
+    altered data.'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[遮挡](https://oreil.ly/rdX1o)是一种基于扰动的方法，其工作原理很简单：从模型中删除特定的输入特征，并评估在移除前后模型预测能力的差异。更显著的差异意味着该特征很重要，反之亦然。遮挡涉及替换输入图像的某些部分，并检查对模型输出的影响。通常通过在图像上滑动预定义大小和步幅的矩形窗口来实现。然后，将该窗口替换为每个位置的基线值（通常为零），从而产生灰色补丁。当我们在图像上滑动这个灰色补丁时，我们遮蔽了图像的部分，并检查模型在修改后数据上进行预测时的信心或准确性。'
+- en: 'Captum documentation describes its implementation of [occlusion](https://oreil.ly/R5C2N),
+    and we apply it to the chest X-ray case study for a single input image. Notice
+    how we can specify the size of the occluding window as well as that of the stride,
+    which in our case is 15 × 15 and 8, respectively:'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Captum文档描述了其对[遮挡](https://oreil.ly/R5C2N)的实现，并将其应用于单个输入图像的胸部X射线案例研究。请注意，我们可以指定遮挡窗口的大小以及步幅的大小，在我们的情况下分别为15
+    × 15和8：
+- en: '[PRE3]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: In [Figure 7-5](#occlusion_baseline), we show the attribution for an image in
+    the test set that demonstrates pneumonia, and was correctly classified as *Pneumonia*
+    by the model.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图7-5](#occlusion_baseline)中，我们展示了测试集中一幅显示肺炎的图像的归因，该图像被模型正确分类为*肺炎*。
+- en: The results are promising. The model seems to have picked up on the high opacity
+    in the upper regions of both lungs. This might give an expert interpreter of the
+    explanation faith in the model’s classification. However, the dark regions are
+    large and lack detail, suggesting that a smaller occlusion window and stride length
+    might reveal more detail. (We hesitated to try different settings, because as
+    soon as we go down the path of tuning these explanation hyperparameters, we open
+    ourselves up to the risk that we’ll just select values that create explanations
+    that confirm our prior beliefs about how the model works.)
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果看起来很有希望。模型似乎已经捕捉到了两个肺部上部区域的高不透明度。这可能会让解释专家对模型的分类产生信心。然而，暗区域很大且缺乏细节，这表明较小的遮挡窗口和步长可能会显示更多细节。（我们犹豫不决是否尝试不同的设置，因为一旦我们开始调整这些解释的超参数，就会面临这样的风险，即我们可能只选择那些确认我们对模型如何工作的先前信念的值。）
+- en: '![mlha 0705](assets/mlha_0705.png)'
+  id: totrans-116
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0705](assets/mlha_0705.png)'
+- en: Figure 7-5\. Occlusion heatmap for a pneumonia X-ray image in the test set,
+    correctly predicted to show pneumonia
+  id: totrans-117
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 7-5\. 阻塞热图是测试集中肺炎X光图像的一个示例，正确预测显示有肺炎
+- en: In addition to this tuning concern, the explanation also shows that the model
+    cares about some groups of pixels outside of the bounds of the torso. Is this
+    a problem with our model, perhaps suggestive of overfitting; a data leak between
+    training and test data; or [shortcut learning](https://oreil.ly/xv-OQ)? Or is
+    this an artifact of the explanation technique itself? We’re just left to wonder.
+    Let’s see if gradient-based methods provide more clarity.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了这个调整问题外，解释还显示模型关注躯干边界外一些像素组。这是否是我们模型的问题，也许表明过拟合；训练和测试数据之间的数据泄露；或者[捷径学习](https://oreil.ly/xv-OQ)？或者这是解释技术本身的产物？我们只能左右思考。让我们看看基于梯度的方法是否能提供更多的清晰度。
+- en: Warning
+  id: totrans-119
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: 'Shortcut learning is a common issue in complex models and can ruin our real-world
+    results. It happens when a model learns about something easier than the actual
+    prediction target in an ML task—essentially cheating itself during training. As
+    medical diagnosis from images can be a painstaking task, even for highly experienced
+    human practitioners, ML systems often find shortcuts that help them optimize their
+    loss functions in training data. When those learned shortcuts are not available
+    in real-world diagnostic scenarios, these models fail. To read more about shortcut
+    learning in medical images, check out [“Deep Learning Applied to Chest X-Rays:
+    Exploiting and Preventing Shortcuts”](https://oreil.ly/oVT-G). To learn about
+    this serious issue, which plagues nearly all unexplainable ML, in a general context,
+    check out [“Shortcut Learning in Deep Neural Networks”](https://oreil.ly/ogNeg).'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 捷径学习是复杂模型中常见的问题，可能会破坏我们的实际结果。当模型在ML任务中学习某些比实际预测目标更容易的东西时会发生这种情况，实质上在训练期间欺骗自己。由于从图像进行医学诊断可能是一项费时的任务，即使对于经验丰富的人类从业者而言，ML系统通常也会找到帮助其在训练数据中优化损失函数的捷径。当这些学习到的捷径在真实世界的诊断场景中不可用时，这些模型就会失败。要了解更多关于医学图像中的捷径学习，请查看[“应用于胸部X光片的深度学习：利用和预防捷径”](https://oreil.ly/oVT-G)。要了解这个困扰几乎所有无法解释ML的严重问题的一般背景，请查看[“深度神经网络中的捷径学习”](https://oreil.ly/ogNeg)。
+- en: Input * gradient
+  id: totrans-121
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 输入 * 梯度
+- en: The first gradient-based method we’ll look at is the input * gradient technique.
+    As its name suggests, input * gradient creates a local feature attribution that
+    is equal to the gradient of the prediction with respect to the input, multiplied
+    by the input value itself. Why? Imagine a linear model. The product of the gradient
+    and the input value assigns a local feature attribution that is equivalent to
+    the feature value multiplied by the feature’s coefficient, which corresponds to
+    the feature’s contribution to a particular prediction.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将首先看一下基于梯度的方法，这是输入 * 梯度技术。顾名思义，输入 * 梯度创建了一个局部特征归因，它等于预测相对于输入的梯度，乘以输入值本身。为什么这样做？想象一个线性模型。梯度和输入值的乘积分配了一个局部特征归因，它等于特征值乘以特征系数，这对应于特征对特定预测的贡献。
+- en: We use Captum to generate a heatmap for the same test set image using the input
+    * gradient technique this time. In [Figure 7-6](#grad_times_input_baseline), we’re
+    showing the *positive* evidence for the classification.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这次我们使用Captum为同一测试集图像生成了一个热图，使用了输入 * 梯度技术。在[图 7-6](#grad_times_input_baseline)中，我们展示了分类的
+    *正面* 证据。
+- en: '![mlha 0706](assets/mlha_0706.png)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0706](assets/mlha_0706.png)'
+- en: Figure 7-6\. Input * gradient heatmap for a pneumonia X-ray image in the test
+    set, correctly predicted to show pneumonia
+  id: totrans-125
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 7-6\. 输入 * 梯度热图是测试集中肺炎X光图像的一个示例，正确预测显示有肺炎
+- en: What to say about this output? Just like with occlusions, we can squint at the
+    image and argue that it is saying something meaningful. In particular, there is
+    a dark patch of high evidence in the lungs that seems to correspond to high opacity
+    in the chest X-ray on the left. This is the behavior we would expect and hope
+    for out of our pneumonia classifier. However, the explanation technique is also
+    suggesting that the length of the patient’s spine contains regions of high evidence
+    of pneumonia. We’re left with the same questions that we posed earlier. Is this
+    telling us that the model is focusing on the wrong things, i.e., shortcuts? That
+    would make this a useful output for model debugging. On the other hand, we still
+    don’t know if the explanation technique itself is the source of the unintuitive
+    result.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有关此输出的评论？就像在遮挡物上一样，我们可以凝视图像并辩称它表达了某种有意义的东西。特别地，在肺部有一个暗斑点，显示出高证据，似乎对应左侧胸部X射线上的高不透明度。这是我们期望并希望从我们的肺炎分类器中得到的行为。然而，解释技术还表明，患者脊柱的长度也包含肺炎高证据区域。我们留下了早些时候提出的相同问题。这是否告诉我们模型正在关注错误的东西，即捷径？这将使这个模型调试的输出变得有用。另一方面，我们仍然不知道解释技术本身是否是不直观结果的源头。
+- en: Integrated gradients
+  id: totrans-127
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 综合梯度
+- en: '[Integrated gradients](https://oreil.ly/Er6tk) is the first technique we’ll
+    consider that comes with some theoretical guarantees. Gradients alone can be deceiving,
+    especially because gradients tend toward zero for some high-confidence predictions.
+    For high probability outcomes, it’s not uncommon that the input features cause
+    activation functions to reach high values, where gradients become saturated, flat,
+    and close to zero. This means that some of our most important activation functions
+    for a decision won’t show up if we only look at gradients.'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[综合梯度](https://oreil.ly/Er6tk)是我们将考虑的第一种具有一些理论保证的技术。仅仅依靠梯度可能是误导性的，特别是因为对于一些高置信度的预测，梯度趋向于零。对于高概率结果，输入特征可能导致激活函数达到高值，使得梯度饱和、平坦且接近于零。这意味着如果我们仅看梯度，某些决策中最重要的激活函数将不会显示出来。'
+- en: Integrated gradients attempts to fix this issue by measuring a feature impact
+    relative to a baseline value, across all possible input pixel intensity values.
+    In particular, integrated gradients asks, “How does the gradient change as we
+    traverse a path from the baseline input pixel intensity value to a larger input
+    pixel intensity value?” The final feature attribution is the approximate integral
+    of the gradient along this smooth path of pixel values as a function of the model’s
+    predictions.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 综合梯度试图通过测量相对于基线值的特征影响来修复此问题，跨所有可能的输入像素强度值。特别地，综合梯度问：“当我们从基线输入像素强度值穿过路径到更大的输入像素强度值时，梯度如何变化？”最终的特征归因是梯度在这条像素值平滑路径上的近似积分，作为模型预测函数的一部分。
+- en: Integrated gradients satisfies axioms of sensitivity and implementation invariance.
+    Sensitivity means that if the input image and baseline image differ only along
+    one feature, and if they return different model outputs, then integrated gradients
+    will return a nonzero attribution for that feature. Implementation invariance
+    says that if two models, possibly with different internal structures, return the
+    same output for all inputs, then all of the input attributions returned by integrated
+    gradients will be equal. Implementation invariance is another way to discuss *consistency*
+    from [Chapter 2](ch02.html#unique_chapter_id_2). For a good walk-through of the
+    topic, check out the TensorFlow introduction to [integrated gradients](https://oreil.ly/2aUWD).
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 综合梯度满足敏感性和实现不变性的公理。敏感性意味着如果输入图像和基线图像仅在一个特征上有所不同，并且它们返回不同的模型输出，则综合梯度将为该特征返回非零归因。实现不变性表示如果两个模型，可能具有不同的内部结构，对所有输入都返回相同的输出，则综合梯度返回的所有输入归因将相等。实现不变性是从[第2章](ch02.html#unique_chapter_id_2)讨论*一致性*的另一种方式。有关这个主题的良好介绍，请查看TensorFlow对综合梯度的介绍。
+- en: In [Figure 7-7](#integrated_gradients), we show the output of this attribution
+    technique on the same pneumonitic image we have been considering. Like the output
+    of input * gradient, the image is noisy and difficult to interpret. It looks like
+    the method is picking up on *edges* in the input image. In addition to the X-ray
+    machine markings and armpits, we can also see the faint outline of the patient’s
+    ribs in the heatmap. Is this because the model is ignoring the ribs, and looking
+    around them into the lungs? It seems like these outputs are raising more questions
+    than they’re answering. Later in this chapter, we’ll critically evaluate these
+    explanatory outputs by conducting some experiments. For now, we’ll turn to the
+    fourth and final technique, another gradient-based method, layer-wise relevance
+    propagation.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 7-7](#integrated_gradients)中，我们展示了相同肺炎图像上这种归因技术的输出。像输入*梯度的输出一样，图像是嘈杂且难以解释的。看起来这种方法正在捕捉输入图像中的*边缘*。除了X光机标记和腋窝外，我们还可以看到热图中病人肋骨的微弱轮廓。这是因为模型正在忽略肋骨，窥视肺部周围吗？这些输出似乎带来更多问题而不是答案。在本章后面，我们将通过一些实验来批判性地评估这些解释输出。现在，我们将转向第四种也是最后一种技术，另一种基于梯度的方法，即分层相关传播。
+- en: '![mlha 0707](assets/mlha_0707.png)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0707](assets/mlha_0707.png)'
+- en: Figure 7-7\. Integrated gradients heatmap for a pneumonia X-ray image in the
+    test set, correctly predicted to show pneumonia
+  id: totrans-133
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-7\. 在测试集中，正确预测显示肺炎的肺部 X 光图像的集成梯度热图
+- en: Layer-wise Relevance Propagation
+  id: totrans-134
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 分层相关传播
+- en: '[Layer-wise Relevance Propagation (LRP)](https://oreil.ly/xGtUm) is really
+    a class of methods that measure a feature’s *relevance* to the output. Broadly
+    speaking, relevance is the strength of the connection between the input features
+    and the model output, and it can be measured without making any changes to the
+    input features. By choosing a different notion of relevance, we can arrive at
+    a number of different explanatory outputs. For readers interested in a more thorough
+    treatment of LRP, we direct you to the chapter “Layer-Wise Relevance Propagation:
+    An Overview” in *Explainable AI: Interpreting, Explaining and Visualizing Deep
+    Learning* by Samek et al. (Springer Cham). There, you’ll find a comprehensive
+    discussion of the different relevance rules and when they should be applied. The
+    [Explainable AI Demos dashboard](https://oreil.ly/wcIVJ) also allows you to generate
+    explanatory outputs using a wide array of LRP rules.'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[分层相关传播（LRP）](https://oreil.ly/xGtUm)实际上是一类衡量特征对输出*相关性*的方法。广义上讲，相关性是输入特征与模型输出之间连接的强度，可以在不对输入特征进行任何更改的情况下进行测量。通过选择不同的相关性概念，我们可以得到多种不同的解释输出。对于对LRP更深入了解的读者，我们推荐阅读Samek等人编著的《可解释AI：深度学习的解释、解释和可视化》一书中的章节“分层相关传播概述”。在那里，您将找到对不同相关性规则及其适用时机的全面讨论。[可解释AI演示仪表板](https://oreil.ly/wcIVJ)还允许您使用各种LRP规则生成解释输出。'
+- en: 'The nice thing about LRP is that the explanations it produces are locally accurate:
+    the sum of the relevance scores is equal to the model output. It is similar to
+    Shapley values in this way. Let’s take a look at the LRP explanation for our test
+    set image in [Figure 7-8](#lrp_baseline). Unfortunately, it’s still leaving a
+    lot to be desired in terms of generating a human-verifiable explanation.'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: LRP的好处在于它生成的解释在局部上是准确的：相关性分数的总和等于模型输出。在这方面它类似于Shapley值。让我们看一下[图 7-8](#lrp_baseline)中我们测试集图像的LRP解释。不幸的是，它在生成人类可验证的解释方面仍然有很大的提升空间。
+- en: '![mlha 0708](assets/mlha_0708.png)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0708](assets/mlha_0708.png)'
+- en: Figure 7-8\. LRP heatmap for a pneumonia X-ray image in the test set, correctly
+    predicted to show pneumonia
+  id: totrans-138
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-8\. 在测试集中，正确预测显示肺炎的肺部 X 光图像的LRP热图
+- en: Like the other techniques, LRP has picked up on this region of higher opacity
+    in the right lung, but it has also given a high attribution score to regions outside
+    of the lungs.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 像其他技术一样，LRP已经捕捉到右肺中较高不透明度区域，但它也将高归因分数给了肺部外的区域。
+- en: Evaluating Model Explanations
+  id: totrans-140
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 评估模型解释
+- en: 'In the previous sections, we’ve just scraped the surface of explanatory attribution
+    methods for DL models. There is a large and growing number of these techniques.
+    In this section, we’ll address the important question: “How do we know if our
+    explanation is any good?” Then, we’ll conduct an experiment to critically examine
+    just how much information post hoc techniques give us about our CNN model.'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们只是浅尝辄止地探讨了DL模型的解释归因方法。这些技术种类繁多且不断增长。在本节中，我们将探讨一个重要问题：“我们如何知道我们的解释是否合理？”然后，我们将进行实验，批判性地检验后续技术对我们的CNN模型提供了多少信息。
+- en: 'David Alvarez-Melis and Tommi S. Jaakkola give the question of evaluating explanations
+    an excellent treatment in their two 2018 papers [“On the Robustness of Interpretability
+    Methods”](https://oreil.ly/KRcmm) and [“Towards Robust Interpretability with Self-Explaining
+    Neural Networks”](https://oreil.ly/gUWIR). In the second paper, Alvarez-Melis
+    and Jaakkola introduce three desirable properties that explanations should share:'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: David Alvarez-Melis 和 Tommi S. Jaakkola 在他们的两篇2018年论文中，对评估解释问题进行了很好的探讨，分别是 [“关于解释性方法的鲁棒性”](https://oreil.ly/KRcmm)
+    和 [“自解释神经网络的鲁棒解释性”](https://oreil.ly/gUWIR)。在第二篇论文中，Alvarez-Melis 和 Jaakkola 提出了解释应该具备的三个理想特性：
+- en: Explanations should be understandable (explicitness/intelligibility).
+  id: totrans-143
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 解释应该易于理解（明确性/可理解性）。
+- en: They should be indicative of true importance (faithfulness).
+  id: totrans-144
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它们应该指示真正重要的内容（忠实性）。
+- en: They should be insensitive to small changes in the input (stability/robustness).
+  id: totrans-145
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它们应该对输入的微小变化不敏感（稳定性/鲁棒性）。
+- en: The heatmap techniques we have examined in this chapter clearly fall short on
+    point number one. First of all, the outputs of these techniques are noisy and
+    confusing. More importantly, all of the techniques we surveyed seem to point to
+    nonsensical regions, such as spaces outside of the patient’s body.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在本章中检查过的热图技术显然在第一点上表现不佳。首先，这些技术的输出嘈杂且令人困惑。更重要的是，我们调查的所有技术似乎都指向了荒谬的区域，例如患者体外的空间。
+- en: Even if the outputs perfectly aligned with our intuition, these heatmaps only
+    give an indication of *where* the model is finding positive or negative evidence
+    for its classification; they give no suggestion of *how* the model is making its
+    decision based on the information it’s been provided with. This is in contrast
+    to explainable models such as SENN or ProtoPNet, which provide both—prototypes
+    or basis concepts are the *where*, and their linear combination is *how*. *How*
+    is a crucial element of a good explanation.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使输出完全符合我们的直觉，这些热图仅表明模型在哪里找到正面或负面证据支持其分类；它们没有提示模型基于提供的信息做出决策的方式。这与可解释模型（如SENN或ProtoPNet）形成对比，后者既提供“在哪里”的原型或基本概念，又提供“如何”的线性组合。如何是一个好解释的关键元素。
+- en: Note
+  id: totrans-148
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'We should always test our explanation methods in high-risk applications. Ideally,
+    we should be comparing post hoc explanations to underlying explainable model mechanisms.
+    For more standard DL approaches, we can use the following:'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应始终在高风险应用中测试我们的解释方法。理想情况下，我们应该将后续解释与底层可解释模型机制进行比较。对于更标准的DL方法，我们可以使用以下方法：
+- en: Domain experts and user studies to test intelligibility
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 领域专家和用户研究测试可理解性。
+- en: Removal of features deemed important, nearest-neighbor approaches, or label
+    shuffling to test faithfulness
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 去除被视为重要的特征，最近邻方法或标签重排以测试忠实性。
+- en: Perturbation of input features to test robustness
+  id: totrans-152
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 扰动输入特征以测试鲁棒性。
+- en: Use [“Towards Robust Interpretability with Self-Explaining Neural Networks”](https://oreil.ly/PtR5u)
+    and [“Evaluating the Visualization of What a Deep Neural Network Has Learned”](https://oreil.ly/sQDv5)
+    as references.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 [“自解释神经网络的鲁棒解释性”](https://oreil.ly/PtR5u) 和 [“评估深度神经网络学到了什么可视化的方法”](https://oreil.ly/sQDv5)
+    作为参考资料。
+- en: Faithfulness is typically tested by obscuring or removing features deemed important
+    and calculating the resulting change in classifier output to gauge the robustness
+    of the explanatory values themselves. Alvarez-Melis and Jaakkola showed that there
+    is a wide range of explanation faithfulness across different techniques and datasets,
+    with Shapley additive explanations and some others performing quite poorly. We
+    can also use nearest-neighbor approaches, where similar input observation should
+    have similar explanations, to gauge faithfulness. We’re also going to examine
+    faithfulness in our explanations in the next section—but we’re going to try a
+    different approach.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 忠实度通常通过遮盖或删除被认为重要的特征，并计算分类器输出的变化来测试。Alvarez-Melis 和 Jaakkola 表明，在不同的技术和数据集中，解释的忠实度存在广泛的差异，Shapley
+    添加性解释和其他一些方法表现相当糟糕。我们还可以使用最近邻方法，其中类似的输入观察应具有类似的解释，来评估忠实度。在下一节中，我们还将检验解释中的忠实度——但我们将尝试不同的方法。
+- en: To examine robustness (or stability), Alvarez-Melis and Jaakkola perturb the
+    input image slightly and measure the resulting change in explanation output. Armed
+    with a quantitative metric, they compare many post hoc methods across multiple
+    datasets. It turns out that most of the post hoc techniques they studied are unstable
+    to small changes in the input. Local interpretable model-agnostic explanations
+    (LIME) perform especially poorly, and the methods of integrated gradients and
+    occlusion show the best robustness among the techniques they studied. Across all
+    of these evaluation dimensions—intelligibility, faithfulness, and robustness—explainable
+    models such as self-explaining neural networks outperfom post hoc techniques.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要检验鲁棒性（或稳定性），Alvarez-Melis 和 Jaakkola 稍微扰动输入图像，并测量解释输出的变化。武装了一个定量指标后，他们比较了多种事后方法在多个数据集上的表现。结果显示，他们研究的大多数事后技术对输入的微小变化不稳定。局部可解释的模型无关解释（LIME）表现特别糟糕，而集成梯度和遮挡方法在所研究的技术中表现出最好的鲁棒性。在所有这些评估维度——可理解性、忠实度和鲁棒性——自解释神经网络等可解释模型胜过事后技术。
+- en: The Robustness of Post Hoc Explanations
+  id: totrans-156
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 事后解释的鲁棒性
+- en: 'In this section, we reproduce (in part) the damning unfaithfulness results
+    from [“Sanity Checks for Saliency Maps”](https://oreil.ly/v6qlw). In that paper,
+    the authors were interested in the question: “Are the outputs generated by these
+    post hoc explanation methods actually telling us anything about the model?” As
+    we’ll see in this experiment, sometimes the result is an emphatic no.'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们部分复制了 [“Saliency Maps 的健全性检查”](https://oreil.ly/v6qlw) 中令人震惊的不忠实结果。在那篇论文中，作者们关心的问题是：“这些事后解释方法生成的输出实际上是否告诉我们模型的任何信息？”正如我们将在这个实验中看到的那样，有时结果是一个明确的“不”。
+- en: To begin our experiment, we train a nonsense model, wherein images have random
+    labels. In [Figure 7-9](#loss_curves_label_randomization), we can see the high
+    training loss and poor accuracy curves for a new model that has been trained on
+    a dataset where the image labels have been randomly shuffled. For this experiment,
+    we did not conduct any data augmentation to handle the class imbalance. This explains
+    why the accuracy on the validation data converges to a value larger than 0.5—the
+    model is biased toward the majority class (pneumonia).
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了开始我们的实验，我们训练了一个无意义的模型，其中图像具有随机标签。在 [图表 7-9](#loss_curves_label_randomization)
+    中，我们可以看到对于一个新模型的高训练损失和低准确率曲线，该模型是在图像标签已随机排列的数据集上训练的。对于这个实验，我们没有进行任何数据增强来处理类别不平衡。这解释了为什么验证数据的准确率收敛到大于0.5的值——该模型偏向于多数类（肺炎）。
+- en: Now we have a model that has been trained on nonsense labels. The predictions
+    generated by our new model cannot be any better than a (weighted) coin flip. For
+    the original explanations to be meaningful, we’d hope that *these* explanations
+    don’t pick up on the same signals. Figures [7-10](#grad_times_input_random_labels),
+    [7-11](#integrated_gradients_random_labels), and [7-12](#occlussion_random_labels)
+    show explanations for our test set image, generated on the model that has been
+    trained on randomly shuffled data, created by input * gradient, integrated gradients,
+    and occlusion, respectively.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有一个模型，该模型经过无意义标签的训练。我们新模型生成的预测结果不可能比（加权的）抛硬币更好。为了原始解释有意义，我们希望*这些*解释不会捕捉到相同的信号。图表[7-10](#grad_times_input_random_labels)、[7-11](#integrated_gradients_random_labels)
+    和 [7-12](#occlussion_random_labels) 分别显示了我们测试集图像的解释，这些解释是在训练过的模型上生成的，该模型是在随机打乱的数据上训练的，由输入
+    * 梯度、集成梯度和遮挡方法产生。
+- en: '![mlha 0709](assets/mlha_0709.png)'
+  id: totrans-160
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0709](assets/mlha_0709.png)'
+- en: Figure 7-9\. Model performance during training on data where the labels have
+    been randomly shuffled ([digital, color version](https://oreil.ly/-uCIY))
+  id: totrans-161
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 7-9\. 在标签被随机重排的数据上训练时的模型性能（[数字，彩色版本](https://oreil.ly/-uCIY)）
+- en: '![mlha 0710](assets/mlha_0710.png)'
+  id: totrans-162
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0710](assets/mlha_0710.png)'
+- en: Figure 7-10\. Input * gradient heatmap after randomly shuffling class labels
+  id: totrans-163
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 7-10\. 随机重排类标签后的输入 * 梯度热图
+- en: '![mlha 0711](assets/mlha_0711.png)'
+  id: totrans-164
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0711](assets/mlha_0711.png)'
+- en: Figure 7-11\. Integrated gradients heatmap after randomly shuffling class labels
+  id: totrans-165
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 7-11\. 随机重排类标签后的集成梯度热图
+- en: '![mlha 0712](assets/mlha_0712.png)'
+  id: totrans-166
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0712](assets/mlha_0712.png)'
+- en: Figure 7-12\. Occlusion heatmap after randomly shuffling class labels
+  id: totrans-167
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 7-12\. 随机重排类标签后的遮挡热图
+- en: In our opinion, these results look shockingly similar to the ones from the previous
+    sections. In all of the images, the techniques have once again highlighted irrelevant
+    regions of the image, such as the patient’s spine and the boundaries of their
+    torso. Worse than this, the attribution maps look very similar to their previous
+    results *inside* of the lungs. They’ve picked up on the outlines of the patient’s
+    ribs and the regions of higher opacity. Previously, we were interpreting this
+    to mean that the model might be generating its pneumonia prediction based on specific
+    regions of lung inflammation. This experiment shows, however, that these methods
+    will show the same explanation for a model that was trained on zero meaningful
+    signals. To what are our explanations faithful?! We’re not sure.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们看来，这些结果与前几节的结果惊人地相似。在所有的图像中，这些技术再次突出显示了图像中无关的区域，如患者的脊柱和其躯干的边界。更糟糕的是，这些归因地图在肺部内部看起来与它们之前的结果非常相似。它们捕捉到了患者肋骨的轮廓和高密度区域。之前，我们解释这意味着模型可能基于肺部炎症特定区域生成其肺炎预测。然而，这个实验显示，这些方法将为一个在零有意义信号训练的模型展示相同的解释。我们的解释究竟忠实于什么？我们不确定。
+- en: To further examine the robustness of our explanations, we conduct a simple experiment
+    of adding random noise to the input images. This can be easily done using a custom
+    transformation in torchvision. We then examine the explanations on these inputs
+    and compare them with the previous explanations. The amount of noise is regulated
+    in such a way that the predicted class of the image remains the same before and
+    after adding the noise component.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了进一步检验我们解释的鲁棒性，我们进行了一个简单的实验，即向输入图像添加随机噪声。这可以通过torchvision中的自定义转换轻松完成。然后，我们检查这些输入上的解释，并将它们与先前的解释进行比较。噪声的量调节得当，使得图像的预测类在添加噪声组件之前和之后保持不变。
+- en: What we really want to understand is whether the resulting explanations are
+    robust to the addition of random noise or not. In short, it’s a mixed bag; see
+    Figures [7-13](#grad_times_input_noise), [7-14](#integrated_gradients_noise),
+    and [7-15](#occlussion_noise). The new attribution maps differ significantly from
+    those generated on the original model, but do seem to preserve the focus on regions
+    of high opacity inside the lungs.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们真正想要理解的是，结果解释是否对添加随机噪声具有鲁棒性。简言之，情况复杂；请参见图 [7-13](#grad_times_input_noise)、[7-14](#integrated_gradients_noise)
+    和 [7-15](#occlussion_noise)。新的归因地图与在原始模型上生成的地图明显不同，但似乎保留了对肺部内高密度区域的关注。
+- en: '![mlha 0713](assets/mlha_0713.png)'
+  id: totrans-171
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0713](assets/mlha_0713.png)'
+- en: Figure 7-13\. Input * gradient heatmap after adding random noise
+  id: totrans-172
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 7-13\. 添加随机噪声后的输入 * 梯度热图
+- en: '![mlha 0714](assets/mlha_0714.png)'
+  id: totrans-173
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0714](assets/mlha_0714.png)'
+- en: Figure 7-14\. Integrated gradients heatmap after adding random noise
+  id: totrans-174
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 7-14\. 添加随机噪声后的集成梯度热图
+- en: '![mlha 0715](assets/mlha_0715.png)'
+  id: totrans-175
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0715](assets/mlha_0715.png)'
+- en: Figure 7-15\. Occlusion heatmap after adding random noise
+  id: totrans-176
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 7-15\. 添加随机噪声后的遮挡热图
+- en: Look at the occlusion heatmap in [Figure 7-15](#occlussion_noise), for example.
+    Previously, we said that it was encouraging that occlusion seems to have picked
+    up on the regions inside the lungs with higher opacity. After adding random noise,
+    we still see this focus on the upper left and upper right of the lungs. However,
+    the addition of noise has upset the occlusion output to give greater evidence
+    to regions near the neck. The gradient-based technique outputs are similarly disturbed,
+    while still preserving their emphasis on the middle of the right lung.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查看例如[图 7-15](#occlussion_noise)中的遮挡热图。之前我们说过，令人鼓舞的是遮挡似乎已经捕捉到了肺部内较高密度的区域。在添加了随机噪声后，我们仍然看到焦点集中在肺部左上和右上方。然而，噪声的添加已经使得遮挡输出更多地强调了靠近颈部的区域。基于梯度的技术输出同样受到了干扰，但仍然保留了对右肺中部的强调。
+- en: 'In [“Sanity Checks for Saliency Maps”](https://oreil.ly/fTeRb), the authors
+    point to a possible explanation for the results we’ve seen in these experiments:
+    the attribution techniques are effectively performing *edge detection*. That is,
+    irrespective of the model training and architecture, these attribution methods
+    are capable of detecting edges in the input image, where gradients nearly always
+    exhibit steep changes. That would explain the emphasis on the rib outlines that
+    we have been observing, as well as the emphasis on regions on the boundary of
+    the torso. In case it’s not clear, *detecting edges is not model explanation and
+    can be done easily without using DL*.'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[“检验显著性图的健全性”](https://oreil.ly/fTeRb)中，作者指出了对我们在这些实验中看到的结果可能的解释：这些归因技术实际上正在执行*边缘检测*。也就是说，无论模型训练和架构如何，这些归因方法都能够检测到输入图像中的边缘，其中梯度几乎总是显示出急剧变化。这可以解释我们一直观察到的对肋骨轮廓的强调，以及对躯干边界区域的强调。如果不清楚的话，*检测边缘并不是模型解释，并且可以在不使用深度学习的情况下轻松完成*。
+- en: Conclusion
+  id: totrans-179
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: The bottom line is that post hoc explanations are often difficult to explain,
+    and sometimes meaningless. Even worse, the diversity of explanation techniques
+    means that if we’re not careful, we’ll fall prey to confirmation bias and end
+    up selecting the one that confirms our prior belief about how our model should
+    behave. We sympathize—building explainable models in a DL context is very difficult.
+    But this chapter shows that post hoc explanations may only offer a dangerous *illusion*
+    of understanding, and thus are not always suitable for explaining high-risk decisions.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 底线是，事后解释通常很难解释，有时毫无意义。更糟糕的是，解释技术的多样性意味着，如果我们不小心，我们将会陷入确认偏见，并最终选择与我们对模型行为的先前信念相符的那个解释。我们同情——在深度学习背景下构建可解释模型确实非常困难。但本章显示，事后解释可能只是对理解的一种危险*错觉*，因此并不总适用于解释高风险决策。
+- en: We suggest not relying solely on post hoc techniques to explain DL models in
+    a high-risk application. At best, these techniques can be useful model debugging
+    tools. We’ll cover that topic in more detail in [Chapter 9](ch09.html#unique_chapter_id_9).
+    Instead, we should try hard to use *explainable models* when we need explanations
+    that are faithful, robust, and intelligible. We can always build on that more
+    robust model-based explainability with post hoc explanation visualizations if
+    the need arises later, and we’ll be able to check post hoc visualizations against
+    the underlying model mechanisms.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们建议不要仅仅依赖事后技术来解释在高风险应用中的深度学习模型。最多，这些技术可以作为有用的模型调试工具。我们将在[第 9 章](ch09.html#unique_chapter_id_9)中更详细地讨论这个话题。相反，当我们需要忠实、稳健和可理解的解释时，我们应该努力使用*可解释模型*。如果以后需要，我们总是可以在这种更为稳健的模型可解释性基础上构建事后解释的可视化，并且我们将能够检查事后可视化是否与底层模型机制一致。
+- en: There are encouraging frontiers in explainable DL models for image classification
+    and other tasks. Prototype-based case-reasoning models such as [ProtoPNet](https://oreil.ly/yjIuQ)
+    and sparse additive deep models such as [SENN](https://oreil.ly/yZHHT) provide
+    a path forward for explainable DL. However, explainable models are not yet widely
+    available out of the box for DL applications. They often place greater demands
+    on our data and our modeling expertise. We encourage readers to think of this
+    as a feature, not a bug. The development of AI systems *should* demand high-quality,
+    expertly curated data. Models *should* be problem-specific, and encode maximal
+    domain knowledge.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在可解释的DL模型方面存在鼓舞人心的前沿，用于图像分类和其他任务。原型基础的案例推理模型，如[ProtoPNet](https://oreil.ly/yjIuQ)，以及稀疏附加深度模型，如[SENN](https://oreil.ly/yZHHT)，为可解释的DL提供了前进的路径。然而，现成的可解释模型并不广泛适用于DL应用。它们通常对我们的数据和建模专业知识提出更高要求。我们鼓励读者将这视为一个特性，而非一个错误。AI系统的开发*应该*需要高质量、经过精心策划的数据。模型*应该*是问题特定的，并且编码了最大的领域知识。
+- en: 'We agree with the authors of [“The False Hope of Current Approaches to Explainable
+    Artificial Intelligence in Health Care”](https://oreil.ly/-w598) when they say:'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当他们说时，我们同意[“目前在健康护理中关于可解释人工智能的方法的虚假希望”](https://oreil.ly/-w598)的作者：
+- en: In the absence of suitable explainability methods, we advocate for rigorous
+    internal and external validation of AI models as a more direct means of achieving
+    the goals often associated with explainability.
+  id: totrans-184
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在缺乏合适的可解释性方法的情况下，我们主张通过严格的内部和外部验证AI模型，作为实现通常与可解释性相关目标的更直接手段。
+- en: In the next two chapters, we’ll build on the techniques we’ve been discussing
+    here and in [Chapter 6](ch06.html#unique_chapter_id_6) to address the broader
+    question of *model debugging*.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的两章中，我们将建立在我们在这里和在[第6章](ch06.html#unique_chapter_id_6)中讨论的技术基础上，以解决更广泛的*模型调试*问题。
+- en: Resources
+  id: totrans-186
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 资源
+- en: Code Examples
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码示例
+- en: '[Machine-Learning-for-High-Risk-Applications-Book](https://oreil.ly/machine-learning-high-risk-apps-code)'
+  id: totrans-188
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Machine-Learning-for-High-Risk-Applications-Book](https://oreil.ly/machine-learning-high-risk-apps-code)'
+- en: Transparency in Deep Learning Tools
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 深度学习工具的透明度
+- en: '[AllenNLP Interpret](https://oreil.ly/_tAvm)'
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[AllenNLP Interpret](https://oreil.ly/_tAvm)'
+- en: '[Aletheia](https://oreil.ly/UMfWK)'
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Aletheia](https://oreil.ly/UMfWK)'
+- en: '[Captum](https://oreil.ly/F5Obo)'
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Captum](https://oreil.ly/F5Obo)'
+- en: '[cleverhans](https://oreil.ly/efN16)'
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[cleverhans](https://oreil.ly/efN16)'
+- en: '[DeepExplain](https://oreil.ly/u4Mfu)'
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[DeepExplain](https://oreil.ly/u4Mfu)'
+- en: '[deeplift](https://oreil.ly/S29jk)'
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[deeplift](https://oreil.ly/S29jk)'
+- en: '[deep-visualization-toolbox](https://oreil.ly/ZH3JU)'
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[deep-visualization-toolbox](https://oreil.ly/ZH3JU)'
+- en: '[foolbox](https://oreil.ly/DFSu0)'
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[foolbox](https://oreil.ly/DFSu0)'
+- en: '[L2X](https://oreil.ly/S2Ppj)'
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[L2X](https://oreil.ly/S2Ppj)'
+- en: '[tensorflow/lattice](https://oreil.ly/M7aYY)'
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[tensorflow/lattice](https://oreil.ly/M7aYY)'
+- en: '[lrp_toolbox](https://oreil.ly/kKk09)'
+  id: totrans-200
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[lrp_toolbox](https://oreil.ly/kKk09)'
+- en: '[tensorflow/model-analysis](https://oreil.ly/5Aeqe)'
+  id: totrans-201
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[tensorflow/model-analysis](https://oreil.ly/5Aeqe)'
+- en: '[ProtoPNet](https://oreil.ly/ZmqWq)'
+  id: totrans-202
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[ProtoPNet](https://oreil.ly/ZmqWq)'
+- en: '[tensorflow/tcav](https://oreil.ly/7RvqS)'
+  id: totrans-203
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[tensorflow/tcav](https://oreil.ly/7RvqS)'

@@ -1,0 +1,3860 @@
+- en: Chapter 8\. Model Inference
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第8章 模型推断
+- en: Note
+  id: totrans-1
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: We would like to acknowledge Clive Cox and Alejandro Saucedo from [Seldon](https://www.seldon.io)
+    for their great contributions to this chapter.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们要感谢Clive Cox和Alejandro Saucedo来自[Seldon](https://www.seldon.io)对本章的巨大贡献。
+- en: Most of the attention paid to machine learning has been devoted to algorithm
+    development. However, models are not created for the sake of their creation, they
+    are created to be put into production. Usually when people talk about taking a
+    model “to production,” they mean performing inference. As introduced in [Chapter 1](ch01.xhtml#who_is_kubeflow_for_ch)
+    and illustrated in [Figure 1-1](ch01.xhtml#mdlc_figure), a complete inference
+    solution seeks to provide serving, monitoring, and updating functionality.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习中大部分关注点都集中在算法开发上。然而，模型并不是为了创建而创建的，它们被创建出来是为了投入生产。通常情况下，当人们谈论将模型“投入生产”时，他们指的是执行推断。如第[1章](ch01.xhtml#who_is_kubeflow_for_ch)所介绍的并在[图1-1](ch01.xhtml#mdlc_figure)中有所说明，一个完整的推断解决方案旨在提供服务、监控和更新功能。
+- en: Model serving
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型服务
+- en: Puts a trained model behind a service that can handle prediction requests
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将训练好的模型置于可以处理预测请求的服务后面
+- en: Model monitoring
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型监控
+- en: Monitors the model server for any irregularities in performance—as well as the
+    underlying model’s accuracy
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监控模型服务器性能异常以及底层模型的准确性
+- en: Model updating
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型更新
+- en: Fully manages the versioning of your models and simplifies the promotion and
+    rollback between versions
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完全管理模型的版本控制，并简化版本之间的推广和回滚
+- en: This chapter will explore each of these core components and define expectations
+    for their functionality. Given concrete expectations, we will establish a list
+    of requirements that your ideal inference solution will satisfy. Lastly, we will
+    discuss Kubeflow-supported inference offerings and how you can use them to satisfy
+    your inference requirements.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章将探讨每个核心组件，并定义其功能的期望。在确定具体期望之后，我们将列出理想推断解决方案需满足的要求清单。最后，我们将讨论Kubeflow支持的推断方案及如何使用它们满足您的推断需求。
+- en: Model Serving
+  id: totrans-11
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型服务
+- en: The first step of model inference is model serving, which is hosting your model
+    behind a service that you can interface with. Two fundamental approaches to model
+    serving are *embedded*, where the models are deployed directly into the application,
+    and *model serving as a service* (MaaS), where a separate service dedicated to
+    model serving can be used from any application in the enterprise. [Table 8-1](#comparing_embedded_with_model_serving_as_a_service)
+    provides a comparison of these approaches.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型推断的第一步是模型服务，即将您的模型托管在一个可以与之交互的服务后面。模型服务有两种基本方法：*嵌入式*，其中模型直接部署到应用程序中，以及*模型作为服务*（MaaS），其中一个专用于模型服务的独立服务可从企业中的任何应用程序中使用。[表8-1](#comparing_embedded_with_model_serving_as_a_service)提供了这些方法的比较。
+- en: Table 8-1\. Comparing embedded with MaaS
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表8-1 比较嵌入式和MaaS
+- en: '| Serving types | Advantages | Disadvantages |'
+  id: totrans-14
+  prefs: []
+  type: TYPE_TB
+  zh: '| 服务类型 | 优点 | 缺点 |'
+- en: '| --- | --- | --- |'
+  id: totrans-15
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Embedded |'
+  id: totrans-16
+  prefs: []
+  type: TYPE_TB
+  zh: '| 嵌入式 |'
+- en: Delivers maximum performance
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提供最大性能
+- en: Features the simplest infrastructure
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提供最简单的基础设施
+- en: No need to plan for aberrant user behavior
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 无需计划异常用户行为
+- en: '|'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: Model has to be deployed in every application using it
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 必须在每个使用它的应用中部署模型
+- en: Application updates are required when the model type changes
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当模型类型变化时需要应用更新
+- en: All deployment strategies, for example blue-green, must be explicitly implemented
+  id: totrans-23
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有部署策略，例如蓝绿部署，必须明确实施
+- en: '|'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| MaaS |'
+  id: totrans-25
+  prefs: []
+  type: TYPE_TB
+  zh: '| 模型作为服务（MaaS） |'
+- en: Simplifies integration with other technologies and organizational processes
+  id: totrans-26
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 简化与其他技术和组织流程的集成
+- en: Reuses model deployment across multiple stream-processing applications
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在多个流处理应用中重复使用模型部署
+- en: Allows model serving on lower-power devices (e.g., phones) incapable of running
+    complex models
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 允许在低功率设备（例如手机）上进行模型服务，无法运行复杂模型
+- en: Enables mini-batching for requests from multiple clients
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 允许为来自多个客户端的请求进行小批量处理
+- en: Makes it easier to provide built-in capabilities, including model updates, explainability,
+    drift detection, etc.
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更容易提供内置功能，包括模型更新、可解释性、漂移检测等
+- en: Enables advanced model deployment strategies like ensembles and multi-armed
+    bandit, which require decoupling from application
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 允许高级模型部署策略，如集成和多臂赌博机，需要与应用程序解耦
+- en: Allows for separate scaling between application and model server, or running
+    them on different devices like CPU and GPU
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 允许应用和模型服务器之间的分别扩展，或在不同设备（如 CPU 和 GPU）上运行它们
+- en: '|'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: Additional network hops decrease performance
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 额外的网络跳跃会降低性能。
+- en: Tight temporal coupling to the model server can impact overall service-level
+    agreement
+  id: totrans-35
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与模型服务器紧密的时间耦合可能会影响整体服务级别协议。
+- en: '|'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: Kubeflow only supports a MaaS approach. As a result, we will not be discussing
+    model embedding in this book.^([1](ch08.xhtml#idm45831170778040))
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow 只支持 MaaS 方法。因此，我们将不讨论本书中的模型嵌入。^([1](ch08.xhtml#idm45831170778040))
+- en: 'There are two main approaches for implementing MaaS: *model as code*, and *model
+    as data*. Model as code uses model code directly in a service’s implementation.
+    Model as data uses a generic implementation that is driven by a model in an intermediate
+    model format like [PMML](https://oreil.ly/ljhYw), [PFA](https://oreil.ly/SsM9C),
+    [ONNX](https://onnx.ai), or [TensorFlow’s native format](https://oreil.ly/KtkQS).
+    Both approaches are used in different model server implementations in Kubeflow.
+    When determining which implementation to use, we recommended using model as data,
+    as it allows for the exchange of models between serving instances to be standardized,
+    thus providing portability across systems and the enablement of generic model
+    serving solutions.'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实施 MaaS 的两种主要方法：*模型即代码* 和 *模型即数据*。模型即代码直接在服务实现中使用模型代码。模型即数据则使用中间模型格式（如 [PMML](https://oreil.ly/ljhYw)、[PFA](https://oreil.ly/SsM9C)、[ONNX](https://onnx.ai)
+    或 [TensorFlow 的原生格式](https://oreil.ly/KtkQS)）驱动的通用实现。这两种方法在 Kubeflow 的不同模型服务器实现中使用。确定要使用哪种实现时，我们建议使用模型即数据，因为它允许在服务实例之间标准化模型交换，从而提供系统间的可移植性和通用模型服务解决方案的实现。
+- en: Most common serving implementations, like TFServing, ONNX Runtime, Triton, and
+    TorchServe, use a model-as-data approach and leverage an intermediate model format.
+    Some of these implementations support only one framework, while others support
+    multiple. Unfortunately, each of these solutions uses different model formats
+    and exposes unique proprietary serving APIs. None of these interfaces meet everyone’s
+    needs. The complexity and divergence of these API interfaces result in a differing
+    UX and an inability to share features effectively. Furthermore, there is increased
+    friction in swapping between model frameworks, as the interfaces behind these
+    implementations are different.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数常见的服务实现，如 TFServing、ONNX Runtime、Triton 和 TorchServe，使用模型即数据方法，并利用中间模型格式。其中一些实现仅支持一个框架，而其他实现则支持多个框架。不幸的是，每种解决方案都使用不同的模型格式并暴露独特的专有服务
+    API。这些接口无法满足所有人的需求。这些 API 接口的复杂性和分歧导致了用户体验的差异化，以及在不同模型框架之间切换时增加了摩擦力。
+- en: There are a few strong industry players attempting to unify the open source
+    community of model servers and decrease the friction between toggling model frameworks.
+    Seldon is pioneering graph inferencing with Seldon Core; Bloomberg and IBM are
+    investigating serverless model serving using solutions like Knative; and Google
+    is further hardening its serving implementation for TensorFlow models.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一些强大的行业领导者试图统一模型服务器的开源社区，减少在切换模型框架时的摩擦力。Seldon 正在通过 Seldon Core 探索图推理；Bloomberg
+    和 IBM 正在使用类似 Knative 的解决方案进行无服务器模型服务的研究；而 Google 则正在进一步加固其用于 TensorFlow 模型的服务实现。
+- en: In [“Model Inference in Kubeflow”](#inference_in_kubeflow), we will discuss
+    the serving solutions that Kubeflow offers and the work that has been done to
+    unify these solutions into a single interface.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [“Kubeflow 中的模型推理”](#inference_in_kubeflow) 中，我们将讨论 Kubeflow 提供的服务解决方案以及将这些解决方案统一到单一接口的工作。
+- en: Model Serving Requirements
+  id: totrans-42
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型服务要求
+- en: Model serving requires you to understand and manage the developmental operations
+    (DevOps) and handle the analysis, experimentation, and governance of your models.
+    This scope is wide, complicated, and universal among data scientists. We will
+    now start scoping out the expectations you might want from a serving solution.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型服务需要你理解和管理开发运维（DevOps），以及处理模型的分析、实验和治理。这个范围广泛、复杂，并且在数据科学家中普遍存在。我们现在将开始明确你可能希望从服务解决方案中获得的期望。
+- en: First, you want framework flexibility. Solutions like Kubeflow allow for your
+    training to be implementation-agnostic (i.e., TensorFlow versus PyTorch). If you
+    write an image classification inference service, it should not matter if the underlying
+    model was trained using PyTorch, Scikit-learn, or TensorFlow—the service interface
+    should be shared so that the user’s API remains consistent.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，您需要框架的灵活性。像 Kubeflow 这样的解决方案允许您的训练与具体实现无关（即 TensorFlow 对比 PyTorch）。如果您编写了一个图像分类推断服务，那么底层模型是使用
+    PyTorch、Scikit-learn 还是 TensorFlow 训练的都不重要，服务接口应共享，以保持用户的 API 一致性。
+- en: Second, you want the ability to leverage hardware optimizers that match the
+    needs of the algorithm. Sometimes fully fitted and tuned neural nets are quite
+    deep, which means that even in the evaluation phase, you would benefit from hardware
+    optimizers like GPUs or TPUs to infer the models.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，您希望能够利用与算法需求匹配的硬件优化器。有时完全拟合和调整的神经网络非常深，这意味着即使在评估阶段，您也会从像 GPU 或 TPU 这样的硬件优化器中受益，以推断模型。
+- en: Third, your model server should seamlessly interact with other components in
+    an inference graph. An inference graph could comprise feature transformers, predictors,
+    explainers, and drift detectors—all of which we will cover later.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三，您的模型服务器应无缝与推断图中的其他组件交互。推断图可以包括特征转换器、预测器、解释器和漂移检测器，我们稍后会详细介绍。
+- en: 'Fourth, you should also have options to scale your serving instance, both explicitly
+    and using autoscalers, regardless of the underlying hardware—i.e., cost per inference,
+    latency. This is particularly important and difficult because GPU autoscaling
+    relies on a combination of factors including: GPU/CPU utilization metrics, duty
+    cycles, and more, and knowing which metric to use for autoscaling is not obvious.
+    Also, the scaling of each of the components in your inference graph should be
+    done separately due to differing algorithmic needs.'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第四，您还应该有选择在生产中扩展您的服务实例的选项，无论基础硬件如何，即推断的成本、延迟。这尤为重要且困难，因为 GPU 的自动缩放依赖于多种因素，包括
+    GPU/CPU 利用率指标、工作周期等，而确定用于自动缩放的指标并不明显。此外，推断图中每个组件的扩展应分别进行，因为它们的算法需求不同。
+- en: Fifth, you want a serving instance that exposes representational state transfer
+    (REST) requests or general-purpose remote procedure calls (gRPC). If you have
+    streaming inputs, you may want to support a streaming interface like Kafka.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第五，您希望服务实例公开表现状态传输（REST）请求或通用远程过程调用（gRPC）。如果您有流式输入，可能希望支持像 Kafka 这样的流式接口。
+- en: Model Monitoring
+  id: totrans-49
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型监控
+- en: Once you have a model served, you must monitor the model server in production.
+    When we are talking about monitoring of the model server, we are talking not only
+    about model serving insights but also about general monitoring used for any Kubernetes-based
+    applications, including memory, CPU, networking, etc. We will explore model monitoring
+    and model insight in more detail in [“Monitoring Your Models”](#Monitor_yr_Models).
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您部署了模型，就必须监视生产中的模型服务器。当我们谈论模型服务器的监控时，不仅仅是指模型服务的洞察力，还包括适用于任何基于 Kubernetes 的应用程序的一般监控，包括内存、CPU、网络等。我们将在[“监控您的模型”](#Monitor_yr_Models)中更详细地探讨模型监控和模型洞察。
+- en: Model Accuracy, Drift, and Explainability
+  id: totrans-51
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型准确性、漂移和可解释性
+- en: In generating model serving insights, the most common ML attributes to monitor
+    are model accuracy, model drift, and explainability. *Model accuracy* refers to
+    the validation accuracy of your training data. But as live data distributions
+    begin to deviate from those of the original training data, this tends to result
+    in *model drift*. In other words, model drift occurs when the feature distribution
+    of the data sent to the model begins to significantly differ from the data used
+    to train the model, causing the model to perform suboptimally. ML insight systems
+    implement effective techniques for analyzing and detecting changes—*concept drift*—that
+    might happen to your input data, and the detection of these drifts is critical
+    for models running in production systems.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生成模型服务洞察时，监控的最常见的 ML 属性是模型准确性、模型漂移和可解释性。*模型准确性* 是指您训练数据的验证准确性。但随着实时数据分布开始偏离原始训练数据，这往往会导致*模型漂移*。换句话说，当发送到模型的数据的特征分布开始与训练模型时使用的数据显著不同时，模型会表现不佳。ML
+    洞察系统实施有效的技术来分析和检测可能发生在您的输入数据中的变化——*概念漂移*，这对于运行在生产系统中的模型至关重要。
+- en: 'Another form of model insight that is increasingly gaining attention today
+    is *model explainability*, or the ability to explain why a certain result was
+    produced. More precisely, it answers:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种越来越受关注的模型洞察形式是**模型可解释性**，即解释为什么会产生某个特定结果的能力。更确切地说，它回答以下问题：
+- en: What features in the data did the model think are most important?
+  id: totrans-54
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型在数据中认为哪些特征最重要？
+- en: For any single prediction from a model, how did each feature in the data affect
+    that particular prediction?
+  id: totrans-55
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于模型的任何单个预测，数据中的每个特征如何影响该特定预测？
+- en: What interactions between features have the greatest effects on a model’s predictions?
+  id: totrans-56
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 特征之间的交互对模型预测有何最大影响？
+- en: Beyond model insight, application monitoring traditionally relates to network
+    observability, or telemetry, the enablement of log aggregation, and service-mesh-related
+    metrics collection. These tools are useful in capturing data from a live serving
+    instance. This infrastructure exposes enough queryable information for troubleshooting
+    and alerting, should things go awry regarding reachability, utilization, or latency.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了模型洞察之外，应用程序监控传统上与网络可观察性或遥测相关，包括日志聚合和服务网格相关的指标收集。这些工具在从活动服务实例中捕获数据方面非常有用。该基础设施暴露了足够的可查询信息，用于故障排除和警报，以防在可达性、利用率或延迟方面出现问题。
+- en: Model Monitoring Requirements
+  id: totrans-58
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型监控要求
+- en: Monitoring model accuracy and model drift is hard. Luckily, this is a very active
+    research space with a variety of open source solutions.^([2](ch08.xhtml#idm45831170715736))
+    Your inference solution should enable you to plug in solutions that provide your
+    desired functionality out of the box. Now, we will see what you may wish to have
+    from your model monitoring component.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监控模型准确性和模型漂移是困难的。幸运的是，这是一个非常活跃的研究领域，有各种开源解决方案。^([2](ch08.xhtml#idm45831170715736))
+    您的推断解决方案应使您能够插入提供所需功能的解决方案。现在，我们将看看您可能希望从您的模型监控组件中得到的内容。
+- en: First, you want your inference service to provide ML insight out of the box
+    and run in a microservice-based architecture in order to simplify the experimentation
+    of drift detection and model explanation solutions.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，您希望您的推断服务能够在微服务架构中提供ML洞察，并能够简化漂移检测和模型解释解决方案的实验。
+- en: Second, you want to enable the monitoring, logging, and tracing of your service.
+    It should also support solutions like Prometheus, Kibana, and Zipkin, respectively,
+    but then also be able to seamlessly support their alternatives.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，您希望启用服务的监控、日志记录和跟踪。它还应支持像Prometheus、Kibana和Zipkin这样的解决方案，但也能无缝地支持它们的替代方案。
+- en: Model Updating
+  id: totrans-62
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型更新
+- en: 'If you wish to update your model and roll out a newer version or roll back
+    to a previous version, you will want to deploy and run this updated version. However,
+    the relationship between your current deployment and the new deployment can be
+    defined in a variety of ways. When your inference system introduces multiple versions
+    of your model serving instance, you can use either shadow or competing models:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您希望更新模型并发布新版本或回滚到以前的版本，您将希望部署和运行此更新版本。然而，当前部署与新部署之间的关系可以用多种方式定义。当您的推断系统引入多个版本的模型服务实例时，您可以使用影子模型或竞争模型：
+- en: Shadow models
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 影子模型
+- en: These are useful when considering the replacement of a model in production.
+    You can deploy the new model alongside the current one and send the same production
+    traffic to gather data on how the shadow model performs before promoting it.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在考虑在生产中替换模型时，这些是有用的。您可以在当前模型旁边部署新模型，并发送相同的生产流量以收集关于影子模型表现的数据，然后再提升它。
+- en: Competing models
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 竞争模型
+- en: These are a slightly more complex scenario, where you are trying multiple versions
+    of a model in production to find out which one is better through tools like A/B
+    testing.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些是稍微复杂的场景，您正在尝试在生产环境中使用多个模型版本，通过诸如A/B测试之类的工具来找出哪一个更好。
+- en: 'Let’s discuss the three main deployment strategies:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们讨论三种主要的部署策略：
+- en: '[Blue-green deployments](https://oreil.ly/pXHA4)'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[蓝绿部署](https://oreil.ly/pXHA4)'
+- en: These reduce downtime and risk relating to version rollouts by having only one
+    live environment, which serves all production traffic.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过仅有一个生产流量的活动环境，可以减少与版本发布相关的停机时间和风险。
+- en: '[Canary deployments](https://oreil.ly/BOEQi)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[金丝雀部署](https://oreil.ly/BOEQi)'
+- en: These enable rollout releases by allowing you to do percentage-based traffic
+    between versions.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些通过允许在版本之间进行基于百分比的流量切换，实现了逐步发布。
+- en: Pinned deployments
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 固定部署
+- en: These allow you to expose experimental traffic to a newer version, while keeping
+    production traffic against the current version.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些允许您将实验流量暴露给新版本，同时将生产流量保持在当前版本。
+- en: The added complexity of canary and pinned over blue-green comes from the infrastructure
+    and routing rules required to ensure that traffic is being redirected to the right
+    models. With this enablement, you can then gather data to make statistically significant
+    decisions about when to start moving traffic. One statistical approach for traffic
+    movement is A/B testing. Another popular approach for evaluating multiple competing
+    models is [multi-armed bandits](https://oreil.ly/eDEsU), which requires you to
+    define a score or reward for each model and to promote models relative to their
+    respective score.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 金丝雀和固定与蓝绿相比增加了基础设施和路由规则的复杂性，以确保流量被重定向到正确的模型。有了这种启用，您可以开始收集数据，以便在何时开始移动流量时做出统计显著的决策。流量移动的一种统计方法是A/B测试。评估多个竞争模型的另一种流行方法是[multi-armed
+    bandits](https://oreil.ly/eDEsU)，其中需要您为每个模型定义一个分数或奖励，并根据它们各自的分数推广模型。
+- en: Model Updating Requirements
+  id: totrans-76
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型更新要求
+- en: 'Upgrading your model must be simple, so the deployment strategy that you use
+    for upgrading should be easy to configure and simple to change (i.e., from pinned
+    to canary). Your inference solution should also offer more-complex graph inferencing
+    in its design. We will elaborate on what you need from your inference solution:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型升级必须简单，因此您用于升级的部署策略应易于配置和更改（即从固定到金丝雀）。您的推断解决方案还应在其设计中提供更复杂的图推断。我们将详细阐述您从推断解决方案中所需的内容：
+- en: First, the toggle of deployment strategies—i.e., from pinned to canary—should
+    be trivial. You can enable traffic-level routing in an abstracted way by abstracting
+    the service plane, which will be defined in [“Serverless and the Service Plane”](#serverless_service_plane).
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，部署策略的切换——即从固定到金丝雀——应该是微不足道的。您可以通过抽象服务平面来实现抽象化的流量级别路由，该路由将在[“无服务器和服务平面”](#serverless_service_plane)中定义。
+- en: Second, version changes should be tested and validated before promotion, and
+    the corresponding upgrade should be logged.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二，应在升级之前测试和验证版本更改，并记录相应的升级。
+- en: Third, the underlying stack should enable you to configure the more complex
+    deployment strategies common to graph inferencing literature.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三，底层堆栈应使您能够配置常见于图推断文献中的更复杂的部署策略。
+- en: Summary of Inference Requirements
+  id: totrans-81
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 推断需求摘要
+- en: With the requirements of model serving, monitoring, and updating all satisfied,
+    you now have an inference solution that completes your model development life
+    cycle (MDLC) story. This enables you to bring a model all the way from lab to
+    production, and even handle the updating of this model should you want to tune
+    or modify its construction. Now we will discuss the inference solutions that Kubeflow
+    offers.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 满足模型服务、监控和更新的要求后，您现在拥有一个完整的推断解决方案，完成了模型开发生命周期（MDLC）的故事。这使您可以将模型从实验室直接推广到生产，并且甚至可以处理此模型的更新，以便调整或修改其结构。现在我们将讨论Kubeflow提供的推断解决方案。
+- en: Tip
+  id: totrans-83
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Some ML practitioners believe that continuous learning (CL) is fundamental in
+    their production ML systems. CL is the ability of a model to learn continually
+    from streaming data. In essence, the model will autonomously learn and adapt in
+    production as new data comes in. Some even call this AutoML. With a complete MDLC
+    solution that enables pipelines and canary deployments, you can design such a
+    system using the tools available in Kubeflow.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有些机器学习实践者认为，持续学习（CL）对于他们的生产机器学习系统至关重要。CL 是模型不断从流数据中学习的能力。实质上，随着新数据的进入，模型将自主学习和适应生产环境。有些人甚至称之为AutoML。通过一个完整的MDLC解决方案，该解决方案能够实现管道和金丝雀部署，您可以利用Kubeflow中可用的工具来设计这样的系统。
+- en: Model Inference in Kubeflow
+  id: totrans-85
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Kubeflow中的模型推断
+- en: Model serving, monitoring, and updating within inference can be quite tricky
+    because you need a solution that manages all of these expectations in a way that
+    provides abstraction for first-time users and customizability for power users.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在推断中进行模型服务、监控和更新可能非常棘手，因为您需要一种管理所有这些期望的解决方案，以便为首次用户提供抽象，并为高级用户提供可定制性。
+- en: Kubeflow provides many [options](https://oreil.ly/GXjL4) for model inference
+    solutions. In this section, we will describe some of them, including TensorFlow
+    Serving, Seldon Core, and KFServing. [Table 8-2](#comparing_different_model_inference_approaches)
+    presents a quick comparison of these solutions.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow 为模型推断解决方案提供多种 [选项](https://oreil.ly/GXjL4)。在本节中，我们将描述其中一些，包括 TensorFlow
+    Serving、Seldon Core 和 KFServing。[表 8-2](#comparing_different_model_inference_approaches)
+    提供了这些解决方案的快速比较。
+- en: Table 8-2\. Comparing different model inference approaches
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 8-2\. 比较不同的模型推断方法
+- en: '| Solution | Approach |'
+  id: totrans-89
+  prefs: []
+  type: TYPE_TB
+  zh: '| 解决方案 | 方法 |'
+- en: '| --- | --- |'
+  id: totrans-90
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| TensorFlow Serving |'
+  id: totrans-91
+  prefs: []
+  type: TYPE_TB
+  zh: '| TensorFlow Serving |'
+- en: Single model type (TensorFlow) support
+  id: totrans-92
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 仅支持单一模型类型（TensorFlow）
+- en: Some support for monitoring metrics (Prometheus)
+  id: totrans-93
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对监控指标（Prometheus）提供部分支持。
+- en: With version 2.3, support for canarying via model version labels
+  id: totrans-94
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过模型版本标签支持版本 2.3 的金丝雀发布
+- en: Simplest infrastructure dependencies
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最简单的基础设施依赖
+- en: '|'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| Seldon Core |'
+  id: totrans-97
+  prefs: []
+  type: TYPE_TB
+  zh: '| Seldon Core |'
+- en: Optimized Docker containers for popular libraries like TensorFlow, H2O, XGBoost,
+    MXNet, etc.
+  id: totrans-98
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 针对流行库（如 TensorFlow、H2O、XGBoost、MXNet 等）优化的 Docker 容器。
+- en: Language wrappers that convert a Python file or a Java JAR into a fully fledged
+    microservice
+  id: totrans-99
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将 Python 文件或 Java JAR 转换为完整的微服务的语言包装器
+- en: Support for inference pipelines that can consist of models, transformers, combiners
+    and routers
+  id: totrans-100
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 支持由模型、转换器、合并器和路由器组成的推断流水线
+- en: Support for monitoring metrics and auditable request logs
+  id: totrans-101
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对监控指标和可审计请求日志的支持
+- en: Support for advanced deployment techniques—canary, blue-green, etc.
+  id: totrans-102
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 支持高级部署技术 —— 金丝雀发布、蓝绿部署等。
+- en: 'Support for advanced ML insights: explainers, outlier detectors, and adversarial
+    attack detectors'
+  id: totrans-103
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 支持高级 ML 洞察：解释器、异常检测器和对抗攻击检测器。
+- en: More complex infrastructure dependencies
+  id: totrans-104
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更复杂的基础设施依赖
+- en: '|'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| KFServing |'
+  id: totrans-106
+  prefs: []
+  type: TYPE_TB
+  zh: '| KFServing |'
+- en: Adding serverless (Knative) and a standardized inference experience to Seldon
+    Core, while providing extensibility for other model servers
+  id: totrans-107
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将 Seldon Core 添加无服务器（Knative）和标准化推断体验，同时为其他模型服务器提供可扩展性。
+- en: Most complex infrastructure dependencies
+  id: totrans-108
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最复杂的基础设施依赖
+- en: '|'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: TensorFlow Serving
+  id: totrans-110
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: TensorFlow Serving
+- en: One of the most popular serving implementations is [TensorFlow Serving](https://oreil.ly/AV0jU)
+    (TFServing), a model-serving implementation based on the [TensorFlow export format](https://oreil.ly/WOV9j).
+    TFServing implements a flexible, high-performance serving system for ML models,
+    designed for production environments. The TFServing architecture is shown in [Figure 8-1](#tfserving_figure).
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最受欢迎的服务实现之一是 [TensorFlow Serving](https://oreil.ly/AV0jU)（TFServing），这是基于 [TensorFlow
+    导出格式](https://oreil.ly/WOV9j) 的模型服务实现。TFServing 实现了一个灵活高效的 ML 模型服务系统，专为生产环境设计。TFServing
+    的架构如 [图 8-1](#tfserving_figure) 所示。
+- en: '![TFServing architecture](Images/kfml_0801.png)'
+  id: totrans-112
+  prefs: []
+  type: TYPE_IMG
+  zh: '![TFServing 架构](Images/kfml_0801.png)'
+- en: Figure 8-1\. TFServing architecture
+  id: totrans-113
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-1\. TFServing 架构
+- en: 'TFServing uses exported TensorFlow models as inputs and supports running predictions
+    on them using HTTP or gRPC. TFServing can be [configured](https://oreil.ly/O8oE-)
+    to use either:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFServing 使用导出的 TensorFlow 模型作为输入，并支持使用 HTTP 或 gRPC 运行预测。TFServing 可以配置为使用以下之一：
+- en: A single (latest) version of the model
+  id: totrans-115
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 单一（最新）版本的模型
+- en: Multiple, specific versions of the model
+  id: totrans-116
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 多个具体版本的模型。
+- en: 'TensorFlow can be used both locally^([3](ch08.xhtml#idm45831170617576)) and
+    in Kubernetes.^([4](ch08.xhtml#idm45831170616056)) A typical TFServing implementation
+    within Kubeflow includes the following components:'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow 可以在本地[^3](ch08.xhtml#idm45831170617576)和 Kubernetes 中[^4](ch08.xhtml#idm45831170616056)使用。Kubeflow
+    中的典型 TFServing 实现包括以下组件：
+- en: A Kubernetes deployment running the required amount of replicas
+  id: totrans-118
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 运行所需副本数的 Kubernetes 部署。
+- en: A Kubernetes service providing access to the deployment
+  id: totrans-119
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提供访问部署的 Kubernetes 服务。
+- en: An Istio virtual service that exposes the service through the Istio ingress
+    gateway
+  id: totrans-120
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过 Istio 虚拟服务，通过 Istio 入口网关公开服务
+- en: An Istio `DestinationRule` that defines policies for traffic routed to the service
+    (These rules can specify configurations for load balancing, connection pool size,
+    and outlier detection settings so that you can detect and evict unhealthy hosts
+    from the load balancing pool.)
+  id: totrans-121
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个 Istio `DestinationRule`，定义路由到服务的流量策略（这些规则可以指定负载均衡、连接池大小和异常检测设置，以便检测和清除负载均衡池中的不健康主机。）
+- en: We will walk through an example of how these components [are implemented](https://oreil.ly/copcG)
+    by extending our recommender example. To simplify your initial inference service,
+    your example TFServing instance will be scoped to a deployment and a service that
+    enables HTTP access. The Helm chart for this example can be found in [the GitHub
+    repo for this book](https://oreil.ly/Kubeflow_for_ML_ch08_Helm).
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将通过扩展我们的推荐示例来演示这些组件[的实现方式](https://oreil.ly/copcG)。为了简化您的初始推断服务，您的示例 TFServing
+    实例将被限定为一个部署和一个允许 HTTP 访问的服务。该示例的 Helm 图表可以在[本书的 GitHub 存储库](https://oreil.ly/Kubeflow_for_ML_ch08_Helm)
+    中找到。
+- en: The chart defines a Kubernetes deployment and service. The deployment uses the
+    “standard” TFServing Docker image and, in its configuration spec, points to a
+    serialized model at an `S3` source location. This `S3` bucket is managed by a
+    local MinIO instance. The service exposes this deployment inside the Kubernetes
+    cluster.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该图表定义了一个 Kubernetes 部署和服务。部署使用了“标准”TFServing Docker 镜像，并在其配置规范中指向了一个在 `S3` 源位置的序列化模型。这个
+    `S3` 存储桶由本地 MinIO 实例管理。该服务在 Kubernetes 集群内部公开了这个部署。
+- en: 'The chart can be deployed using the following command (assuming you are running
+    Helm 3):'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以使用以下命令部署该图表（假设您正在运行 Helm 3）：
+- en: '[PRE0]'
+  id: totrans-125
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Now that you have the chart deployed, you need a way to interface with your
+    inference solution. One method is to [port forward](https://oreil.ly/jWjfV) your
+    service, so that the traffic can be redirected to your localhost for testing.
+    You can port-forward your service with [Example 8-1](#Portforward_TFServ_servs).
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经部署了图表，需要一种与推断解决方案进行接口交互的方式。一种方法是将您的服务进行[端口转发](https://oreil.ly/jWjfV)，以便流量可以重定向到本地主机进行测试。您可以使用[示例 8-1](#Portforward_TFServ_servs)
+    进行服务的端口转发。
+- en: Example 8-1\. Port-forwarding TFServing services
+  id: totrans-127
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-1\. TFServing 服务的端口转发
+- en: '[PRE1]'
+  id: totrans-128
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: The resulting traffic will be rerouted to `localhost:8051`.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果流量将被重新路由到 `localhost:8051`。
+- en: 'You are now ready to interact with your TFServing inference solution. To start,
+    you should validate the deployment by requesting model deployment information
+    from your service:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已准备好与 TFServing 推断解决方案交互。首先，您应该通过请求来自您的服务的模型部署信息来验证部署：
+- en: '[PRE2]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The expected output is shown in [Example 8-2](#TFServRec_model_version_status).
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预期输出显示在[示例 8-2](#TFServRec_model_version_status) 中。
+- en: Example 8-2\. TFServing Recommender model version status
+  id: totrans-133
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-2\. TFServing 推荐模型版本状态
+- en: '[PRE3]'
+  id: totrans-134
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'You can also get the model’s metadata, including its signature definition,
+    by issuing the following curl command:'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以通过发出以下 curl 命令获取模型的元数据，包括其签名定义：
+- en: '[PRE4]'
+  id: totrans-136
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Now that your model is available and has the correct signature definition, you
+    can predict against the service with the command seen in [Example 8-3](#req_TFServ_Rec_service).
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您的模型可用，并且具有正确的签名定义，您可以使用[示例 8-3](#req_TFServ_Rec_service) 中看到的命令预测服务。
+- en: Example 8-3\. Sending a request to your TFServing Recommender service
+  id: totrans-138
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-3\. 向您的 TFServing 推荐服务发送请求
+- en: '[PRE5]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: The result from executing [Example 8-3](#req_TFServ_Rec_service) is shown in
+    [Example 8-4](#Output_fr_TFServ_Rec_service).
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行[示例 8-3](#req_TFServ_Rec_service) 的结果显示在[示例 8-4](#Output_fr_TFServ_Rec_service)
+    中。
+- en: Example 8-4\. Output from your TFServing Recommender service
+  id: totrans-141
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-4\. 您的 TFServing 推荐服务的输出
+- en: '[PRE6]'
+  id: totrans-142
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Your TensorFlow model is now behind a live inference solution. TFServing makes
+    it easy to deploy new TensorFlow algorithms and experiments, while keeping the
+    same server architecture and APIs. But the journey does not end there. For one,
+    these deployment instructions create a service but do not enable access from outside
+    of the cluster.^([5](ch08.xhtml#idm45831170410888)) But we will now take a further
+    look into all the capabilities of this particular solution against your inference
+    requirements.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您的 TensorFlow 模型现在位于一个实时推断解决方案之后。TFServing 使得部署新的 TensorFlow 算法和实验变得轻松，同时保持相同的服务器架构和
+    API。但旅程并未结束。首先，这些部署说明创建了一个服务，但未启用集群外的访问。^([5](ch08.xhtml#idm45831170410888)) 现在我们将进一步探讨这个特定解决方案对您的推断需求的所有能力。
+- en: Review
+  id: totrans-144
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 回顾
+- en: If you are looking to deploy your TensorFlow model with the lowest infrastructure
+    requirement, TFServing is your solution. However, this has limitations when you
+    consider your inference requirements.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您希望使用最低的基础设施要求部署 TensorFlow 模型，TFServing 是您的解决方案。但是，在考虑您的推断需求时，这也有其局限性。
+- en: Model serving
+  id: totrans-146
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型服务
+- en: Because TFServing only has production-level support for TensorFlow, it does
+    not have the desired flexibility you would expect from a framework-agnostic inference
+    service. It does, however, support REST, gRPC, GPU acceleration, mini-batching,
+    and “lite” versions for serving on edge devices. Regardless of the underlying
+    hardware, this support does not extend to streaming inputs or to built-in auto
+    scaling.^([6](ch08.xhtml#idm45831170375912)) Furthermore, the ability to extend
+    the inference graph—beyond a Fairness Indicator—to include more advanced ML insights
+    isn’t supported in a first-class way. Despite providing basic serving and model
+    analysis features for TensorFlow models, this inference solution does not satisfy
+    your more advanced serving requirements.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于TFServing仅对TensorFlow提供生产级支持，因此并不具备您从框架无关推断服务中期望的灵活性。但它支持REST、gRPC、GPU加速、小批量处理以及适用于边缘设备的“精简”版本。尽管如此，无论底层硬件如何，这种支持都不涵盖流式输入或内置自动扩展功能。^([6](ch08.xhtml#idm45831170375912))
+    此外，以一流方式支持扩展推断图——超越公平指标——以包含更高级ML洞察并不得到支持。尽管为TensorFlow模型提供基本的服务和模型分析功能，但这种推断解决方案并未满足您更高级的服务需求。
+- en: Model monitoring
+  id: totrans-148
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型监控
+- en: TFServing supports traditional monitoring via its [integration](https://oreil.ly/WigdN)
+    with Prometheus. This exposes both system information—such as CPU, memory, and
+    networking—and TFServing-specific metrics; unfortunately, there is very little
+    documentation (see the best source, on the [TensorFlow site](https://oreil.ly/czq_V)).
+    Also, there is no first-class integration with data visualization tools like Kibana
+    or distributed tracing libraries like Jaeger. As such, TFServing does not provide
+    the managed network observability capabilities you desire.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFServing通过其与Prometheus的集成支持传统监控。这公开了系统信息（如CPU、内存和网络）以及TFServing特定的指标；不幸的是，有关文档极为匮乏（请参阅最佳来源，位于[TensorFlow网站](https://oreil.ly/czq_V)）。此外，它与像Kibana这样的数据可视化工具或像Jaeger这样的分布式跟踪库的一流集成并不存在。因此，TFServing未提供您期望的托管网络可观察性能力。
+- en: When it comes to advanced model serving insights, including model drift and
+    explainability, some of them are [available in TensorFlow 2.0](https://oreil.ly/_yunS).
+    Furthermore, the vendor lock-in to a proprietary serving solution complicates
+    the plugability of model insight components. Since the deployment strategy of
+    TFServing uses Kubeflow’s infrastructure stack, it leverages a microservice approach.
+    This allows TFServing deployments to be easily coupled with auxiliary ML components.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于包括模型漂移和可解释性在内的高级模型服务洞察，某些内容在[TensorFlow 2.0中可用](https://oreil.ly/_yunS)。此外，对专有服务解决方案的供应商锁定使得模型洞察组件的可插拔性变得复杂。由于TFServing的部署策略使用Kubeflow的基础设施堆栈，它采用了微服务方法。这使得TFServing部署可以轻松地与辅助ML组件耦合。
+- en: Model updating
+  id: totrans-151
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型更新
+- en: TFServing is quite advanced in that it enables canary, pinned, and even rollback
+    deployment strategies.^([7](ch08.xhtml#idm45831170326744)) However, the strategies
+    are limited to the manual labeling of existing model versions and do not include
+    support for the introduction of in-flight model versions. So version promotion
+    does not have a safe-rollout guarantee. Lastly, the strategies are embedded in
+    the server and aren’t extensible for other deployment strategies that might exist
+    outside of TFServing.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFServing在使能够金丝雀、固定和甚至回滚部署策略方面相当先进。^([7](ch08.xhtml#idm45831170326744)) 然而，这些策略仅限于对现有模型版本的手动标记，并不包括对在飞行中模型版本的支持。因此，版本推广并不具有安全推出的保证。最后，这些策略嵌入在服务器中，不支持其他可能存在于TFServing之外的部署策略的可扩展性。
+- en: Summary
+  id: totrans-153
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 总结
+- en: TFServing provides extremely performant and sophisticated out-of-the-box integration
+    for TensorFlow models, but it falls short on enabling more advanced features like
+    framework extensibility, advanced telemetry, and plugable deployment strategies.
+    Seeing these requirements unsatisfied, we will now look at how Seldon Core attempts
+    to fill these gaps.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFServing为TensorFlow模型提供了极其高效和复杂的即插即用集成，但在启用更高级功能（如框架可扩展性、高级遥测和可插入式部署策略）方面存在不足。鉴于这些要求尚未得到满足，我们现在将看看Seldon
+    Core如何填补这些空白。
+- en: Seldon Core
+  id: totrans-155
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Seldon Core
+- en: 'Instead of just serving up single models behind an endpoint, Seldon Core enables
+    data scientists to compose complex runtime inference graphs—by converting their
+    machine learning code or artifacts into microservices. An inference graph, as
+    visualized in [Figure 8-2](#seldoninference_figure), can be composed of:'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Seldon Core 不仅仅可以在端点后面提供单个模型，还可以将数据科学家的机器学习代码或工件转换为微服务，从而组成复杂的运行时推断图。如在[图 8-2](#seldoninference_figure)中可视化的推断图可以由以下组件组成：
+- en: Models
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型
+- en: Runtime inference executable for one or more ML models
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为一个或多个 ML 模型运行推断可执行文件
+- en: Routers
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 路由器
+- en: Route requests to subgraphs, i.e., enabling A/B tests or multi-armed bandits
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将请求路由到子图，例如启用 A/B 测试或多臂赌博机
+- en: Combiners
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组合器
+- en: Combine the responses from subgraphs, i.e., model ensemble
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 合并来自子图的响应，例如模型集成
+- en: Transformers
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 转换器
+- en: Transform requests or responses, i.e., transform feature requests
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 转换请求或响应，即转换特征请求
+- en: '![Seldon Inference Graph](Images/kfml_0802.png)'
+  id: totrans-165
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Seldon 推断图](Images/kfml_0802.png)'
+- en: Figure 8-2\. Seldon inference graph example
+  id: totrans-166
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-2\. Seldon 推断图示例
+- en: 'To understand how Seldon achieves this, we will explore its core components
+    and feature set:'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要理解 Seldon 如何实现这一点，我们将探讨其核心组件和功能集：
+- en: Prepackaged model servers
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预打包模型服务器
+- en: Optimized Docker containers for popular libraries such as TensorFlow, XGBoost,
+    H2O, etc., which can load and serve model artifacts/binaries
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优化的 Docker 容器，适用于流行库如 TensorFlow、XGBoost、H2O 等，可以加载和提供模型工件/二进制文件
+- en: Language wrappers
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 语言包装器
+- en: Tools to enable more custom machine learning models to be wrapped using a set
+    of CLIs, which allow data scientists to convert a Python file or a Java JAR into
+    a fully fledged microservice
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工具可以使用一组 CLI 实现更多定制的机器学习模型包装，允许数据科学家将 Python 文件或 Java JAR 文件转换为成熟的微服务
+- en: Standardized API
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标准化 API
+- en: Out-of-the-box APIs that can be REST or gRPC
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以是 REST 或 gRPC 的开箱即用的 API
+- en: Out of the box observability
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开箱即用的可观察性
+- en: Monitoring metrics and auditable request logs
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监控指标和可审计的请求日志
+- en: Advanced machine learning insights
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 高级机器学习洞察
+- en: Complex ML concepts such as explainers, outlier detectors, and adversarial attack
+    detectors abstracted into infrastructural components that can be extended when
+    desired
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将复杂的 ML 概念（如解释器、异常检测器和对抗攻击检测器）抽象为基础组件，可以在需要时进行扩展。
+- en: Using all of these components, we walk through how to design an inference graph
+    using Seldon.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用所有这些组件，我们将详细介绍如何使用 Seldon 设计推断图。
+- en: Designing a Seldon Inference Graph
+  id: totrans-179
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 设计 Seldon 推断图
+- en: First, you will need to decide what components you want your inference graph
+    to consist of. Will it be just a model server, or will you add a set of transformers,
+    explainers, or outlier detectors to the model server? Luckily, it’s really easy
+    to add or remove components as you see fit, so we will start with just a simple
+    model server.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，您需要决定推断图包含哪些组件。它只是一个模型服务器，还是会向模型服务器添加一组转换器、解释器或异常检测器？幸运的是，根据需要添加或移除组件非常容易，所以我们将从一个简单的模型服务器开始。
+- en: Second, you need to containerize your processing steps. You can build each step
+    of your inference graph with *model as data* or *model as code*. For model as
+    data, you could use a prepackaged model server to load your model artifacts/binaries
+    and avoid building a Docker container every time your model changes. For model
+    as code, you would build your own prepackaged model server based on a custom implementation.
+    Your implementation is enabled via a language wrapper that would containerize
+    your code by exposing a high-level interface to your model’s logic. This can be
+    used for more complex cases, even use cases that may require custom OS-specific,
+    or even external-system dependencies.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，您需要将处理步骤容器化。您可以使用*模型作为数据*或*模型作为代码*构建推断图中的每个步骤。对于模型作为数据，您可以使用预打包模型服务器加载您的模型工件/二进制文件，并避免在模型更改时每次构建
+    Docker 容器。对于模型作为代码，您将根据自定义实现构建自己的预打包模型服务器。您的实现通过语言包装器实现，通过暴露高级接口到模型逻辑来容器化您的代码。这可以用于更复杂的情况，甚至是可能需要定制的特定操作系统或外部系统依赖的用例。
+- en: Next, you need to test your implementation. You can run your implementation
+    locally, leveraging Seldon tools to verify that it works correctly. Local development
+    is enabled by the underlying portability of Kubernetes and by Seldon’s compatibility
+    with Kubeflow’s infrastructure stack.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，您需要测试您的实现。您可以在本地运行您的实现，利用 Seldon 工具验证其正确性。本地开发得益于 Kubernetes 的可移植性和 Seldon
+    与 Kubeflow 基础设施堆栈的兼容性。
+- en: 'Then, you can enable Seldon Core extensions. Some extensions include: Jaeger
+    tracing integration, ELK request logging integration, Seldon Core analytics integration,
+    or Istio/Ambassador ingress integration, to name a few.^([8](ch08.xhtml#idm45831170291704))'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，您可以启用 Seldon Core 扩展。一些扩展包括：Jaeger 跟踪集成、ELK 请求日志集成、Seldon Core 分析集成或 Istio/Ambassador
+    入口集成等^([8](ch08.xhtml#idm45831170291704))。
+- en: After enabling extensions, you can promote your local graph deployment to be
+    hosted against a live Kubernetes cluster.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 启用扩展后，您可以将本地图部署推广为针对活动 Kubernetes 集群托管。
+- en: Lastly, you can hook up your inference graph into a continuous integration/continuous
+    delivery (CI/CD) pipeline. Seldon components allow you to integrate seamlessly
+    into CI/CD workflows, which enables you to use your preferred CI tool to connect
+    your model sources into Seldon Core.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，您可以将推断图连接到持续集成/持续交付（CI/CD）流水线中。Seldon 组件允许您无缝集成到 CI/CD 工作流程中，从而可以使用您喜欢的 CI
+    工具将模型源连接到 Seldon Core。
+- en: Now that you have scoped out a rather robust inference graph, we will walk through
+    some examples after getting set up with Seldon on your Kubeflow cluster.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经确定了一个相当强大的推断图，我们将在设置好 Seldon 在您的 Kubeflow 集群之后，通过一些示例进行演示。
+- en: Setting up Seldon Core
+  id: totrans-187
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 设置 Seldon Core
+- en: Seldon Core 1.0 comes prepackaged with Kubeflow, so it should already be available
+    to you. The Seldon Core installation will create a Kubernetes operator which will
+    watch for SeldonDeployment resources that describe your inference graph. However,
+    you can install a custom version of Seldon Core, as per the installation instructions,
+    with [Example 8-5](#Helm_install_cust_SeldonCore_vers).
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Seldon Core 1.0 预先打包了 Kubeflow，因此它应该已经对您可用。Seldon Core 安装将创建一个 Kubernetes 操作员，该操作员将监视描述推断图的
+    SeldonDeployment 资源。但是，您可以按照安装说明安装自定义版本的 Seldon Core，如 [示例 8-5](#Helm_install_cust_SeldonCore_vers)
+    所示。
+- en: Example 8-5\. Helm install for a custom Seldon Core version
+  id: totrans-189
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-5\. 自定义 Seldon Core 版本的 Helm 安装
+- en: '[PRE7]'
+  id: totrans-190
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'You must ensure that the namespace where your models will be served has an
+    Istio gateway and an InferenceServing namespace label. An example label application
+    would be:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您必须确保用于提供模型的命名空间具有 Istio 网关和 InferenceServing 命名空间标签。示例标签应用如下：
+- en: '[PRE8]'
+  id: totrans-192
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: An example Istio gateway is shown in [Example 8-6](#Seldon_Core_Istio_Gateway).
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [示例 8-6](#Seldon_Core_Istio_Gateway) 中显示了一个 Istio 网关示例。
+- en: Example 8-6\. Seldon Core Istio Gateway
+  id: totrans-194
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-6\. Seldon Core Istio 网关
+- en: '[PRE9]'
+  id: totrans-195
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: You should save [Example 8-6](#Seldon_Core_Istio_Gateway) to a file and apply
+    it using `kubectl`.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您应该将 [示例 8-6](#Seldon_Core_Istio_Gateway) 保存到文件中，并使用 `kubectl` 应用它。
+- en: Packaging your model
+  id: totrans-197
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 打包您的模型
+- en: As mentioned before, to run a model with Seldon Core you can either package
+    it using a prepackaged model server^([9](ch08.xhtml#idm45831170170360)) or a language
+    wrapper.^([10](ch08.xhtml#idm45831170169576))
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，要使用 Seldon Core 运行模型，您可以使用预打包的模型服务器^([9](ch08.xhtml#idm45831170170360))
+    或语言包装器^([10](ch08.xhtml#idm45831170169576)) 打包它。
+- en: Creating a SeldonDeployment
+  id: totrans-199
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 创建一个 SeldonDeployment
+- en: After packaging your model you need to define an inference graph that connects
+    a set of model components into a single inference system. Each of the model components
+    can be one of the two options outlined in [“Packaging your model”](#package_your_model).
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 打包您的模型后，需要定义一个推断图，将一组模型组件连接成一个单一的推断系统。模型组件可以是以下两种选项之一，详见 [“打包您的模型”](#package_your_model)。
+- en: Some example graphs are shown in [Figure 8-3](#seldongraph_figure).
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些示例图在 [图 8-3](#seldongraph_figure) 中展示。
+- en: '![Seldon Inference Graph example](Images/kfml_0803.png)'
+  id: totrans-202
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Seldon 推断图示例](Images/kfml_0803.png)'
+- en: Figure 8-3\. Seldon graph examples
+  id: totrans-203
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-3\. Seldon 图示例
+- en: 'The following list expands on the example inference graphs (a) to (e), as shown
+    in [Figure 8-3](#seldongraph_figure):'
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下列表详细说明了示例推断图 (a) 到 (e)，如图 [8-3 图](#seldongraph_figure) 所示：
+- en: (a) A single model
+  id: totrans-205
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: (a) 单个模型
+- en: (b) Two models in sequence. The output of the first will be fed into the input
+    of the second.
+  id: totrans-206
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: (b) 两个模型按顺序排列。第一个模型的输出将被馈送到第二个模型的输入。
+- en: '(c) A model with input and output transformers: the input transformer will
+    be called, then the model and the response will be transformed by the output transformer'
+  id: totrans-207
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: (c) 具有输入和输出转换器的模型：先调用输入转换器，然后通过模型和响应进行输出转换
+- en: (d) A router that will choose whether to send to model A or B
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: (d) 一个路由器，将决定是将数据发送到模型 A 还是模型 B
+- en: (e) A combiner that takes the response from model A and B and combines into
+    a single response^([11](ch08.xhtml#idm45831170150904))
+  id: totrans-209
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: (e) 一个组合器，将模型 A 和 B 的响应合并为单个响应^([11](ch08.xhtml#idm45831170150904))
+- en: In addition, SeldonDeployment can specify methods for each component. When your
+    SeldonDeployment is deployed, Seldon Core adds a service orchestrator to manage
+    the request and response flow through your graph.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，SeldonDeployment 可以为每个组件指定方法。当您的 SeldonDeployment 部署时，Seldon Core 将添加一个服务协调器来管理请求和响应流通过您的图。
+- en: An example SeldonDeployment, for inference graph (a) in [Figure 8-3](#seldongraph_figure),
+    appears in [Example 8-7](#Simple_Seldon_Core_prep_model_server) as an example
+    of what a prepackaged model server looks like.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个示例 SeldonDeployment，用于推理图（a）在 [Figure 8-3](#seldongraph_figure) 中，出现在 [Example 8-7](#Simple_Seldon_Core_prep_model_server)
+    中，作为预打包模型服务器的示例。
+- en: Example 8-7\. Simple Seldon Core prepackaged model server
+  id: totrans-212
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-7\. 简单的 Seldon Core 预打包模型服务器
+- en: '[PRE10]'
+  id: totrans-213
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'In the example you see that the SeldonDeployment has a list of `predictors`,
+    each of which describes an inference graph. Each predictor has some core fields:'
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在示例中，您可以看到 SeldonDeployment 拥有一个 `predictors` 列表，每个描述一个推理图。每个预测器都有一些核心字段：
+- en: componentSpecs
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: componentSpecs
+- en: A list of Kubernetes PodSpecs, each of which will be used for a Kubernetes deployment.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个 Kubernetes PodSpecs 列表，每个将用于 Kubernetes 部署。
+- en: graph
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 推理图
+- en: A representation of the inference graph containing the name of each component,
+    its type, and the protocol it respects. The name must match one container name
+    from the componentSpecs section, unless it is a prepackaged model server (see
+    subsequent examples).
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 包含推理图表示，其中包含每个组件的名称、类型以及它遵循的协议。每个名称必须与 componentSpecs 部分的一个容器名称匹配，除非它是预打包模型服务器（参见后续示例）。
+- en: Name
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 名称
+- en: The name of the predictor.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预测器的名称。
+- en: Replicas
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 副本
+- en: The number of replicas to create for each deployment in the predictor.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个预测器部署中要创建的副本数量。
+- en: Type
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类型
+- en: The detail on whether it is a prepackaged model server or a custom language
+    wrapper model.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它是预打包模型服务器还是自定义语言包装器模型的详细信息。
+- en: modelUri
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: modelUri
+- en: A URL where the model binary or weight are stored, which would be relevant for
+    the respective prepackaged model server.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储模型二进制文件或权重的 URL，这对于相应的预打包模型服务器很重要。
+- en: Another example for SeldonDeployment for (a) is shown in [Example 8-8](#Simple_Seldon_Core_cust_lang_wrapper),
+    using in this instance a custom language wrapper model.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个示例是 SeldonDeployment，用于示例 [Example 8-8](#Simple_Seldon_Core_cust_lang_wrapper)，在本例中使用了自定义语言包装器模型。
+- en: Example 8-8\. Simple Seldon Core custom language wrapper
+  id: totrans-228
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-8\. 简单的 Seldon Core 自定义语言包装器
+- en: '[PRE11]'
+  id: totrans-229
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'In this example you have a small set of new sections:'
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个示例中，您有一小组新的章节：
+- en: Containers
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器
+- en: This is your Kubernetes container definition, where you are able to provide
+    overrides to the details of your container, together with your Docker image and
+    tag.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是您的 Kubernetes 容器定义，在这里您可以提供有关容器详细信息的覆盖，以及您的 Docker 镜像和标签。
+- en: Endpoint
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 端点
+- en: In this case you can specify if the endpoint of your model will be REST or gRPC.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，您可以指定模型端点是 REST 还是 gRPC。
+- en: The definition of your inference graph is now complete. We will now discuss
+    how to test your components individually or in unison on the cluster.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您的推理图定义现已完成。我们现在将讨论如何在集群上单独或联合地测试您的组件。
+- en: Testing Your Model
+  id: totrans-236
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 测试您的模型
+- en: In order to test your components, you must interface with each using some request
+    input. You can send requests directly using `curl`, `grpcurl`, or a similar utility,
+    as well as by using the Python `SeldonClient` SDK.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了测试您的组件，您必须使用某些请求输入与每个接口。您可以直接使用 `curl`、`grpcurl` 或类似的实用程序发送请求，也可以使用 Python
+    的 `SeldonClient` SDK。
+- en: There are several options for testing your model before deploying it.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在部署之前，有几种测试模型的选项。
+- en: Running your model directly with the Python client
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 直接使用 Python 客户端运行您的模型
+- en: This allows for easy local testing outside of a cluster.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这允许在集群外进行简单的本地测试。
+- en: Running your model as a Docker container
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将模型作为 Docker 容器运行
+- en: This can be used for all language wrappers—but not prepackaged inference servers—to
+    test that your image has the required dependencies and behaves as you would expect.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可以用于所有语言包装器，但不适用于预打包推理服务器，以测试您的图像是否具有所需的依赖项并表现如您所期望的那样。
+- en: Running your `SeldonDeployment` in a Kubernetes dev client such as [KIND](https://oreil.ly/U-5XT)
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Kubernetes 开发客户端（如 [KIND](https://oreil.ly/U-5XT)）中运行您的 `SeldonDeployment`
+    示例。
+- en: This can be used for any models and is a final test that your model will run
+    as expected.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可用于任何模型，并且是确保您的模型将按预期运行的最终测试的一部分。
+- en: Python client for Python language wrapped models
+  id: totrans-245
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Python 客户端用于 Python 语言封装模型
+- en: You can define your Python model in a file called *MyModel.py*, as seen in [Example 8-9](#Seldon_Core_Py_model_class).
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在名为 *MyModel.py* 的文件中定义您的 Python 模型，如 [示例 8-9](#Seldon_Core_Py_model_class)
+    所示。
+- en: Example 8-9\. Seldon Core Python model class
+  id: totrans-247
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-9\. Seldon Core Python 模型类
+- en: '[PRE12]'
+  id: totrans-248
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'You are able to test your model by running the `microservice` CLI that is provided
+    by the [Python module](https://oreil.ly/RH1Dg). Once you install the Python `seldon-core`
+    module you will be able to run the model with the following command:'
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过运行由 [Python 模块](https://oreil.ly/RH1Dg) 提供的 `microservice` CLI 来测试您的模型。一旦安装了
+    Python 的 `seldon-core` 模块，您就可以使用以下命令运行模型：
+- en: '[PRE13]'
+  id: totrans-250
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Now that your model microservice is running, you can send a request using curl,
+    as seen in [Example 8-10](#Send_req_to_SeldonCore_custom_microservice).
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您的模型微服务正在运行，您可以使用 curl 发送请求，如 [示例 8-10](#Send_req_to_SeldonCore_custom_microservice)
+    所示。
+- en: Example 8-10\. Sending a request to your Seldon Core custom microservice
+  id: totrans-252
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-10\. 向您的 Seldon Core 自定义微服务发送请求
+- en: '[PRE14]'
+  id: totrans-253
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: You can see that the output of the model is returned through the API.^([12](ch08.xhtml#idm45831169891080))
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以看到模型的输出是通过 API 返回的。^([12](ch08.xhtml#idm45831169891080))
+- en: Local testing with Docker
+  id: totrans-255
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用 Docker 进行本地测试
+- en: If you are building language models with other wrappers, you can run the containers
+    you build through your local Docker client. A good tool for building Docker containers
+    from source code is [S2I](https://oreil.ly/Kgx_Q). For this, you just have to
+    run the Docker client with the command seen in [Example 8-11](#Exp_Seldon_Core_micros_loc_Docker_client).
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您使用其他包装器构建语言模型，您可以通过本地 Docker 客户端运行构建的容器。一个用于从源代码构建 Docker 容器的好工具是 [S2I](https://oreil.ly/Kgx_Q)。为此，您只需使用
+    [示例 8-11](#Exp_Seldon_Core_micros_loc_Docker_client) 中的命令运行 Docker 客户端。
+- en: Example 8-11\. Exposing Seldon Core microservice in a local Docker client
+  id: totrans-257
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-11\. 在本地 Docker 客户端中公开 Seldon Core 微服务
+- en: '[PRE15]'
+  id: totrans-258
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: This will run the model and export it on port 5000, so now you can send a request
+    using curl, as seen in [Example 8-12](#Send_req_local_Seldon_Core_micros).
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行该模型并在端口 5000 上导出它，现在您可以使用 curl 发送请求，如 [示例 8-12](#Send_req_local_Seldon_Core_micros)
+    所示。
+- en: Example 8-12\. Sending a request to your local Seldon Core microservice
+  id: totrans-260
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-12\. 向本地 Seldon Core 微服务发送请求
+- en: '[PRE16]'
+  id: totrans-261
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: With this environment, you can rapidly prototype and effectively test, before
+    serving your model in a live cluster.
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这个环境，您可以快速原型设计并有效地测试，然后在实时集群中提供您的模型。
+- en: Serving Requests
+  id: totrans-263
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 提供请求
+- en: 'Seldon Core supports two ingress gateways, Istio and Ambassador. Because Kubeflow’s
+    installation uses Istio, we will focus on how Seldon Core works with the `Istio
+    Ingress Gateway`. We will assume that the Istio gateway is at `*<istioGateway>*`
+    and has a SeldonDeployment name `*<deploymentName>*` in namespace `*<namespace>*`.
+    This means a `REST` endpoint will be exposed at:'
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Seldon Core 支持两个入口网关，Istio 和 Ambassador。由于 Kubeflow 的安装使用 Istio，我们将重点介绍 Seldon
+    Core 如何与 `Istio Ingress Gateway` 配合工作。我们假设 Istio 网关位于 `*<istioGateway>*`，在命名空间
+    `*<namespace>*` 中具有 SeldonDeployment 名称 `*<deploymentName>*`。这意味着将在以下 REST 端点公开：
+- en: '[PRE17]'
+  id: totrans-265
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'A gRPC endpoint will be exposed at `*<istioGateway>*` and you should send header
+    metadata in your request with:'
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将在 `*<istioGateway>*` 公开一个 gRPC 端点，并且您应该在请求中发送头部元数据：
+- en: Key `seldon` and value `*<deploymentName>*`.
+  id: totrans-267
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 键 `seldon` 和值 `*<deploymentName>*`。
+- en: Key `namespace` and value `*<namespace>*`.
+  id: totrans-268
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 键 `namespace` 和值 `*<namespace>*`。
+- en: The payload for these requests will be a SeldonMessage.^([13](ch08.xhtml#idm45831169736392))
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些请求的载荷将是一个 SeldonMessage。^([13](ch08.xhtml#idm45831169736392))
+- en: A sample SeldonMessage, say for a simple `ndarray` representation, is shown
+    in [Example 8-13](#SeldonMessage_contain_ndarray).
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，一个简单的 `ndarray` 表示的 SeldonMessage，如 [示例 8-13](#SeldonMessage_contain_ndarray)
+    所示。
+- en: Example 8-13\. SeldonMessage containing an ndarray
+  id: totrans-271
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-13\. SeldonMessage 包含一个 ndarray
+- en: '[PRE18]'
+  id: totrans-272
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Payloads can also include simple tensors, TFTensors, as well as binary, string,
+    or JSON data. An example request containing JSON data is shown in [Example 8-14](#SeldonMessage_containing_JSON_data).
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 负载还可以包括简单的张量、TFTensors，以及二进制、字符串或 JSON 数据。一个包含 JSON 数据的示例请求如 [示例 8-14](#SeldonMessage_containing_JSON_data)
+    所示。
+- en: Example 8-14\. SeldonMessage containing JSON data
+  id: totrans-274
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-14\. SeldonMessage 包含 JSON 数据
+- en: '[PRE19]'
+  id: totrans-275
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Now that your inference graph is defined, tested, and running, you will want
+    to get predictions back from it, and you also might want to monitor it in production
+    to ensure it is running as expected.
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您的推理图已经定义、测试并运行，您将希望从中获取预测，并且可能还想在生产环境中监控它，以确保它按预期运行。
+- en: Monitoring Your Models
+  id: totrans-277
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 监控您的模型
+- en: In Seldon Core’s design, deploying ML models is not treated differently from
+    how one would deploy traditional applications. The same applies to monitoring
+    and governance once the deployments are live. Traditional application monitoring
+    metrics like request latency, load, and status code distribution are provided
+    by exposing Prometheus metrics in Grafana.^([14](ch08.xhtml#idm45831169631800))
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Seldon Core 的设计中，部署机器学习模型的方式与部署传统应用程序的方式并无二致。一旦部署完成，监控和治理也是一样的处理方式。通过在 Grafana
+    中暴露 Prometheus 指标提供传统应用程序监控指标，如请求延迟、负载和状态码分布。^([14](ch08.xhtml#idm45831169631800))
+- en: However, as data scientists we are mostly interested in how well the models
+    are performing—the relationship between the live data coming in and the data the
+    model was trained on and the reasons why specific predictions were made.
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，作为数据科学家，我们更感兴趣的是模型的表现如何——来自实时数据和模型训练数据的关系，以及特定预测背后的原因。
+- en: To address these concerns, Seldon Core provides the additional open source projects
+    [Alibi:Explain](https://oreil.ly/tXxQr) and [Alibi:Detect](https://oreil.ly/iowRX),
+    which focus specifically on advanced ML insights. These two projects implement
+    the core algorithms for model explainability, outlier detection, data drift, and
+    adversarial attack detection, respectively. We will now walk through examples
+    of how Seldon Core enables model explainability and drift detection, via its integration
+    of Alibi:Explain and Alibi:Detect.
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决这些问题，Seldon Core 提供了额外的开源项目 [Alibi:Explain](https://oreil.ly/tXxQr) 和 [Alibi:Detect](https://oreil.ly/iowRX)，这两个项目专注于高级机器学习洞察。这两个项目分别实现了模型可解释性、异常检测、数据漂移和对抗攻击检测的核心算法。现在，我们将通过其集成
+    Alibi:Explain 和 Alibi:Detect 的示例来详细介绍 Seldon Core 如何实现模型可解释性和漂移检测。
+- en: Model explainability
+  id: totrans-281
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型可解释性
+- en: 'Model explainability algorithms seek to answer the question: “Why did my model
+    make this prediction on this instance?” The answer can come in many shapes, i.e.,
+    the most important features contributing to the model’s prediction or the minimum
+    change to features necessary to induce a different prediction.'
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型可解释性算法旨在回答：“为什么我的模型在这个实例上做出这个预测？”答案可以有多种形式，例如对模型预测贡献最重要的特征或导致不同预测所需的特征最小变化。
+- en: Explainability algorithms are also distinguished by how much access to the underlying
+    model they have. On one end of the spectrum there are “black box” algorithms that
+    only have access to the model prediction endpoint and nothing else. In contrast,
+    you have “white box” algorithms that have full access to the internal model architecture
+    and allow for much greater insight (such as taking gradients). In the production
+    scenario, however, the black-box case is much more prominent, so we will focus
+    on that here.
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可解释性算法还因其对底层模型的访问程度而有所不同。在光谱的一端是“黑盒”算法，它们只能访问模型预测端点，而不能访问其他内容。相比之下，“白盒”算法具有对内部模型架构的全面访问权限，并允许进行更深入的洞察（例如取梯度）。然而，在生产场景中，“黑盒”案例更为突出，因此我们将在此处重点讨论这一点。
+- en: Before discussing an example, we will describe the integration patterns that
+    would arise from the use of black-box explanation algorithms. These algorithms
+    typically work by generating a lot of similar-looking instances to the one being
+    explained and then send both batch and sequential requests to the model to map
+    out a picture of the model’s decision-making process in the vicinity of the original
+    instance. Thus, an explainer component will communicate with the underlying model,
+    as the explanation is being computed. [Figure 8-4](#seldonexplainer_figure) shows
+    how this pattern is implemented. A model configured as a SeldonDeployment sits
+    alongside an explainer component, which comes with its own endpoint. When the
+    explainer endpoint is called internally the explainer communicates with the model
+    to produce an explanation.
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在讨论示例之前，我们将描述黑盒解释算法的集成模式。这些算法通常通过生成许多与待解释实例相似的实例，并向模型发送批处理和顺序请求来描绘出模型在原始实例周围做出决策的过程。因此，在计算解释时，解释器组件将与底层模型进行通信。[Figure 8-4](#seldonexplainer_figure)
+    展示了该模式的实现方式。一个配置为 SeldonDeployment 的模型与一个解释器组件并排存在，解释器组件有其自己的端点。当内部调用解释器端点时，解释器将与模型通信以生成解释。
+- en: '![Seldon Explainer Component](Images/kfml_0804.png)'
+  id: totrans-285
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Seldon 解释器组件](Images/kfml_0804.png)'
+- en: Figure 8-4\. Seldon explainer component
+  id: totrans-286
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 8-4\. Seldon 解释器组件
+- en: Warning
+  id: totrans-287
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: In [Figure 8-4](#seldonexplainer_figure), the explainer communicates directly
+    with the production model. However, in a more realistic scenario, the underlying
+    model would be a separate but identical deployment (i.e., in staging) to ensure
+    that calls to the explainer don’t degrade the performance of the production inference
+    system.
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 8-4](#seldonexplainer_figure)中，解释器直接与生产模型通信。然而，在更现实的情况下，底层模型将是一个单独但相同的部署（即在分段），以确保对解释器的调用不会降低生产推断系统的性能。
+- en: To illustrate these techniques we will show a few examples.
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明这些技术，我们将展示几个示例。
+- en: Sentiment prediction model
+  id: totrans-290
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 情感预测模型
+- en: Our first example is a sentiment prediction model that is trained on [movie
+    review data hosted by Cornell University](https://oreil.ly/qOe2_). You can launch
+    this with an associated anchors explainer, using a SeldonDeployment like in [Example 8-15](#SeldonDeployment_wAnchor_Expl).
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的第一个例子是一个训练有关[康奈尔大学主办的电影评论数据](https://oreil.ly/qOe2_)的情感预测模型。您可以像在[示例 8-15](#SeldonDeployment_wAnchor_Expl)中使用
+    SeldonDeployment 同样配置一个相关的解释器来启动这个模型。
+- en: Example 8-15\. SeldonDeployment with Anchor Explainers
+  id: totrans-292
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-15\. 带有锚解释器的 SeldonDeployment
+- en: '[PRE20]'
+  id: totrans-293
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Once deployed, this model can be queried via the Istio ingress as usual. You
+    can then send the simple review `"This film has great actors"` to the model, as
+    in [Example 8-16](#Send_pred_request_to_SeldonCore_moviesent).
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦部署，可以像在[示例 8-16](#Send_pred_request_to_SeldonCore_moviesent)中一样通过 Istio 入口查询该模型。然后，您可以将简单的评论“这部电影有很棒的演员”发送给模型。
+- en: Example 8-16\. Sending a prediction request to your Seldon Core movie sentiment
+    model
+  id: totrans-295
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-16\. 向您的 Seldon Core 电影情感模型发送预测请求
+- en: '[PRE21]'
+  id: totrans-296
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: The response to the prediction request in [Example 8-16](#Send_pred_request_to_SeldonCore_moviesent)
+    is seen in [Example 8-17](#Pred_resp_frSeldonCore_moviesentiment).
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[示例 8-16](#Send_pred_request_to_SeldonCore_moviesent)中对预测请求的响应在[示例 8-17](#Pred_resp_frSeldonCore_moviesent)中可见。
+- en: Example 8-17\. Prediction response from your Seldon Core movie sentiment model
+  id: totrans-298
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-17\. 来自您的 Seldon Core 电影情感模型的预测响应
+- en: '[PRE22]'
+  id: totrans-299
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: The model is a classifier and it is predicting with 78% accuracy that this is
+    a positive review, which is correct. You can now try to explain the request, as
+    seen in [Example 8-18](#expl_req_to_SeldonC_moviesent).
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该模型是一个分类器，并且以78%的准确率预测这是一个正面评价，这是正确的。现在，您可以尝试解释请求，就像在[示例 8-18](#expl_req_to_SeldonC_moviesent)中所见。
+- en: Example 8-18\. Sending an explanation request to your Seldon Core movie sentiment
+    model
+  id: totrans-301
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-18\. 向您的 Seldon Core 电影情感模型发送解释请求
+- en: '[PRE23]'
+  id: totrans-302
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: The response to the explanation request in [Example 8-18](#expl_req_to_SeldonC_moviesent)
+    is seen in [Example 8-19](#Expl_resp_fr_SeldonC_moviesent) (curtailed without
+    the examples section).
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[示例 8-18](#expl_req_to_SeldonC_moviesent)中解释请求的响应在[示例 8-19](#Expl_resp_fr_SeldonC_moviesent)中可见（截断示例部分）。
+- en: Example 8-19\. Explanation response from your Seldon Core movie sentiment model
+  id: totrans-304
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-19\. 来自您的 Seldon Core 电影情感模型的解释响应
+- en: '[PRE24]'
+  id: totrans-305
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: The key element in this example is that the explainer has identified the word
+    *great* as being the reason the model predicted positive sentiment and suggests
+    that this would occur 100% of the time for this model if a sentence contains the
+    word *great* (reflected by the precision value).
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该示例的关键要素在于解释器已经确定了词语*great*作为模型预测积极情感的原因，并建议如果句子包含词语*great*，这种情况将在这个模型中始终发生（由精度值反映）。
+- en: US Census income predictor model example
+  id: totrans-307
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 美国人口普查收入预测模型示例
+- en: Here is a second example, trained on the [1996 US Census data](https://oreil.ly/kcmRm),
+    which predicts whether a person will have high or low income.^([15](ch08.xhtml#idm45831169343736))
+    For this example, you also need to have an Alibi explainer sample the input dataset
+    and identify categorical features to allow the explainer to give more intuitive
+    results. The details for configuring an Alibi explainer can be found in the [Alibi
+    documentation](https://oreil.ly/4i10y) along with an in-depth review of the following
+    data science example.
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是第二个例子，训练于[1996年美国人口普查数据](https://oreil.ly/kcmRm)，预测一个人是否有高收入或低收入。^([15](ch08.xhtml#idm45831169343736))
+    对于这个例子，您还需要有一个 Alibi 解释器对输入数据集进行采样并识别分类特征，以使解释器能够提供更直观的结果。有关配置 Alibi 解释器的详细信息可以在[Alibi文档](https://oreil.ly/4i10y)中找到，以及对以下数据科学示例的深入审查。
+- en: The SeldonDeployment resource is defined in [Example 8-20](#SeldonDeployment_inc_pred).
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SeldonDeployment 资源在[示例 8-20](#SeldonDeployment_inc_pred)中定义。
+- en: Example 8-20\. SeldonDeployment for income predictor
+  id: totrans-310
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-20\. 用于收入预测的 SeldonDeployment
+- en: '[PRE25]'
+  id: totrans-311
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: Once deployed, you can ask for a prediction with a curl request seen in [Example 8-21](#Send_pred_req_SeldonC_inc_pred_model).
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署后，您可以使用curl请求来请求预测，见[示例 8-21](#Send_pred_req_SeldonC_inc_pred_model)。
+- en: Example 8-21\. Sending a prediction request to your Seldon Core income predictor
+    model
+  id: totrans-313
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 8-21\. 发送预测请求到您的Seldon Core收入预测模型
+- en: '[PRE26]'
+  id: totrans-314
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: The response to the prediction request in [Example 8-21](#Send_pred_req_SeldonC_inc_pred_model)
+    is seen in [Example 8-22](#Pred_resp_SeldonC_inc_pred_model).
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对[示例 8-21](#Send_pred_req_SeldonC_inc_pred_model)中的预测请求的响应见于[示例 8-22](#Pred_resp_SeldonC_inc_pred_model)。
+- en: Example 8-22\. Prediction response from your Seldon Core income predictor model
+  id: totrans-316
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 8-22\. 来自您的Seldon Core收入预测模型的预测响应
+- en: '[PRE27]'
+  id: totrans-317
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: The model is predicting low income for this person. You can now get an explanation
+    for this prediction with [Example 8-23](#Send_expl_req_to_SeldonC_incpredmod).
+  id: totrans-318
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该模型预测此人的收入较低。您现在可以通过[示例 8-23](#Send_expl_req_to_SeldonC_incpredmod)请求该预测的解释。
+- en: Example 8-23\. Sending a explanation request to your Seldon Core income predictor
+    model
+  id: totrans-319
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 8-23\. 发送解释请求到您的Seldon Core收入预测模型
+- en: '[PRE28]'
+  id: totrans-320
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: The response to the explanation request in [Example 8-23](#Send_expl_req_to_SeldonC_incpredmod)
+    is seen in [Example 8-24](#Explanation_response_fr_SeldonCore_income_predictor),
+    which we have shortened to not show all the examples returned.
+  id: totrans-321
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对[示例 8-23](#Send_expl_req_to_SeldonC_incpredmod)中的解释请求的响应见于[示例 8-24](#Explanation_response_fr_SeldonCore_income_predictor)，我们已经缩短了不显示所有返回示例。
+- en: Example 8-24\. Explanation response from your Seldon Core income predictor model
+  id: totrans-322
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 8-24\. 来自您的Seldon Core收入预测模型的解释响应
+- en: '[PRE29]'
+  id: totrans-323
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: The key takeaway is that this model will predict a low income classification
+    97% of the time if the input features are `"Marital Status = Never-Married"`,
+    `"Occupation = Admin"`, and `"Relationship = Not-in-family"`. So these are the
+    key features from the input that influenced the model.
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关键要点是，如果输入特征为`"婚姻状况 = 从未结过婚"`、`"职业 = 管理员"`和`"关系 = 非家庭关系"`，该模型将在97%的时间内预测低收入分类。因此，这些是影响模型的输入关键特征。
+- en: Outlier and drift detection
+  id: totrans-325
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 异常值和漂移检测
+- en: ML models traditionally do not extrapolate well outside of the training data
+    distribution, and that impacts model drift. In order to trust and reliably act
+    on model predictions, you must monitor the distribution of incoming requests via
+    different types of detectors. Outlier detectors aim to flag individual instances
+    that do not follow the original training distribution. An adversarial detector
+    tries to spot and correct a carefully crafted attack with the intent to fool the
+    model. Drift detectors check when the distribution of the incoming requests is
+    diverging from a reference distribution, such as that of the training data.
+  id: totrans-326
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习模型在训练数据分布之外通常无法很好地外推，这会影响模型漂移。为了信任并可靠地应用模型预测，您必须通过不同类型的检测器监控传入请求的分布。异常检测器旨在标记不符合原始训练分布的单个实例。对抗检测器试图识别并纠正精心设计的攻击，以欺骗模型。漂移检测器检查传入请求的分布何时与参考分布（例如训练数据的分布）偏离。
+- en: If data drift occurs, the model performance can deteriorate, and it should be
+    retrained. The ML model predictions on instances flagged by any of the detectors
+    we’ve looked at should be verified before being used in real-life applications.
+    Detectors typically return an outlier score at the instance or even the feature
+    level. If the score is above a predefined threshold, the instance is flagged.
+  id: totrans-327
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果发生数据漂移，模型性能可能会下降，应该重新训练。在现实应用中使用之前，应验证我们看到的任何检测器标记的实例的机器学习模型预测。检测器通常在实例甚至特征级别返回异常分数。如果分数超过预定义的阈值，则标记该实例。
+- en: Outlier and drift detection are usually done asynchronously to the actual prediction
+    request. In Seldon Core you can activate payload logging and send the requests
+    to an external service that will do the outlier and drift detection outside the
+    main request/response flow. An example architecture is shown in [Figure 8-5](#seldoneventing_figure),
+    where Seldon Core’s payload logger passes requests to components that process
+    them asynchronously. The components that do the processing and alerting are managed
+    via Knative Eventing, which is described in [“Knative Eventing”](#knative_eventing).
+    The use of Knative Eventing here is to provide late-binding event sources and
+    event consumers, enabling asynchronous processing. The results can be passed on
+    to alerting systems.
+  id: totrans-328
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 异常值和漂移检测通常是异步进行实际预测请求的。在Seldon Core中，您可以激活有效负载日志记录，并将请求发送到外部服务，该服务将在主要请求/响应流程之外进行异常值和漂移检测。在[图8-5](#seldoneventing_figure)中展示了一个示例架构，其中Seldon
+    Core的有效负载记录器将请求传递给处理它们的组件，这些组件以异步方式处理和警报。处理和警报的组件通过Knative Eventing进行管理，Knative
+    Eventing在“Knative Eventing”中有描述。此处使用Knative Eventing是为了提供后绑定事件源和事件消费者，实现异步处理。结果可以传递给警报系统。
+- en: '![Data Science Monitoring of Models with Seldon Core + Knative](Images/kfml_0805.png)'
+  id: totrans-329
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用Seldon Core + Knative对模型进行数据科学监控](Images/kfml_0805.png)'
+- en: Figure 8-5\. Data science monitoring of models with Seldon Core and Knative
+  id: totrans-330
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-5\. 使用Seldon Core和Knative进行数据科学模型监控
+- en: Note
+  id: totrans-331
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'Following are some examples that leverage outlier and drift detection using
+    the architecture in [Figure 8-5](#seldoneventing_figure):'
+  id: totrans-332
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是一些利用[图8-5](#seldoneventing_figure)架构进行异常值和漂移检测的示例：
+- en: An [outlier detection example](https://oreil.ly/p-Lfw) for CIFAR10
+  id: totrans-333
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个[CIFAR10的异常检测示例](https://oreil.ly/p-Lfw)
+- en: A [drift detection example](https://oreil.ly/z8jRG) for CIFAR10
+  id: totrans-334
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[CIFAR10的漂移检测示例](https://oreil.ly/z8jRG)'
+- en: Review
+  id: totrans-335
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 回顾
+- en: Seldon Core is a solid choice as an inference solution when building an inference
+    graph and hoping to simultaneously achieve model serving, monitoring, and updating
+    guarantees. It sufficiently fills most of the gaps of TFServing while enabling
+    data scientists to organically grow their inference graph as their use cases become
+    more complex. It also allows many more features outside the scope of this overview,
+    such as `Canaries`, `Shadows`, and powerful multistage inference pipelines.^([16](ch08.xhtml#idm45831169035576))
+  id: totrans-336
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在构建推理图并希望同时实现模型服务、监视和更新保证时，选择Seldon Core作为推理解决方案是一个稳固的选择。它在填补TFServing的大多数空白同时，允许数据科学家根据其用例变得更复杂而有机地扩展其推理图。此外，它还允许许多超出本概述范围的功能，如`Canaries`、`Shadows`和强大的多阶段推理管道。^([16](ch08.xhtml#idm45831169035576))
+- en: However, we will take a look at how it satisfies your inference requirements.
+  id: totrans-337
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，我们将看看它如何满足您的推理要求。
+- en: Model serving
+  id: totrans-338
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型服务
+- en: Seldon Core clearly provides the functionality to extend an inference graph
+    and support advanced ML insights in a first-class way. The architecture is also
+    flexible enough to leverage other advanced ML insights outside of its managed
+    offering. And Seldon Core is quite versatile, providing the expected serving flexibility
+    because it is framework-agnostic. It provides support for both REST and gRPC,
+    and GPU acceleration. It also can interface with streaming inputs using Knative
+    Eventing. However, because the SeldonDeployment is running as a bare Kubernetes
+    deployment, it does not provide GPU autoscaling, which we expect from hardware-agnostic
+    autoscaling.
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Seldon Core显然提供了扩展推理图和支持高级机器学习洞察力的功能。其架构也足够灵活，可以利用其托管外的其他高级机器学习洞察力。并且Seldon
+    Core非常灵活，提供了预期的服务灵活性，因为它与框架无关。它支持REST和gRPC，并且支持GPU加速。它还可以使用Knative Eventing接口流式输入。然而，由于SeldonDeployment作为裸Kubernetes部署运行，它不提供我们期望的硬件无关自动缩放功能。
+- en: Model monitoring
+  id: totrans-340
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型监控
+- en: Seldon Core seems to satisfy all of your model monitoring needs. Seldon Core’s
+    deployment strategy also uses Kubeflow’s infrastructure stack, so it leverages
+    a microservice approach. This is especially noticeable with Seldon Core’s explainers
+    and detectors being represented as separate microservices within a flexible inference
+    graph. Seldon Core makes monitoring first-class by enabling monitoring, logging,
+    and tracing with its support of Prometheus and [Zipkin](https://oreil.ly/stSIe).
+  id: totrans-341
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Seldon Core似乎满足了您所有的模型监控需求。Seldon Core的部署策略还使用Kubeflow的基础设施堆栈，因此它采用了微服务方法。这在Seldon
+    Core将解释器和检测器表示为灵活推理图中的单独微服务时尤为明显。Seldon Core通过支持Prometheus和[Zipkin](https://oreil.ly/stSIe)使监控成为一流，启用了监控、日志记录和跟踪。
+- en: Model updating
+  id: totrans-342
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型更新
+- en: Seldon Core is advanced in that it supports a variety of deployment strategies,
+    including canary, pinned, and even multi-armed bandits. However, similar to TFServing,
+    revision or version management isn’t managed in a first-class way. This, again,
+    means that version promotion does not have a safe-rollout guarantee. Lastly, as
+    you can see by the options available for graph inferencing, in [Figure 8-3](#seldongraph_figure),
+    Seldon Core provides complete flexibility in growing your inference graph to support
+    more complex deployment strategies.
+  id: totrans-343
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Seldon Core在支持包括金丝雀发布、固定版本和甚至多臂老虎机在内的多种部署策略方面非常先进。然而，与TFServing类似，版本或版本管理并没有以一流的方式管理。这意味着版本推广没有安全的发布保证。最后，正如您可以通过[Figure 8-3](#seldongraph_figure)中提供的图推断选项看到的那样，Seldon
+    Core在增长推断图以支持更复杂的部署策略方面提供了完全的灵活性。
+- en: Summary
+  id: totrans-344
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 总结
+- en: Seldon Core works to fill in the gaps by providing extensibility and sophisticated
+    out-of-the-box support for complex inference graphs and model insight. But it
+    falls short with regards to the autoscaling of GPUs, its scale-to-zero capabilities,
+    and revision management for safe model updating—features that are common to serverless
+    applications. We will now explore how KFServing works to fill this gap by adding
+    some recent Kubernetes additions, provided by Knative, to enable serverless workflows
+    for TFServing, Seldon Core, and many more serving solutions.
+  id: totrans-345
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Seldon Core 通过提供可扩展性和复杂推理图支持的即插即用功能来填补空白。但是，它在GPU的自动扩展、零缩放能力以及安全模型更新的版本管理方面存在不足，这些功能对于无服务器应用程序是常见的。我们现在将探讨KFServing如何通过增加一些最近的Kubernetes增强功能（由Knative提供），为TFServing、Seldon
+    Core以及许多其他服务解决方案实现无服务器工作流程，来填补这一空白。
+- en: KFServing
+  id: totrans-346
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: KFServing
+- en: As seen with TFServing and Seldon Core, the production-grade serving of ML models
+    is not a unique problem to any one research team or company. Unfortunately, this
+    means that every in-house solution will use different model formats and expose
+    unique proprietary serving APIs. Another problem facing both TFServing and Seldon
+    Core is the lack of serverless primitives, like revision management and more sophisticated
+    forms of autoscaling. These shortcomings are also found in most inference services.
+    In order to unify the open source community of model servers, while filling the
+    gaps that each model server had, Seldon, Google, Bloomberg, and IBM engaged with
+    the open source community to collaboratively develop KFServing.
+  id: totrans-347
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如同在TFServing和Seldon Core中所见，ML模型的生产级服务并不是任何一个研究团队或公司的独特问题。不幸的是，这意味着每个内部解决方案将使用不同的模型格式，并公开独特的专有服务API。TFServing和Seldon
+    Core面临的另一个问题是缺乏像版本管理和更复杂的自动缩放形式等无服务器基元。这些缺陷也存在于大多数推理服务中。为了统一模型服务器的开源社区，同时填补每个模型服务器存在的空白，Seldon、Google、Bloomberg和IBM参与开源社区的协作开发KFServing。
+- en: KFServing is a serverless inferencing solution that provides performant, high-abstraction
+    interfaces for common ML frameworks like TensorFlow, XGBoost, Scikit-learn, PyTorch,
+    and ONNX. By placing Knative on top of Kubeflow’s cloud native stack, KFServing
+    encapsulates the complexity of autoscaling, networking, health checking, and server
+    configuration and brings cutting-edge serving features like GPU autoscaling, scale
+    to zero, and canary rollouts to ML prediction services. This allows ML engineers
+    to focus on critical data-science–related tooling like prediction services, transformers,
+    explainability, and drift detectors.
+  id: totrans-348
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing是一个无服务器推断解决方案，为常见的ML框架（如TensorFlow、XGBoost、Scikit-learn、PyTorch和ONNX）提供高性能、高抽象度的接口。通过将Knative置于Kubeflow的云原生堆栈之上，KFServing封装了自动扩展、网络、健康检查和服务器配置的复杂性，并引入了GPU自动扩展、零缩放以及金丝雀发布等前沿的服务功能到ML预测服务中。这使得ML工程师能够专注于关键的数据科学相关工具，如预测服务、转换器、可解释性和漂移检测器。
+- en: Serverless and the Service Plane
+  id: totrans-349
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 无服务器和服务平面
+- en: KFServing’s design primarily borrows from serverless web development. Serverless
+    allows you to build and run applications and services without provisioning, scaling,
+    or managing any servers. These server configurations are commonly referred to
+    as the service plane, or control plane.
+  id: totrans-350
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing的设计主要借鉴了无服务器Web开发。无服务器允许您构建和运行应用程序和服务，而无需规划、扩展或管理任何服务器。这些服务器配置通常称为服务平面或控制平面。
+- en: Naturally, serverless abstractions come with deployment simplicity and fluidity
+    as there is limited infrastructure administration. However, serverless architecture
+    depends heavily on event-based triggers for scaling its replicas, which we will
+    talk about in [“Escape hatches”](#escape_hatches). It allows you to focus solely
+    on your application code.
+  id: totrans-351
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自然而然，无服务器抽象带来了部署简易性和流动性，因为基础设施管理有限。然而，无服务器架构严重依赖基于事件的触发器来扩展其副本，关于这点我们将在[“逃生舱口”](#escape_hatches)中讨论。这使你可以专注于你的应用程序代码。
+- en: One of the primary tenancies of KFServing is extending serverless application
+    development to model serving. This is particularly advantageous for data scientists,
+    as you want to only focus on the ML model that you are developing and the resulting
+    input and output layers.
+  id: totrans-352
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing 的主要宗旨之一是将无服务器应用程序开发扩展到模型服务领域。这对数据科学家尤为有利，因为你希望专注于你正在开发的 ML 模型及其产生的输入和输出层。
+- en: Data Plane
+  id: totrans-353
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据平面
+- en: KFServing defines the *data plane*, which links all of the standard model serving
+    components together and uses Knative to provide serverless abstractions for the
+    service plane. A data plane is the protocol for how packets and requests are forwarded
+    from one interface to another while also providing agency over service discovery,
+    health checking, routing, load balancing, authentication/authorization, and KFServing’s
+    data plane architecture consists of a static graph of components—similar to Seldon
+    Core’s InferenceGraph—to coordinate requests for a single model. Advanced features
+    like ensembling, A/B testing, and multi-armed bandits connect these services together,
+    again taking inspiration from Seldon Core’s deployment extensibility.
+  id: totrans-354
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing 定义了 *数据平面*，它将所有标准模型服务组件连接在一起，并使用 Knative 为服务平面提供无服务器抽象。数据平面是一个协议，用于指导如何从一个接口转发数据包和请求，同时提供服务发现、健康检查、路由、负载均衡、认证/授权等功能。KFServing
+    的数据平面架构包括一个组件的静态图，类似于 Seldon Core 的 InferenceGraph，用于协调对单个模型的请求。高级功能如集成、A/B 测试和多臂老虎机连接这些服务，再次从
+    Seldon Core 的部署可扩展性中获得灵感。
+- en: In order to understand the data plane’s static graph, let’s review some terminology
+    used in [Figure 8-6](#kfservingdataplane_figure).
+  id: totrans-355
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了理解数据平面的静态图，让我们回顾一下[图 8-6](#kfservingdataplane_figure)中使用的一些术语。
+- en: '![KFServing Data Plane](Images/kfml_0806.png)'
+  id: totrans-356
+  prefs: []
+  type: TYPE_IMG
+  zh: '![KFServing 数据平面](Images/kfml_0806.png)'
+- en: Figure 8-6\. KFServing data plane
+  id: totrans-357
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-6\. KFServing 数据平面
+- en: Endpoint
+  id: totrans-358
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 端点
+- en: 'KFServing instances are divided into two endpoints: *default* and *canary*.
+    The endpoints allow users to safely make changes using the `pinned` and `canary`
+    rollout strategies. Canarying is completely optional, enabling users to simply
+    deploy with a blue-green deployment strategy against the default endpoint.'
+  id: totrans-359
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing 实例分为两个端点：*默认* 和 *金丝雀*。这些端点允许用户使用 `pinned` 和 `canary` 的滚动策略安全地进行更改。金丝雀部署完全是可选的，使用户可以简单地针对默认端点使用蓝绿部署策略。
+- en: Component
+  id: totrans-360
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件
+- en: 'Each endpoint has multiple components: *predictor*, *explainer*, and *transformer*.'
+  id: totrans-361
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个端点都有多个组件：*预测器*、*解释器* 和 *转换器*。
+- en: The only required component is the predictor, which is the core of the system.
+    As KFServing evolves, it can seamlessly increase the number of supported components
+    to enable use cases like Seldon Core’s outlier detection. If you want, you can
+    even introduce your own components and wire them together using the power of Knative’s
+    abstractions.
+  id: totrans-362
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 唯一必需的组件是预测器，它是系统的核心。随着 KFServing 的发展，它可以无缝地增加支持的组件数量，以支持诸如 Seldon Core 的异常检测等用例。如果你愿意，甚至可以引入自己的组件，并利用
+    Knative 抽象的强大功能将它们连接在一起。
+- en: Predictor
+  id: totrans-363
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预测器
+- en: The predictor is the workhorse of the KFServing instance. It is simply a model
+    and a model server that is made available at a network endpoint.
+  id: totrans-364
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预测器是 KFServing 实例的工作核心。它只是一个模型和一个模型服务器，可以在网络端点上使用。
+- en: Explainer
+  id: totrans-365
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解释器
+- en: The explainer enables an optional alternative data plane that provides model
+    explanations in addition to predictions. Users may define their own explanation
+    container, which KFServing configures with relevant environment variables like
+    a prediction endpoint. For common use cases, KFServing provides out-of-the-box
+    explainers like Seldon Core’s Alibi:Explain, which we learned about earlier.
+  id: totrans-366
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解释器允许可选的替代数据平面，除了预测外还提供模型解释。用户可以定义自己的解释容器，KFServing 将配置相关环境变量，如预测端点。对于常见用例，KFServing
+    提供了像 Seldon Core 的 Alibi:Explain 这样的开箱即用解释器，我们之前已经了解过。
+- en: Transformer
+  id: totrans-367
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 转换器
+- en: The transformer enables users to define a pre- and postprocessing step before
+    the prediction and explanation workflows. Like the explainer, it is configured
+    with relevant environment variables.
+  id: totrans-368
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 变换器允许用户在预测和解释工作流之前定义预处理和后处理步骤。与解释器类似，它配置了相关的环境变量。
+- en: The last portion of the data plane is the prediction protocol^([17](ch08.xhtml#idm45831168939448))
+    that KFServing uses. KFServing worked to define a set of HTTP/REST and gRPC APIs
+    that must be implemented by compliant inference/prediction services. It is worth
+    noting that KFServing standardized this prediction workflow, described in [Table 8-3](#kfserving_v1_data_plane),
+    across all model frameworks.
+  id: totrans-369
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据平面的最后部分是 KFServing 使用的预测协议^([17](ch08.xhtml#idm45831168939448))。KFServing
+    定义了一组必须由符合推理/预测服务实现的 HTTP/REST 和 gRPC API。值得注意的是，KFServing 标准化了这个预测工作流程，详细描述见
+    [表 8-3](#kfserving_v1_data_plane)，跨所有模型框架都适用。
+- en: Table 8-3\. KFServing V1 data plane
+  id: totrans-370
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 8-3\. KFServing V1 数据平面
+- en: '| API | Verb | Path | Payload |'
+  id: totrans-371
+  prefs: []
+  type: TYPE_TB
+  zh: '| API | Verb | 路径 | 负载 |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-372
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| Readiness | GET |'
+  id: totrans-373
+  prefs: []
+  type: TYPE_TB
+  zh: '| 可用性 | GET |'
+- en: '`/v1/models/<model_name>`'
+  id: totrans-374
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`/v1/models/<model_name>`'
+- en: '|'
+  id: totrans-375
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '[PRE30]'
+  id: totrans-376
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: '|'
+  id: totrans-377
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| Predict | POST |'
+  id: totrans-378
+  prefs: []
+  type: TYPE_TB
+  zh: '| 预测 | POST |'
+- en: '`/v1/models/<model_name>:predict`'
+  id: totrans-379
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`/v1/models/<model_name>:predict`'
+- en: '|'
+  id: totrans-380
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '[PRE31]'
+  id: totrans-381
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: '|'
+  id: totrans-382
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| Explain | POST |'
+  id: totrans-383
+  prefs: []
+  type: TYPE_TB
+  zh: '| 解释 | POST |'
+- en: '`/v1/models/<model_name>:explain`'
+  id: totrans-384
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`/v1/models/<model_name>:explain`'
+- en: '|'
+  id: totrans-385
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '[PRE32]'
+  id: totrans-386
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: '|'
+  id: totrans-387
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: Example Walkthrough
+  id: totrans-388
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 示例演示
+- en: With the data plane defined, we will now walk through an example of how you
+    can interface with a model served by KFServing.
+  id: totrans-389
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据平面定义完成后，我们将通过一个示例演示如何与由 KFServing 提供的模型进行接口交互。
+- en: Setting up KFServing
+  id: totrans-390
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 配置 KFServing
+- en: KFServing provides InferenceService, a serverless inference resource that describes
+    your static graph, by providing a Kubernetes CRD for serving ML models on arbitrary
+    frameworks. KFServing comes prepackaged with Kubeflow, so it should already be
+    available. The KFServing installation^([18](ch08.xhtml#idm45831168910168)) will
+    create a Kubernetes operator in the `kubeflow` namespace, which will watch for
+    `InferenceService` resources.
+  id: totrans-391
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing 提供了 InferenceService，这是一个无服务器推理资源，通过提供用于在任意框架上提供 ML 模型服务的 Kubernetes
+    CRD 来描述您的静态图。KFServing 预装于 Kubeflow 中，因此应该已经可用。KFServing 的安装^([18](ch08.xhtml#idm45831168910168))
+    将在 `kubeflow` 命名空间中创建一个 Kubernetes 操作器，该操作器将监视 `InferenceService` 资源。
+- en: Warning
+  id: totrans-392
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: 'Because Kubeflow’s Kubernetes minimal requirement is `1.14`, which does not
+    support object selector, `ENABLE_WEBHOOK_NAMESPACE_SELECTOR` is enabled in the
+    Kubeflow installation by default. If you are using Kubeflow’s dashboard or profile
+    controller to create user namespaces, labels are automatically added to enable
+    KFServing to deploy models. If you are creating namespaces manually, you will
+    need to run:'
+  id: totrans-393
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为 Kubeflow 的 Kubernetes 最低要求为`1.14`，不支持对象选择器，Kubeflow 安装时默认启用了 `ENABLE_WEBHOOK_NAMESPACE_SELECTOR`。如果您使用
+    Kubeflow 的仪表板或配置控制器创建用户命名空间，标签会自动添加以便 KFServing 部署模型。如果您手动创建命名空间，您需要运行以下命令：
+- en: '[PRE33]'
+  id: totrans-394
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: to allow KFServing to deploy `InferenceService` in the namespace `my-namespace`,
+    for example.
+  id: totrans-395
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以允许 KFServing 在命名空间 `my-namespace` 中部署 `InferenceService`，例如。
+- en: 'To check whether the KFServing controller is installed correctly, run the following
+    command:'
+  id: totrans-396
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要检查 KFServing 控制器是否正确安装，请运行以下命令：
+- en: '[PRE34]'
+  id: totrans-397
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: You can confirm that the controller is running by seeing a pod in the `Running`
+    state. There is also a detailed troubleshooting guide you can follow on [this
+    Kubeflow GitHub site](https://oreil.ly/YG_ut).
+  id: totrans-398
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过查看处于 `Running` 状态的 Pod 来确认控制器是否正在运行。您还可以在 [这个 Kubeflow GitHub 站点](https://oreil.ly/YG_ut)
+    找到详细的故障排除指南。
+- en: Simplicity and extensibility
+  id: totrans-399
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 简单性和可扩展性
+- en: KFServing was fashioned to be simple for day-one users and customizable for
+    seasoned data scientists. This is enabled via the interface that KFServing designed.
+  id: totrans-400
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing 的设计旨在对初学者简单易用，同时对有经验的数据科学家可定制化。这得益于 KFServing 所设计的接口。
+- en: Now we will take a look at three examples of `InferenceService`.
+  id: totrans-401
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们将查看三个 `InferenceService` 的示例。
+- en: '[Example 8-25](#sklearn_ex) is for `sklearn`.'
+  id: totrans-402
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 8-25](#sklearn_ex) 适用于 `sklearn`。'
+- en: Example 8-25\. Simple sklearn KFServing InferenceService
+  id: totrans-403
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-25\. 简单的 sklearn KFServing 推理服务
+- en: '[PRE35]'
+  id: totrans-404
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: '[Example 8-26](#tensorflow_ex) is for `tensorflow`.'
+  id: totrans-405
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 8-26](#tensorflow_ex) 适用于 `tensorflow`。'
+- en: Example 8-26\. Simple TensorFlow KFServing InferenceService
+  id: totrans-406
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-26\. 简单的 TensorFlow KFServing 推理服务
+- en: '[PRE36]'
+  id: totrans-407
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: '[Example 8-27](#pytorch_example) is for `pytorch`.'
+  id: totrans-408
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 8-27](#pytorch_example) 适用于 `pytorch`。'
+- en: Example 8-27\. Simple PyTorch KFServing InferenceService
+  id: totrans-409
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-27\. 简单的 PyTorch KFServing 推理服务
+- en: '[PRE37]'
+  id: totrans-410
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: Each of these will give you a serving instance—with an HTTP endpoint—that will
+    serve a model using a requested framework server type. In each of these examples,
+    a `storageUri` points to a serialized asset. The interface is mostly consistent
+    across different models. The differences are in the framework specifications,
+    i.e., `tensorflow` and `pytorch`. These framework specifications are common enough
+    in that they share information like `storageUri` and Kubernetes resources requests,
+    but they’re also extensible in that they can enable framework-specific information
+    like PyTorch’s `ModelClassName`.
+  id: totrans-411
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些示例每个都将为您提供一个服务实例，具有HTTP端点，可以使用请求的框架服务器类型提供模型。在这些示例中，`storageUri`指向序列化的资产。接口在不同模型之间基本保持一致。区别在于框架规范，如`tensorflow`和`pytorch`。这些框架规范足够普遍，它们共享像`storageUri`和Kubernetes资源请求这样的信息，但也可以通过启用特定于框架的信息（如PyTorch的`ModelClassName`）进行扩展。
+- en: Clearly, this interface is simple enough to get started quite easily, but how
+    extensible is it toward more complex deployment configurations and strategies?
+    [Example 8-28](#Soph_Canary_KFServing_InferenceServ) exhibits some of the features
+    that KFServing has to offer.
+  id: totrans-412
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 显然，这个接口足够简单，可以很容易地开始使用，但在向更复杂的部署配置和策略迈进时，它的可扩展性如何？[示例 8-28](#Soph_Canary_KFServing_InferenceServ)展示了KFServing提供的一些功能特性。
+- en: Example 8-28\. Sophisticated Canary KFServing InferenceService
+  id: totrans-413
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 8-28\. Sophisticated Canary KFServing InferenceService
+- en: '[PRE38]'
+  id: totrans-414
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: The first extension is the `ServiceAccount`, which is used for authentication
+    in the form of managed identities. If you wish to authenticate to `S3` because
+    your `S3` should not be public, you need an identity attached to your `InferenceService`
+    that validates you as a user. KFServing allows you to pass an identity mounted
+    on the container and wires up the credentials through the `ServiceAccount` in
+    a managed way. For example, say you are trying to access a model that may be stored
+    on `Minio`. You would use your `Minio` identity information to create a secret
+    beforehand, and then attach it to the service account. If you recall, we created
+    a secret in MinIO in [“MinIO”](ch03.xhtml#minio_walkthrough), so we just need
+    to include KFServing-related annotations like in [Example 8-29](#KFServing_ann_Minio_secret).
+  id: totrans-415
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个扩展是`ServiceAccount`，用于身份验证，采用托管标识的形式。如果您希望对`S3`进行身份验证，因为您的`S3`不应该是公共的，您需要将身份附加到您的`InferenceService`，以便验证您作为用户的身份。KFServing允许您通过容器上挂载的身份信息，并通过`ServiceAccount`以托管方式连接凭据。例如，假设您尝试访问可能存储在`Minio`上的模型。您将使用您的`Minio`身份信息事先创建一个密钥，然后将其附加到服务帐户。如果您还记得，我们在MinIO中创建了一个密钥在[“MinIO”](ch03.xhtml#minio_walkthrough)，所以我们只需要包含像[示例 8-29](#KFServing_ann_Minio_secret)中的KFServing相关注释即可。
+- en: Example 8-29\. KFServing-annotated MinIO secret
+  id: totrans-416
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 8-29\. KFServing-annotated MinIO secret
+- en: '[PRE39]'
+  id: totrans-417
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: And attach it to a service account like the one seen in [Example 8-30](#Serv_Acc_w_attMinio_secret).
+  id: totrans-418
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并将其附加到服务帐户，就像在[示例 8-30](#Serv_Acc_w_attMinio_secret)中看到的那样。
+- en: Example 8-30\. Service Account with attached MinIO secret
+  id: totrans-419
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 8-30\. Service Account with attached MinIO secret
+- en: '[PRE40]'
+  id: totrans-420
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: The second extension to notice is the min and max replicas. You would use these
+    to control provisioning to allow you to meet demand, neither dropping requests
+    nor overallocating.
+  id: totrans-421
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个要注意的扩展是最小和最大副本数。您可以使用这些来控制配额，以便满足需求，既不会丢弃请求，也不会过度分配。
+- en: The third extension is resource requests, which have preset defaults that you
+    will almost always need to customize for your model. As you can see, this interface
+    enables the use of hardware accelerators, like GPUs.
+  id: totrans-422
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三个扩展是资源请求，它们具有预设的默认值，几乎总是需要根据您的模型进行定制。正如您所见，此接口支持使用硬件加速器，如GPU。
+- en: 'The last extension showcases the mechanism that KFServing uses to enable canary
+    deployments. This deployment strategy assumes that you only want to focus on a
+    two-way traffic split, as opposed to an *n*-way traffic split. In order to customize
+    your deployment strategy, do the following:'
+  id: totrans-423
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一个扩展展示了KFServing用于启用金丝雀部署的机制。这种部署策略假定您只想专注于双向流量分割，而不是*n*路流量分割。为了定制您的部署策略，请执行以下操作：
+- en: If you use just the default, like in your initial template, you get a standard
+    `blue-green` deployment that comes with a Kubernetes deployment resource.
+  id: totrans-424
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您只使用默认设置，就像在您的初始模板中一样，您将获得一个带有Kubernetes部署资源的标准`blue-green`部署。
+- en: If you include a canary, with `canaryTrafficPercent == 0`, you get a pinned
+    deployment where you have an addressable `default` and `canary` endpoint. This
+    is useful if you wish to send experimental traffic to your new endpoint, while
+    keeping your production traffic pointed to your old endpoint.
+  id: totrans-425
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您包含一个金丝雀版本，其中 `canaryTrafficPercent == 0`，您将获得一个固定部署，其中您有一个可寻址的 `default`
+    和 `canary` 终端。如果您希望将实验流量发送到新的终端，同时保持生产流量指向旧的终端，这将非常有用。
+- en: If you include canary, with `canaryTrafficPercent > 0`, you get a `canary` deployment
+    that enables you to slowly increment traffic to your canary deployment, in a transparent
+    way. In the previous example, you are experimenting with `flowers-2`, and as you
+    slowly increment this `canaryTrafficPercentage` you can gain confidence that your
+    new model will not break your current users.^([19](ch08.xhtml#idm45831168432584))
+    Eventually, you would go to `100`, thereby flipping the canary and default, and
+    you should then delete your old version.
+  id: totrans-426
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您包含金丝雀，其中 `canaryTrafficPercent > 0`，您将获得一个金丝雀部署，可以透明地逐步增加到金丝雀部署的流量。在前面的示例中，您正在尝试
+    `flowers-2`，并且随着您逐渐增加这个 `canaryTrafficPercentage`，您可以确信您的新模型不会破坏当前用户。^([19](ch08.xhtml#idm45831168432584))
+    最终，您将到达 `100`，从而翻转金丝雀和默认值，然后您应该删除旧版本。
+- en: Now that we understand some of the powerful abstractions that KFServing offers,
+    let’s use KFServing to host your product recommender example.
+  id: totrans-427
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们了解了一些 KFServing 提供的强大抽象功能，让我们使用 KFServing 来托管您的产品推荐示例。
+- en: Recommender example
+  id: totrans-428
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 推荐示例
+- en: We will now put your product recommender example, from [“Building a Recommender
+    with TensorFlow”](ch07.xhtml#recommender_example), behind an `InferenceService`.
+  id: totrans-429
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在将您的产品推荐示例从 [“使用 TensorFlow 构建推荐系统”](ch07.xhtml#recommender_example) 放在一个
+    `InferenceService` 后面。
+- en: Warning
+  id: totrans-430
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Because the `kubeflow` namespace is a system namespace, you are unable to create
+    an `InferenceService` in the `kubeflow` namespace. As such, you must deploy your
+    `InferenceService` in another namespace.
+  id: totrans-431
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为 `kubeflow` 命名空间是一个系统命名空间，您无法在 `kubeflow` 命名空间中创建 `InferenceService`。因此，您必须在另一个命名空间中部署您的
+    `InferenceService`。
+- en: First, you’ll define your `InferenceService` with the following 11 lines of
+    YAML, as seen in [Example 8-31](#KFServing_Recommender_InfServ).
+  id: totrans-432
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，您将使用以下 11 行 YAML 定义您的 `InferenceService`，如 [示例 8-31](#KFServing_Recommender_InfServ)
+    所示。
+- en: Example 8-31\. KFServing Recommender InferenceService
+  id: totrans-433
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-31\. KFServing 推荐器 InferenceService
+- en: '[PRE41]'
+  id: totrans-434
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: 'After running `kubectl apply` and waiting until your `InferenceService` is
+    `Ready`, you should see:'
+  id: totrans-435
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行 `kubectl apply` 并等待直到您的 `InferenceService` 处于 `Ready` 状态后，您应该看到：
+- en: '[PRE42]'
+  id: totrans-436
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: You can then curl your `InferenceService` as in [Example 8-32](#SendpredreqtoKFS_RecInfServ).
+  id: totrans-437
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以像在 [示例 8-32](#SendpredreqtoKFS_RecInfServ) 中那样 curl 您的 `InferenceService`。
+- en: Example 8-32\. Sending a prediction request to your KFServing Recommender InferenceService
+  id: totrans-438
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-32\. 向您的 KFServing 推荐器 InferenceService 发送预测请求
+- en: '[PRE43]'
+  id: totrans-439
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: Warning
+  id: totrans-440
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: If your `curl` returns a `404 Not Found` error, this is a known Istio gateway
+    issue that is present in Kubeflow `1.0.x`. We recommend that you use Kubeflow
+    `1.1` or above. A possible workaround is described in this [GitHub issue](https://oreil.ly/oyTi-).
+  id: totrans-441
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的 `curl` 返回 `404 Not Found` 错误，则这是 Kubeflow `1.0.x` 中存在的已知 Istio 网关问题。我们建议您使用
+    Kubeflow `1.1` 或更高版本。此问题的可能解决方法在此 [GitHub 问题](https://oreil.ly/oyTi-) 中描述。
+- en: 'As an alternative to `curl`, you can also use the KFServing `PythonSDK` to
+    send requests in Python.^([20](ch08.xhtml#idm45831168348568)) In addition to an
+    HTTP endpoint, this simple interface also provides all the serverless features
+    that come with Kubeflow’s stack and Knative, among them:'
+  id: totrans-442
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为 `curl` 的替代方法，您还可以使用 KFServing 的 `PythonSDK` 在 Python 中发送请求。^([20](ch08.xhtml#idm45831168348568))
+    除了 HTTP 终端外，这个简单的接口还提供了与 Kubeflow 堆栈和 Knative 一起提供的所有无服务器功能，其中包括：
+- en: Scale to zero
+  id: totrans-443
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 缩放到零
+- en: GPU autoscaling
+  id: totrans-444
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: GPU 自动缩放
+- en: Revision management (safe rollouts)
+  id: totrans-445
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 修订管理（安全发布）
+- en: Optimized containers
+  id: totrans-446
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 优化的容器
+- en: Network policy and authentication
+  id: totrans-447
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 网络策略和身份验证
+- en: Tracing
+  id: totrans-448
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 追踪
+- en: Metrics
+  id: totrans-449
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 指标
+- en: As such, with only a few lines of YAML, KFServing provides production ML features,
+    while also allowing data scientists to scale their deployments into the future.
+    But how does KFServing enable these features in such an abstracted way?
+  id: totrans-450
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，只需几行 YAML，KFServing 就提供了生产 ML 功能，同时允许数据科学家将其部署扩展到未来。但是，KFServing 如何以这种抽象的方式实现这些功能呢？
+- en: We will now look at KFServing’s underlying infrastructure stack and see how
+    it promotes serverless, how its layers can be further customized, and what additional
+    features exist.
+  id: totrans-451
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们将看看 KFServing 的基础设施堆栈，了解它如何推广无服务器，其层如何进一步定制，以及存在的其他功能。
+- en: Peeling Back the Underlying Infrastructure
+  id: totrans-452
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 揭开底层基础设施
+- en: By dissecting its infrastructure stack, you can see how KFServing enables serverless
+    ML while also educating you on how to debug your inference solutions. KFServing
+    is built in a cloud native way, as is Kubeflow. It benefits from the features
+    of every layer below it. As seen in [Figure 8-7](#kfservinginfra_figure), KFServing
+    is built on the same stack as Kubeflow but is one of the few Kubeflow solutions
+    that leverage `Istio` and `Knative` functionality quite heavily.
+  id: totrans-453
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过解剖其基础设施堆栈，您可以看到 KFServing 如何在实现无服务器 ML 的同时，还能教育您如何调试推理解决方案。KFServing 以云原生方式构建，就像
+    Kubeflow 一样。它受益于其下每一层的特性。如图 [8-7](#kfservinginfra_figure) 所示，KFServing 建立在与 Kubeflow
+    相同的堆栈上，但是它是少数几个强烈利用 `Istio` 和 `Knative` 功能的 Kubeflow 解决方案之一。
+- en: We will now walk through the role of each of these components, in greater detail
+    than we did in previous chapters, to see what parts of these layers KFServing
+    utilizes.
+  id: totrans-454
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在将详细讨论每个组件的角色，比我们在前几章节中所做的更详细，看看 KFServing 利用了这些层次的哪些部分。
+- en: '![KFServing Infrastructure Stack](Images/kfml_0807.png)'
+  id: totrans-455
+  prefs: []
+  type: TYPE_IMG
+  zh: '![KFServing 基础设施堆栈](Images/kfml_0807.png)'
+- en: Figure 8-7\. KFServing infrastructure stack
+  id: totrans-456
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-7\. KFServing 基础设施堆栈
+- en: Going layer by layer
+  id: totrans-457
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 逐层分析
+- en: Hardware that runs your compute cluster is the base-building block for all the
+    layers above. Your cluster could run a variety of hardware devices including CPUs,
+    GPUs, or even TPUs. It is the responsibility of the layers above to simplify the
+    toggling of hardware types and to abstract as much complexity as possible.
+  id: totrans-458
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行计算集群的硬件是所有上层堆栈的基本构建块。您的集群可以运行各种硬件设备，包括 CPU、GPU 或甚至 TPU。上层层次的责任是简化硬件类型的切换，并尽可能地抽象复杂性。
+- en: Kubernetes is the critical layer, right above the compute cluster, that manages,
+    orchestrates, and deploys a variety of resources—successfully abstracting the
+    underlying hardware. The main resources we will focus on are deployments, horizontal
+    pod autoscalers (HPA), and ingresses. And since Kubernetes abstracts the underlying
+    hardware, upon which deployments are run, this enables you to use hardware optimizers
+    like GPUs within the upper levels of the stack.
+  id: totrans-459
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 是关键层，位于计算集群之上，管理、编排和部署各种资源，成功地将底层硬件抽象化。我们将重点关注的主要资源是部署、水平 Pod 自动缩放器（HPA）和入口。由于
+    Kubernetes 抽象了底层硬件，使得您可以在堆栈的上层使用 GPU 等硬件优化器。
+- en: 'Istio has been alluded to throughout this book, but we will talk about a few
+    of its features that are particularly relevant to KFServing. Istio is an open
+    source service mesh that layers transparently onto the Kubernetes cluster. It
+    integrates into any logging platform, telemetry system, or policy system and promotes
+    a uniform way to secure, connect, and monitor microservices. But what is a service
+    mesh? Traditionally, each service instance is co-located with a sidecar network
+    proxy. All network traffic (`HTTP`, `REST`, `gRPC`, etc.) from an individual service
+    instance flows via its local sidecar proxy to the appropriate destination. Thus,
+    the service instance is not aware of the network at large and only knows about
+    its local proxy. In effect, the distributed system network has been abstracted
+    away from the service programmer. Primarily, Istio expands upon Kubernetes resources,
+    like ingresses, to provides service mesh fundamentals like:'
+  id: totrans-460
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书中，一直提到 Istio，但我们将讨论几个特别与 KFServing 相关的功能。Istio 是一个开源服务网格，可透明地层叠在 Kubernetes
+    集群之上。它集成到任何日志平台、遥测系统或策略系统中，并促进了一种统一的方式来安全地连接和监视微服务。但服务网格是什么呢？传统上，每个服务实例与一个旁路网络代理共同部署。所有来自单个服务实例的网络流量（`HTTP`、`REST`、`gRPC`
+    等）都通过其本地旁路代理流向适当的目标。因此，服务实例不知道整个网络，只知道其本地代理。实际上，分布式系统网络已从服务程序员的视角抽象出来。主要上，Istio
+    扩展了 Kubernetes 资源，如入口，以提供服务网格基础设施，例如：
+- en: Authentication/Access control
+  id: totrans-461
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 认证/访问控制
+- en: Ingress and egress policy management
+  id: totrans-462
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 入口和出口策略管理
+- en: Distributed tracing
+  id: totrans-463
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 分布式跟踪
+- en: Federation via multicluster ingress and routing
+  id: totrans-464
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过多集群入口和路由进行联合管理
+- en: Intelligent traffic management
+  id: totrans-465
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 智能流量管理
+- en: These tools are all critical for production inference applications that require
+    administration, security, and monitoring.
+  id: totrans-466
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些工具对于需要管理、安全和监控的生产推理应用程序至关重要。
+- en: 'The last component of the KFServing infrastructure stack is Knative, which
+    takes advantage of the abstractions that Istio provides. The KFServing project
+    primarily borrows from Knative Serving and Eventing, the latter of which will
+    be expanded on in [“Knative Eventing”](#knative_eventing). As we described in
+    [“Knative”](ch03.xhtml#knative_serving), Knative Serving builds on Kubernetes
+    and Istio to support deploying and serving serverless applications. By building
+    atop Kubernetes resources like deployments and HPAs, and Istio resources, like
+    virtual services, Knative Serving provides:'
+  id: totrans-467
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing基础架构堆栈的最后一个组件是Knative，它利用Istio提供的抽象。KFServing项目主要借鉴了Knative Serving和Eventing，后者将在[“Knative
+    Eventing”](#knative_eventing)中进一步扩展。正如我们在[“Knative”](ch03.xhtml#knative_serving)中描述的那样，Knative
+    Serving建立在Kubernetes和Istio之上，以支持部署和提供无服务器应用程序。通过构建在Kubernetes资源（如部署和HPA）和Istio资源（如虚拟服务）之上，Knative
+    Serving提供了支持。
+- en: An abstracted service mesh
+  id: totrans-468
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个抽象的服务网格
+- en: CPU/GPU autoscaling (either queries per second (QPS) or metric-based)
+  id: totrans-469
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CPU/GPU自动缩放（每秒查询（QPS）或基于度量）
+- en: Revision management for safe rollouts and canary/pinned deployment strategies
+  id: totrans-470
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 安全发布的修订管理和金丝雀/固定部署策略
+- en: These offerings are desirable for data scientists who want to limit their focus
+    and energy to model development, and have scaling and versioning be handled for
+    them in a managed way.
+  id: totrans-471
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些服务对希望将精力和精力限制在模型开发上，并在托管方式下处理扩展和版本控制的数据科学家非常有吸引力。
+- en: Escape hatches
+  id: totrans-472
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 逃生舱
+- en: KFServing’s extensibility features escape hatches to the underlying layers of
+    its stack. By building escape hatches into the `InferenceService` CRD, data scientists
+    can further tune their production inference offering for security at the Istio
+    level and their performance at the Knative level.
+  id: totrans-473
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing的可扩展性功能可以逃离其堆栈的底层。通过将逃生舱口内置到`InferenceService` CRD中，数据科学家可以进一步调整其生产推理服务，以便在Istio层面进行安全性和在Knative层面进行性能优化。
+- en: We will now walk through one example of how you can leverage these escape hatches,
+    by tuning the autoscaling of your InferenceService.
+  id: totrans-474
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们将通过一个示例来演示如何利用这些应急通道，通过调整你的推理服务的自动缩放。
+- en: To understand how to use this escape hatch, you need to understand how Knative
+    enables autoscaling. There is a proxy in Knative Serving Pods called the queue
+    proxy, which is responsible for enforcing request queue parameters (concurrency
+    limits), and reporting concurrent client metrics to the autoscaler. The autoscaler,
+    in turn, reacts to these metrics by bringing pods up and down. Every second, the
+    queue proxy publishes the observed number of concurrent requests in that time
+    period. KFServing by default sets the target concurrency (average number of in-flight
+    requests per pod) to one. If we were to load the service with five concurrent
+    requests, the autoscaler would try to scale up to five pods. You can customize
+    the target concurrency by adding the example annotation `autoscaling.knative.dev/target`.
+  id: totrans-475
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解如何使用这个应急通道，您需要了解Knative如何启用自动缩放。在Knative Serving Pods中有一个名为队列代理的代理，负责执行请求队列参数（并发限制），并向自动缩放器报告并发客户端指标。自动缩放器反过来通过增加和减少Pod来对这些指标做出反应。每秒钟，队列代理发布该时间段内观察到的并发请求数。KFServing默认将目标并发（每个Pod的平均正在处理的请求数）设置为一。如果我们将服务负载与五个并发请求，自动缩放器将尝试扩展到五个Pod。您可以通过添加示例注释`autoscaling.knative.dev/target`来自定义目标并发。
+- en: Let’s look again at your InferenceService from [Example 8-31](#KFServing_Recommender_InfServ).
+  id: totrans-476
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们再次看看您的推理服务，来自[示例8-31](#KFServing_Recommender_InfServ)。
+- en: '[PRE44]'
+  id: totrans-477
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: If you test this service by sending traffic in 30-second spurts while maintaining
+    5 in-flight requests, you will see that the autoscaler scales up your inference
+    services to 5 pods.^([21](ch08.xhtml#idm45831168193512))
+  id: totrans-478
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您通过每30秒发送的流量测试此服务，并保持5个正在处理的请求，您将看到自动缩放器将您的推理服务扩展到5个Pod。^([21](ch08.xhtml#idm45831168193512))
+- en: Note
+  id: totrans-479
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: There will be a cold-start time cost as a result of initially spawning pods
+    and downloading the model, before being ready to serve. The cold start may take
+    longer (to pull the serving image) if the image is not cached on the node that
+    the pod is scheduled on.
+  id: totrans-480
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于最初生成Pod并下载模型，再准备提供服务，将会产生冷启动时间成本。如果图像未缓存在调度Pod的节点上，冷启动可能需要更长时间（拉取服务图像）。
+- en: By applying the annotation `autoscaling.knative.dev/target`, as seen in [Example 8-33](#target_concurrency_annos_KFSInfServ),
+    the target concurrency will be set to five.
+  id: totrans-481
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过应用注释`autoscaling.knative.dev/target`，如在[示例8-33](#target_concurrency_annos_KFSInfServ)中所见，目标并发将设置为五。
+- en: Example 8-33\. Custom target concurrency via annotations in KFServing InferenceService
+  id: totrans-482
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-33\. 通过注解在KFServing推理服务中设置自定义目标并发量
+- en: '[PRE45]'
+  id: totrans-483
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: Which means, that if you load the service with five concurrent requests, you
+    will see that you only need one pod for your inference service.
+  id: totrans-484
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你用五个并发请求加载服务，你会发现，你只需要一个pod来作为你的推理服务。
+- en: Debugging an InferenceService
+  id: totrans-485
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 调试推理服务
+- en: With a fully abstracted interface, InferenceService enables many features while
+    giving minimal exposure to the complexity under the hood. To properly debug your
+    InferenceService, let’s look at the request flow upon hitting your InferenceService.
+  id: totrans-486
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过完全抽象的接口，InferenceService在最小化暴露底层复杂性的同时，启用了许多功能。为了正确调试你的推理服务，让我们看一下请求击中你的推理服务时的请求流程。
+- en: 'The request flow when hitting your inference service, illustrated in [Figure 8-8](#kfservingrequest_figure),
+    is as follows:'
+  id: totrans-487
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当请求击中你的推理服务时的请求流程，如[图 8-8](#kfservingrequest_figure)所示，如下：
+- en: Traffic arrives through the Istio ingress gateway when traffic is external and
+    through the Istio cluster local gateway when traffic is internal.
+  id: totrans-488
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 当流量是外部时，通过Istio入口网关到达；当流量是内部时，通过Istio集群本地网关到达。
+- en: KFServing creates an Istio VirtualService to specify its top-level routing rules
+    for all of its components. As such, traffic routes to that top-level VirtualService
+    from the gateway.
+  id: totrans-489
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: KFServing创建了一个Istio VirtualService来指定其所有组件的顶层路由规则。因此，流量会从网关路由到那个顶层VirtualService。
+- en: Knative creates an Istio virtual service to configure the gateway to route the
+    user traffic to the desired revision. Upon opening up the destination rules, you
+    will see that the destination is a Kubernetes service for the latest ready Knative
+    revision.
+  id: totrans-490
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Knative创建了一个Istio虚拟服务来配置网关，将用户流量路由到期望的修订版。打开目标规则后，你会看到目标是最新就绪的Knative修订版的Kubernetes服务。
+- en: Once the revision pods are ready, the Kubernetes service will send the request
+    to the queue-proxy.
+  id: totrans-491
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 一旦修订版的pod准备就绪，Kubernetes服务将请求发送到队列代理。
+- en: If the queue proxy has more requests than it can handle, based on the concurrency
+    of the KFServing container, then the autoscaler will create more pods to handle
+    the additional requests.
+  id: totrans-492
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果队列代理处理的请求超过其处理能力，基于KFServing容器的并发性，那么自动扩展器将创建更多的pod来处理额外的请求。
+- en: Lastly, the queue proxy will send traffic to the KFServing controller.
+  id: totrans-493
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最后，队列代理将流量发送到KFServing控制器。
+- en: '![KFServing Request Flow](Images/kfml_0811.png)'
+  id: totrans-494
+  prefs: []
+  type: TYPE_IMG
+  zh: '![KFServing请求流程](Images/kfml_0811.png)'
+- en: Figure 8-8\. KFServing request flow
+  id: totrans-495
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-8\. KFServing请求流程
+- en: 'Where does this come in handy? Well, say you create your InferenceService but
+    the `Ready` status is `false`:'
+  id: totrans-496
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这在哪里派上用场？比如说你创建了你的推理服务，但是`Ready`状态是`false`：
+- en: '[PRE46]'
+  id: totrans-497
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: You can step through the resources that are created in the request flow and
+    view each of their status objects to understand what the blocker is.^([22](ch08.xhtml#idm45831168056504))
+  id: totrans-498
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以逐步查看在请求流程中创建的资源，并查看它们各自的状态对象，以理解阻碍的原因。^([22](ch08.xhtml#idm45831168056504))
+- en: Debugging performance
+  id: totrans-499
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 调试性能
+- en: What if you deployed your InferenceService but its performance does not meet
+    your expectations? KFServing provides various dashboards and tools to help investigate
+    such issues. Using Knative, KFServing has many resources in its [“debugging performance
+    issues” guide](https://oreil.ly/R5ASm). You can also follow [this Knative guide](https://oreil.ly/MSiNX)
+    to access Prometheus and Grafana. Lastly, you can use request tracing, also known
+    as distributed tracing, to see how much time is spent in each step of KFServing’s
+    request flow in [Figure 8-8](#kfservingrequest_figure). You can use [this Knative
+    guide](https://oreil.ly/STu7g) to access request traces.
+  id: totrans-500
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你部署了你的推理服务但性能不符合你的期望，KFServing提供了各种仪表板和工具来帮助调查这些问题。使用Knative，KFServing在其[“调试性能问题”指南](https://oreil.ly/R5ASm)中拥有许多资源。你也可以参考[这个Knative指南](https://oreil.ly/MSiNX)来访问Prometheus和Grafana。最后，你可以使用请求跟踪，也被称为分布式跟踪，查看KFServing请求流程的每个步骤花费了多少时间，详见[图 8-8](#kfservingrequest_figure)。你可以使用[这个Knative指南](https://oreil.ly/STu7g)来访问请求跟踪。
+- en: Knative Eventing
+  id: totrans-501
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Knative Eventing
+- en: By bringing Knative into its stack, KFServing enabled serverless via Knative
+    Serving and the use of event sources and event consumers via Knative Eventing.^([23](ch08.xhtml#idm45831168015528))
+    We will take a look at how Knative Eventing works, and how you can extend your
+    inference service with an event source.
+  id: totrans-502
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过将Knative整合到其堆栈中，KFServing通过Knative Serving启用了无服务器模式，并通过Knative Eventing使用事件源和事件消费者。^([23](ch08.xhtml#idm45831168015528))
+    我们将看一下Knative Eventing的工作原理，以及如何通过事件源扩展您的推理服务。
+- en: 'Knative Eventing enforces a lambda-style architecture of event sources and
+    event consumers with the following design principles:'
+  id: totrans-503
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Knative Eventing 强制执行事件源和事件消费者的 Lambda 风格架构，遵循以下设计原则：
+- en: Knative Eventing services are loosely coupled.
+  id: totrans-504
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Knative Eventing 服务松散耦合。
+- en: Event producers and event consumers are independent. Any producer or Source
+    can generate events before there are active event consumers listening. Any event
+    consumer can express interest in an event before there are producers that are
+    creating those events.
+  id: totrans-505
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件生产者和事件消费者是独立的。任何生产者或源都可以在有活跃事件消费者监听之前生成事件。任何事件消费者都可以在有创建这些事件的生产者之前对事件表达兴趣。
+- en: 'Other services can be connected to any Eventing system that:'
+  id: totrans-506
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 其他服务可以连接到任何事件系统，包括：
+- en: Creates new applications without modifying the event producer or event-consumer.
+  id: totrans-507
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建新的应用程序而不修改事件生成器或事件消费者。
+- en: Selects and targets specific subsets of events from their producers.
+  id: totrans-508
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 选择并针对其生产者的特定子集事件。
+- en: 'Knative Eventing delivers events in two flavors: direct delivery from a source
+    to a single service and fan-out delivery from a source to multiple endpoints using
+    channels and subscriptions.'
+  id: totrans-509
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Knative Eventing 提供两种事件交付方式：直接从源到单个服务的直接交付，以及通过通道和订阅从源到多个端点的扇出交付。
+- en: There are a variety of sources^([24](ch08.xhtml#idm45831167990536)) that come
+    out-of-the-box when installing Knative Eventing, one of which is KafkaSource.^([25](ch08.xhtml#idm45831167989016))
+    If you look at [Example 8-34](#KafkaS_sends_events_KFS_Rec_InfServ), you will
+    see how you would use KafkaSource to send events, received by Kafka, to your recommender
+    example.
+  id: totrans-510
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在安装 Knative Eventing 时，提供了多种即插即用的源^([24](ch08.xhtml#idm45831167990536))，其中之一是
+    KafkaSource^([25](ch08.xhtml#idm45831167989016))。如果你查看[示例 8-34](#KafkaS_sends_events_KFS_Rec_InfServ)，你将看到如何使用
+    KafkaSource 发送事件，通过 Kafka 接收到你的推荐器示例。
+- en: Example 8-34\. KafkaSource that sends events to a KFServing Recommender InferenceService
+  id: totrans-511
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-34\. KafkaSource 发送事件到 KFServing 推荐器推理服务
+- en: '[PRE47]'
+  id: totrans-512
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: As you can see by the simplicity of this specification, after setting up your
+    Kafka resources, hooking Kafka into your InferenceService is as simple as 13 lines
+    of YAML. You can find a more advanced end-to-end example with MinIO and Kafka
+    on [this Kubeflow GitHub site](https://oreil.ly/_8oSZ).
+  id: totrans-513
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你所看到的这个规范的简单性，设置好你的 Kafka 资源后，将 Kafka 链接到你的 InferenceService 就像是 13 行 YAML
+    那样简单。你可以在[这个 Kubeflow GitHub 网址](https://oreil.ly/_8oSZ)找到一个更高级的端到端示例，其中包括 MinIO
+    和 Kafka。
+- en: Additional features
+  id: totrans-514
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 其他功能
+- en: KFServing contains a host of features that are continuously being improved.
+    A comprehensive list of its capabilities can be found [on this GitHub site](https://oreil.ly/nJTCV).
+  id: totrans-515
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing 包含一系列功能，不断进行改进。你可以在[此 GitHub 网址](https://oreil.ly/nJTCV)找到其功能的详细列表。
+- en: API documentation
+  id: totrans-516
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: API 文档
+- en: For more on the APIs, consult the references for the [KFServing Kubernetes APIs](https://oreil.ly/iCBAD)
+    and the KFServing Python [KFServing Python APIs](https://oreil.ly/klfBR).
+  id: totrans-517
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解更多有关 API 的信息，请参考[KFServing Kubernetes APIs 的参考资料](https://oreil.ly/iCBAD)和
+    KFServing Python [KFServing Python APIs 的参考资料](https://oreil.ly/klfBR)。
+- en: Review
+  id: totrans-518
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 回顾
+- en: Building serverless on top of Seldon Core’s graph inferencing, KFServing has
+    produced a complete inference solution that sufficiently fills all the gaps of
+    TFServing and Seldon Core. KFServing works to unify the entire community of model
+    servers by running model servers as Knative components. With all of its functionality
+    and promise, we will take a look at how KFServing manages to satisfy all your
+    inference requirements.
+  id: totrans-519
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Seldon Core 的图推理之上构建无服务器应用，KFServing 提供了一个完整的推理解决方案，充分填补了 TFServing 和 Seldon
+    Core 的所有空白。KFServing 通过将模型服务器作为 Knative 组件运行，致力于统一整个模型服务器社区。通过其所有的功能和承诺，我们将看看
+    KFServing 如何满足所有你的推理需求。
+- en: Model serving
+  id: totrans-520
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型服务
+- en: KFServing makes graph inference and advanced ML insights first-class while also
+    defining a data plane that is extremely extensible for pluggable components. This
+    flexibility allows data scientists to focus on ML insights without having to strain
+    over how to include them in the graph.
+  id: totrans-521
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing 使得图推理和先进的机器学习洞察力成为头等大事，同时定义了一个数据平面，极易扩展以插入式组件。这种灵活性使得数据科学家能够专注于机器学习洞察力，而无需为如何将其包含在图中而苦恼。
+- en: KFServing is not only versatile in that it provides serving flexibility for
+    a variety of frameworks, but it also standardizes the data plane across differing
+    frameworks to reduce complexity in switching between model servers. It codifies
+    the Kubernetes design pattern by moving common functionalities like request batching,
+    logging, and pipelining into a sidecar. This, in turn, slims down the model server
+    and creates a separation of concerns, as model services without these features
+    can immediately benefit from deploying onto KFServing. It also provides support
+    for `REST`, `gRPC`, and GPU acceleration and can interface with streaming inputs
+    using Knative Eventing. And lastly, thanks to Knative Serving, KFServing provides
+    GPU autoscaling, which you expect from hardware-agnostic autoscaling.
+  id: totrans-522
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing 不仅多才多艺，为多种框架提供了灵活的服务，而且还通过规范化数据平面来减少在不同框架之间切换模型服务器的复杂性。它通过将请求批处理、日志记录和管道化等常用功能移动到
+    Sidecar 中，从而简化了模型服务器，并实现了关注点的分离，没有这些功能的模型服务可以立即从部署到 KFServing 中受益。它还支持`REST`、`gRPC`和
+    GPU 加速，并且可以使用 Knative Eventing 与流输入进行接口连接。最后，得益于 Knative Serving，KFServing 提供了
+    GPU 自动缩放，这是您从硬件无关自动缩放中所期望的。
+- en: Model monitoring
+  id: totrans-523
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型监控
+- en: By taking from Seldon Core and its infrastructure stack, KFServing meets all
+    of your model monitoring needs. KFServing leverages the sophisticated model explainers
+    and drift detectors of Seldon Core in a first-class way, while also paving a way
+    for developers to define their own monitoring components in a highly flexible
+    yet powerful data plane.
+  id: totrans-524
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过借鉴 Seldon Core 及其基础设施堆栈，KFServing 满足了您的模型监控需求。KFServing 以一流的方式利用了 Seldon Core
+    的复杂模型解释器和漂移检测器，同时也为开发人员提供了定义其自己的监控组件的高度灵活而强大的数据平面。
+- en: Furthermore, with all the networking capabilities enabled by having Istio and
+    Knative in its infrastructure stack, KFServing provides extensible network monitoring
+    and telemetry with support for Prometheus, Grafana, Kibana, Zipkin, and Jaeger,
+    to name a few. These all satisfy your needs to monitor for Kubernetes metrics
+    (memory/CPU container limits) and server metrics (queries per second and distributed
+    tracing).
+  id: totrans-525
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，通过在基础设施堆栈中使用 Istio 和 Knative 的所有网络功能，KFServing 提供了可扩展的网络监控和支持 Prometheus、Grafana、Kibana、Zipkin
+    和 Jaeger 等的遥测。这些都满足了您监控 Kubernetes 指标（内存/CPU 容器限制）和服务器指标（每秒查询和分布式跟踪）的需求。
+- en: Model updating
+  id: totrans-526
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型更新
+- en: KFServing’s use of Knative was strategic in providing sophisticated model updating
+    features. As such, KFServing satisfies all of your requirements regarding deployment
+    strategies and version rollouts.
+  id: totrans-527
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing 对 Knative 的使用在提供复杂的模型更新功能方面是策略性的。因此，KFServing 满足了关于部署策略和版本发布的所有要求。
+- en: By leveraging Istio’s virtual services and the simplicity of an abstracted CRD,
+    KFServing makes the toggling of deployment strategies simple. It makes the flow
+    from blue-green → pinned → canary as simple as changing a few lines of YAML. Furthermore,
+    with the diverse and ever-expanding features of its underlying stack, KFServing
+    is easily extensible to support more-complicated deployment strategies like multi-armed
+    bandits.^([26](ch08.xhtml#idm45831167858424))
+  id: totrans-528
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过利用 Istio 的虚拟服务和抽象的 CRD 的简易性，KFServing 简化了部署策略的切换。只需改变几行 YAML，便可以轻松实现从蓝绿→固定→金丝雀的流程。此外，借助其底层堆栈的多样化和不断扩展的功能，KFServing
+    很容易扩展以支持更复杂的部署策略，如多臂赌博机。^([26](ch08.xhtml#idm45831167858424))
+- en: 'By using Knative Serving, KFServing adopts revision management that makes Kubernetes
+    deployment immutable. This ensures safe rollout by health checking the new revisions
+    pods before moving over the traffic. A revision enables:'
+  id: totrans-529
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过使用 Knative Serving，KFServing 采用了使 Kubernetes 部署不可变的修订管理。这确保了在将流量切换到新的修订版之前，通过对新修订版的
+    Pod 进行健康检查来实现安全的部署。修订版可以实现：
+- en: Automated and safe rollouts
+  id: totrans-530
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 自动化和安全的部署
+- en: Bookkeeping for all revisions previously created
+  id: totrans-531
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对先前创建的所有修订版本进行簿记
+- en: Rollbacks to known, good configurations
+  id: totrans-532
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 回滚到已知的良好配置
+- en: This sufficiently satisfies your versioning requirements for models in development,
+    in flight, and in production.
+  id: totrans-533
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这充分满足了您在开发、飞行和生产中对模型版本的要求。
+- en: Summary
+  id: totrans-534
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 总结
+- en: KFServing has developed a sophisticated inference solution that abstracts its
+    complexity for day-one users while also enabling power users to take advantage
+    of its diverse feature set. Building cloud native, KFServing seamlessly sits atop
+    Kubeflow and finalizes the MDLC with its inference solution.
+  id: totrans-535
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KFServing 已经开发了一个复杂的推理解决方案，将其复杂性抽象为日常用户的第一天使用，同时也使强大的用户能够利用其多样的功能集。构建云原生，KFServing
+    无缝地坐落在 Kubeflow 之上，并通过其推理解决方案完成了 MDLC。
+- en: Conclusion
+  id: totrans-536
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: In this chapter we investigated various inference solutions that can be used
+    within Kubeflow.
+  id: totrans-537
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们调查了可以在 Kubeflow 中使用的各种推理解决方案。
+- en: 'Based on what inference requirements you wish to prioritize and how deep you
+    want your infrastructure stack to be, each of the solutions described has distinctive
+    advantages. Having reviewed each of the offerings in detail, it might be worthwhile
+    to reconsider [Table 8-2](#comparing_different_model_inference_approaches) and
+    see which inference solution is appropriate for your use case:'
+  id: totrans-538
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据您希望优先考虑的推理需求以及您希望您的基础架构堆栈有多深，描述的每个解决方案都具有独特的优势。在详细审查了每个提供的内容之后，重新考虑[表 8-2](#comparing_different_model_inference_approaches)可能是值得的，看看哪种推理解决方案适合您的用例：
+- en: TFServing provides extremely performant and sophisticated out-of-the-box integration
+    for TensorFlow models.
+  id: totrans-539
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: TFServing 为 TensorFlow 模型提供了极其高效和复杂的即插即用集成。
+- en: Seldon Core provides extensibility and sophisticated out-of-the-box support
+    for complex inference graphs and model insight.
+  id: totrans-540
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Seldon Core 提供了复杂推理图和模型洞察力的可扩展性和复杂的即插即用支持。
+- en: KFServing provides a simpler opinionated deployment definition with serverless
+    capabilities.
+  id: totrans-541
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: KFServing 提供了一个更简单且具有无服务器能力的部署定义。
+- en: However, technology and development are shared between all these projects, and
+    looking to the future, Seldon Core will even support the new KFServing data plane
+    with the goal to provide easy interoperability and conversion. Other exciting
+    features to expect from KFServing include multi-model serving, progressive rollouts,
+    and more advanced graph inferencing techniques like pipelines and multi-armed
+    bandit.
+  id: totrans-542
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，技术和开发在所有这些项目之间是共享的，并展望未来，Seldon Core 将甚至支持新的 KFServing 数据平面，目标是提供易于互操作和转换。KFServing
+    可期待的其他令人兴奋的功能包括多模型服务、渐进式部署以及更先进的图推理技术，如管道和多臂赌博机。
+- en: Now that you have completed the final step in your MDLC story, we will see how
+    you can further customize Kubeflow to enable more advanced features in the next
+    chapter.
+  id: totrans-543
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经完成了 MDLC 故事的最后一步，我们将看看如何在下一章中进一步定制 Kubeflow 以实现更高级的功能。
+- en: ^([1](ch08.xhtml#idm45831170778040-marker)) If you are interested in learning
+    more about model embedding, we suggest reading [*Serving Machine Learning Models*](https://learning.oreilly.com/library/view/serving-machine-learning/9781492024095)
+    by Boris Lublinsky (O’Reilly).
+  id: totrans-544
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch08.xhtml#idm45831170778040-marker)) 如果您有兴趣了解模型嵌入更多信息，建议阅读[*服务机器学习模型*](https://learning.oreilly.com/library/view/serving-machine-learning/9781492024095)
+    by Boris Lublinsky（O'Reilly）。
+- en: '^([2](ch08.xhtml#idm45831170715736-marker)) Some references include: [“Failing
+    Loudly: An Empirical Study of Methods for Detecting Dataset Shift”](https://oreil.ly/mJP-U),
+    [“Detecting and Correcting for Label Shift with Black Box Predictors”](https://oreil.ly/R5AuT),
+    [“A Kernel Two-Sample Test”](https://oreil.ly/P3ujL), and [“Monitoring and Explainability
+    of Models in Production”](https://oreil.ly/J0COf).'
+  id: totrans-545
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch08.xhtml#idm45831170715736-marker)) 一些参考文献包括：[“大声失败：检测数据集漂移的方法的实证研究”](https://oreil.ly/mJP-U)，[“使用黑盒预测器检测和校正标签偏移”](https://oreil.ly/R5AuT)，[“核二样本检验”](https://oreil.ly/P3ujL)，以及[“生产中模型的监控和可解释性”](https://oreil.ly/J0COf)。
+- en: ^([3](ch08.xhtml#idm45831170617576-marker)) Refer to the [TensorFlow documentation](https://oreil.ly/NnBSc)
+    for details on using TFServing locally.
+  id: totrans-546
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch08.xhtml#idm45831170617576-marker)) 有关在本地使用 TFServing 的详细信息，请参阅[TensorFlow
+    文档](https://oreil.ly/NnBSc)。
+- en: ^([4](ch08.xhtml#idm45831170616056-marker)) Refer to the [TensorFlow documentation](https://oreil.ly/Ac_Pr)
+    for details on using TFServing on Kubernetes.
+  id: totrans-547
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch08.xhtml#idm45831170616056-marker)) 有关在 Kubernetes 上使用 TFServing 的详细信息，请参阅[TensorFlow
+    文档](https://oreil.ly/Ac_Pr)。
+- en: ^([5](ch08.xhtml#idm45831170410888-marker)) If you are using Istio as a service
+    mesh, follow these [instructions](https://oreil.ly/Dg6Vp) to add a [virtual service](https://oreil.ly/mu28a).
+  id: totrans-548
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch08.xhtml#idm45831170410888-marker)) 如果您正在使用 Istio 作为服务网格，请按照这些[说明](https://oreil.ly/Dg6Vp)添加[虚拟服务](https://oreil.ly/mu28a)。
+- en: ^([6](ch08.xhtml#idm45831170375912-marker)) You can, of course, scale it manually
+    by changing the amount of deployed instances.
+  id: totrans-549
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch08.xhtml#idm45831170375912-marker)) 您当然可以通过更改部署实例的数量来手动扩展它。
+- en: ^([7](ch08.xhtml#idm45831170326744-marker)) See TFServing’s deployment strategy
+    [configuration](https://oreil.ly/ezM2g) for more information.
+  id: totrans-550
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch08.xhtml#idm45831170326744-marker)) 有关更多信息，请参阅 TFServing 的部署策略[配置](https://oreil.ly/ezM2g)。
+- en: ^([8](ch08.xhtml#idm45831170291704-marker)) Refer to the Seldon documentation
+    for integration with [Prometheus](https://oreil.ly/_8xgR), [ELK](https://oreil.ly/DV5_b),
+    and [Jaeger](https://oreil.ly/7CIeM).
+  id: totrans-551
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch08.xhtml#idm45831170291704-marker)) 有关与[Prometheus](https://oreil.ly/_8xgR)、[ELK](https://oreil.ly/DV5_b)和[Jaeger](https://oreil.ly/7CIeM)集成的
+    Seldon 文档，请参阅此处。
+- en: ^([9](ch08.xhtml#idm45831170170360-marker)) Currently supported prepackaged
+    servers include MLflow server, SKLearn server, TensorFlow serving, and XGBoost
+    server.
+  id: totrans-552
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch08.xhtml#idm45831170170360-marker)) 目前支持的预打包服务器包括 MLflow 服务器、SKLearn
+    服务器、TensorFlow 服务和 XGBoost 服务器。
+- en: ^([10](ch08.xhtml#idm45831170169576-marker)) Currently supported is a language
+    server for Python. Incubating are Java, R, NodeJS, and Go.
+  id: totrans-553
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([10](ch08.xhtml#idm45831170169576-marker)) 目前支持 Python 的语言服务器。Java、R、NodeJS
+    和 Go 正在孵化中。
+- en: ^([11](ch08.xhtml#idm45831170150904-marker)) Because Seldon implements the computational
+    structure as a tree, the combiner executes in reverse order to combine output
+    from all children.
+  id: totrans-554
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([11](ch08.xhtml#idm45831170150904-marker)) 因为 Seldon 将计算结构实现为树形结构，所以合并器以反向顺序执行，以合并所有子节点的输出。
+- en: ^([12](ch08.xhtml#idm45831169891080-marker)) You can also send requests using
+    the Python client.
+  id: totrans-555
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([12](ch08.xhtml#idm45831169891080-marker)) 您还可以使用 Python 客户端发送请求。
+- en: ^([13](ch08.xhtml#idm45831169736392-marker)) A SeldonMessage can be defined
+    as both an [OpenAPI specification](https://oreil.ly/lGoRK) and a [protobuffer
+    definition](https://oreil.ly/J-E70).
+  id: totrans-556
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([13](ch08.xhtml#idm45831169736392-marker)) 可以将 SeldonMessage 定义为[OpenAPI 规范](https://oreil.ly/lGoRK)和[协议缓冲定义](https://oreil.ly/J-E70)。
+- en: ^([14](ch08.xhtml#idm45831169631800-marker)) For more on how to enable this,
+    see this [Seldon documentation page](https://oreil.ly/myFaS).
+  id: totrans-557
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([14](ch08.xhtml#idm45831169631800-marker)) 有关如何启用此功能的详细信息，请参阅此[Seldon 文档页面](https://oreil.ly/myFaS)。
+- en: ^([15](ch08.xhtml#idm45831169343736-marker)) See [“Training a Model Using Scikit-Learn”](ch07.xhtml#model_building_income)
+    for more information on this model and how it is built.
+  id: totrans-558
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([15](ch08.xhtml#idm45831169343736-marker)) 有关此模型及其构建方式的更多信息，请参阅[“使用 Scikit-Learn
+    训练模型”](ch07.xhtml#model_building_income)。
+- en: ^([16](ch08.xhtml#idm45831169035576-marker)) See the [Seldon Core documentation](https://oreil.ly/4dPsn)
+    for further details.
+  id: totrans-559
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([16](ch08.xhtml#idm45831169035576-marker)) 有关更多详细信息，请参阅[Seldon Core 文档](https://oreil.ly/4dPsn)。
+- en: ^([17](ch08.xhtml#idm45831168939448-marker)) KFServing is continuously evolving,
+    as is its protocol. You can preview the V2 protocol [on this Kubeflow GitHub site](https://oreil.ly/-duCU).
+    The second version of the data plane protocol addresses several issues found in
+    the V1 data plane protocol, including performance and generality across a large
+    number of model frameworks and servers.
+  id: totrans-560
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([17](ch08.xhtml#idm45831168939448-marker)) KFServing 不断发展，其协议也在不断演进。您可以在此[Kubeflow
+    GitHub 网站](https://oreil.ly/-duCU)上预览 V2 协议。数据平面协议的第二个版本解决了 V1 数据平面协议中发现的几个问题，包括性能和跨大量模型框架和服务器的普适性。
+- en: ^([18](ch08.xhtml#idm45831168910168-marker)) KFServing also supports standalone
+    installation without Kubeflow. In fact, most production users of KFServing run
+    it as a standalone installation.
+  id: totrans-561
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([18](ch08.xhtml#idm45831168910168-marker)) KFServing 还支持独立安装，无需 Kubeflow。实际上，大多数
+    KFServing 的生产用户都将其作为独立安装运行。
+- en: ^([19](ch08.xhtml#idm45831168432584-marker)) You can still predict against a
+    certain version by passing in a Host-Header in your request. For more information
+    on rollouts, see [this GitHub repo](https://oreil.ly/ynNre).
+  id: totrans-562
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([19](ch08.xhtml#idm45831168432584-marker)) 您仍然可以通过在请求中传递 Host-Header 来针对特定版本进行预测。有关部署的更多信息，请参阅此
+    GitHub 仓库。
+- en: ^([20](ch08.xhtml#idm45831168348568-marker)) You can install the SDK by running
+    `pip install kfserving`. You can get the KFServing SDK documentation [on this
+    GitHub site](https://oreil.ly/Fl09j) and examples [on this GitHub site](https://oreil.ly/g7nsa)
+    for creating, rolling out, promoting, and deleting an `InferenceService`.
+  id: totrans-563
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([20](ch08.xhtml#idm45831168348568-marker)) 您可以通过运行`pip install kfserving`来安装
+    SDK。您可以在此 GitHub 网站上获取 KFServing SDK 文档和示例，用于创建、发布、推广和删除`InferenceService`。
+- en: ^([21](ch08.xhtml#idm45831168193512-marker)) You can further explore load testing
+    on [this Kubeflow GitHub site](https://oreil.ly/zsTUE). Two great load-testing
+    frameworks are [Hey](https://oreil.ly/S0o6t) and [Vegeta](https://oreil.ly/8hnd1).
+  id: totrans-564
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([21](ch08.xhtml#idm45831168193512-marker)) 您可以在此 Kubeflow GitHub 网站上进一步探索负载测试。两个优秀的负载测试框架是[Hey](https://oreil.ly/S0o6t)和[Vegeta](https://oreil.ly/8hnd1)。
+- en: ^([22](ch08.xhtml#idm45831168056504-marker)) A detailed debugging guide can
+    be found on [this Kubeflow GitHub site](https://oreil.ly/QWKsS).
+  id: totrans-565
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([22](ch08.xhtml#idm45831168056504-marker)) 可在[Kubeflow GitHub 网站](https://oreil.ly/QWKsS)找到详细的调试指南。
+- en: ^([23](ch08.xhtml#idm45831168015528-marker)) To learn more about Knative Eventing,
+    see [the documentation](https://oreil.ly/LUmNH).
+  id: totrans-566
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([23](ch08.xhtml#idm45831168015528-marker)) 想了解更多关于Knative Eventing的信息，请查看[文档](https://oreil.ly/LUmNH)。
+- en: ^([24](ch08.xhtml#idm45831167990536-marker)) Knative has a [nonexhaustive list
+    of event sources](https://oreil.ly/uf1bA).
+  id: totrans-567
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([24](ch08.xhtml#idm45831167990536-marker)) Knative列出了[事件源的非详尽列表](https://oreil.ly/uf1bA)。
+- en: ^([25](ch08.xhtml#idm45831167989016-marker)) To learn more about KafkaSource,
+    see [the documentation](https://oreil.ly/nhKGY).
+  id: totrans-568
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([25](ch08.xhtml#idm45831167989016-marker)) 想了解更多关于KafkaSource的信息，请查看[文档](https://oreil.ly/nhKGY)。
+- en: ^([26](ch08.xhtml#idm45831167858424-marker)) Check out examples of how ML Graph
+    can be used to build complex graphs of ML components on [this Seldon GitHub site](https://oreil.ly/Ui-Xm).
+  id: totrans-569
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([26](ch08.xhtml#idm45831167858424-marker)) 查看如何使用ML Graph构建ML组件复杂图形的示例，访问[Seldon
+    GitHub 网站](https://oreil.ly/Ui-Xm)。

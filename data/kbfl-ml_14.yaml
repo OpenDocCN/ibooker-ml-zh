@@ -1,0 +1,488 @@
+- en: Appendix C. Using Model Serving in Applications
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 附录 C. 在应用程序中使用模型服务
+- en: In [Chapter 8](ch08.xhtml#inference_ch) you learned different approaches for
+    exposing model servers provided by Kubeflow. As described there, Kubeflow provides
+    several ways of deploying trained models and providing both REST and gRPC interfaces
+    for running model inference. However, it falls short in providing support for
+    using these models in custom applications. Here we will present some of the approaches
+    to building applications by leveraging model servers exposed by Kubeflow.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第8章](ch08.xhtml#inference_ch)中，您学习了Kubeflow提供的暴露模型服务器的不同方法。正如那里所描述的，Kubeflow提供多种部署训练模型和提供运行模型推断的REST和gRPC接口的方式。然而，它在为自定义应用程序使用这些模型提供支持方面还不足。在这里，我们将介绍一些利用Kubeflow暴露的模型服务器构建应用程序的方法。
+- en: 'When it comes to applications leveraging model inference, they can be broadly
+    classified into two categories: real time and batch applications. In the real
+    time/stream applications model, inference is done on data directly as it is produced
+    or received. In this case, typically only one request is available at a time and
+    it can be used for inferencing as it arrives. In the batch scenarios all of the
+    data is available up front and can be used for inference either sequentially or
+    in parallel. We will start from the streaming use case and then take a look at
+    possible batch implementations.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在涉及利用模型推断的应用程序时，它们可以大致分为两类：实时和批处理应用程序。在实时/流式应用程序模型中，推断是直接在生成或接收的数据上进行的。在这种情况下，通常一次只有一个请求可用，并且可以在其到达时用于推理。在批处理场景中，所有数据都是一开始就可用的，并且可以顺序或并行用于推理。我们将从流式使用案例开始，然后看看可能的批处理实现。
+- en: Building Streaming Applications Leveraging Model Serving
+  id: totrans-3
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 利用模型服务构建流应用程序
+- en: 'The majority of today’s streaming applications leverage [Apache Kafka](https://kafka.apache.org)
+    as the data backbone of a system. The two possible options for implementing streaming
+    applications themselves are: usage of stream processing engines and usage of stream
+    processing libraries.'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如今大多数流应用程序利用[Apache Kafka](https://kafka.apache.org)作为系统的数据骨干。实现流应用程序本身的两种可能选项是：使用流处理引擎和使用流处理库。
+- en: Stream Processing Engines and Libraries
+  id: totrans-5
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 流处理引擎和库
+- en: As defined in the article “Defining the Execution Semantics of Stream Processing
+    Engines,”^([1](app03.xhtml#idm45831164003160)) modern stream processing engines
+    are based on organizing computations into blocks and leveraging cluster architectures.^([2](app03.xhtml#idm45831163998552))
+    Splitting computations in blocks enables execution parallelism, where different
+    blocks run on different threads on the same machine, or on different machines.
+    It also enables failover by moving execution blocks from failed machines to healthy
+    ones. Additionally, checkpointing supported by modern engines further improves
+    the reliability of cluster-based execution.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如《定义流处理引擎执行语义》一文所定义的^([1](app03.xhtml#idm45831164003160))，现代流处理引擎基于将计算组织成块并利用集群架构。^([2](app03.xhtml#idm45831163998552))将计算分成块可以实现执行并行性，其中不同块在同一台机器的不同线程上运行，或者在不同的机器上运行。它还通过将执行块从失败的机器移动到健康机器来实现故障转移。此外，现代引擎支持的检查点进一步提高了基于集群的执行的可靠性。
+- en: Stream processing libraries, on the other hand, are libraries with a domain-specific
+    language providing a set of constructs that simplify building streaming applications.
+    Such libraries typically do not support distribution and/or clustering—this is
+    typically left as an exercise for developers.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反之，流处理库是带有特定领域语言的库，提供一组构造来简化构建流应用程序。这些库通常不支持分发和/或集群——这通常留给开发者来实现。
+- en: Because these options sound similar, they are often used interchangeably. In
+    reality, as Jay Kreps has [outlined in his blog](https://oreil.ly/hzK4d), stream
+    processing engines and stream processing libraries are two very different approaches
+    to building streaming applications and choosing one of them is a trade-off between
+    power and simplicity. As described previously, stream processing engines provide
+    more functionality, but require a developer to adhere to their programming model
+    and deployment. They also often require a steeper learning curve for mastering
+    their functionality. Stream processing libraries, on another hand, are typically
+    easier to use, providing more flexibility, but require specific implementation
+    of deployment, scalability, and load balancing.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这些选项听起来相似，它们通常可以互换使用。实际上，正如 Jay Kreps 在他的博客中[概述的](https://oreil.ly/hzK4d)，流处理引擎和流处理库是两种构建流应用程序的非常不同的方法，选择其中之一是权衡功能和简易性。如前所述，流处理引擎提供更多功能，但需要开发人员遵循它们的编程模型和部署要求。他们通常也需要更陡峭的学习曲线来掌握其功能。另一方面，流处理库通常更易于使用，提供更多灵活性，但需要特定的部署、扩展性和负载平衡实现。
+- en: 'Today’s most popular [stream processing engines](https://oreil.ly/h7bKa) include
+    the following:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当今最流行的[流处理引擎](https://oreil.ly/h7bKa)包括以下内容：
+- en: '[Apache Spark](https://spark.apache.org)'
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Apache Spark](https://spark.apache.org)'
+- en: '[Apache Flink](https://flink.apache.org)'
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Apache Flink](https://flink.apache.org)'
+- en: '[Apache Beam](https://beam.apache.org)'
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Apache Beam](https://beam.apache.org)'
+- en: 'The most popular stream libraries are:'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最受欢迎的流处理库有：
+- en: '[Apache Kafka streams](https://oreil.ly/phyB-)'
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Apache Kafka streams](https://oreil.ly/phyB-)'
+- en: '[Akka streams](https://oreil.ly/-qlfT)'
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Akka streams](https://oreil.ly/-qlfT)'
+- en: All of these can be used as a platform for building streaming applications including
+    model serving.^([3](app03.xhtml#idm45831163984136))
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些都可以作为构建流应用程序的平台，包括模型服务。^([3](app03.xhtml#idm45831163984136))
+- en: 'A side-by-side [comparison](https://oreil.ly/LehcG) of stream processing engines
+    (Flink) and stream processing libraries (Kafka streams), done jointly by data
+    Artisans (currently Vervetica) and Confluent teams, also emphasizes yet another
+    difference between stream processing engines and libraries: enterprise ownership.
+    Stream processing engines are typically owned and managed centrally by enterprise-wide
+    units, while stream processing libraries are typically under the purview of individual
+    development teams, which often makes their adoption much simpler. A stream processing
+    engine is a good fit for applications that require features provided out of the
+    box by such engines, including cluster scalability and high throughput through
+    parallelism across a cluster, event-time semantics, checkpointing, built-in support
+    for monitoring and management, and mixing of stream and batch processing. The
+    drawback of using engines is that you are constrained by the programming and deployment
+    models they provide.'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据艺术家（现在是 Vervetica）和 Confluent 团队联合完成的流处理引擎（Flink）和流处理库（Kafka streams）的[比较](https://oreil.ly/LehcG)也强调了流处理引擎和库之间的另一个区别：企业所有权。流处理引擎通常由企业范围的单元集中拥有和管理，而流处理库通常由个别开发团队监管，这通常使其采纳变得更加简单。流处理引擎非常适合需要这些引擎提供的开箱即用功能的应用程序，包括跨集群的并行扩展性和高吞吐量，事件时间语义，检查点功能，内置支持监控和管理，以及流和批处理混合处理。使用引擎的缺点是您受制于它们提供的编程和部署模型。
+- en: In contrast, the stream processing libraries provide a programming model that
+    allows developers to build the applications or microservices the way that fits
+    their precise needs and deploy them as simple standalone Java applications. But
+    in this case they need to roll out their own scalability, high availability, and
+    monitoring solutions (Kafka-based implementations support some of them by leveraging
+    Kafka).
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，流处理库提供的编程模型允许开发人员按照符合其精确需求的方式构建应用程序或微服务，并将它们部署为简单的独立的 Java 应用程序。但在这种情况下，他们需要自己实施扩展性、高可用性和监控解决方案（基于
+    Kafka 的实现通过利用 Kafka 支持其中的一些解决方案）。
+- en: Introducing Cloudflow
+  id: totrans-19
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 介绍 Cloudflow
+- en: In reality, most of the streaming application implementations require usage
+    of multiple engines and libraries for building individual applications, which
+    creates additional integration and maintenance complexities. Many of these can
+    be alleviated by using an open source project, like [Cloudflow](https://cloudflow.io),
+    which allows you to quickly develop, orchestrate, and operate distributed streaming
+    applications on Kubernetes. Cloudflow supports building streaming applications
+    as a set of small, composable components communicating over Kafka and wired together
+    with schema-based contracts. This approach can significantly improve reuse and
+    allows you to dramatically accelerate streaming application development. At the
+    time of this writing, such components can be implemented using Akka Streams; Flink
+    and Spark streaming with Kafka Streams support is coming soon. The overall architecture
+    of Cloudflow is presented in [Figure C-1](#Cloudflow_arch).
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，大多数流应用程序实现需要使用多个引擎和库来构建单个应用程序，这会导致额外的集成和维护复杂性。通过使用像[Cloudflow](https://cloudflow.io)这样的开源项目，可以显著减轻这些问题，它允许您快速开发、编排和操作基于
+    Kubernetes 的分布式流应用程序。Cloudflow 支持将流应用程序构建为一组小型、可组合的组件，这些组件通过基于模式的契约与 Kafka 连接并相互连接。这种方法可以显著提高重用性，并允许您极大地加速流应用程序的开发。在撰写本文时，此类组件可以使用
+    Akka Streams 实现；Flink 和 Spark 流支持 Kafka Streams 正在即将到来。Cloudflow 的整体架构在[图 C-1](#Cloudflow_arch)中展示。
+- en: '![Cloudflow architecture](Images/kfml_ad01a.png)'
+  id: totrans-21
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Cloudflow 架构](Images/kfml_ad01a.png)'
+- en: Figure C-1\. Cloudflow architecture
+  id: totrans-22
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 C-1\. Cloudflow 架构
+- en: In the heart of Cloudflow is a Cloudflow operator, which is responsible for
+    deploying/undeploying, management, and scaling of pipelines and individual streamlets.
+    The operator also leverages existing [Flink](https://oreil.ly/pg2JL) and [Spark](https://oreil.ly/J2umN)
+    operators to manage Flink and Spark streamlets. A set of provided Helm charts
+    allows for simple installation of the operator and supporting components.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Cloudflow 的核心是 Cloudflow 操作员，负责部署/撤销、管理和扩展管道和单个 streamlet。操作员还利用现有的[Flink](https://oreil.ly/pg2JL)和[Spark](https://oreil.ly/J2umN)操作员来管理
+    Flink 和 Spark streamlet。提供的一组 Helm 图表支持操作员和支持组件的简单安装。
+- en: A common challenge when building streaming applications is wiring all of the
+    components together and testing them end-to-end before going into production.
+    Cloudflow addresses this by allowing you to validate the connections between components
+    and to run your application locally during development to avoid surprises during
+    deployment.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构建流式应用程序时的一个常见挑战是在进入生产之前将所有组件连接在一起并进行端到端测试。Cloudflow 通过允许您验证组件之间的连接并在开发期间本地运行应用程序来解决此问题，以避免部署时的意外。
+- en: Everything in Cloudflow is done in the context of an application, which represents
+    a self-contained distributed system (graph) of data processing services connected
+    together by data streams over Kafka.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Cloudflow 中，一切都是在应用程序的上下文中完成的，该应用程序代表一个由数据流通过 Kafka 连接的自包含分布式系统（图形）的数据处理服务。
+- en: 'Cloudflow supports:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Cloudflow 支持：
+- en: Development
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开发
+- en: By generating a lot of boilerplate code, it allows developers to focus on business
+    logic.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过生成大量样板代码，使开发人员可以专注于业务逻辑。
+- en: Build
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构建
+- en: It provides all the tooling for going from business logic to a deployable Docker
+    image.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它提供了从业务逻辑到可部署 Docker 镜像的所有工具。
+- en: Deploy
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署
+- en: It provides Kubernetes tooling to deploy your distributed application with a
+    single command.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它提供了 Kubernetes 工具，可以通过单个命令部署您的分布式应用程序。
+- en: Operate
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 操作
+- en: It provides all the tools you need to get insights, observability, and life
+    cycle management for your distributed streaming application. Another important
+    operational concern directly supported by Cloudflow is an ability to scale individual
+    components of the stream.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它为您的分布式流式应用程序提供了获取洞察力、可观察性和生命周期管理的所有工具。Cloudflow 直接支持的另一个重要操作关注点是能够扩展流的各个组件。
+- en: When using Cloudflow for implementing streaming applications, model server invocation
+    is typically implemented by a separate streamlet^([4](app03.xhtml#idm45831163932264))
+    based on a [dynamically controlled stream](https://oreil.ly/Wijie) pattern.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当使用 Cloudflow 实现流式应用程序时，模型服务器调用通常由基于[动态控制流](https://oreil.ly/Wijie)模式的单独 streamlet^([4](app03.xhtml#idm45831163932264))实现。
+- en: In [Figure C-2](#dynamically_controlled_figure) an implementation contains a
+    state, where a state is a URL to the model serving server, in the case when a
+    model server is used for inference.^([5](app03.xhtml#idm45831163927944)) The actual
+    data processing in this case is done by invoking a model server to get an inference
+    result. This call can be done using either REST or gRPC (or any other interface
+    supported by the model server).
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 C-2](#dynamically_controlled_figure) 中，一个实现包含一个状态，状态是指在使用模型服务进行推断时模型服务服务器的URL。^([5](app03.xhtml#idm45831163927944))
+    在这种情况下的实际数据处理是通过调用模型服务器来获取推断结果。此调用可以使用REST或gRPC（或模型服务器支持的任何其他接口）进行。
+- en: '![Dynamically controlled stream pattern](Images/kfml_ad01.png)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_IMG
+  zh: '![动态控制的流模式](Images/kfml_ad01.png)'
+- en: Figure C-2\. Dynamically controlled stream pattern
+  id: totrans-38
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 C-2\. 动态控制的流模式
+- en: This state can be updated through an additional Kafka topic, which allows for
+    switching the URL (in the case when model server deployment is moved) without
+    redeployment of the applications. The state is used by a data processor for processing
+    incoming data.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个状态可以通过额外的Kafka主题进行更新，允许在不重新部署应用程序的情况下切换URL（例如模型服务器部署移动的情况）。这个状态被数据处理器用于处理传入的数据。
+- en: Additional streamlets (with the same architecture) can be introduced into the
+    application to get model serving insights, such as explanation and drift detection
+    (see [“Model Monitoring”](ch08.xhtml#Model_Monitor) for more details).
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以向应用程序引入额外的流片段（具有相同的架构），以获取模型服务的见解，例如解释和漂移检测（详见[“模型监控”](ch08.xhtml#Model_Monitor)）。
+- en: Building Batch Applications Leveraging Model Serving
+  id: totrans-41
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 构建利用模型服务的批处理应用程序
+- en: A typical batch application is implemented by reading a dataset containing all
+    the samples and then processing them, invoking the model server for every one
+    of them. The simplest batch application implementation is doing this sequentially,
+    one data element at a time. Although such implementation will work, it is not
+    very performant, due to the network overhead for processing every element.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 典型的批处理应用程序通过读取包含所有样本的数据集来实现，然后处理它们，为每一个调用模型服务器。最简单的批处理应用程序实现是顺序执行，逐个处理数据元素。虽然这样的实现能够工作，但由于处理每个元素的网络开销，性能并不理想。
+- en: 'One popular way to speed up processing is to use batching. TFServing, for example,
+    supports [two batching approaches](https://oreil.ly/v7LFl): server-side batching
+    and client-side batching.'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加速处理的一种流行方法是使用批处理。例如，TFServing支持 [两种批处理方法](https://oreil.ly/v7LFl)：服务器端批处理和客户端批处理。
+- en: Server-side batching is supported out of the box by TFServing.^([6](app03.xhtml#idm45831163913320))
+    To enable batching, set `--enable_batching` and `--batching_parameters_file` flags.
+    To achieve the best trade-offs between latency and throughput, pick appropriate
+    batching parameters.^([7](app03.xhtml#idm45831163910920)) Some of the recommendations
+    for the parameters values for both CPU and GPU usage can be found in [this TFServing
+    GitHub repo](https://oreil.ly/TecPs).
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFServing默认支持服务器端批处理。^([6](app03.xhtml#idm45831163913320)) 要启用批处理，设置 `--enable_batching`
+    和 `--batching_parameters_file` 标志。为了在延迟和吞吐量之间取得最佳平衡，请选择适当的批处理参数。^([7](app03.xhtml#idm45831163910920))
+    可以在 [这个 TFServing GitHub 仓库](https://oreil.ly/TecPs) 中找到一些关于CPU和GPU使用的参数值建议。
+- en: Upon reaching full batch on the server side, inference requests are merged internally
+    into a single large request (tensor) and a Tensorflow Session is run on the merged
+    request. You need to use asynchronous client requests to populate server-side
+    batches. Running a batch of requests on a single session is where CPU/GPU parallelism
+    can really be leveraged.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 达到服务器端完整批处理后，推断请求在内部合并为一个大请求（张量），并在合并请求上运行一个Tensorflow会话。您需要使用异步客户端请求来填充服务器端批处理。在单个会话上运行一批请求是真正利用CPU/GPU并行性的地方。
+- en: Client-side batching is just grouping multiple inputs together on the client
+    to make a single request.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 客户端批处理只是在客户端将多个输入分组到一起以进行单个请求。
+- en: Although batching can significantly improve performance of the batch inference,
+    it’s often not sufficient for reaching performance goals. Another popular approach
+    for performance improvement is multithreading.^([8](app03.xhtml#idm45831163906808))
+    The idea behind this approach is to deploy multiple instances of a model server,
+    split data processing into multiple threads, and allow each thread to do inference
+    for part of the data it is responsible for.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然批处理可以显著提高批量推断的性能，但通常不足以达到性能目标。另一种提高性能的流行方法是多线程。^([8](app03.xhtml#idm45831163906808))
+    此方法背后的想法是部署多个模型服务器实例，将数据处理分成多个线程，并允许每个线程为其负责的部分数据进行推断。
+- en: One of the ways to implement multithreading is through a batch implementation
+    via streaming. This can be done by implementing software component^([9](app03.xhtml#idm45831163904600))
+    reading source data and writing each record to Kafka for processing. This approach
+    effectively turns batch processing into a streaming one to allow for better scalability
+    through an architecture as shown in [Figure C-3](#batch_processing_figure).
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过流处理实现多线程的一种方法是通过流处理实现批处理。这可以通过实现软件组件^([9](app03.xhtml#idm45831163904600))读取源数据并将每个记录写入Kafka进行处理来实现。这种方法有效地将批处理转换为流处理，以允许通过如[图
+    C-3](#batch_processing_figure)所示的架构实现更好的可伸缩性。
+- en: '![Using Stream processing for batch serving implementation](Images/kfml_ad02.png)'
+  id: totrans-49
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用流处理进行批量服务实现](Images/kfml_ad02.png)'
+- en: Figure C-3\. Using stream processing for batch serving implementation
+  id: totrans-50
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 C-3\. 使用流处理进行批量服务实现
+- en: 'This deployment includes three layers:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个部署包括三个层次：
+- en: Cloudflow-based stream processing that invokes model serving for every element
+    of the stream. Every streamlet of this solution can be scaled appropriately to
+    provide required throughput.
+  id: totrans-52
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 基于Cloudflow的流处理，为每个流元素调用模型服务。此解决方案的每个流单元可以适当地扩展，以提供所需的吞吐量。
+- en: A model server that does the actual model inference. This layer can be independently
+    scaled by changing the amount of model servers.
+  id: totrans-53
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个执行实际模型推断的模型服务器。通过更改模型服务器的数量，可以独立扩展此层次。
+- en: Load balancers, for example Istio or Ambassador, that provide load balancing
+    for inference REST/gRPC requests.
+  id: totrans-54
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 负载均衡器，例如Istio或Ambassador，为推断REST/gRPC请求提供负载均衡。
+- en: Because every layer in this architecture can scale independently, such an architecture
+    can provide a model serving solution that is quite scalable for both streaming
+    and batch use cases.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为此架构中的每一层都可以独立扩展，因此这样的架构可以为流和批处理用例提供相当可伸缩的模型服务解决方案。
+- en: ^([1](app03.xhtml#idm45831164003160-marker)) L. Affetti et al., “Defining the
+    Execution Semantics of Stream Processing Engines,” *Journal of Big Data* 4 (2017),
+    [*https://oreil.ly/TcI39*](https://oreil.ly/TcI39).
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](app03.xhtml#idm45831164003160-marker)) L. Affetti等人，“定义流处理引擎的执行语义”，*大数据杂志*
+    4 (2017)，[*https://oreil.ly/TcI39*](https://oreil.ly/TcI39)。
+- en: ^([2](app03.xhtml#idm45831163998552-marker)) Compare to MapReduce architecture.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](app03.xhtml#idm45831163998552-marker)) 与MapReduce架构进行比较。
+- en: ^([3](app03.xhtml#idm45831163984136-marker)) For implementation details, see
+    the report, [*Serving Machine Learning Models*](https://oreil.ly/UW1KP), and [Kai
+    Waehner’s project on GitHub](https://oreil.ly/8vtK3).
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](app03.xhtml#idm45831163984136-marker)) 有关实现细节，请参阅报告《*机器学习模型服务*》(Serving
+    Machine Learning Models)，以及[Kai Waehner 在 GitHub 上的项目](https://oreil.ly/8vtK3)。
+- en: ^([4](app03.xhtml#idm45831163932264-marker)) Some of the examples of such implementations
+    for TFServing integration can be found [in this GitHub repo](https://oreil.ly/7cJ4O),
+    and for Seldon integration, [in this GitHub repo](https://oreil.ly/6SqfJ).
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](app03.xhtml#idm45831163932264-marker)) 一些关于TFServing集成的实现示例可以在[这个 GitHub
+    仓库](https://oreil.ly/7cJ4O)中找到，而对于Seldon集成，则在[这个 GitHub 仓库](https://oreil.ly/6SqfJ)中找到。
+- en: ^([5](app03.xhtml#idm45831163927944-marker)) In the case of embedded model usage,
+    the state is a model itself.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](app03.xhtml#idm45831163927944-marker)) 在使用嵌入模型的情况下，状态本身就是一个模型。
+- en: ^([6](app03.xhtml#idm45831163913320-marker)) See this [TFServing document](https://oreil.ly/iXsah)
+    for more details.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](app03.xhtml#idm45831163913320-marker)) 详细信息请参阅[此 TFServing 文档](https://oreil.ly/iXsah)。
+- en: ^([7](app03.xhtml#idm45831163910920-marker)) For the complete definitions of
+    available parameters, see [this TFServing GitHub repo](https://oreil.ly/FoHx6).
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](app03.xhtml#idm45831163910920-marker)) 有关可用参数的完整定义，请参阅[此 TFServing GitHub
+    仓库](https://oreil.ly/FoHx6)。
+- en: ^([8](app03.xhtml#idm45831163906808-marker)) Compare to the [MapReduce](https://oreil.ly/OHV3Q)
+    programming model.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](app03.xhtml#idm45831163906808-marker)) 与[MapReduce](https://oreil.ly/OHV3Q)编程模型进行比较。
+- en: ^([9](app03.xhtml#idm45831163904600-marker)) Streamlet, in the case of Cloudflow-based
+    implementation.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](app03.xhtml#idm45831163904600-marker)) 在基于Cloudflow的实现中，Streamlet。

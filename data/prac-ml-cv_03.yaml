@@ -1,0 +1,3417 @@
+- en: Chapter 3\. Image Vision
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第三章 图像视觉
+- en: In [Chapter 2](ch02.xhtml#ml_models_for_vision), we looked at machine learning
+    models that treat pixels as being independent inputs. Traditional fully connected
+    neural network layers perform poorly on images because they do not take advantage
+    of the fact that adjacent pixels are highly correlated (see [Figure 3-1](#applying_a_fully_connected_layer_to_all)).
+    Moreover, fully connecting multiple layers does not make any special provisions
+    for the 2D hierarchical nature of images. Pixels close to each other work together
+    to create shapes (such as lines and arcs), and these shapes themselves work together
+    to create recognizable parts of an object (such as the stem and petals of a flower).
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第二章](ch02.xhtml#ml_models_for_vision)中，我们研究了将像素视为独立输入的机器学习模型。传统的全连接神经网络层在图像上表现不佳，因为它们未利用相邻像素高度相关的事实（参见[图
+    3-1](#applying_a_fully_connected_layer_to_all)）。此外，完全连接多层也没有为图像的 2D 分层性质提供任何特殊规定。靠近的像素共同工作以创建形状（如线条和弧线），这些形状本身又共同工作以创建对象的可识别部分（如花朵的茎和花瓣）。
+- en: In this chapter, we will remedy this by looking at techniques and model architectures
+    that take advantage of the special properties of images.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章中，我们将通过研究利用图像的特殊属性的技术和模型架构来纠正这一点。
+- en: Tip
+  id: totrans-3
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: The code for this chapter is in the *03_image_models* folder of the book’s [GitHub
+    repository](https://github.com/GoogleCloudPlatform/practical-ml-vision-book).
+    We will provide file names for code samples and notebooks where applicable.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的代码位于该书的[GitHub 代码库](https://github.com/GoogleCloudPlatform/practical-ml-vision-book)的
+    *03_image_models* 文件夹中。我们将在适当的情况下提供代码示例和笔记本文件的文件名。
+- en: '![](Images/pmlc_0301.png)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0301.png)'
+- en: Figure 3-1\. Applying a fully connected layer to all the pixels of an image
+    treats the pixels as independent inputs and ignores that images have adjacent
+    pixels working together to create shapes.
+  id: totrans-6
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-1\. 将全连接层应用于图像的所有像素，将像素视为独立输入，并忽略了图像中相邻像素共同工作以创建形状的事实。
+- en: Pretrained Embeddings
+  id: totrans-7
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 预训练嵌入
+- en: The deep neural network that we developed in [Chapter 2](ch02.xhtml#ml_models_for_vision)
+    had two hidden layers, one with 64 nodes and the other with 16 nodes. One way
+    to think about this network architecture is shown in [Figure 3-2](#the_sixteen_numbers_that_form_the_embedd).
+    In some sense, all the information contained in the input image is being represented
+    by the penultimate layer, whose output consists of 16 numbers. These 16 numbers
+    that provide a representation of the image are called an *embedding*. Of course,
+    earlier layers also capture information from the input image, but those are typically
+    not used as embeddings because they are missing some of the hierarchical information.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第二章](ch02.xhtml#ml_models_for_vision)中我们开发的深度神经网络有两个隐藏层，一个有 64 个节点，另一个有 16
+    个节点。可以通过以下方式思考这种网络架构，如图[3-2](#the_sixteen_numbers_that_form_the_embedd) 所示。在某种意义上，输入图像中包含的所有信息都由倒数第二层代表，其输出由
+    16 个数字组成。这 16 个提供图像表示的数字被称为 *嵌入*。当然，较早的层也会捕获输入图像的信息，但由于缺少某些层次信息，通常不会将它们用作嵌入。
+- en: In this section, we will discuss how to create an embedding (as distinct from
+    a classification model), and how to use the embedding to train models on different
+    datasets using two different approaches, transfer learning and fine-tuning.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将讨论如何创建嵌入（与分类模型不同），以及如何使用嵌入在不同数据集上训练模型，使用两种不同的方法，即迁移学习和微调。
+- en: '![](Images/pmlc_0302.png)'
+  id: totrans-10
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0302.png)'
+- en: Figure 3-2\. The 16 numbers that form the embedding provide a representation
+    of all the information in the entire image.
+  id: totrans-11
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-2\. 这 16 个数字形成的嵌入提供了整个图像中所有信息的表示。
+- en: Pretrained Model
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 预训练模型
+- en: The embedding is created by applying a set of mathematical operations to the
+    input image. Recall that we reiterated in [Chapter 2](ch02.xhtml#ml_models_for_vision)
+    that the model accuracy that we were getting, on the order of 0.45, was low because
+    our dataset wasn’t large enough to support the many millions of trainable weights
+    in our fully connected deep learning model. What if we were to repurpose the embedding
+    creation part from a model that has been trained on a much larger dataset? We
+    can’t repurpose the whole model, because that model will not have been trained
+    to classify flowers. However, we can throw away the last layer, or *prediction
+    head*, of that model and replace it with our own. The repurposed part of the model
+    can be *pretrained* from a very large, general-purpose dataset and the knowledge
+    can then be *transferred* to the actual dataset that we want to classify. Looking
+    back to [Figure 3-2](#the_sixteen_numbers_that_form_the_embedd), we can replace
+    the 64-node layer in the box marked “pretrained model” with the first set of layers
+    of a model that has been trained on a much larger dataset.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过对输入图像应用一系列数学操作来创建嵌入向量。回顾一下，我们在[第二章](ch02.xhtml#ml_models_for_vision)中多次强调，我们得到的模型精度大约为0.45，因为我们的数据集不足以支持我们完全连接的深度学习模型中的数百万可训练权重。如果我们能重新利用从训练在更大数据集上的模型中提取的嵌入向量创建部分，会怎样呢？我们不能重新利用整个模型，因为那个模型将没有经过训练来分类花卉。然而，我们可以丢弃那个模型的最后一层或者称为*预测头*的层，并将其替换为我们自己的层。模型的重新利用部分可以从一个非常大、通用的数据集中*预训练*，然后将这些知识*转移*到我们要分类的实际数据集中。回顾[图3-2](#the_sixteen_numbers_that_form_the_embedd)，我们可以用在“预训练模型”框中的64节点层替换成一个在更大数据集上训练过的模型的第一组层。
+- en: Pretrained models are models that are trained on large datasets and made available
+    to be used as a way to create embeddings. For example, the [MobileNet model](https://oreil.ly/JNk0O)
+    is a model with 1–4 million parameters that was trained on the [ImageNet (ILSVRC)
+    dataset](https://oreil.ly/B9Q85), which consists of millions of images corresponding
+    to hundreds of categories that were scraped from the web. The resulting embedding
+    therefore has the ability to efficiently compress the information found in a wide
+    variety of images. As long as the images we want to classify are similar in nature
+    to the ones that MobileNet was trained on, the embeddings from MobileNet should
+    give us a great pretrained embedding that we can use as a starting point to train
+    a model on our own smaller dataset.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预训练模型是在大型数据集上训练并提供的模型，用作创建嵌入向量的一种方式。例如，[MobileNet模型](https://oreil.ly/JNk0O)是一个具有1到4百万参数的模型，它是在[ImageNet（ILSVRC）数据集](https://oreil.ly/B9Q85)上训练的，该数据集包含数百万张从网络上爬取的图像，对应数百个类别。因此，生成的嵌入向量能够高效地压缩各种图像中的信息。只要我们想要分类的图像与MobileNet训练时使用的图像性质相似，MobileNet生成的嵌入向量应该会为我们提供一个很好的预训练嵌入向量，可以作为在我们自己的较小数据集上训练模型的起点。
+- en: 'A pretrained MobileNet is available on TensorFlow Hub, and we can easily load
+    it as a Keras layer by passing in the URL to the trained model:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TensorFlow Hub上可以找到一个预训练的MobileNet模型，我们可以通过传入训练模型的URL轻松将其加载为一个Keras层：
+- en: '[PRE0]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: In this code snippet, we imported the package `tensorflow_hub` and created a
+    `hub.KerasLayer`, passing in the URL and the input shape of our images. Critically,
+    we specify that this layer is not trainable, and should be assumed to be pretrained.
+    By doing so, we ensure that its weights will not be modified based on the flowers
+    data; it will be read-only.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这段代码片段中，我们导入了`tensorflow_hub`包，并创建了一个`hub.KerasLayer`，传入了图像的URL和输入形状。关键是，我们指定这一层不可训练，并假定它是预训练的。通过这样做，我们确保其权重不会基于花卉数据进行修改；它将是只读的。
+- en: Transfer Learning
+  id: totrans-18
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 迁移学习
+- en: 'The rest of the model is similar to the DNN models that we created previously.
+    Here’s a model that uses the pretrained model loaded from TensorFlow Hub as its
+    first layer (the full code is available in [*03a_transfer_learning.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03a_transfer_learning.ipynb)):'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型的其余部分与我们先前创建的DNN模型类似。以下是一个使用从TensorFlow Hub加载的预训练模型作为其第一层的模型示例（完整代码位于[*03a_transfer_learning.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03a_transfer_learning.ipynb)）：
+- en: '[PRE1]'
+  id: totrans-20
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'The resulting model summary is as follows:'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果模型摘要如下：
+- en: '[PRE2]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'Note that the first layer, which we called `mobilenet_embedding`, has 2.26
+    million parameters, but they are not trainable. Only 20,581 parameters are trainable:
+    1,280 * 16 weights + 16 biases = 20,496 from the hidden dense layer, plus 16 *
+    5 weights + 5 biases = 85 from the dense layer to the five output nodes. So despite
+    the 5-flowers dataset not being large enough to train millions of parameters,
+    it is large enough to train just 20K parameters.'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，我们称之为`mobilenet_embedding`的第一层有2.26百万个参数，但这些参数不可训练。只有20,581个参数是可训练的：1,280
+    * 16个权重 + 16个偏置 = 来自隐藏密集层的20,496个，以及16 * 5个权重 + 5个偏置 = 来自与五个输出节点的密集层的85个。因此，尽管5种花的数据集不足以训练数百万个参数，但足以训练仅20K个参数。
+- en: This process of training a model by replacing its input layer with an image
+    embedding is called *transfer learning*, because we have transferred the knowledge
+    learned from a much larger dataset by the MobileNet creators to our problem.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过用图像嵌入替换其输入层来训练模型的过程称为*迁移学习*，因为我们已将MobileNet创作者从一个更大数据集中学到的知识迁移到了我们的问题上。
+- en: Because we are replacing the input layer of our model with the Hub layer, it’s
+    important to make sure that our data pipeline provides data in the format expected
+    by the Hub layer. All image models in TensorFlow Hub use a common image format
+    and expect pixel values as floats in the range [0,1). The image-reading code that
+    we used in [Chapter 2](ch02.xhtml#ml_models_for_vision) scales the JPEG images
+    to lie within this range, so we’re OK.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们正在用Hub层替换模型的输入层，因此确保我们的数据管道提供Hub层所期望的格式的数据非常重要。TensorFlow Hub中的所有图像模型使用共同的图像格式，并期望像素值为浮点数，范围在[0,1)内。我们在[第2章](ch02.xhtml#ml_models_for_vision)中使用的图像读取代码将JPEG图像缩放到这个范围内，所以一切都没问题。
+- en: Training this model is identical to training the DNN in the previous section
+    (see [*03a_transfer_learning.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03a_transfer_learning.ipynb)
+    in the GitHub repository for details). The resulting loss and accuracy curves
+    are shown in [Figure 3-3](#the_loss_and_accuracy_curves_for-id00003).
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练此模型与训练上一节中的DNN相同（有关详细信息，请参见GitHub存储库中的[*03a_transfer_learning.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03a_transfer_learning.ipynb)）。结果的损失和准确率曲线如[图 3-3](#the_loss_and_accuracy_curves_for-id00003)所示。
+- en: '![](Images/pmlc_0303.png)'
+  id: totrans-27
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0303.png)'
+- en: Figure 3-3\. The loss and accuracy curves for a deep neural network with two
+    hidden layers with dropout and batch normalization.
+  id: totrans-28
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-3。具有两个隐藏层的深度神经网络的损失和准确率曲线。
+- en: Rather impressively, we get an accuracy of 0.9 using transfer learning (see
+    [Figure 3-4](#predictions_by_the_mobilenet_transfer_le)), whereas we got to only
+    0.48 when training a fully connected deep neural network from scratch on our data.
+    Transfer learning is what we recommend any time your dataset is relatively small.
+    Only when your dataset starts to exceed about five thousand images *per label*
+    should you start to consider training from scratch. Later in this chapter, we
+    will see techniques and architectures that allow us to get even higher accuracies
+    provided we have a large dataset and can train from scratch.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 令人印象深刻的是，使用迁移学习可以获得0.9的准确率（请参见[图 3-4](#predictions_by_the_mobilenet_transfer_le)），而在我们的数据上从头开始训练完全连接的深度神经网络时，我们只能达到0.48的准确率。每当您的数据集相对较小时，我们建议使用迁移学习。只有当数据集开始超过每个标签大约五千张图像时，您才应该考虑从头开始训练。在本章的后面部分，我们将看到技术和架构，允许我们在有大型数据集并且可以从头开始训练时获得更高的准确性。
+- en: Note
+  id: totrans-30
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The probability associated with the daisy prediction for the first image in
+    the second row might come as a surprise. How can the probability be 0.41? Shouldn’t
+    it be greater than 0.5? Recall that this is not a binary prediction problem. There
+    are five possible classes, and if the output probabilities are [0.41, 0.39, 0.1,
+    0.1, 0.1], the `argmax` will correspond to daisy and the probability will be 0.41.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于第二行第一张图像的雏菊预测所关联的概率可能会让人吃惊。概率为0.41？不应该大于0.5吗？请记住，这不是一个二元预测问题。有五个可能的类别，如果输出概率为[0.41,
+    0.39, 0.1, 0.1, 0.1]，`argmax`将对应于雏菊，并且概率将为0.41。
+- en: '![](Images/pmlc_0304.png)'
+  id: totrans-32
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0304.png)'
+- en: Figure 3-4\. Predictions by the MobileNet transfer learning model on some of
+    the images in the evaluation dataset.
+  id: totrans-33
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-4。MobileNet迁移学习模型对评估数据集中一些图像的预测。
+- en: Fine-Tuning
+  id: totrans-34
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 微调
+- en: During transfer learning, we took all the layers that comprise MobileNet and
+    used them as is. We did so by making the layers non-trainable. Only the last two
+    dense layers were tuned on the 5-flowers dataset.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在迁移学习期间，我们采用了构成MobileNet的所有层，并直接使用它们。我们通过使层变为不可训练来实现。仅最后两个密集层在5花数据集上进行了调整。
+- en: In many instances, we might be able to get better results if we allow our training
+    loop to also adapt the pretrained layers. This technique is called *fine-tuning*.
+    The pretrained weights are used as initial values for the weights of the neural
+    network (normally, neural network training starts with the weights initialized
+    to random values).
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多情况下，如果允许训练循环适应预训练层，我们可能会获得更好的结果。这种技术称为*微调*。预训练权重用作神经网络权重的初始值（通常情况下，神经网络训练从随机初始化权重开始）。
+- en: In theory, all that is needed to switch from transfer learning to fine-tuning
+    is to flip the `trainable` flag from `False` to `True` when loading a pretrained
+    model and train on your data. In practice, however, you will often notice training
+    curves like the one in [Figure 3-5](#the_training_and_validation_loss_curves)
+    when fine-tuning a pretrained model.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理论上，从迁移学习切换到微调，只需在加载预训练模型时将`trainable`标志从`False`翻转为`True`，然后在您的数据上进行训练。然而，在实践中，当微调预训练模型时，通常会注意到如
+    [图 3-5](#the_training_and_validation_loss_curves) 中的训练曲线。
+- en: '![](Images/pmlc_0305.png)'
+  id: totrans-38
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0305.png)'
+- en: Figure 3-5\. The training and validation loss curves when fine-tuning with a
+    badly chosen learning rate schedule.
+  id: totrans-39
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-5\. 当使用错误的学习率调度微调时，训练和验证损失曲线。
+- en: The training curve here shows that the model mathematically converges. However,
+    its performance on the validation data is poor and initially gets worse before
+    somewhat recovering. With a learning rate set too high, the pretrained weights
+    are being changed in large steps and all the information learned during pretraining
+    is lost. Finding a learning rate that works can be tricky—set the learning rate
+    too low and convergence is very slow, too high and pretrained weights are lost.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此处的训练曲线显示，模型在数学上收敛。然而，其在验证数据上的表现较差，并且在开始时变得更糟，然后稍有恢复。如果设置的学习率过高，则预训练权重将以大步骤进行更改，丢失了预训练期间学到的所有信息。找到有效的学习率可能会有些棘手——将学习率设置得太低会导致收敛非常缓慢，设置得太高会导致预训练权重丢失。
+- en: 'There are two techniques that can be used to solve this problem: a learning
+    rate schedule and layer-wise learning rates. The code showcasing both techniques
+    is available in [*03b_finetune_MOBILENETV2_flowers5.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_MOBILENETV2_flowers5.ipynb).'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决此问题的两种技术是：学习率调度和逐层学习率。展示这两种技术的代码可在 [*03b_finetune_MOBILENETV2_flowers5.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_MOBILENETV2_flowers5.ipynb)
+    中找到。
+- en: Learning rate schedule
+  id: totrans-42
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 学习率调度
+- en: The most traditional learning rate schedule when training neural networks is
+    to have the learning rate start high and then decay exponentially throughout the
+    training. When fine-tuning a pretrained model, a warm-up ramp period can be added
+    (see [Figure 3-6](#on_the_leftcomma_a_traditional_learning)).
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练神经网络时最传统的学习率调度是从高开始然后在整个训练过程中指数衰减。在微调预训练模型时，可以添加热身阶段（参见 [图 3-6](#on_the_leftcomma_a_traditional_learning)）。
+- en: '![](Images/pmlc_0306.png)'
+  id: totrans-44
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0306.png)'
+- en: Figure 3-6\. On the left, a traditional learning rate schedule with exponential
+    decay; on the right, a learning rate schedule that features a warm-up ramp, which
+    is more appropriate for fine-tuning.
+  id: totrans-45
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-6\. 左侧是传统的指数衰减学习率调度；右侧是包含热身阶段的学习率调度，这对微调更为合适。
+- en: '[Figure 3-7](#fine-tuning_with_an_adapted_learning_rat) shows the loss curves
+    with this new learning rate schedule.'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-7](#fine-tuning_with_an_adapted_learning_rat) 展示了使用这种新学习率调度的损失曲线。'
+- en: '![](Images/pmlc_0307.png)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0307.png)'
+- en: Figure 3-7\. Fine-tuning with an adapted learning rate schedule.
+  id: totrans-48
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-7\. 使用适应的学习率调度进行微调。
+- en: Notice that there is still a hiccup on the validation loss curve, but it is
+    nowhere as bad as previously (compare with [Figure 3-5](#the_training_and_validation_loss_curves)).
+    This leads us to the second way to choose learning rates for fine-tuning.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，验证损失曲线仍然有一个小波动，但与之前相比要好得多（与 [图 3-5](#the_training_and_validation_loss_curves)
+    对比）。这引导我们选择微调的第二种学习率方式。
+- en: Differential learning rate
+  id: totrans-50
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 差分学习率
+- en: Another good trade-off is to apply a *differential learning rate*, whereby we
+    use a low learning rate for the pretrained layers and a normal learning rate for
+    the layers of our custom classification head.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个很好的折中方案是应用*差分学习率*，其中我们对预训练层使用较低的学习率，对自定义分类头的层使用正常学习率。
+- en: In fact, we can extend the idea of a differential learning rate within the pretrained
+    layers themselves—we can multiply the learning rate by a factor that varies based
+    on layer depth, gradually increasing the per-layer learning rate and finishing
+    with the full learning rate for the classification head.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，我们可以在预训练层内部扩展差分学习率的思想——我们可以根据层深度乘以一个因子来逐渐增加每层的学习率，并为分类头部分配完整的学习率。
+- en: 'In order to apply a complex differential learning rate like this in Keras,
+    we need to write a custom optimizer. But fortunately, an open source Python package
+    called [AdamW](https://oreil.ly/z1IfS) exists that we can use by specifying a
+    learning rate multiplier for different layers (see [*03_image_models/03b_finetune_MOBILENETV2_flowers5.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_MOBILENETV2_flowers5.ipynb)
+    in the GitHub repository for the complete code):'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在Keras中应用类似这样的复杂差分学习率，我们需要编写一个自定义优化器。但幸运的是，存在一个名为[AdamW](https://oreil.ly/z1IfS)的开源Python包，我们可以通过为不同层指定学习率倍增器来使用（有关完整代码，请参见GitHub存储库中的[*03_image_models/03b_finetune_MOBILENETV2_flowers5.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_MOBILENETV2_flowers5.ipynb)）：
+- en: '[PRE3]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Tip
+  id: totrans-55
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: How did we know what the names of the layers in the loaded pretrained model
+    were? We ran the code without any name at first, with `lr_multipliers={}`. The
+    custom optimizer prints the names of all the layers when run. We then found a
+    substring of the layer names that identified the depth of the layer in the network.
+    The custom optimizer matches layer names by the substrings passed to its `lr_multipliers`
+    argument.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何知道加载的预训练模型中的层名称？我们首先在没有任何名称的情况下运行代码，使用`lr_multipliers={}`。自定义优化器在运行时打印所有层的名称。然后，我们找到了标识网络中层深度的层名称子字符串。自定义优化器通过其`lr_multipliers`参数传递的子字符串匹配层名称。
+- en: With both the per-layer learning rate and a learning rate schedule with a ramp-up,
+    we can push the accuracy of a fine-tuned MobileNetV2 on the `tf_flowers` (5-flowers)
+    dataset to 0.92, versus 0.91 with the ramp-up only and 0.9 with transfer learning
+    only (see the code in [*03b_finetune_MOBILENETV2_flowers5.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_MOBILENETV2_flowers5.ipynb)).
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用每层学习率和学习率逐步增加的组合，我们可以将对`tf_flowers`（5种花卉）数据集进行微调的MobileNetV2的准确率推高至0.92，而仅使用逐步增加仅为0.91，仅进行迁移学习为0.9（有关代码，请参见[*03b_finetune_MOBILENETV2_flowers5.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_MOBILENETV2_flowers5.ipynb)）。
+- en: The gains from fine-tuning here are small because the `tf_flowers` dataset is
+    tiny. We need a more challenging benchmark for the advanced architectures we are
+    about to explore. In the rest of this chapter, we will use the *104 flowers* dataset.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里微调的收益很小，因为`tf_flowers`数据集很小。我们需要一个更具挑战性的基准来探索即将探索的先进架构。在本章的其余部分，我们将使用*104
+    flowers*数据集。
+- en: The GitHub repository contains three notebooks experimenting with these fine-tuning
+    techniques on the larger 104 flowers dataset. The results are presented in [Table 3-1](#summary_of_results_obtained_by_a_larger).
+    For this task we used Xception, a model with more weights and layers than MobileNet,
+    because the 104 flowers dataset is larger and can support this larger model. As
+    you can see, a learning rate ramp-up or a per-layer differential learning rate
+    is not strictly necessary, but in practice it makes the convergence more stable
+    and makes it easier to find working learning rate parameters.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: GitHub存储库包含三个笔记本，用于在更大的104 flowers数据集上尝试这些微调技术。结果显示在[Table 3-1](#summary_of_results_obtained_by_a_larger)中。为了完成这项任务，我们使用了Xception，这是一个比MobileNet更重的模型，因为104
+    flowers数据集更大，可以支持这个更大的模型。如您所见，学习率逐步增加或每层差分学习率并不是绝对必要的，但实际上它使收敛更稳定，更容易找到有效的学习率参数。
+- en: Table 3-1\. Summary of results obtained by a larger model (Xception) fine-tuned
+    on the larger 104 flowers dataset
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Table 3-1\. 更大模型（Xception）在更大的104 flowers数据集上微调后获得的结果摘要
+- en: '| Notebook name | LR ramp-up | Differential LR | Mean F1 score across five
+    runs | Standard deviation across five runs | Notes |'
+  id: totrans-61
+  prefs: []
+  type: TYPE_TB
+  zh: '| 笔记本名称 | 学习率逐步增加 | 差分学习率 | 五次运行的平均F1分数 | 五次运行的标准偏差 | 备注 |'
+- en: '| --- | --- | --- | --- | --- | --- |'
+  id: totrans-62
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- | --- |'
+- en: '| [lr_decay_xception](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_experiment_lr_decay_xception_flowers104.ipynb)
+    | No | No | 0.932 | 0.004 | Good, relatively low variance |'
+  id: totrans-63
+  prefs: []
+  type: TYPE_TB
+  zh: '| [lr_decay_xception](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_experiment_lr_decay_xception_flowers104.ipynb)
+    | 否 | 否 | 0.932 | 0.004 | 良好，相对低方差 |'
+- en: '| [lr_ramp_xception](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_experiment_lr_ramp_xception_flowers104.ipynb)
+    | Yes | No | 0.934 | 0.007 | Very good, high variance |'
+  id: totrans-64
+  prefs: []
+  type: TYPE_TB
+  zh: '| [lr_ramp_xception](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_experiment_lr_ramp_xception_flowers104.ipynb)
+    | 是 | 否 | 0.934 | 0.007 | 非常好，高方差 |'
+- en: '| [lr_layers_lr_ramp_xception](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_experiment_lr_layers_lr_ramp_xception_flowers104.ipynb)
+    | Yes | Yes | 0.936 | 0.003 | Best, nice low variance |'
+  id: totrans-65
+  prefs: []
+  type: TYPE_TB
+  zh: '| [lr_layers_lr_ramp_xception](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03b_finetune_experiment_lr_layers_lr_ramp_xception_flowers104.ipynb)
+    | 是 | 是 | 0.936 | 0.003 | 最佳，低方差 |'
+- en: So far, we have used MobileNet and Xception for transfer learning and fine-tuning,
+    but these models are black boxes as far as we are concerned. We do not know how
+    many layers they have, or what those layers consist of. In the next section, we
+    will discuss a key concept, *convolution*, that helps these neural networks work
+    well at extracting the semantic information content of an image.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经使用了MobileNet和Xception进行迁移学习和微调，但对于我们来说，这些模型就像黑盒子一样。我们不知道它们有多少层，或者这些层包含什么内容。在下一节中，我们将讨论一个关键概念，*卷积*，这有助于这些神经网络有效地提取图像的语义信息内容。
+- en: Convolutional Networks
+  id: totrans-67
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 卷积网络
+- en: Convolutional layers were designed specifically for images. They operate in
+    two dimensions and can capture shape information; they work by sliding a small
+    window, called a *convolutional filter*, across the image in both directions.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 卷积层专门设计用于图像。它们在二维空间中操作，可以捕获形状信息；它们通过在图像的两个方向上滑动一个称为*卷积滤波器*的小窗口来工作。
+- en: Convolutional Filters
+  id: totrans-69
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 卷积滤波器
+- en: A typical 4x4 filter will have independent filter weights for each of the channels
+    of the image. For color images with red, green, and blue channels, the filter
+    will have 4 * 4 * 3 = 48 learnable weights in total. The filter is applied to
+    a single position in the image by multiplying the pixel values in the neighborhood
+    of that position by filter weights and summing them as shown in [Figure 3-9](#processing_an_image_with_a_single_fourxf).
+    This operation is called the tensor *dot product*. Computing the dot product at
+    each position in the image by sliding the filter across the image is called a
+    *convolution*.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 典型的4x4滤波器将具有图像每个通道的独立滤波器权重。对于具有红色、绿色和蓝色通道的彩色图像，滤波器总共将有4 * 4 * 3 = 48个可学习权重。该滤波器被应用于图像中的单个位置，方法是将该位置附近的像素值乘以滤波器权重并求和，如[图3-9](#processing_an_image_with_a_single_fourxf)所示。这个操作称为张量*点积*。通过在图像上滑动滤波器计算每个位置的点积称为*卷积*。
+- en: '![](Images/pmlc_0309.png)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0309.png)'
+- en: Figure 3-9\. Processing an image with a single 4x4 convolutional filter—the
+    filter slides across the image in both directions, producing one output value
+    at each position.
+  id: totrans-72
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-9。使用单个4x4卷积滤波器处理图像 - 滤波器在图像上的两个方向上滑动，每个位置产生一个输出值。
+- en: A single convolutional filter can process an entire image with very few learnable
+    parameters—so few, in fact, that it will not be able to learn and represent enough
+    of the complexities of the image. Multiple such filters are needed. A convolutional
+    layer typically contains tens or hundreds of similar filters, each with its own
+    independent learnable weights (see [Figure 3-11](#processing_an_image_with_a_convolutional)).
+    They are applied to the image in succession, and each produces a *channel* of
+    output values. The output of a convolutional layer is a multichannel set of 2D
+    values. Notice that this output has the same number of dimensions as the input
+    image, which was already a three-channel set of 2D pixel values.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单个卷积滤波器可以使用非常少的可学习参数处理整个图像 - 实际上，它不能学习和表示足够的图像复杂性。需要多个这样的滤波器。卷积层通常包含数十甚至数百个类似的滤波器，每个都有自己独立的可学习权重（参见[图3-11](#processing_an_image_with_a_convolutional)）。它们按顺序应用于图像，并且每个产生一个*通道*的输出值。卷积层的输出是一组多通道的2D值。注意，这个输出与输入图像具有相同数量的维度，而输入图像本身已经是一个三通道的2D像素值集。
+- en: Understanding the structure of a convolutional layer makes it easy to compute
+    its number of learnable weights, as you can see in [Figure 3-12](#wcomma_the_weights_matrix_of_a_convoluti).
+    This diagram also introduces the schematic notation of convolutional layers that
+    will be used for the models in this chapter.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理解卷积层的结构使得计算其可学习权重的数量变得容易，如图3-12所示。该图还介绍了用于本章模型的卷积层的示意符号表示法。
+- en: '![](Images/pmlc_0311.png)'
+  id: totrans-75
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0311.png)'
+- en: Figure 3-11\. Processing an image with a convolutional layer made up of multiple
+    convolutional filters—all filters are of the same size (here, 4x4x3) but have
+    independent learnable weights.
+  id: totrans-76
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-11. 使用由多个卷积滤波器组成的卷积层处理图像。所有滤波器的尺寸都相同（这里为4x4x3），但具有独立的可学习权重。
+- en: '![](Images/pmlc_0312.png)'
+  id: totrans-77
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0312.png)'
+- en: Figure 3-12\. W, the weights matrix of a convolutional layer.
+  id: totrans-78
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-12. 卷积层的权重矩阵W。
+- en: In this case, with 5 filters applied, the total number of learnable weights
+    in this convolutional layer is 4 * 4 * 3 * 5 = 240.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，应用了5个滤波器，这个卷积层中可学习的总权重数为4 * 4 * 3 * 5 = 240。
+- en: 'Convolutional layers are available in Keras:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras中提供了卷积层：
+- en: '[PRE4]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'The following is a simplified description of the parameters (see the Keras
+    [documentation](https://oreil.ly/NLRBL) for full details):'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是参数的简化描述（详细信息请参见Keras的[文档](https://oreil.ly/NLRBL)）：
+- en: '`filters`'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`filters`'
+- en: The number of independent filters to apply to the input. This will also be the
+    number of output channels in the output.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用到输入的独立滤波器数量。这也将是输出通道的数量。
+- en: '`kernel_size`'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`kernel_size`'
+- en: The size of each filter. This can be a single number, like 4 for a 4x4 filter,
+    or a pair like (4, 2) for a rectangular 4x2 filter.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个滤波器的尺寸。可以是一个单独的数字，比如4表示4x4的滤波器，或者是一个对，比如(4, 2)表示一个4x2的矩形滤波器。
+- en: '`strides`'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`strides`'
+- en: The filter slides across the input image in steps. The default step size is
+    1 pixel in both directions. Using a larger step will skip input pixels and produce
+    fewer output values.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 滤波器在输入图像上以步长滑动。默认步长为1像素。使用较大的步长会跳过输入像素并产生较少的输出值。
+- en: '`padding`'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`padding`'
+- en: '`''valid''` for no padding or `''same''` for zero-padding at the edges. If
+    filters are applied to inputs with `''valid''` padding, convolution is carried
+    out only if all the pixels within the window are valid, so boundary pixels get
+    ignored. Therefore, the output will be slightly smaller in the *x* and *y* directions.
+    The value `''same''` enables zero-padding of the input to make sure that outputs
+    have the same width and height as the input.'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`''valid''`表示没有填充，或者`''same''`表示在边缘进行零填充。如果滤波器应用于具有`''valid''`填充的输入，则仅当窗口内的所有像素都有效时才进行卷积，因此边界像素会被忽略。因此，输出在*x*和*y*方向上会稍微小一些。值`''same''`允许对输入进行零填充，以确保输出与输入具有相同的宽度和高度。'
+- en: '`activation`'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`activation`'
+- en: Like any neural network layer, a convolutional layer can be followed by an activation
+    (nonlinearity).
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 像任何神经网络层一样，卷积层后面可以跟着一个激活函数（非线性）。
+- en: 'The convolutional layer illustrated in [Figure 3-11](#processing_an_image_with_a_convolutional),
+    with five 4x4 filters, input padding, and the default stride of 1 in both directions,
+    can be implemented as follows:'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3-11中展示的卷积层，使用了五个4x4的滤波器，输入填充，以及在两个方向上的默认步幅为1，可以实现如下：
+- en: '[PRE5]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 4D tensors are expected as inputs and outputs of convolutional layers. The first
+    dimension is the batch size, so the full shape is [batch, height, width, channels].
+    For example, a batch of 16 color (RGB) images of 512x512 pixels would be represented
+    as a tensor with dimensions [16, 512, 512, 3].
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 卷积层的输入和输出都期望是4D张量。第一个维度是批处理大小，因此完整的形状是 [batch, height, width, channels]。例如，一个批量为16的彩色（RGB）图像，每个图像大小为512x512像素，将表示为具有维度
+    [16, 512, 512, 3] 的张量。
+- en: Stacking Convolutional Layers
+  id: totrans-96
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 堆叠卷积层
+- en: As described in the previous section, a generic convolutional layer takes a
+    4D tensor of shape [batch, height, width, channels] as an input and produces another
+    4D tensor as an output. For simplicity, we will ignore the batch dimension in
+    our diagrams and show what happens to a single 3D image of shape [height, width,
+    channels].
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前一节所述，一个通用的卷积层以一个4D张量形式的输入 [batch, height, width, channels] 作为输入，并产生另一个4D张量作为输出。为简单起见，在我们的图表中忽略批处理维度，并展示一个单独的3D形状的图像
+    [height, width, channels] 的情况。
+- en: A convolutional layer transforms a “cube” of data into another “cube” of data,
+    which can in turn be consumed by another convolutional layer. Convolutional layers
+    can be stacked as shown in [Figure 3-13](#data_transformed_by_two_convolutional_la).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 卷积层将一个数据“立方体”转换为另一个“立方体”，然后可以被另一个卷积层消耗。如图[3-13](#data_transformed_by_two_convolutional_la)所示，卷积层可以堆叠。
+- en: '![](Images/pmlc_0313.png)'
+  id: totrans-99
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0313.png)'
+- en: Figure 3-13\. Data transformed by two convolutional layers applied in sequence.
+    Learnable weights are shown on the right. The second convolutional layer is applied
+    with a stride of 2 and has six input channels, matching the six output channels
+    of the previous layer.
+  id: totrans-100
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-13\. 顺序应用的两个卷积层转换的数据。右侧显示可学习的权重。第二个卷积层使用步长为2，并具有六个输入通道，与前一层的六个输出通道匹配。
+- en: '[Figure 3-13](#data_transformed_by_two_convolutional_la) shows how the data
+    is transformed by two convolutional layers. Starting from the top, the first layer
+    is a 3x3 filter applied to an input with four channels of data. The filter is
+    applied to the input six times, each time with different filter weights, resulting
+    in six channels of output values. This in turn is fed into a second convolutional
+    layer using 2x2 filters. Notice that the second convolutional layer uses a stride
+    of 2 (every other pixel) when applying its filters to obtain fewer output values
+    (in the horizontal plane).'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图3-13](#data_transformed_by_two_convolutional_la)展示了数据如何经过两个卷积层的转换。从顶部开始，第一层是一个应用于具有四个数据通道的输入的3x3滤波器。滤波器应用于输入六次，每次使用不同的滤波器权重，产生六个输出值通道。然后，这些值被输入到第二个卷积层中，该层使用2x2滤波器。注意，第二个卷积层在应用滤波器时使用步长为2（每隔一个像素），以获得较少的输出值（在水平面上）。'
+- en: Pooling Layers
+  id: totrans-102
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 池化层
+- en: The number of filters applied in each convolutional layer determines the number
+    of channels in the output. But how can we control the amount of data in each channel?
+    The goal of a neural network is usually to distill information from the input
+    image, consisting of millions of pixels, to a handful of classes. So, we will
+    need layers that can combine or downsample the information in each channel.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个卷积层应用的滤波器数量决定输出中的通道数。但是，我们如何控制每个通道中的数据量呢？神经网络的目标通常是从包含数百万像素的输入图像中提炼信息，以获得少数类别。因此，我们需要能够合并或降采样每个通道中信息的层。
+- en: The most commonly used downsampling operation is 2x2 *max pooling*. With max
+    pooling, only the maximum value is retained for each group of four input values
+    from a channel ([Figure 3-14](#a_twoxtwo_max-pooling_operation_applied)). *Average
+    pooling* works in a similar way, averaging the four values instead of keeping
+    the max.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最常用的降采样操作是2x2最大池化。通过最大池化，每个通道的每组四个输入值仅保留最大值（参见[图3-14](#a_twoxtwo_max-pooling_operation_applied)）。*平均池化*以类似的方式工作，但是对四个值进行平均而不是保留最大值。
+- en: '![](Images/pmlc_0314.png)'
+  id: totrans-105
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0314.png)'
+- en: Figure 3-14\. A 2x2 max-pooling operation applied to a single channel of input
+    data. The max is taken for every group of 2x2 input values and the operation is
+    repeated every two values in each direction (stride 2).
+  id: totrans-106
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-14\. 对单通道输入数据应用的2x2最大池化操作。每组2x2输入值取最大值，每个方向上每两个值重复一次操作（步长为2）。
+- en: Note that max-pooling and average-pooling layers do not have any trainable weights.
+    They are purely size adjustment layers.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，最大池化层和平均池化层没有任何可训练的权重。它们纯粹是大小调整层。
+- en: There is an interesting physical explanation of why max-pooling layers work
+    well with convolutional layers in neural networks. Convolutional layers are series
+    of trainable filters. After training, each filter specializes in matching some
+    specific image feature. The first layer in a convolutional neural network reacts
+    to pixel combinations in the input image, but subsequent layers react to combinations
+    of features from the previous layers. For example, in a neural network trained
+    to recognize cats, the first layer reacts to basic image components like horizontal
+    and vertical lines or the texture of fur. Subsequent layers react to specific
+    combinations of lines and fur to recognize pointy ears, whiskers, or cat eyes.
+    Even later layers detect a combination of pointy ears + whiskers + cat eyes as
+    a cat head. A max-pooling layer only keeps values where some feature *X* was detected
+    with maximum intensity. If the goal is to reduce the number of values but keep
+    the ones most representative of what was detected, it makes sense.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一个有趣的物理解释，解释了为什么最大池化层与卷积层在神经网络中很好地配合。卷积层是一系列可训练的滤波器。训练后，每个滤波器专门用于匹配某些特定的图像特征。卷积神经网络中的第一层对输入图像中的像素组合做出反应，而后续层对前一层的特征组合做出反应。例如，在训练用于识别猫的神经网络中，第一层对基本的图像组件（如水平和垂直线或毛皮的纹理）做出反应。随后的层对线条和毛皮的特定组合做出反应，以识别尖耳朵、胡须或猫眼睛。更后面的层检测到尖耳朵
+    + 胡须 + 猫眼睛的组合，表示猫的头部。最大池化层仅保留检测到某些特征 *X* 的最大强度的值。如果目标是减少值的数量但保留最具代表性的值，这是有道理的。
+- en: Pooling layers and convolutional layers also have different effects on the locations
+    of detected features. A convolutional layer returns a feature map with its high
+    values located where its filters detected something significant. Pooling layers,
+    on the other hand, reduce the resolution of the feature maps and make the location
+    information less accurate. Sometimes location or relative location is important,
+    such as eyes usually being located above the nose in a face. Convolutions do produce
+    location information for other layers further along in the network to work with.
+    At other times, however, locating a feature is not the goal—for instance, in a
+    flower classifier, where you want to train the model to recognize flowers in an
+    image wherever they are. In such a case, when training for location invariance,
+    pooling layers help blur the location information to some extent, but not completely.
+    The network will have to be trained on images showing flowers in many different
+    locations if it is to become truly location-agnostic. Data augmentation methods
+    like random crops of the image can be used to force the network to learn this
+    location invariance. Data augmentation is covered in [Chapter 6](ch06.xhtml#preprocessing).
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 池化层和卷积层对检测到的特征位置有不同的影响。卷积层返回具有其高值的特征映射，这些高值位于其滤波器检测到显著内容的位置。另一方面，池化层降低特征映射的分辨率，并使位置信息不太精确。有时候，位置或相对位置很重要，例如在面部中，眼睛通常位于鼻子上方。卷积确实为网络中的其他层提供了位置信息。然而，有时候定位特征并不是目标，比如在花卉分类器中，您希望训练模型在图像中无论花朵出现在何处都能识别出来。在这种情况下，当训练位置不变性时，池化层有助于在某种程度上模糊位置信息，但不能完全模糊。如果要使网络真正地不受位置影响，就必须对显示花朵在许多不同位置的图像进行训练。可以使用数据增强方法，如图像的随机裁剪，来强制网络学习此位置不变性。数据增强在[第6章](ch06.xhtml#preprocessing)中有所涉及。
+- en: A second option for downsampling channel information is to apply convolutions
+    with a stride of 2 or 3 instead of 1\. The convolutional filters then slide over
+    the input image by steps of 2 or 3 pixels in each direction. This mechanically
+    produces a certain size of output values, as shown in [Figure 3-15](#a_threexthree_filter_applied_to_a_single).
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于降低通道信息的第二个选择是应用卷积，其步长为2或3，而不是1。然后，卷积滤波器在输入图像上按2或3个像素的步长滑动。这样机械地产生了一定尺寸的输出值，如[图 3-15](#a_threexthree_filter_applied_to_a_single)所示。
+- en: '![](Images/pmlc_0315.png)'
+  id: totrans-111
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0315.png)'
+- en: Figure 3-15\. A 3x3 filter applied to a single channel of data with a stride
+    of 2 in both directions and without padding. The filter jumps by 2 pixels at a
+    time.
+  id: totrans-112
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-15\. 在单通道数据上应用3x3滤波器，两个方向上的步长为2且没有填充。滤波器每次跳过2个像素。
+- en: We are now ready to assemble these layers into our first convolutional neural
+    classifier.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们可以将这些层组装成我们的第一个卷积神经分类器。
+- en: AlexNet
+  id: totrans-114
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: AlexNet
+- en: The simplest convolutional neural network architecture is a mix of convolutional
+    layers and max-pooling layers. It transforms each input image into a final rectangular
+    prism of values, usually called a *feature map*, which is then fed into a number
+    of fully connected layers and, finally, a softmax layer to compute class probabilities.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最简单的卷积神经网络架构是卷积层和最大池化层的混合体。它将每个输入图像转换为一个最终的数值矩形棱柱，通常称为*特征图*，然后将其馈送到若干全连接层，最后是一个softmax层，用于计算类别概率。
+- en: AlexNet, introduced in a 2012 [paper](https://oreil.ly/sMlqQ) by Alex Krizhevsky
+    et al. and shown in [Figure 3-16](#the_alexnet_architecturecolon_neural_net),
+    is such an architecture. It was designed for the [ImageNet competition](https://oreil.ly/G1jfu),
+    which asked participants to classify images into one thousand categories (car,
+    flower, dog, etc.) based on a training dataset of more than a million images.
+    AlexNet was one of the earliest successes in neural image classification, exhibiting
+    a dramatic improvement in accuracy and proving that deep learning was much better
+    able to address computer vision problems than existing techniques.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AlexNet是由Alex Krizhevsky等人在2012年的[论文](https://oreil.ly/sMlqQ)中引入的，并在[图 3-16](#the_alexnet_architecturecolon_neural_net)中展示，正是这样的一个架构。它是为[ImageNet竞赛](https://oreil.ly/G1jfu)设计的，该竞赛要求参与者基于超过一百万张图像的训练数据集将图像分类为一千个类别（汽车、花朵、狗等）。AlexNet是神经图像分类中最早的成功案例之一，显著提高了准确性，并证明深度学习能够比现有技术更好地解决计算机视觉问题。
+- en: '![](Images/pmlc_0316.png)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0316.png)'
+- en: 'Figure 3-16\. The AlexNet architecture: neural network layers are represented
+    on the left. Feature maps (as transformed by the layers) on the right.'
+  id: totrans-118
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-16\. AlexNet架构：左侧表示神经网络层。右侧表示转换后的特征图。
+- en: In this architecture, convolutional layers change the depth of the data—i.e.,
+    the number of channels. Max-pooling layers downsample the data in the height and
+    width directions. The first convolutional layer has a stride of 4, which is why
+    it downsamples the image as well.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种架构中，卷积层改变数据的深度——即通道数量。最大池化层在高度和宽度方向上对数据进行降采样。第一个卷积层的步长为4，这也是为什么它会对图像进行降采样。
+- en: AlexNet uses 3x3 max-pooling operations with a stride of 2\. A more traditional
+    choice would be 2x2 max pooling with a stride of 2\. The AlexNet study claims
+    some advantage for this “overlapping” max pooling, but it does not appear to be
+    significant.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AlexNet使用2x2步长为2的3x3最大池化操作。更传统的选择可能是2x2步长为2的最大池化。AlexNet的研究声称这种“重叠”最大池化具有一定优势，但似乎并不显著。
+- en: Every convolutional layer is activated by a ReLU activation function. The final
+    four layers form the classification head of AlexNet, taking the last feature map,
+    flattening all of its values into a vector, and feeding it through three fully
+    connected layers. Because AlexNet was designed for a thousand categories, the
+    last layer is activated by a softmax with one thousand outputs that computes the
+    probabilities of the thousand target classes.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个卷积层由ReLU激活函数激活。最后的四层形成AlexNet的分类头，接收最后的特征图，将其所有值展平为一个向量，并通过三个全连接层馈送。因为AlexNet设计用于千分类，最后一层由具有一千个输出的softmax激活，计算千个目标类别的概率。
+- en: All convolutional and fully connected layers use an additive bias. When the
+    ReLU activation function is used, it is customary to initialize the bias to a
+    small positive value before training so that, after activation, all layers start
+    with a nonzero output and a nonzero gradient (remember that the ReLU curve is
+    a flat zero for all negative values).
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有卷积和全连接层都使用加性偏置。当使用ReLU激活函数时，习惯上在训练之前将偏置初始化为一个小正值，以确保激活后所有层都具有非零输出和非零梯度（记住ReLU曲线对所有负值都是平坦零）。
+- en: In [Figure 3-16](#the_alexnet_architecturecolon_neural_net), notice that AlexNet
+    starts with a very large 11x11 convolutional filter. This is costly in terms of
+    learnable weights and probably not something that would be done in more modern
+    architectures. However, one advantage of the large 11x11 filters is that their
+    learned weights can be visualized as 11x11-pixel images. The authors of the AlexNet
+    paper did so; their results are shown in [Figure 3-17](#all_ninetysix_filters_from_the_first_ale).
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 3-16](#the_alexnet_architecturecolon_neural_net)中注意到，AlexNet以一个非常大的11x11卷积滤波器开始。在可学习权重方面，这是昂贵的，可能不是现代架构中会采用的做法。然而，11x11滤波器的一个优势是它们的学习权重可以可视化为11x11像素的图像。AlexNet论文的作者做到了；他们的结果在[图 3-17](#all_ninetysix_filters_from_the_first_ale)中展示。
+- en: '![](Images/pmlc_0317.png)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0317.png)'
+- en: Figure 3-17\. All 96 filters from the first AlexNet layer. Their size is 11x11x3,
+    which means they can be visualized as color images. This picture shows their weights
+    after training. Image from [Krizhevsky et al., 2012](https://oreil.ly/X3xRb).
+  id: totrans-125
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-17。第一个AlexNet层的所有96个滤波器。它们的大小为11x11x3，这意味着它们可以被视为彩色图像。这张图片显示了它们在训练后的权重。图片来源于[Krizhevsky
+    et al., 2012](https://oreil.ly/X3xRb)。
+- en: As you can see, the network learned to detect vertical, horizontal and slanted
+    lines of various orientations. Two filters exhibit a checkerboard pattern, which
+    probably reacts to grainy textures in the image. You can also see detectors for
+    single colors or pairs of adjacent colors. All these are basic features that subsequent
+    convolutional layers will assemble into semantically more significant constructs.
+    For example, the neural network will combine textures and lines into shapes like
+    “wheels,” “handlebars,” and “saddle,” and then combine these shapes into a “bicycle.”
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，该网络学会了检测各种方向的垂直线、水平线和倾斜线。两个滤波器展现出棋盘格模式，这可能是对图像中颗粒状纹理的反应。您还可以看到检测单色或相邻颜色对的探测器。所有这些都是基本特征，随后的卷积层将把它们组装成语义更重要的结构。例如，神经网络将把纹理和线条结合成“轮子”、“把手”和“鞍座”的形状，然后将这些形状组合成“自行车”。
+- en: We chose to present AlexNet here because it was one of the pioneering convolutional
+    architectures. Alternating convolutional and max-pooling layers is still a feature
+    of modern networks. Other choices made in this architecture, however, no longer
+    represent currently recognized best practice. For example, the use of a very large
+    11x11 filter in the first convolutional layer has since been found to not be the
+    best use of learnable weights (3x3 is better, as we’ll see later in this chapter).
+    Also, the three final fully connected layers have more than 26 million learnable
+    weights! This is an order of magnitude more than all the convolutional layers
+    combined (3.7 million). The network is also very shallow, with only eight neural
+    layers. Modern neural networks increase that dramatically, to one hundred layers
+    or more.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们选择在这里介绍AlexNet，因为它是最早的卷积架构之一。交替使用卷积和最大池化层仍然是现代网络的特征。然而，该架构中做出的其他选择不再代表目前公认的最佳实践。例如，在第一个卷积层中使用非常大的11x11滤波器后来被发现并不是可学习权重的最佳利用（正如我们将在本章后面看到的，3x3更好）。此外，最后的三个全连接层具有超过2600万个可学习权重！这比所有卷积层的权重总和（370万）还要多一个数量级。网络也非常浅，只有八个神经层。现代神经网络显著增加了这一数量，达到了一百层甚至更多。
+- en: 'One advantage of this very simple model, however, is that it can be implemented
+    quite concisely in Keras (you can see the full example in [*03c_fromzero_ALEXNET_flowers104.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03c_fromzero_ALEXNET_flowers104.ipynb)):'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个非常简单的模型的一个优点是，它可以在Keras中非常简洁地实现（你可以在GitHub上的[*03c_fromzero_ALEXNET_flowers104.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03c_fromzero_ALEXNET_flowers104.ipynb)中查看完整的示例）：
+- en: '[PRE6]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: This model converges on the 104 flowers dataset to an accuracy of 39%, which,
+    while not useful for practical flower recognition, is surprisingly good for such
+    a simple architecture.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该模型在104种花卉数据集上收敛到39%的准确率，虽然对于实际花卉识别来说并不实用，但对于如此简单的架构来说，这一结果令人惊讶地好。
+- en: 'In the remainder of this chapter, we provide intuitive explanations of different
+    network architectures as well as the concepts and building blocks they introduced.
+    Although we showed you the implementation of AlexNet in Keras, you would not typically
+    implement the architectures that we discussed by yourself. Instead, these models
+    are often available directly in Keras as pretrained models ready for transfer
+    learning or fine-tuning. For example, this is how you can instantiate a pretrained
+    ResNet50 model (for more information, see [“Pretrained Models in Keras”](#pretrained_models_in_keras)):'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的其余部分，我们将提供对不同网络架构及其引入的概念和构建模块的直观解释。虽然我们展示了您如何在Keras中实现AlexNet，但通常您不会自己实现我们讨论的这些架构。相反，这些模型通常直接在Keras中作为预训练模型提供，可以立即用于迁移学习或微调。例如，您可以如何实例化一个预训练的ResNet50模型（更多信息请参见[“Keras中的预训练模型”](#pretrained_models_in_keras)）：
+- en: '[PRE7]'
+  id: totrans-132
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'If a model is not yet available in `keras.applications`, it can usually be
+    found in TensorFlow Hub. For example, this is how you instantiate the same ResNet50
+    model from TensorFlow Hub:'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果一个模型尚未在`keras.applications`中可用，通常可以在TensorFlow Hub中找到。例如，您可以如何从TensorFlow
+    Hub实例化相同的ResNet50模型：
+- en: '[PRE8]'
+  id: totrans-134
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: So, feel free to skim the rest of this chapter to get an idea of the basic concepts,
+    and then read the final section on how to choose a model architecture for your
+    problem. You don’t need to understand all the nuances of the network architectures
+    in this chapter to make sense of the remainder of this book, because it is rare
+    that you will have to implement any of these architectures from scratch or design
+    your own network architecture. Mostly, you will pick one of the architectures
+    we suggest in the final section of this chapter. It is, however, interesting to
+    understand how these architectures are constructed. Understanding the architectures
+    will also help you pick the correct parameters when you instantiate them.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，可以随意浏览本章节的其余部分，了解基本概念，然后阅读最后一节，了解如何为您的问题选择模型架构。您不需要完全理解本章节中网络架构的所有细微差别，因为您很少需要从头开始实现这些架构或设计自己的网络架构。大多数情况下，您将从我们在本章最后一节中建议的架构中选择一种。不过，了解这些架构是如何构建的也是很有趣的。理解这些架构还将帮助您在实例化时选择正确的参数。
+- en: The Quest for Depth
+  id: totrans-136
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 深度追求
+- en: 'After AlexNet, researchers started increasing the depths of their convolutional
+    networks. They found that adding more layers resulted in better classification
+    accuracy. Several explanations have been offered for this:'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在AlexNet之后，研究人员开始增加卷积网络的深度。他们发现添加更多层次会导致更好的分类准确性。关于此现象，提出了几种解释：
+- en: The *expressivity* argument
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*表达能力* 论证'
+- en: A single layer is a linear function. It cannot approximate complex nonlinear
+    functions, whatever its number of parameters. Each layer is, however, activated
+    with a nonlinear activation function such as sigmoid or ReLU. Stacking multiple
+    layers results in multiple successive nonlinearities and a better chance of being
+    able to approximate the desired highly complex functionality, such as differentiating
+    between images of cats and dogs.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单层是一个线性函数，无论其参数数量如何，都无法逼近复杂的非线性函数。但是，每层都会通过非线性激活函数（如sigmoid或ReLU）进行激活。堆叠多层会产生多个连续的非线性，更有可能逼近所需的高度复杂功能，例如区分猫和狗的图像。
+- en: The generalization argument
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 泛化论证
+- en: Adding parameters to a single layer increases the “memory” of the neural network
+    and allows it to learn more complex things. However, it will tend to learn them
+    by memorizing input examples. This does not generalize well. On the other hand,
+    stacking many layers forces the network to break down its input semantically into
+    a hierarchical structure of features. For example, initial layers will recognize
+    fur and whiskers, and later layers will assemble them to recognize a cat head,
+    then an entire cat. The resulting classifier generalizes better.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给单层添加参数可以增加神经网络的“记忆力”，使其能够学习更复杂的事物。然而，它往往会通过记忆输入示例来学习，这样的泛化能力不强。另一方面，堆叠多层会迫使网络将其输入语义上分解为特征的分层结构。例如，初始层将识别毛发和胡须，而后续层将这些特征组合起来识别猫的头部，然后是整个猫。由此产生的分类器泛化能力更强。
+- en: The perceptive field argument
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 感知领域论证
+- en: If a cat’s head covers a significant portion of an image—say, a 128x128-pixel
+    region—a single-layer convolutional network would need 128x128 filters to be able
+    to capture it, which would be prohibitively expensive in term of learnable weights.
+    Stacked layers, on the other hand, can use small 3x3 or 5x5 filters and still
+    be able to “see” any 128x128-pixel region if they are sufficiently deep in the
+    convolutional stack.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果猫的头部覆盖图像的大部分区域——比如一个128x128像素的区域——单层卷积网络需要128x128个滤波器才能捕捉它，这在可学习权重方面将是极其昂贵的。另一方面，堆叠层可以使用小的3x3或5x5滤波器，如果它们在卷积堆栈中足够深，仍然能够“看到”任何128x128像素的区域。
+- en: In order to design deeper convolutional networks without growing the parameter
+    count uncontrollably, researchers also started designing cheaper convolutional
+    layers. Let’s see how.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了设计更深的卷积网络，而不会无法控制地增加参数计数，研究人员还开始设计更便宜的卷积层。我们来看看如何做到这一点。
+- en: Filter Factorization
+  id: totrans-145
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 滤波器分解
+- en: 'Which one is better: a 5x5 convolutional filter or two 3x3 filters applied
+    in sequence? Both have a receptive area of 5x5 (see [Figure 3-18](#two_threexthree_filters_applied_in_seque)).
+    Although they do not perform the exact same mathematical operation, their effect
+    is likely to be similar. The difference is that two 3x3 filters applied in sequence
+    have a total of 2 * 3 * 3 = 18 learnable parameters, whereas a single 5x5 filter
+    has 5 * 5 = 25 learnable weights. So, two 3x3 filters are cheaper.'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 哪一个更好：一个 5x5 卷积滤波器还是两个连续应用的 3x3 滤波器？它们都有一个 5x5 的感受野（见图 [3-18](#two_threexthree_filters_applied_in_seque)）。虽然它们并不执行完全相同的数学操作，但它们的效果可能相似。不同之处在于，连续应用的两个
+    3x3 滤波器总共有 2 * 3 * 3 = 18 个可学习参数，而单个 5x5 滤波器有 5 * 5 = 25 个可学习权重。因此，两个 3x3 滤波器更便宜。
+- en: '![](Images/pmlc_0318.png)'
+  id: totrans-147
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0318.png)'
+- en: Figure 3-18\. Two 3x3 filters applied in sequence. Each output value is computed
+    from a 5x5 receptive field, which is similar to how a 5x5 filter works.
+  id: totrans-148
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-18\. 两个连续应用的 3x3 滤波器。每个输出值都是从一个 5x5 的感受野计算出来的，这类似于一个 5x5 滤波器的工作方式。
+- en: Another advantage is that a pair of 3x3 convolutional layers will involve two
+    applications of the activation function, since each convolutional layer is followed
+    by an activation. A single 5x5 layer has a single activation. The activation function
+    is the only nonlinear part of a neural network and it is probable that the composition
+    of nonlinearities in sequence will be able to express more complex nonlinear representations
+    of the inputs.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个优点是，一对 3x3 卷积层将涉及两次激活函数的应用，因为每个卷积层后面都跟着一个激活函数。而单个 5x5 层只有一个激活。激活函数是神经网络中唯一的非线性部分，可能序列中的非线性组合能够更好地表达输入的复杂非线性表示。
+- en: In practice, it has been found that two 3x3 layers work better than one 5x5
+    layer while using fewer learnable weights. That’s why you will see 3x3 convolutional
+    layers used extensively in modern convolutional architectures. This is sometimes
+    referred to as *filter factorization*, although it is not exactly a factorization
+    in the mathematical sense.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实践中发现，两个 3x3 层比一个 5x5 层效果更好，同时使用更少的可学习权重。这就是为什么现代卷积结构中广泛使用 3x3 卷积层的原因。有时这被称为
+    *滤波器分解*，尽管在数学意义上并不完全是分解。
+- en: The other filter size that is popular today is 1x1 convolutions. Let’s see why.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个今天流行的滤波器尺寸是 1x1 卷积。让我们看看为什么。
+- en: 1x1 Convolutions
+  id: totrans-152
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 1x1 卷积
+- en: Sliding a single-pixel filter across an image sounds silly. It’s multiplying
+    the image by a constant. However, on multichannel inputs, with a different weight
+    for each channel, it actually makes sense. For example, multiplying the three
+    color channels of an RGB image by three learnable weights and then adding them
+    up produces a linear combination of the color channels that can actually be useful.
+    A 1x1 convolutional layer performs multiple linear combinations of this kind,
+    each time with an independent set of weights, producing multiple output channels
+    ([Figure 3-19](#a_onexone_convolutional_layerdot_each_fi)).
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图像上滑动单像素滤波器听起来有点傻。这相当于将图像乘以一个常数。但是，在多通道输入中，对于每个通道使用不同的权重，这其实是有意义的。例如，将 RGB
+    图像的三个颜色通道分别乘以三个可学习的权重，然后将它们相加，会产生颜色通道的线性组合，这实际上是有用的。一个 1x1 卷积层执行多个这种线性组合，每次使用独立的权重集合，产生多个输出通道（参见图
+    [3-19](#a_onexone_convolutional_layerdot_each_fi)）。
+- en: '![](Images/pmlc_0319.png)'
+  id: totrans-154
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0319.png)'
+- en: Figure 3-19\. A 1x1 convolutional layer. Each filter has 10 parameters because
+    it acts on a 10-channel input. 5 such filters are applied, each with its own learnable
+    parameters (not shown in the figure), resulting in 5 channels of output data.
+  id: totrans-155
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-19\. 一个 1x1 卷积层。每个滤波器有 10 个参数，因为它作用于一个 10 通道输入。应用了 5 个这样的滤波器，每个都有自己的可学习参数（图中未显示），因此输出了
+    5 个通道的数据。
+- en: A 1x1 convolutional layer is a useful tool for adjusting the number of channels
+    of the data. The second advantage is that 1x1 convolutional layers are cheap,
+    in terms of number of learnable parameters, compared to 2x2, 3x3, or larger layers.
+    The tensor of weights representing the 1x1 convolutional layer in the previous
+    illustration is shown in [Figure 3-20](#the_weights_matrix_of_the_onexone_convol).
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 1x1 卷积层是调整数据通道数量的有用工具。第二个优点是，与 2x2、3x3 或更大的卷积层相比，1x1 卷积层在可学习参数的数量上要便宜。在前面的示例中代表
+    1x1 卷积层的权重张量如图 [3-20](#the_weights_matrix_of_the_onexone_convol) 所示。
+- en: '![](Images/pmlc_0320.png)'
+  id: totrans-157
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0320.png)'
+- en: Figure 3-20\. The weights matrix of the 1x1 convolutional layer from [Figure 3-19](#a_onexone_convolutional_layerdot_each_fi).
+  id: totrans-158
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-20\. 来自[图3-19](#a_onexone_convolutional_layerdot_each_fi)的1x1卷积层的权重矩阵。
+- en: The number of learnable weights is 1 * 1 * 10 * 5 = 50\. A 3x3 layer with the
+    same number of input and output channels would require 3 * 3 * 10 * 5 = 450 weights,
+    an order of magnitude more!
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可学习权重的数量为1 * 1 * 10 * 5 = 50。一个具有相同输入和输出通道数量的3x3层将需要3 * 3 * 10 * 5 = 450个权重，多一个数量级！
+- en: Next, let’s look at an architecture that employs these tricks.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们看一下采用了这些技巧的架构。
+- en: VGG19
+  id: totrans-161
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: VGG19
+- en: VGG19, introduced in a 2014 [paper](https://arxiv.org/abs/1409.1556) by Karen
+    Simonyan and Andrew Zisserman, was one of the first architectures to use 3x3 convolutions
+    exclusively. [Figure 3-21](#the_vggnineteen_architecture_with_ninete) shows what
+    it looks like with 19 layers.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: VGG19是由Karen Simonyan和Andrew Zisserman在2014年的[论文](https://arxiv.org/abs/1409.1556)中介绍的，是第一批完全采用3x3卷积的架构之一。[图3-21](#the_vggnineteen_architecture_with_ninete)展示了它的19层结构。
+- en: All the neural network layers in this figure use biases and are ReLU-activated,
+    apart from the last layer which uses softmax activation.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个图中的所有神经网络层都使用偏置并且是ReLU激活的，除了最后一层使用softmax激活。
+- en: VGG19 improves on AlexNet by being much deeper. It has 16 convolutional layers
+    instead of 5\. It also uses 3x3 convolutions exclusively without losing accuracy.
+    However, it uses the exact same classification head as AlexNet, with three large
+    fully connected layers accounting for over 120 million weights, while it has only
+    20 million weights in the convolutional layers. There are cheaper alternatives.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: VGG19通过更深的网络结构改进了AlexNet。它有16个卷积层，而不是5个。它还完全采用3x3卷积而不失准确性。然而，它使用与AlexNet完全相同的分类头，有三个大的全连接层，超过1.2亿个权重，而卷积层只有2千万个权重。还有更便宜的替代品。
+- en: '![](Images/pmlc_0321.png)'
+  id: totrans-165
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0321.png)'
+- en: Figure 3-21\. The VGG19 architecture with 19 learnable layers (left). The data
+    shapes are shown on the right (not all represented). Notice that all convolutional
+    layers use 3x3 filters.
+  id: totrans-166
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-21\. 具有19个可学习层的VGG19架构（左）。右侧显示了数据形状（未全部表示）。注意所有卷积层都使用3x3的滤波器。
+- en: Global Average Pooling
+  id: totrans-167
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 全局平均池化
+- en: Let’s look again at the implementation of the classification head. In both the
+    AlexNet and VGG19 architectures, the feature map output by the last convolutional
+    layer is turned into a vector (flattened) and then fed into one or more fully
+    connected layers (see [Figure 3-22](#a_traditional_classification_head_at_the)).
+    The goal is to end on a softmax-activated fully connected layer with exactly as
+    many neurons as classes in the classification problem at hand—for example, one
+    thousand classes for the ImageNet dataset or five classes for the 5-flowers dataset
+    used in the previous chapter. This fully connected layer has input * outputs weights,
+    which tends to be a lot.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们再次看看分类头的实现。在AlexNet和VGG19架构中，最后一个卷积层输出的特征图被转换为一个向量（扁平化），然后被馈送到一个或多个全连接层中（参见[图3-22](#a_traditional_classification_head_at_the)）。其目标是以softmax激活的全连接层结束，神经元数量正好等于当前分类问题中的类数，例如ImageNet数据集的一千类或上一章中使用的5-花数据集的五类。这个全连接层具有输入
+    * 输出权重，这往往是很多的。
+- en: '![](Images/pmlc_0322.png)'
+  id: totrans-169
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0322.png)'
+- en: Figure 3-22\. A traditional classification head at the end of a convolutional
+    network. The data coming out of convolutional layers is flattened and fed into
+    a fully connected layer. Softmax activation is used to obtain class probabilities.
+  id: totrans-170
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-22\. 卷积网络末端的传统分类头。从卷积层输出的数据被扁平化并馈送到全连接层。使用softmax激活获取类别概率。
+- en: 'If the only goal is to obtain *N* values to feed an *N*-way softmax function,
+    there is an easy way to achieve that: adjust the convolutional stack so that it
+    ends on a final feature map with exactly *N* channels and simply average the values
+    in each channel, as shown in [Figure 3-23](#global_average_poolingdot_each_channel_i).
+    This is known as *global average pooling*. Global average pooling involves no
+    learnable weights, so from this perspective it’s cheap.'
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果唯一的目标是获得*N*个值以馈送给*N*-路softmax函数，有一种简单的方法可以实现：调整卷积堆栈，使其以确切的*N*通道数的最终特征图结束，并简单地对每个通道中的值进行平均，如[图3-23](#global_average_poolingdot_each_channel_i)所示。这被称为*全局平均池化*。全局平均池化不涉及可学习权重，因此从这个角度来看它是廉价的。
+- en: Global average pooling can be followed by a softmax activation directly (as
+    in SqueezeNet, shown in [Figure 3-26](#the_squeezenet_architecture_with_eightee)),
+    although in most architectures described in this book it will be followed by a
+    single softmax-activated fully connected layer (for example in a ResNet, as shown
+    in [Figure 3-29](#the_resnetfifty_architecturedot_residual)).
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 全局平均池化可以直接接softmax激活（如SqueezeNet中所示，参见[图 3-26](#the_squeezenet_architecture_with_eightee)），尽管在本书描述的大多数架构中，它将被单个softmax激活的全连接层所跟随（例如在ResNet中，如[图 3-29](#the_resnetfifty_architecturedot_residual)所示）。
+- en: '![](Images/pmlc_0323.png)'
+  id: totrans-173
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0323.png)'
+- en: Figure 3-23\. Global average pooling. Each channel is averaged into a single
+    value. Global average pooling followed by a softmax function implements a classification
+    head with zero learnable parameters.
+  id: totrans-174
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-23\. 全局平均池化。每个通道被平均为一个值。全局平均池化后跟softmax函数实现了一个具有零可学习参数的分类头部。
+- en: Note
+  id: totrans-175
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Averaging removes a lot of the positional information present in the channels.
+    That might or might not be a good thing depending on the application. Convolutional
+    filters detect the things they have been trained to detect in a specific location.
+    If the network is classifying, for example, cats versus dogs, the location data
+    (e.g., “cat’s whiskers” detected at position *x, y* in the channel) is probably
+    not useful in the classification head. The only thing of interest is the “dog
+    detected anywhere” signal versus the “cat detected anywhere” signal. For other
+    applications, though, a global average-pooling layer might not be the best choice.
+    For example, in object detection or object counting use cases, the location of
+    detected objects is important and global average pooling should not be used.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 平均化会去除通道中存在的大量位置信息。这可能是好事，也可能不是，这取决于应用场景。卷积滤波器在特定位置上检测它们被训练来检测的事物。例如，如果网络正在分类猫和狗，那么位置数据（例如，在通道中位置*x,
+    y*处检测到“猫须”）可能对分类头部没有用处。感兴趣的仅仅是“任何地方检测到狗”信号与“任何地方检测到猫”信号。然而，在其他应用中，全局平均池化层可能不是最佳选择。例如，在目标检测或物体计数的用例中，检测到的对象的位置很重要，因此不应使用全局平均池化。
+- en: Modular Architectures
+  id: totrans-177
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模块化架构
+- en: A straight succession of convolutional and pooling layers is enough to build
+    a basic convolutional neural network. However, to further increase prediction
+    accuracy, researchers designed more complex building blocks, or *modules*, often
+    given arcane names such as “Inception modules,” “residual blocks,” or “inverted
+    residual bottlenecks,” and then assembled them into complete convolutional architectures.
+    Having higher-level building blocks also made it easier to create automated algorithms
+    to search for better architectures, as we will see in the section on neural architecture
+    search. In this section we’ll explore several of these modular architectures and
+    the research behind each of them.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一连串的卷积层和池化层足以构建基本的卷积神经网络。然而，为了进一步提高预测准确性，研究人员设计了更复杂的构建模块，或称为*模块*，通常被赋予诸如“Inception模块”，“残差块”或“反向残差瓶颈”等晦涩的名称，然后将它们组装成完整的卷积架构。拥有更高级的构建模块也使得创建自动化算法来搜索更好的架构变得更容易，正如我们将在神经架构搜索部分看到的那样。在本节中，我们将探讨几种这样的模块化架构及其背后的研究。
+- en: Inception
+  id: totrans-179
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Inception
+- en: The Inception architecture was named after Christopher Nolan’s 2010 movie *Inception*,
+    starring Leonardo DiCaprio. One line from the movie dialog—[“We need to go deeper”](https://oreil.ly/uSwgP)—became
+    an internet meme. Building deeper and deeper neural networks was one of the main
+    motivations of researchers at that time.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Inception架构以克里斯托弗·诺兰2010年的电影*盗梦空间*命名，由莱昂纳多·迪卡普里奥主演。电影对话中的一句话“我们需要更深入”[“We need
+    to go deeper”](https://oreil.ly/uSwgP) 成为了一个互联网迷因。当时，研究人员建立更深层次的神经网络是主要动机之一。
+- en: The [Inception V3](https://arxiv.org/abs/1512.00567v3) architecture uses 3x3
+    and 1x1 convolutional filters exclusively, as is now customary in most convolutional
+    architectures. It tries to address another problem, though, with a very original
+    approach. When lining up the convolutional and pooling layers in a neural network,
+    the designer has multiple choices, and the best one is not obvious. Instead of
+    relying on guesswork and experimentation, why not build multiple options into
+    the network itself and let it learn which one is the best? This is the motivation
+    behind Inception’s “modules” (see [Figure 3-24](#example_of_an_inception_moduledot_the_en)).
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Inception V3](https://arxiv.org/abs/1512.00567v3)架构仅使用3x3和1x1卷积滤波器，这在大多数卷积架构中现已成为惯例。然而，它试图以一种非常独特的方式解决另一个问题。在神经网络中排列卷积和池化层时，设计者有多种选择，而最佳选择并不明显。因此，不如在网络本身中构建多个选项，让它学习哪个是最佳的？这正是Inception“模块”的动机（见[图 3-24](#example_of_an_inception_moduledot_the_en)）。'
+- en: '![](Images/pmlc_0324.png)'
+  id: totrans-182
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0324.png)'
+- en: Figure 3-24\. Example of an Inception module. The entire InceptionV3 architecture
+    (on the right) is made up of many such modules.
+  id: totrans-183
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-24\. Inception模块的示例。右侧展示了完整的InceptionV3架构。
+- en: Instead of deciding beforehand which sequence of layers is the most appropriate,
+    an Inception module provides several alternatives that the network can choose
+    from, based on data and training. As shown in [Figure 3-24](#example_of_an_inception_moduledot_the_en),
+    the outputs of the different paths are concatenated into the final feature map.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Inception模块不会事先决定哪种层序列最合适，而是提供了几种网络可以根据数据和训练选择的替代方案。如[图 3-24](#example_of_an_inception_moduledot_the_en)所示，不同路径的输出连接成最终的特征图。
+- en: We will not detail the full InceptionV3 architecture in this book because it
+    is rather complex and has since been superseded by newer and simpler alternatives.
+    A simplified variant, also based on the “module” idea, is presented next.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本书不会详细介绍完整的InceptionV3架构，因为它相当复杂，并且已被更新和简化的替代方案所取代。接下来将介绍一个基于“模块”思想的简化变体。
+- en: SqueezeNet
+  id: totrans-186
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: SqueezeNet
+- en: The idea of modules was simplified by the [SqueezeNet](https://arxiv.org/abs/1602.07360)
+    architecture, which kept the basic principle of offering multiple paths for the
+    network to choose from but streamlined the modules themselves into their simplest
+    expression ([Figure 3-25](#a_simplified_and_standardized_convolutio)). The SqueezeNet
+    paper calls them “fire modules.”
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模块的概念由[SqueezeNet](https://arxiv.org/abs/1602.07360)架构简化，保留了为网络提供多条选择路径的基本原则，但将模块本身简化为最简形式（见[图 3-25](#a_simplified_and_standardized_convolutio)）。SqueezeNet论文将其称为“fire
+    modules”。
+- en: '![](Images/pmlc_0325.png)'
+  id: totrans-188
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0325.png)'
+- en: Figure 3-25\. A simplified and standardized convolutional module from the SqueezeNet
+    architecture. The architecture, shown on the right, alternates these “fire modules”
+    with max-pooling layers.
+  id: totrans-189
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-25\. 来自SqueezeNet架构的简化和标准化卷积模块。右侧展示的架构通过这些“fire modules”和最大池化层交替排列。
+- en: The modules used in the SqueezeNet architecture alternate a contraction stage,
+    where the number of channels is reduced by a 1x1 convolution, with an expansion
+    stage where the number of channels is increased again.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SqueezeNet架构中使用的模块交替进行收缩阶段和扩展阶段。在收缩阶段中，通过1x1卷积减少通道数量，而在扩展阶段中，再次增加通道数量。
+- en: To save on weight count, SqueezeNet uses global average pooling for the last
+    layer. Also, two out of the three convolutional layers in each module are 1x1
+    convolutions, which saves on learnable weights (see [Figure 3-26](#the_squeezenet_architecture_with_eightee)).
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了减少权重计算，SqueezeNet在最后一层使用全局平均池化。此外，在每个模块中的三个卷积层中，有两个是1x1卷积，这样可以节省可学习的权重（见[图 3-26](#the_squeezenet_architecture_with_eightee)）。
+- en: '![](Images/pmlc_0326.png)'
+  id: totrans-192
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0326.png)'
+- en: Figure 3-26\. The SqueezeNet architecture with 18 convolutional layers. Each
+    “fire module” contains a “squeeze” layer followed by two parallel “expand” layers.
+    The network pictured here contains 1.2M learnable parameters.
+  id: totrans-193
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-26\. SqueezeNet架构，包含18个卷积层。每个“fire module”包含一个“squeeze”层，后跟两个平行的“expand”层。该网络包含1.2M可学习参数。
+- en: In [Figure 3-26](#the_squeezenet_architecture_with_eightee), “maxpool” is a
+    standard 2x2 max-pooling operation with a stride of 2\. Also, every convolutional
+    layer in the architecture is ReLU-activated and uses batch normalization. The
+    thousand-class classification head is implemented by first stretching the number
+    of channels to one thousand with a 1x1 convolution, then averaging the thousand
+    channels (global average pooling) and finally applying softmax activation.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 3-26](#the_squeezenet_architecture_with_eightee) 中，“maxpool” 是一个标准的 2x2
+    最大池化操作，步幅为 2。此外，架构中的每个卷积层均使用 ReLU 激活并进行批量归一化。千类分类头部通过首先用 1x1 卷积将通道数扩展到一千，然后对千个通道进行全局平均池化，并最后应用
+    softmax 激活来实现。
+- en: The SqueezeNet architecture aims to be simple and economical (in terms of learnable
+    weights) but still incorporate most of the latest best practices in building convolutional
+    neural networks. Its simplicity makes it a good choice when you want to implement
+    your own convolutional backbone, either for education purposes or because you
+    need to tweak it for your needs. The one architectural element that might not
+    be considered best practice today is the large 7x7 initial convolutional layer,
+    inspired directly by AlexNet.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SqueezeNet 架构旨在简单经济（就可学习的权重而言），但仍融合了构建卷积神经网络的大部分最佳实践。其简单性使其成为实现自己的卷积主干的良好选择，无论是出于教育目的还是因为需要根据自身需求进行调整。今天可能不再被视为最佳实践的一个建筑元素是直接受到
+    AlexNet 启发的大型 7x7 初始卷积层。
+- en: 'In order to implement the SqueezeNet model in Keras, we have to use a Keras
+    Functional API model. We can no longer use a Sequential model, because SqueezeNet
+    is not a straight sequence of layers. We first create a helper function that instantiates
+    a fire module (the full code is available in [*03f_fromzero_SQUEEZENET24_flowers104.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03f_fromzero_SQUEEZENET24_flowers104.ipynb)):'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在 Keras 中实现 SqueezeNet 模型，我们必须使用 Keras Functional API 模型。我们不能再使用 Sequential
+    模型，因为 SqueezeNet 不是一系列直接的层。我们首先创建一个辅助函数，实例化一个 fire 模块（完整代码在 [*03f_fromzero_SQUEEZENET24_flowers104.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03f_fromzero_SQUEEZENET24_flowers104.ipynb)
+    中可用）：
+- en: '[PRE9]'
+  id: totrans-197
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'As you can see in the first line of the function, using the Keras Functional
+    API, `tf.keras.layers.Conv2D()` instantiates a convolutional layer which is then
+    called with the input `x`. We can slightly transform the `fire()` function so
+    that it uses the same semantics:'
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你在函数的第一行中所看到的，使用 Keras Functional API，`tf.keras.layers.Conv2D()` 实例化一个卷积层，然后用输入
+    `x` 调用它。我们可以轻微修改 `fire()` 函数，使其使用相同的语义：
+- en: '[PRE10]'
+  id: totrans-199
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'And here is the implementation of a custom 24-layer SqueezeNet. It performed
+    reasonably well on the 104 flowers dataset, with an F1 score of 76%, which isn’t
+    bad considering it was trained from scratch:'
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是自定义的 24 层 SqueezeNet 的实现。它在 104 朵花数据集上表现尚可，F1 分数为 76%，考虑到它是从头开始训练的，这个结果并不差：
+- en: '[PRE11]'
+  id: totrans-201
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: In the last line, we create the model by passing in the initial input layer
+    and the final output. The model can be used just like a Sequential model, so the
+    rest of the code remains the same.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一行，通过传入初始输入层和最终输出创建模型。该模型可以像 Sequential 模型一样使用，因此其余代码保持不变。
+- en: ResNet and Skip Connections
+  id: totrans-203
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: ResNet 和跳跃连接
+- en: The ResNet architecture, introduced in a 2015 [paper](https://arxiv.org/abs/1512.03385)
+    by Kaiming He et al., continued the trend of increasing the depth of neural networks
+    but addressed a common challenge with very deep neural networks—they tend to converge
+    badly because of vanishing or exploding gradient problems. During training, a
+    neural network sees what error (or loss) it is making and tries to minimize this
+    error by adjusting its internal weights. It is guided in this by the first derivative
+    (or gradient) of the error. Unfortunately, with many layers, the gradients tend
+    to be spread too thin across all layers and the network converges slowly or not
+    at all.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ResNet 架构，由 Kaiming He 等人在 2015 年的 [论文](https://arxiv.org/abs/1512.03385) 中引入，延续了增加神经网络深度的趋势，但解决了非常深的神经网络普遍存在的问题
+    —— 由于梯度消失或梯度爆炸导致的收敛困难。训练期间，神经网络会了解它所产生的错误（或损失），并通过调整其内部权重来最小化这些错误。它在这方面是由错误的一阶导数（或梯度）引导的。不幸的是，随着层数增加，梯度往往会在所有层中过分稀释，导致网络收敛缓慢或根本不收敛。
+- en: ResNet tried to remedy this by adding *skip connections* alongside its convolutional
+    layers ([Figure 3-27](#a_residual_block_in_resnetdot)). Skip connections convey
+    the signal as is, then recombine it with the data that has been transformed by
+    one or more convolutional layers. The combining operation is a simple element-by-element
+    addition.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ResNet 试图通过在其卷积层旁边添加 *跳跃连接* 来补救这一点（[图 3-27](#a_residual_block_in_resnetdot)）。跳跃连接以原样传递信号，然后将其与经过一个或多个卷积层转换的数据重新组合。组合操作是简单的逐元素加法。
+- en: '![](Images/pmlc_0327.png)'
+  id: totrans-206
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0327.png)'
+- en: Figure 3-27\. A residual block in ResNet.
+  id: totrans-207
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-27\. ResNet 中的残差块。
+- en: As can be seen in [Figure 3-27](#a_residual_block_in_resnetdot), the output
+    of the block *f*(*x*) is the sum of the output of the convolutional path *C*(*x*)
+    and the skip connection (*x*). The convolutional path is trained to compute *C*(*x*)
+    = *f*(*x*) – *x*, the difference between the desired output and the input. The
+    authors of the ResNet paper argue that this “residue” is easier for the network
+    to learn.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如在 [图 3-27](#a_residual_block_in_resnetdot) 中所示，块的输出 *f*(*x*) 是卷积路径 *C*(*x*)
+    和跳跃连接 (*x*) 输出的和。卷积路径经过训练来计算 *C*(*x*) = *f*(*x*) – *x*，即期望输出与输入之间的差异。ResNet 论文的作者认为这种“残差”更容易让网络学习。
+- en: An obvious limitation is that the element-wise addition can only work if the
+    dimensions of the data remain unchanged. The sequence of layers that is straddled
+    by a skip connection (called a *residual block*) must preserve the height, the
+    width, and the number of channels of the data.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 显然的限制是，逐元素加法只能在数据的维度保持不变时起作用。跨越跳跃连接的层序列（称为 *残差块*）必须保持数据的高度、宽度和通道数。
+- en: When size adjustments are needed, a different kind of residual block is used
+    ([Figure 3-28](#a_residual_block_with_heightcomma_widthc)). Different numbers
+    of channels can be matched in the skip connection by using a 1x1 convolution instead
+    of an identity. Height and width adjustments are obtained by using a stride of
+    2 both in the convolutional path and in the skip connection (yes, implementing
+    the skip connection with a 1x1 convolution of stride 2 ignores half of the values
+    in the input, but this does not seem to matter in practice).
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当需要尺寸调整时，使用不同类型的残差块（[图 3-28](#a_residual_block_with_heightcomma_widthc)）。通过使用
+    1x1 卷积而不是恒等映射，可以匹配不同数量的通道。通过在卷积路径和跳跃连接中使用步长 2 来获得高度和宽度的调整（是的，使用步长 2 的 1x1 卷积实现跳跃连接会忽略输入的一半值，但在实践中似乎并不重要）。
+- en: '![](Images/pmlc_0328.png)'
+  id: totrans-211
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0328.png)'
+- en: Figure 3-28\. A residual block with height, width, and channel number adjustments.
+    The number of channels is changed in the skip connection by using a 1x1 convolution
+    instead of an identity function. Data height and width are downsampled by using
+    one convolutional layer with a stride of 2 in both the convolutional path and
+    the skip connection.
+  id: totrans-212
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-28\. 带有高度、宽度和通道数调整的残差块。通过使用 1x1 卷积而不是恒等函数，在跳跃连接中改变通道数。通过在卷积路径和跳跃连接中使用步长
+    2 的一个卷积层来进行数据高度和宽度的下采样。
+- en: The ResNet architecture can be instantiated with various depths by stacking
+    more and more residual blocks. Popular sizes are ResNet50 and ResNet101 ([Figure 3-29](#the_resnetfifty_architecturedot_residual)).
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ResNet 架构可以通过堆叠更多的残差块来实例化不同深度。流行的尺寸有 ResNet50 和 ResNet101（[图 3-29](#the_resnetfifty_architecturedot_residual)）。
+- en: '![](Images/pmlc_0329.png)'
+  id: totrans-214
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0329.png)'
+- en: Figure 3-29\. The ResNet50 architecture. Residual blocks with a stride of 2
+    have a skip connection implemented using a 1x1 convolution (dotted line). The
+    ResNet 101 architecture is similar, with the “residual 256, 1,024” block repeated
+    23 times instead of 6.
+  id: totrans-215
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-29\. ResNet50 架构。带有步长 2 的残差块通过使用 1x1 卷积实现了跳跃连接（虚线）。ResNet 101 架构类似，使用了 23
+    次“残差 256, 1,024”块，而非 6 次。
+- en: In [Figure 3-29](#the_resnetfifty_architecturedot_residual), all the convolutional
+    layers are ReLU-activated and use batch normalization. A network with this architecture
+    can grow very deep—as the names indicate, 50, 100, or more layers are common for
+    ResNets—but it is still able to figure out which layers need to have their weights
+    adjusted for any given output error.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 3-29](#the_resnetfifty_architecturedot_residual) 中，所有卷积层都是经过 ReLU 激活并使用批归一化。具有这种架构的网络可以非常深
+    —— 如其名称所示，ResNets 中常见的有 50 层、100 层或更多 —— 但它仍然能够确定哪些层需要根据任何给定输出错误调整其权重。
+- en: Skip connections seem to help gradients flow through the network during the
+    optimization (backpropagation) phase. Several explanations have been suggested
+    for this. Here are the three most popular ones.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 跳跃连接似乎有助于梯度在优化（反向传播）阶段通过网络流动。关于此已经提出了几种解释。以下是最流行的三种解释。
+- en: The ResNet paper’s authors theorize that the addition operation (see [Figure 3-27](#a_residual_block_in_resnetdot))
+    plays an important role. In a regular neural network, internal weights are adjusted
+    to produce a desired output, such as a classification into one thousand classes.
+    With skip connections, however, the goal of the neural network layers is to output
+    the delta (or “residue”) between the input and the desired final output. This,
+    the authors argue, is an “easier” task for the network, but they don’t elaborate
+    on what makes it easier.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ResNet论文的作者们推测，加法操作（参见[图3-27](#a_residual_block_in_resnetdot)）起着重要作用。在常规神经网络中，内部权重被调整以产生期望的输出，例如将输入分类为一千类。然而，通过跳跃连接，神经网络层的目标是输出输入与期望最终输出之间的增量（或“残差”）。作者认为，这对网络来说是一个“更容易”的任务，但他们没有详细说明什么使得这个任务更容易。
+- en: A second interesting explanation is that residual connections actually make
+    the network shallower. During the gradient backpropagation phase, gradients flow
+    both through convolutional layers, where they might decrease in magnitude, and
+    through the skip connections, which leave them unchanged. In the paper [“Residual
+    Networks Behave Like Ensembles of Relatively Shallow Networks,”](https://arxiv.org/abs/1605.06431)
+    Veit et al. measured the intensity of gradients in a ResNet architecture. The
+    result ([Figure 3-30](#theoretical_distribution_of_path_length)) shows how, in
+    a 50-layer ResNet neural network, the signal can flow through various combinations
+    of convolutional layers and skip connections.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个有趣的解释是，残差连接实际上使网络变得更浅。在梯度反向传播阶段，梯度既通过卷积层流动（可能减小幅度），也通过跳跃连接流动（保持不变）。在文章[“Residual
+    Networks Behave Like Ensembles of Relatively Shallow Networks”](https://arxiv.org/abs/1605.06431)中，Veit等人测量了ResNet架构中梯度的强度。结果（见[图3-30](#theoretical_distribution_of_path_length)）显示，在一个50层ResNet神经网络中，信号可以通过卷积层和跳跃连接的各种组合流动。
+- en: '![](Images/pmlc_0330.png)'
+  id: totrans-220
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0330.png)'
+- en: Figure 3-30\. Theoretical distribution of path length in a ResNet50 model versus
+    the path actually taken by meaningful gradients during backpropagation. Image
+    from [Veit et al., 2016](https://arxiv.org/abs/1605.06431).
+  id: totrans-221
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-30. ResNet50模型中路径长度的理论分布与在反向传播期间实际梯度采取的路径。来自[Veit et al., 2016](https://arxiv.org/abs/1605.06431)的图像。
+- en: The most likely path lengths, measured in the number of convolutional layers
+    traversed, are midway between 0 and 50 (left graph). However, Veit et al. measured
+    that paths providing actually useful nonzero gradients in a trained ResNet were
+    even shorter than that, traversing around 12 layers.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在通过卷积层遍历的路径长度中，最有可能的路径长度位于0和50之间的中点（左图）。然而，Veit等人测量到在训练后的ResNet中提供实际有用的非零梯度的路径要比这更短，大约穿越12层。
+- en: According to this theory, a deep 50- or 100-layer ResNet acts as an ensemble—i.e.,
+    a collection of shallower networks that optimally solve different parts of a classification
+    problem. Taken together, they pool their classification strengths, but they still
+    converge efficiently because they are not actually very deep. The benefit of the
+    ResNet architecture compared to an actual ensemble of models is that it trains
+    as a single model and learns to select the best path for each input by itself.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据这一理论，深度为50层或100层的ResNet充当一个集合——即解决分类问题不同部分的较浅网络的集合。它们共同发挥其分类优势，但由于实际上并不是非常深，它们仍然能够有效地收敛。与模型集合相比，ResNet架构的好处在于它作为单一模型训练，并学会为每个输入选择最佳路径。
+- en: A third explanation looks at the topological landscape of the loss function
+    optimized during training. In [“Visualizing the Loss Landscape of Neural Nets”](https://arxiv.org/abs/1712.09913),
+    Li et al. managed to picture the loss landscape in 3D rather than its original
+    million or so dimensions and showed that good minima were much more accessible
+    when skip connections were used ([Figure 3-31](#the_loss_landscape_of_a_fiftysix-layer_r)).
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三种解释关注训练期间优化的损失函数的拓扑景观。在[“Visualizing the Loss Landscape of Neural Nets”](https://arxiv.org/abs/1712.09913)中，Li等人成功地将损失景观呈现为3D，而不是其原始的数百万维，并展示了使用跳跃连接时好的极小值要容易得多（见[图3-31](#the_loss_landscape_of_a_fiftysix-layer_r)）。
+- en: '![](Images/pmlc_0331.png)'
+  id: totrans-225
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0331.png)'
+- en: Figure 3-31\. The loss landscape of a 56-layer ResNet as visualized through
+    the “filter normalization scheme” of Li et al. Adding skip connections makes the
+    global minimum much easier to reach. Image from [Li et al., 2017](https://arxiv.org/abs/1712.09913).
+  id: totrans-226
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-31\. 通过 Li 等人的“过滤器归一化方案”可视化的 56 层 ResNet 的损失景观。添加跳跃连接使全局最小值更容易达到。图片来源于 [Li
+    et al., 2017](https://arxiv.org/abs/1712.09913)。
+- en: In practice, the ResNet architecture works very well and has become one of the
+    most popular convolutional architectures in the field, as well as the benchmark
+    against which all other advances are measured.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实践中，ResNet 架构表现非常出色，并已成为领域内最流行的卷积架构之一，也是所有其他进展的基准。
+- en: DenseNet
+  id: totrans-228
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: DenseNet
+- en: The DenseNet architecture revisits the concept of skip connections with a radical
+    new idea. In their [paper](https://arxiv.org/abs/1608.06993) on DenseNet, Gao
+    Huang et al. suggest feeding a convolutional layer with all the outputs of the
+    previous layers, by creating as many skip connections as necessary. This time,
+    data is combined by concatenation along the depth axis (channels) instead of being
+    added, as in ResNet. Apparently, the intuition that led to the ResNet architecture—that
+    data from skip connections should be added in because “residual” signals were
+    easier to learn—was not fundamental. Concatenation works too.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DenseNet 架构通过一种全新的激进想法重新审视了跳跃连接的概念。在他们的 [论文](https://arxiv.org/abs/1608.06993)
+    中，Gao Huang 等人建议通过创建必要数量的跳跃连接，将所有前层的输出馈送到卷积层。这一次，数据通过在深度轴（通道）上进行串联而不是相加来组合。显然，导致
+    ResNet 架构的直觉——通过“残余”信号添加跳跃连接的数据更容易学习——并非根本。串联也行得通。
+- en: '*Dense blocks* are the basic building blocks of DenseNet. In a dense block,
+    convolutions are grouped in pairs, with each pair of convolutions receiving as
+    its input the output of all previous convolution pairs. In the dense block depicted
+    in [Figure 3-32](#a_quotation_markdense_blockcommaquotatio), data is combined
+    by concatenating it channel-wise. All convolutions are ReLU-activated and use
+    batch normalization. Channel-wise concatenation only works if the height and width
+    dimensions of the data are the same, so convolutions in a dense block are all
+    of stride 1 and do not change these dimensions. Pooling layers will have to be
+    inserted between dense blocks.'
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*密集块* 是 DenseNet 的基本构建块。在密集块中，卷积成对分组，每对卷积接收前面所有卷积对的输出作为其输入。在图 3-32 中描述的密集块中，数据通过在通道上串联来组合。所有卷积都经过
+    ReLU 激活并使用批归一化。如果数据的高度和宽度维度相同，则通道级串联才能起作用，因此密集块中的卷积都是步幅为 1，不改变这些维度。池化层将必须在密集块之间插入。'
+- en: '![](Images/pmlc_0332.png)'
+  id: totrans-231
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0332.png)'
+- en: Figure 3-32\. A “dense block,” the basic building block of the DenseNet architecture.
+    Convolutions are grouped in pairs. Each pair of convolutions receives as input
+    the output of all previous convolution pairs. Notice that the number of channels
+    grows linearly with the number of layers.
+  id: totrans-232
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-32\. “密集块”是 DenseNet 架构的基本构建块。卷积被成对分组。每对卷积接收前面所有卷积对的输出作为输入。注意通道数随层数线性增长。
+- en: Intuitively, one would think that concatenating all previously seen outputs
+    would lead to an explosive growth of the number of channels and parameters, but
+    that is not in fact the case. DenseNet is surprisingly economical in terms of
+    learnable parameters. The reason is that every concatenated block, which might
+    have a relatively large number of channels, is always fed first through a 1x1
+    convolution that reduces it to a small number of channels, *K*. 1x1 convolutions
+    are cheap in their number of parameters. A 3x3 convolution with the same number
+    of channels (*K*) follows. The *K* resulting channels are then concatenated to
+    the collection of all previously generated outputs. Each step, which uses a pair
+    of 1x1 and 3x3 convolutions, adds exactly *K* channels to the data. Therefore,
+    the number of channels grows only linearly with the number of convolutional steps
+    in the dense block. The growth rate *K* is a constant throughout the network,
+    and DenseNet has been shown to perform well with fairly low values of *K* (between
+    *K*=12 and *K*=40 in the original paper).
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 直觉上，人们会认为连接所有先前看到的输出会导致通道数和参数数量呈爆炸性增长，但实际情况并非如此。从可学习参数的角度来看，DenseNet非常经济。原因在于，每个连接块，可能具有相对较多的通道数，总是首先通过一个1x1卷积进行处理，将其减少到小数量的通道数，*K*。
+    1x1卷积在其参数数量上是廉价的。然后是一个相同通道数（*K*）的3x3卷积。得到的*K*个通道然后连接到所有先前生成的输出集合。每个步骤，使用一对1x1和3x3卷积，正好向数据添加*K*个通道。因此，通道数量仅随着密集块中卷积步骤的数量线性增长。增长率*K*在整个网络中是常数，并且已经证明DenseNet在较低的*K*值（原始论文中*K*在12到40之间）下表现良好。
+- en: Dense blocks and pooling layers are interleaved to create a full DenseNet network.
+    [Figure 3-33](#densenetone_hundred_twenty_one_architect) shows a DenseNet121 with
+    121 layers, but the architecture is configurable and can easily scale beyond 200
+    layers.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 密集块和池化层交替排列以创建完整的DenseNet网络。[图3-33](#densenetone_hundred_twenty_one_architect)展示了一个具有121层的DenseNet121，但这种架构是可配置的，可以轻松扩展到超过200层。
+- en: The use of shallow convolutional layers (*K*=32, for example) is a characteristic
+    feature of DenseNet. In previous architectures, convolutions with over one thousand
+    filters were not rare. DenseNet can afford to use shallow convolutions because
+    each convolutional layer sees all previously computed features. In other architectures,
+    the data is transformed at each layer and the network must do active work to preserve
+    a channel of data as-is, if that is the right thing to do. It must use some of
+    its filter parameters to create an identity function, which is wasteful. DenseNet,
+    the authors argue, is built to allow feature reuse and therefore requires far
+    fewer filters per convolutional layer.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 浅卷积层（*K*=32，例如）是DenseNet的一个特征。在先前的架构中，拥有超过一千个过滤器的卷积并不罕见。DenseNet能够使用浅卷积，因为每个卷积层都能看到先前计算的所有特征。在其他架构中，数据在每一层都会进行变换，网络必须积极工作以保持数据通道的原样，如果这是正确的操作的话。它必须使用一些过滤器参数来创建一个恒等函数，这是浪费的。作者认为，DenseNet旨在允许特征复用，因此每个卷积层所需的过滤器要少得多。
+- en: '![](Images/pmlc_0333.png)'
+  id: totrans-236
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0333.png)'
+- en: Figure 3-33\. DenseNet121 architecture. With a growth rate K=32, all convolutional
+    layers produce 32 channels of output, apart from the 1x1 convolutions used as
+    transitions between dense blocks, which are designed to halve the number of channels.
+    See previous figure for details about dense blocks. All convolutions are ReLU-activated
+    and use batch normalization.
+  id: totrans-237
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-33\. DenseNet121架构。使用增长率K=32时，所有卷积层产生32个输出通道，除了用于密集块之间转换的1x1卷积，它们被设计为减半通道数。有关密集块的详细信息，请参阅前一图。所有卷积均使用ReLU激活并进行批归一化。
+- en: Depth-Separable Convolutions
+  id: totrans-238
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 深度可分离卷积
+- en: Traditional convolutions filter all the channels of the input at once. They
+    then use many filters to give the network the opportunity to do many different
+    things with the same input channels. Let’s take the example of a 3x3 convolutional
+    layer applied to 8 input channels with 16 output channels. It has 16 convolutional
+    filters of shape 3x3x8 ([Figure 3-34](#the_weights_of_a_threexthree_convolution)).
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 传统卷积一次过滤输入的所有通道。然后使用多个过滤器使网络有机会对相同的输入通道做许多不同的事情。让我们以一个应用于8个输入通道的3x3卷积层，输出通道为16为例。它有形状为3x3x8的16个卷积滤波器（[图3-34](#the_weights_of_a_threexthree_convolution)）。
+- en: '![](Images/pmlc_0334.png)'
+  id: totrans-240
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0334.png)'
+- en: Figure 3-34\. The weights of a 3x3 convolutional layer with 8 inputs and 16
+    outputs (16 filters). Many of the individual 3x3 filters are likely to be similar
+    after training (shaded); for example, a horizontal line detector filter.
+  id: totrans-241
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 3-34\. 一个具有8个输入和16个输出（16个过滤器）的3x3卷积层的权重。在训练后，许多单独的3x3过滤器可能会变得相似（阴影部分）；例如，水平线探测器过滤器。
+- en: 'In each 3x3x8 filter, there are really two operations happening simultaneously:
+    a 3x3 filter is applied to every input channel across the height and width of
+    the image (spatial dimensions), and filtered outputs are recombined in various
+    ways across channels. In short, the two operations are spatial filtering, combined
+    with a linear recombination of the filtered outputs. If these two operations turned
+    out to be independent (or separable), without affecting the performance of the
+    network, they could be performed with fewer learnable weights. Let’s see why.'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在每个3x3x8滤波器中，实际上同时发生两个操作：一个3x3滤波器被应用于图像的每个输入通道（空间维度），并且经过滤波的输出以各种方式在通道之间重新组合。简而言之，这两个操作是空间过滤与经过滤波输出的线性重新组合。如果这两个操作独立进行（或可分离），而不影响网络的性能，那么可以使用更少的可学习权重来执行。让我们看看为什么。
+- en: If we look at the 16 filters of a trained layer, it is probable that the network
+    had to reinvent the same 3x3 spatial filters in many of them, just because it
+    wanted to combine them in different ways. In fact, this can be visualized experimentally
+    ([Figure 3-35](#visualization_of_some_of_the_twelvextwel)).
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们看一个训练过的层的16个过滤器，很可能网络不得不在许多过滤器中重新发明相同的3x3空间过滤器，只是因为它想以不同的方式组合它们。实际上，这可以通过实验来可视化（[图3-35](#visualization_of_some_of_the_twelvextwel)）。
+- en: '![](Images/pmlc_0335.png)'
+  id: totrans-244
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0335.png)'
+- en: Figure 3-35\. Visualization of some of the 12x12 filters from the first convolutional
+    layer of a trained neural network. Very similar filters have been reinvented multiple
+    times. Image from [Sifre, 2014](https://oreil.ly/7Y4LL).
+  id: totrans-245
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 3-35\. 可视化训练神经网络的第一个卷积层中一些12x12滤波器。非常相似的滤波器已被多次重新发明。图像来自[Sifre, 2014](https://oreil.ly/7Y4LL)。
+- en: It looks like traditional convolutional layers use parameters inefficiently.
+    That is why Laurent Sifre suggested, in section 6.2 of his 2014 thesis [“Rigid-Motion
+    Scattering for Image Classification,”](https://oreil.ly/7Y4LL) to use a different
+    kind of convolution called a *depth-separable convolution*, or just a *separable
+    convolution*. The main idea is to filter the input, channel by channel, using
+    a set of independent filters, and then combine the outputs separately using 1x1
+    convolutions, as depicted in [Figure 3-36](#a_fourxfour_depth-separable_convolutiona).
+    The hypothesis is that there is little “shape” information to be extracted across
+    channels, and therefore a weighted sum is all that is needed to combine them (a
+    1x1 convolution is a weighted sum of channels). On the other hand, there is a
+    lot of “shape” information in the spatial dimensions of the image, and 3x3 filters
+    or bigger are needed to catch it.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 看起来传统的卷积层使用参数效率低下。这就是为什么Laurent Sifre在他2014年论文的第6.2节中建议使用一种称为*深度可分离卷积*或*可分离卷积*的不同类型的卷积。主要思想是通过一组独立的滤波器逐个通道地过滤输入，然后使用1x1卷积单独组合输出，如[图3-36](#a_fourxfour_depth-separable_convolutiona)所示。假设跨通道提取很少的“形状”信息，因此加权和就足以组合它们（1x1卷积是通道的加权和）。另一方面，图像的空间维度中包含大量的“形状”信息，需要使用3x3或更大的滤波器来捕捉它。
+- en: '![](Images/pmlc_0336.png)'
+  id: totrans-247
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0336.png)'
+- en: Figure 3-36\. A 4x4 depth-separable convolutional layer. In phase 1, 4x4 filters
+    are applied independently to each channel, producing an equal number of output
+    channels. In phase 2, the output channels are then recombined using a 1x1 convolution
+    (multiple weighted sums of the channels).
+  id: totrans-248
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 3-36\. 一个4x4深度可分离卷积层。在第1阶段，4x4滤波器独立地应用于每个通道，生成相同数量的输出通道。在第2阶段，输出通道然后通过1x1卷积重新组合（通道的多个加权和）。
+- en: In [Figure 3-36](#a_fourxfour_depth-separable_convolutiona), the phase 1 filtering
+    operation can be repeated with new filter weights to produce double or triple
+    the number of channels. This is called a *depth multiplier*, but its usual value
+    is 1, which is why this parameter was not represented in the calculation of the
+    number of weights on the right.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图3-36](#a_fourxfour_depth-separable_convolutiona)中，第1阶段过滤操作可以使用新的滤波权重重复，以产生两倍或三倍数量的通道。这称为*深度乘数*，但通常值为1，因此此参数未在右侧权重计算中表示。
+- en: 'The number of weights used by the example convolutional layer in [Figure 3-36](#a_fourxfour_depth-separable_convolutiona)
+    can easily be computed:'
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以轻松计算示例卷积层在[图 3-36](#a_fourxfour_depth-separable_convolutiona)中使用的权重数量：
+- en: 'Using a separable 3x3x8x16 convolutional layer: 3 * 3 * 8 + 8 * 16 = 200 weights'
+  id: totrans-251
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用可分离的 3x3x8x16 卷积层：3 * 3 * 8 + 8 * 16 = 200 个权重
+- en: 'Using a traditional convolutional layer: 3 * 3 * 8 * 16 = 1,152 weights (for
+    comparison)'
+  id: totrans-252
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用传统的卷积层：3 * 3 * 8 * 16 = 1,152 个权重（用于比较）
+- en: Since separable convolutional layers do not need to reinvent each spatial filter
+    multiple times, they are significantly cheaper in terms of learnable weights.
+    The question is whether they are as efficient.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于可分离卷积层无需多次重新发明每个空间滤波器，它们在可学习权重方面显著更为经济。问题是它们是否同样高效。
+- en: 'François Chollet argues in his paper [“Xception: Deep Learning with Depthwise
+    Separable Convolutions”](https://arxiv.org/abs/1610.02357) that separable convolutions
+    are in fact a concept very similar to the Inception modules seen in a previous
+    section. [Figure 3-37](#architectural_similarity_between_incepti)(A) shows a simplified
+    Inception module with three convolutional paths, each made of a 1x1 convolution
+    followed by a 3x3 convolution. This is exactly equivalent to the representation
+    in [Figure 3-37](#architectural_similarity_between_incepti)(B), where a single
+    1x1 convolution outputs three times more channels than previously. Each of those
+    blocks of channels is then picked up by a 3x3 convolution. From there, it only
+    takes a parameter adjustment—namely, increasing the number of 3x3 convolutions—to
+    arrive at [Figure 3-37](#architectural_similarity_between_incepti)(C), where every
+    channel coming out of the 1x1 convolutions is picked up by its own 3x3 convolution.'
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '弗朗索瓦·肖莱在他的论文[“Xception: 深度学习中的深度可分离卷积”](https://arxiv.org/abs/1610.02357)中主张，可分离卷积实际上是与前文中看到的Inception模块非常相似的概念。[图 3-37](#architectural_similarity_between_incepti)(A)展示了一个简化的Inception模块，包含三条并行的卷积路径，每条路径由一个1x1卷积接着一个3x3卷积构成。这与[图 3-37](#architectural_similarity_between_incepti)(B)中的表示完全等效，其中单个1x1卷积输出的通道数是之前的三倍。每个通道块随后会被3x3卷积接收。从那里开始，只需要一个参数调整——即增加3x3卷积的数量——就可以得到[图 3-37](#architectural_similarity_between_incepti)(C)，在那里，每个来自1x1卷积的通道都会被其自身的3x3卷积接收。'
+- en: '![](Images/pmlc_0337.png)'
+  id: totrans-255
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0337.png)'
+- en: 'Figure 3-37\. Architectural similarity between Inception modules and depth-separable
+    convolutions: (A) a simplified Inception module with three parallel convolutional
+    paths; (B) an exactly equivalent setup where there is a single 1x1 convolution
+    but it outputs three times more channels; (C) a very similar setup with more 3x3
+    convolutions. This is exactly a separable convolution with the order of the 1x1
+    and 3x3 operations swapped.'
+  id: totrans-256
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-37\. Inception模块与深度可分离卷积之间的结构相似性：(A)一个带有三条并行卷积路径的简化Inception模块；(B)一个完全等效的设置，其中有一个单独的1x1卷积，但输出的通道数是之前的三倍；(C)一个非常类似的设置，包含更多的3x3卷积。这正是一个深度可分离卷积，其中1x1和3x3操作的顺序被交换。
+- en: '[Figure 3-37](#architectural_similarity_between_incepti)(C) actually represents
+    a depth-separable convolution with the 1x1 (depthwise) and 3x3 (spatial) operations
+    swapped around. In a convolutional architecture where these layers are stacked,
+    this change in ordering does not matter much. In conclusion, a simplified Inception
+    module is very similar in its functionality to a depth-separable convolution.
+    This new building block is going to make convolutional architectures both simpler
+    and more economical in terms of learnable weights.'
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-37](#architectural_similarity_between_incepti)(C)实际上代表了一个深度可分离卷积，其中1x1（深度）和3x3（空间）操作的顺序被交换。在堆叠这些层的卷积架构中，这种顺序的变化并不太重要。总之，一个简化的Inception模块在功能上与深度可分离卷积非常相似。这个新的构建块将使卷积架构在可学习权重方面变得更简单且更经济。'
+- en: 'Separable convolutional layers are available in Keras:'
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可分离卷积层在Keras中是可用的：
+- en: '[PRE12]'
+  id: totrans-259
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'The new parameter, compared to a traditional convolutional layer, is the `depth_multiplier`
+    parameter. The following is a simplified description of the parameters (see the
+    [Keras documentation](https://oreil.ly/0ymie) for full details):'
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与传统卷积层相比的新参数是`depth_multiplier`参数。以下是参数的简化描述（详见[Keras文档](https://oreil.ly/0ymie)）：
+- en: '`filters`'
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`filters`'
+- en: The number of output channels to produce in the final 1x1 convolution.
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终1x1卷积要产生的输出通道数。
+- en: '`kernel_size`'
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`kernel_size`'
+- en: The size of each spatial filter. This can be a single number, like 3 for a 3x3
+    filter, or a pair like (4, 2) for a rectangular 4x2 filter.
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个空间滤波器的大小。可以是一个数字，例如 3 表示 3x3 滤波器，或一对数字，如 (4, 2) 表示一个 4x2 的矩形滤波器。
+- en: '`strides`'
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`strides`'
+- en: The step of the convolution for the spatial filtering.
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 空间过滤的卷积步长。
+- en: '`padding`'
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`padding`'
+- en: '`''valid''` for no padding, or `''same''` for zero-padding.'
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`''valid''` 表示无填充，`''same''` 表示零填充。'
+- en: '`depth_multiplier`'
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`depth_multiplier`'
+- en: The number of times the spatial filtering operation is repeated. Defaults to
+    1.
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 空间过滤操作重复执行的次数。默认为 1。
+- en: Xception
+  id: totrans-271
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Xception
+- en: The [Xception](https://arxiv.org/abs/1610.02357) architecture ([Figure 3-38](#the_xception_architecture_with_thirtysix))
+    combines separable convolutions with ResNet-style skip connections. Since separable
+    convolutions are somewhat equivalent to Inception-style branching modules, Xception
+    offers a combination of both ResNet and Inception architectural features in a
+    simpler design. Xception’s simplicity makes it a good choice when you want to
+    implement your own convolutional backbone. The source code for [the Keras implementation
+    of Xception](https://oreil.ly/rcCq6) is easily accessible from the documentation.
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Xception](https://arxiv.org/abs/1610.02357) 架构（[图 3-38](#the_xception_architecture_with_thirtysix)）将可分离卷积与
+    ResNet 风格的跳跃连接结合起来。由于可分离卷积在某种程度上等效于 Inception 风格的分支模块，Xception 在更简单的设计中结合了 ResNet
+    和 Inception 的架构特征。Xception 的简洁性使其成为在实现自己的卷积主干时的一个不错选择。[Xception 的 Keras 实现源代码](https://oreil.ly/rcCq6)
+    可以轻松从文档中获取。'
+- en: '![](Images/pmlc_0338.png)'
+  id: totrans-273
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0338.png)'
+- en: Figure 3-38\. The Xception architecture with 36 convolutional layers. The architecture
+    is inspired by ResNet but uses separable convolutions instead of traditional ones,
+    except in the first two layers.
+  id: totrans-274
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-38。具有 36 个卷积层的 Xception 架构。该架构灵感来自 ResNet，但使用可分离卷积代替传统卷积，除了前两层。
+- en: In [Figure 3-38](#the_xception_architecture_with_thirtysix), all convolutional
+    layers are ReLU-activated and use batch normalization. All separable convolutions
+    use a depth multiplier of 1 (no channel expansion).
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 3-38](#the_xception_architecture_with_thirtysix)中，所有卷积层均采用 ReLU 激活并使用批标准化。所有可分离卷积使用深度乘数为
+    1（无通道扩展）。
+- en: 'The residual blocks in Xception are different from their ResNet counterparts:
+    they use 3x3 separable convolutions instead of the mix of 3x3 and 1x1 traditional
+    convolutions in ResNet. This makes sense since 3x3 separable convolutions are
+    already a combination of 3x3 and 1x1 convolutions (see [Figure 3-36](#a_fourxfour_depth-separable_convolutiona)).
+    This further simplifies the design.'
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Xception 中的残差块与其 ResNet 对应部分有所不同：它们使用 3x3 可分离卷积，而不是 ResNet 中 3x3 和 1x1 传统卷积的混合。这是有道理的，因为
+    3x3 可分离卷积已经是 3x3 和 1x1 卷积的结合体（见[图 3-36](#a_fourxfour_depth-separable_convolutiona)）。这进一步简化了设计。
+- en: It is also to be noted that although depth-separable convolutions have a depth
+    multiplier parameter that allows the initial 3x3 convolutions to be applied multiple
+    times to each input channel with independent weights, the Xception architecture
+    obtains good results with a depth multiplier of 1\. This is actually the most
+    common practice. All other architectures described in this chapter that are based
+    on depth-separable convolutions use them without the depth multiplier (leaving
+    it at 1). It seems that adding parameters in the 1x1 part of the separable convolution
+    is enough to allow the model to capture the relevant information in input images.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，虽然深度可分卷积有一个深度乘数参数，允许将初始的 3x3 卷积应用多次到每个输入通道上，但 Xception 架构使用深度乘数为 1 时可以获得良好的结果。这实际上是最常见的做法。本章描述的所有其他基于深度可分卷积的架构也都在不改变深度乘数的情况下使用它们（保持为
+    1）。似乎在可分卷积的 1x1 部分添加参数足以允许模型捕获输入图像中的相关信息。
+- en: Neural Architecture Search Designs
+  id: totrans-278
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 神经架构搜索设计
+- en: 'The convolutional architectures described in the previous pages are all made
+    of similar elements arranged in different ways: 3x3 and 1x1 convolutions, 3x3
+    separable convolutions, additions, concatenations… Couldn’t the search for the
+    ideal combination be automated? Let’s look at architectures that can do this.'
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前几页描述的卷积架构都由不同方式排列的类似元素组成：3x3 和 1x1 卷积，3x3 可分卷积，加法，串联… 难道寻找理想组合的过程不能自动化吗？让我们看看能够做到这一点的架构。
+- en: NASNet
+  id: totrans-280
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: NASNet
+- en: Automating the search for the optimal combination of operations is precisely
+    what the authors of the [NASNet paper](https://arxiv.org/abs/1707.07012) did.
+    However, a brute-force search through the entire set of possible operations would
+    have been too large a task. There are too many ways to choose and assemble layers
+    into a full neural network. Furthermore, each piece has many hyperparameters,
+    like the number of its output channels or the size of its filters.
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 精确地自动化寻找操作的最佳组合正是[NASNet论文](https://arxiv.org/abs/1707.07012)的作者所做的。然而，通过整套可能的操作进行蛮力搜索将是一个过大的任务。选择和组合层以形成完整神经网络的方式有太多种。此外，每个部分还有许多超参数，如其输出通道数或滤波器大小。
+- en: 'Instead, they simplified the problem in a clever way. Looking back at the Inception,
+    ResNet, or Xception architectures (Figures [3-24](#example_of_an_inception_moduledot_the_en),
+    [3-29](#the_resnetfifty_architecturedot_residual), and [3-38](#the_xception_architecture_with_thirtysix),
+    respectively), it is easy to see that they are constructed from two types of repeated
+    modules: one kind that leaves the width and height of the features intact (“normal
+    cells”) and another that divides them in half (“reduction cells”). The NASNet
+    authors used an automated algorithm to design the structure of these basic cells
+    (see [Figure 3-39](#some_of_the_individual_operations_used_a)) and then assembled
+    a convolutional architecture by hand, by stacking the cells with reasonable parameters
+    (channel depth, for example). They then trained the resulting networks to see
+    which module design worked the best.'
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，他们以聪明的方式简化了问题。回顾Inception、ResNet或Xception体系结构（分别在图[3-24](#example_of_an_inception_moduledot_the_en)、[3-29](#the_resnetfifty_architecturedot_residual)和[3-38](#the_xception_architecture_with_thirtysix)中），很容易看出它们由两种重复模块构成：一种保持特征的宽度和高度不变的模块（“普通细胞”），另一种将它们减半的模块（“减少细胞”）。NASNet的作者使用自动化算法设计了这些基本细胞的结构（见[图 3-39](#some_of_the_individual_operations_used_a)），然后通过手动堆叠具有合理参数（例如通道深度）的细胞来组装卷积体系结构。然后，他们训练结果网络，以查看哪种模块设计效果最好。
+- en: '![](Images/pmlc_0339.png)'
+  id: totrans-283
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0339.png)'
+- en: Figure 3-39\. Some of the individual operations used as NASNet building blocks.
+  id: totrans-284
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-39\. 作为NASNet构建块使用的一些个别操作。
+- en: The search algorithm can either be a random search, which actually did not perform
+    so badly in the study, or a more sophisticated one also based on neural networks
+    called *reinforcement learning*. To learn more about reinforcement learning, see
+    Andrej Karpathy’s [“Pong from Pixels”](https://oreil.ly/Qjy9V) post or Martin
+    Görner’s and Yu-Han Liu’s [“Reinforcement Learning Without a PhD”](https://oreil.ly/BMIeQ)
+    Google I/O 2018 video.
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 搜索算法可以是随机搜索，实际上在研究中表现不错，也可以是基于神经网络的更复杂的算法，称为*强化学习*。要了解更多关于强化学习的信息，请参阅Andrej
+    Karpathy的[“Pong from Pixels”](https://oreil.ly/Qjy9V)文章或Martin Görner和Yu-Han Liu的[“Reinforcement
+    Learning Without a PhD”](https://oreil.ly/BMIeQ) Google I/O 2018视频。
+- en: '[Figure 3-40](#the_best-performing_convolutional_cells) shows the structure
+    of the best normal and reduction cells found by the algorithm. Note that the search
+    space allowed connections from not only the previous stage but also the one before,
+    to mimic more densely connected architectures like DenseNet.'
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-40](#the_best-performing_convolutional_cells)展示了算法找到的最佳普通和减少细胞的结构。请注意，搜索空间允许连接不仅来自前一阶段，还包括前一个阶段，以模仿更密集连接的体系结构，如DenseNet。'
+- en: '![](Images/pmlc_0340.png)'
+  id: totrans-287
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0340.png)'
+- en: Figure 3-40\. The best-performing convolutional cells found through neural architecture
+    search in the NASNet paper. They are made of separable convolutions well as average
+    and max-pooling layers.
+  id: totrans-288
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-40\. 在NASNet论文中通过神经架构搜索找到的表现最佳的卷积细胞。它们由可分离卷积以及平均池化和最大池化层组成。
+- en: The paper notes that separable convolutions are always used doubled (“sep 3x3”
+    in [Figure 3-40](#the_best-performing_convolutional_cells) actually indicates
+    two consecutive 3x3 separable convolutions), which has been empirically found
+    to increase performance.
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 论文指出，可分离卷积总是使用双倍（“sep 3x3”在[图 3-40](#the_best-performing_convolutional_cells)中实际上表示两个连续的3x3可分离卷积），这被实证发现可以提高性能。
+- en: '[Figure 3-41](#stacking_of_the_normal_and_reduction_cel) shows how the cells
+    are stacked to form a complete neural network.'
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-41](#stacking_of_the_normal_and_reduction_cel)展示了细胞如何堆叠以形成完整的神经网络。'
+- en: Different NASNet scales can be obtained by adjusting the *N* and *M* parameters—for
+    example, *N*=7 and *M*=1,920 for the most widely used variant, which has 22.6M
+    parameters. All convolutional layers in the figure are ReLU-activated and use
+    batch normalization.
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以通过调整 *N* 和 *M* 参数来获得不同的 NASNet 规模，例如，*N*=7 和 *M*=1,920 用于最广泛使用的变体，具有 22.6M
+    参数。图中的所有卷积层都是 ReLU 激活的，并使用批归一化。
+- en: '![](Images/pmlc_0341.png)'
+  id: totrans-292
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0341.png)'
+- en: Figure 3-41\. Stacking of the normal and reduction cells to create a complete
+    neural network. Normal cells are repeated N times. The number of channels is multiplied
+    by 2 in every reduction cell to obtain M output channels at the end.
+  id: totrans-293
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-41\. 正常和减少单元的堆叠，以创建完整的神经网络。正常单元重复 N 次。通道数在每个减少单元中乘以 2，以在最后获得 M 输出通道。
+- en: 'There are a few interesting details to note about what the algorithm does:'
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一些有趣的细节需要注意算法的行为：
+- en: It only uses separable convolutions, although regular convolutions were part
+    of the search space. This seems to confirm the benefits of separable convolutions.
+  id: totrans-295
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它只使用可分离卷积，尽管常规卷积是搜索空间的一部分。这似乎确认了可分离卷积的好处。
+- en: When merging branches, the algorithm chooses to add results rather than concatenate
+    them. This is similar to ResNet but unlike Inception or DenseNet, which use concatenations.
+    (Note that the last concatenation in each cell is forced by the architecture and
+    was not chosen by the algorithm.)
+  id: totrans-296
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在合并分支时，算法选择将结果相加，而不是连接它们。这类似于 ResNet，但不像 Inception 或 DenseNet 使用连接。（注意，每个单元中的最后一个连接是由架构强制的，而不是算法选择的。）
+- en: In the normal cell, the algorithm chooses multiple parallel branches, rather
+    than fewer branches, and more layers of transformations. This is more like Inception,
+    and less like ResNet.
+  id: totrans-297
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在正常的单元中，算法选择了多个并行分支，而不是较少的分支和更多层次的转换。这更像是 Inception，而不像 ResNet。
+- en: The algorithm uses separable convolutions with large 5x5 or 7x7 filters rather
+    than implementing everything with 3x3 convolutions. This runs contrary to the
+    “filter factorization” hypothesis outlined earlier in this chapter, and indicates
+    that the hypothesis might not hold after all.
+  id: totrans-298
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 该算法使用了具有大型 5x5 或 7x7 过滤器的可分离卷积，而不是全部使用 3x3 的卷积来实现。这与本章前面提出的“过滤器分解”假设相反，表明这一假设可能并不成立。
+- en: Some choices seem dubious, though, and are probably an artifact of the search
+    space design. For example, in the normal cell, 3x3 average-pooling layers with
+    a stride of 1 are basically blur operations. Maybe a blur is useful, but blurring
+    the same input twice then adding the results is certainly not optimal.
+  id: totrans-299
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些选择似乎有问题，可能是搜索空间设计的产物。例如，在正常单元中，带有 1 步长的 3x3 平均池化层基本上是模糊操作。也许模糊是有用的，但是模糊同一输入两次然后将结果相加显然不是最优的做法。
+- en: The MobileNet Family
+  id: totrans-300
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: MobileNet 家族
+- en: 'In the next couple of sections, we will describe the MobileNetV2/MnasNet/EfficientNet
+    family of architectures. [MobileNetV2](https://arxiv.org/abs/1801.04381) fits
+    in this “neural architecture search” section because it introduces new building
+    blocks that help design a more efficient search space. Although the initial MobileNetV2
+    was designed by hand, follow-up versions [MnasNet](https://arxiv.org/abs/1807.11626)
+    and [EfficientNet](https://arxiv.org/abs/1905.11946) use the same building blocks
+    for automated neural architecture search and end up with optimized but very similar
+    architectures. Before we discuss this set of architectures, however, first we
+    need to introduce two new building blocks: depthwise convolutions and inverted
+    residual bottlenecks.'
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的几节中，我们将描述 MobileNetV2/MnasNet/EfficientNet 等架构家族。[MobileNetV2](https://arxiv.org/abs/1801.04381)
+    适用于“神经架构搜索”部分，因为它引入了新的构建模块，有助于设计更高效的搜索空间。尽管最初的 MobileNetV2 是手工设计的，后续版本的 [MnasNet](https://arxiv.org/abs/1807.11626)
+    和 [EfficientNet](https://arxiv.org/abs/1905.11946) 利用相同的构建模块进行自动化神经架构搜索，并最终得到了优化但非常相似的架构。然而，在讨论这些架构集之前，我们首先需要介绍两个新的构建模块：深度卷积和反向残差瓶颈。
+- en: Depthwise convolutions
+  id: totrans-302
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 深度卷积
+- en: 'The first building block we need to explain in order to understand the MobileNetV2
+    architecture is depthwise convolutions. The [MobileNetV2](https://arxiv.org/abs/1801.04381)
+    architecture revisits depth-separable convolutions and their interactions with
+    skip connections. To make this fine-grained analysis possible, we must first split
+    the depth-separable convolutions described previously ([Figure 3-36](#a_fourxfour_depth-separable_convolutiona))
+    into their basic components:'
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了理解 MobileNetV2 架构，我们需要解释的第一个构建模块是深度卷积。[MobileNetV2](https://arxiv.org/abs/1801.04381)
+    架构重新审视深度可分离卷积及其与跳跃连接的交互作用。为了实现这种细粒度的分析，我们必须首先将先前描述的深度可分离卷积（[图 3-36](#a_fourxfour_depth-separable_convolutiona)）分解为其基本组件：
+- en: The spatial filtering part, called a depthwise convolution ([Figure 3-42](#a_depthwise_convolutional_layerdot_convo))
+  id: totrans-304
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 空间过滤部分称为深度卷积（[图 3-42](#a_depthwise_convolutional_layerdot_convo)）。
+- en: A 1x1 convolution
+  id: totrans-305
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1x1 卷积
+- en: In [Figure 3-42](#a_depthwise_convolutional_layerdot_convo), the filtering operation
+    can be repeated with new filter weights to produce double or triple the number
+    of channels. This is called a “depth multiplier” but its usual value is 1, which
+    is why it is not represented in the picture.
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 3-42](#a_depthwise_convolutional_layerdot_convo) 中，过滤操作可以使用新的过滤权重重复进行，以产生两倍或三倍数量的通道。这被称为“深度乘数”，但其通常值为
+    1，因此未在图中表示。
+- en: 'Depthwise convolutional layers are available in Keras:'
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras 中提供了深度卷积层：
+- en: '[PRE13]'
+  id: totrans-308
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'Note that a depth-separable convolution, such as:'
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，深度可分离卷积，例如：
+- en: '[PRE14]'
+  id: totrans-310
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'can also be represented in Keras as a sequence of two layers:'
+  id: totrans-311
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 也可以在 Keras 中表示为两层的序列：
+- en: '[PRE15]'
+  id: totrans-312
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: '![](Images/pmlc_0342.png)'
+  id: totrans-313
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0342.png)'
+- en: Figure 3-42\. A depthwise convolutional layer. Convolutional filters are applied
+    independently to each input channel, producing an equal number of output channels.
+  id: totrans-314
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-42\. 深度卷积层。卷积滤波器独立应用于每个输入通道，产生相等数量的输出通道。
+- en: Inverted residual bottlenecks
+  id: totrans-315
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 反向残差瓶颈
+- en: 'The second and most important building block in the MobileNet family is the
+    inverted residual bottleneck. Residual blocks used in ResNet or Xception architectures
+    tend to keep the number of channels flowing through skip connections high (see
+    [Figure 3-43](#the_new_residual_block_design_in_mobilen) below). In the [MobileNetV2
+    paper](https://arxiv.org/abs/1801.04381), the authors make the hypothesis that
+    the information that skip connections help preserve is inherently low-dimensional.
+    This makes sense intuitively. If a convolutional block specializes in detecting,
+    for example “cat whiskers,” the information in its output (“whiskers detected
+    at position (3, 16)”) can be represented along three dimensions: class, *x*, *y*.
+    Compared with the pixel representation of whiskers, it is low-dimensional.'
+  id: totrans-316
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MobileNet 家族中第二个也是最重要的构建模块是反向残差瓶颈。在 ResNet 或 Xception 架构中使用的残差块倾向于保持通过跳跃连接传递的通道数量较多（参见下文的
+    [图 3-43](#the_new_residual_block_design_in_mobilen)）。在 [MobileNetV2 论文](https://arxiv.org/abs/1801.04381)
+    中，作者假设跳跃连接帮助保留的信息本质上是低维的。这在直观上是有道理的。如果卷积块专门用于检测例如“猫须”，则其输出中的信息（“在位置（3，16）检测到须”的位置）可以沿着三个维度表示：类别、*x*、*y*。与须的像素表示相比，这是低维的。
+- en: The MobileNetV2 architecture  introduces a new residual block design that places
+    skip connections where the number of channels is low and expands the number of
+    channels inside residual blocks. [Figure 3-43](#the_new_residual_block_design_in_mobilen)
+    compares the new design to the typical residual blocks used in ResNet and Xception.
+    The number of channels in ResNet blocks follows the sequence “many – few – many,”
+    with skip connections between the “many channels” stages. Xception does “many
+    – many – many.” The new MobileNetV2 design follows the sequence “few – many –
+    few.” The paper calls this technique *inverted residual bottlenecks—*“inverted”
+    because it is the exact opposite of the ResNet approach, “bottleneck” because
+    the number of channels is squeezed in between residual blocks, like the neck of
+    a bottle.
+  id: totrans-317
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MobileNetV2 架构引入了一种新的残差块设计，其中在通道数较少的地方放置跳跃连接，并扩展残差块内部的通道数量。[图 3-43](#the_new_residual_block_design_in_mobilen)
+    将新设计与 ResNet 和 Xception 中使用的典型残差块进行了比较。ResNet 块中的通道数遵循“多 - 少 - 多”的顺序，并在“多通道”阶段之间进行跳跃连接。Xception
+    则为“多 - 多 - 多”。新的 MobileNetV2 设计遵循“少 - 多 - 少”的顺序。论文将此技术称为 *反向残差瓶颈* ——“反向”因为它与 ResNet
+    方法正好相反，“瓶颈”因为通道数量在残差块之间被压缩，如瓶子的颈部。
+- en: '![](Images/pmlc_0343.png)'
+  id: totrans-318
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0343.png)'
+- en: 'Figure 3-43\. The new residual block design in MobileNetV2 (called an “inverted
+    residual bottleneck”), compared with ResNet and Xception residual blocks. “dw-cnv”
+    stands for depthwise convolution. Separable convolutions used by Xception are
+    represented by their components: “dw-cnv” followed by “conv 1x1.”'
+  id: totrans-319
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-43\. MobileNetV2 中的新残差块设计（称为“反向残差瓶颈”），与 ResNet 和 Xception 残差块进行比较。“dw-cnv”代表深度卷积。Xception
+    使用的可分离卷积由其组件表示：“dw-cnv”后跟“conv 1x1”。
+- en: The goal of this new residual block is to offer the same expressivity as prior
+    designs with a dramatically reduced weight count and, even more importantly, a
+    reduced latency at inference time. MobileNetV2 was indeed designed to be used
+    on mobile phones, where compute resources are scarce. The weight counts of the
+    typical residual blocks represented in [Figure 3-43](#the_new_residual_block_design_in_mobilen)
+    are 1.1M, 52K, and 1.6M respectively for the ResNet, MobileNetV2, and Xception
+    blocks.
+  id: totrans-320
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种新的残差块的目标是在推断时提供与之前设计相同的表达能力，但显著减少权重数量，更重要的是减少延迟。MobileNetV2 确实是设计用于移动电话，在那里计算资源稀缺。在
+    [图 3-43](#the_new_residual_block_design_in_mobilen) 中代表的典型残差块的权重计数分别为 1.1M、52K
+    和 1.6M，分别对应 ResNet、MobileNetV2 和 Xception 块。
+- en: 'The authors of the MobileNetV2 paper argue that their design can achieve good
+    results with fewer parameters because the information that flows between residual
+    blocks is low-dimensional in nature and can therefore be represented in a limited
+    number of channels. However, one construction detail is important: the last 1x1
+    convolution in the inverted residual block, the one that squeezes the feature
+    map back to “few” channels, is not followed by a nonlinear activation. The MobileNetV2
+    paper covers this topic at some length, but the short version is that in a low-dimensional
+    space, a ReLU activation would destroy too much information.'
+  id: totrans-321
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MobileNetV2 论文的作者认为他们的设计可以用更少的参数达到良好的结果，因为在残差块之间流动的信息是低维的，因此可以在有限数量的通道中表示。然而，一个构造细节很重要：反向残差块中的最后一个
+    1x1 卷积，即将特征图压缩回“少量”通道的卷积，后面不跟随非线性激活函数。MobileNetV2 论文详细讨论了这个话题，但简短地说，在低维空间中，ReLU
+    激活会破坏太多信息。
+- en: We are now ready to build a full MobileNetV2 model and then use neural architecture
+    search to refine it into the optimized, but otherwise very similar, MnasNet and
+    EfficientNet architectures.
+  id: totrans-322
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经准备好构建一个完整的 MobileNetV2 模型，然后使用神经架构搜索将其优化为经过优化但在其他方面非常相似的 MnasNet 和 EfficientNet
+    架构。
+- en: MobileNetV2
+  id: totrans-323
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: MobileNetV2
+- en: We can now put together the MobileNetV2 convolutional stack. MobileNetV2 is
+    built out of multiple inverted residual blocks, as shown in [Figure 3-44](#the_mobilenetvtwo_architecturecomma_base).
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们可以组装 MobileNetV2 卷积堆栈。MobileNetV2 由多个反向残差块构建，如 [图 3-44](#the_mobilenetvtwo_architecturecomma_base)
+    所示。
+- en: '![](Images/pmlc_0344.png)'
+  id: totrans-325
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0344.png)'
+- en: Figure 3-44\. The MobileNetV2 architecture, based on repeated inverted residual
+    bottlenecks. Repeat counts are in the center column. “conv” indicates regular
+    convolutional layers, while “dw-cnv” denotes depthwise convolutions.
+  id: totrans-326
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-44\. 基于重复的反向残差瓶颈的 MobileNetV2 架构。重复次数在中间列显示。“conv”表示常规卷积层，“dw-cnv”表示深度卷积。
+- en: In [Figure 3-44](#the_mobilenetvtwo_architecturecomma_base), inverted residual
+    bottleneck blocks are marked “i-res-bttl *N*, *M*” and parameterized by their
+    internal (*N*) and external channel depth (*M*). Every sequence marked “strides
+    2, 1” starts with an inverted bottleneck block with a stride of 2 and no skip
+    connection. The sequence continues with regular inverted residual bottleneck blocks.
+    All convolutional layers use batch normalization. Please note that the last convolutional
+    layer in inverted bottleneck blocks does not use an activation function.
+  id: totrans-327
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 3-44](#the_mobilenetvtwo_architecturecomma_base) 中，反向残差瓶颈块标记为“i-res-bttl
+    *N*, *M*”，并通过其内部 (*N*) 和外部通道深度 (*M*) 进行参数化。每个标记为“strides 2, 1”的序列以步幅 2 开始，没有跳过连接的反向残差瓶颈块。序列继续使用常规反向残差瓶颈块。所有卷积层均使用批量归一化。请注意，反向残差瓶颈块中的最后一个卷积层不使用激活函数。
+- en: The activation function in MobileNetV2 is ReLU6, instead of the usual ReLU.
+    Later evolutions of MobileNetV2 went back to using standard ReLU activation functions.
+    The use of ReLU6 in MobileNetV2 is not a fundamental implementation detail.
+  id: totrans-328
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MobileNetV2 中的激活函数是 ReLU6，而不是通常的 ReLU。MobileNetV2 的后续进化重新使用了标准的 ReLU 激活函数。在
+    MobileNetV2 中使用 ReLU6 不是一个基本的实现细节。
+- en: The MobileNetV2 simple structure of repeated inverted residual bottleneck blocks
+    lends itself well to automated neural architecture search methods. That is how
+    the MnasNet and EfficientNet architectures were created.
+  id: totrans-329
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MobileNetV2 简单的反向残差瓶颈结构非常适合自动化神经架构搜索方法。这就是 MnasNet 和 EfficientNet 架构的创建方式。
+- en: 'EfficientNet: Putting it all together'
+  id: totrans-330
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: EfficientNet：综合所有内容
+- en: The team that created MobileNetV2 later refined the architecture through automated
+    neural architecture search, using inverted residual bottlenecks as the building
+    blocks of their search space. The [MnasNet paper](https://arxiv.org/abs/1807.11626)
+    summarizes their initial findings. The most interesting result of that research
+    is that, once again, the automated algorithm reintroduced 5x5 convolutions into
+    the mix. This was already the case in NASNet, as we saw earlier. This is interesting
+    because all manually constructed architectures had standardized on 3x3 convolutions,
+    justifying the choice with the filter factorization hypothesis. Apparently, larger
+    filters like 5x5 are useful after all.
+  id: totrans-331
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建 MobileNetV2 的团队后来通过自动化神经架构搜索对架构进行了改进，使用反向残差瓶颈作为他们搜索空间的构建块。[MnasNet 论文](https://arxiv.org/abs/1807.11626)
+    总结了他们的初步研究结果。这项研究的最有趣的结果是，自动化算法再次引入了 5x5 卷积。正如我们之前看到的 NASNet，手动构建的所有架构都标准化为 3x3
+    卷积，这一选择是有滤波器分解假设来支持的。显然，像 5x5 这样的大滤波器确实是有用的。
+- en: 'We’ll skip a formal description of the MnasNet architecture in favor of its
+    next iteration: [EfficientNet](https://arxiv.org/abs/1905.11946). This architecture
+    was developed using the exact same search space and network architecture search
+    algorithm as MnasNet, but the optimization goal was tweaked toward prediction
+    accuracy rather than mobile inference latency. Inverted residual bottlenecks from
+    MobileNetV2 are again the basic building blocks.'
+  id: totrans-332
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将跳过对 MnasNet 架构的正式描述，转而介绍其下一代版本：[EfficientNet](https://arxiv.org/abs/1905.11946)。这种架构使用了与
+    MnasNet 完全相同的搜索空间和网络架构搜索算法，但优化目标调整为预测准确性，而不是移动推断延迟。MobileNetV2 中的反向残差瓶颈再次成为基本构建块。
+- en: 'EfficientNet is actually a family of neural networks of different sizes, where
+    a lot of attention was paid to the scaling of the networks in the family. Convolutional
+    architectures have three main ways of scaling:'
+  id: totrans-333
+  prefs: []
+  type: TYPE_NORMAL
+  zh: EfficientNet 实际上是一个不同尺寸的神经网络家族，该家族的网络缩放受到了很多关注。卷积架构有三种主要的缩放方式：
+- en: Use more layers.
+  id: totrans-334
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用更多层。
+- en: Use more channels in each layer.
+  id: totrans-335
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在每一层中使用更多通道。
+- en: Use higher-resolution input images.
+  id: totrans-336
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用更高分辨率的输入图像。
+- en: 'The EfficientNet paper points out that these three scaling axes are not independent:
+    “If the input image is bigger, then the network needs more layers to increase
+    the receptive field and more channels to capture more fine-grained patterns on
+    the bigger image.”'
+  id: totrans-337
+  prefs: []
+  type: TYPE_NORMAL
+  zh: EfficientNet 论文指出，这三个缩放轴并不是独立的：“如果输入图像更大，则网络需要更多层来增加感受野，并且需要更多通道来捕获更大图像上的更精细模式。”
+- en: The novelty in the EfficientNetB0 through EfficientNetB7 family of neural networks
+    is that they are scaled along all three scaling axes rather than just one, as
+    was the case in earlier architecture families such as ResNet50/ResNet101/ResNet152\.
+    The EfficientNet family is today the workhorse of many applied machine learning
+    teams because it offers optimal performance levels for every weight count. Research
+    evolves fast though, and by the time this book is printed, it is probable that
+    an even better architecture will have been discovered.
+  id: totrans-338
+  prefs: []
+  type: TYPE_NORMAL
+  zh: EfficientNetB0 至 EfficientNetB7 神经网络家族的新颖之处在于，它们沿着所有三个缩放轴进行缩放，而不仅仅是像之前的架构家族
+    ResNet50/ResNet101/ResNet152 那样只沿着一个轴。EfficientNet 家族如今是许多应用机器学习团队的主力军，因为它为每个权重计数提供了最佳性能水平。研究进展迅速，但到本书印刷时，可能已经发现了更好的架构。
+- en: '[Figure 3-45](#the_efficientnetbzeero_architecturedot_n) describes the baseline
+    EfficientNetB0 architecture. Notice the similarity with MobileNetV2.'
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-45](#the_efficientnetbzeero_architecturedot_n) 描述了基准 EfficientNetB0 架构。请注意与
+    MobileNetV2 的相似性。'
+- en: '![](Images/pmlc_0345.png)'
+  id: totrans-340
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0345.png)'
+- en: Figure 3-45\. The EfficientNetB0 architecture. Notice the strong similarity
+    with MobileNetV2 ([Figure 3-44](#the_mobilenetvtwo_architecturecomma_base)).
+  id: totrans-341
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-45。EfficientNetB0 架构。请注意与 MobileNetV2 的强烈相似性（[图 3-44](#the_mobilenetvtwo_architecturecomma_base)）。
+- en: 'In [Figure 3-45](#the_efficientnetbzeero_architecturedot_n), sequences of inverted
+    residual bottlenecks are noted [ i-res-bttl(*K*x*K*) *P***Ch*, *Ch* ] ✕ *N*, where:'
+  id: totrans-342
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 3-45](#the_efficientnetbzeero_architecturedot_n) 中，反向残差瓶颈序列被标注为 i-res-bttl(*K*x*K*)
+    *P***Ch*, *Ch* ✕ *N*，其中：
+- en: '*Ch* is the external number of channels output by each block.'
+  id: totrans-343
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*Ch* 是每个块输出的外部通道数。'
+- en: 'The internal number of channels is typically a multiple *P* of the external
+    channels: *P***Ch*.'
+  id: totrans-344
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 内部通道数通常是外部通道的倍数 *P***Ch*。
+- en: '*K*x*K* is the convolutional filter size, typically 3x3 or 5x5.'
+  id: totrans-345
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*K*x*K* 是卷积滤波器的大小，通常为 3x3 或 5x5。'
+- en: '*N* is the number of such consecutive layer blocks.'
+  id: totrans-346
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*N* 是这样连续的层块数量。'
+- en: Every sequence marked “strides 2, 1” starts with an inverted bottleneck block
+    with a stride of 2 and no skip connection. The sequence continues with regular
+    inverted residual bottleneck blocks. As previously mentioned, “conv” indicates
+    regular convolutional layers, while “dw-cnv” denotes depthwise convolutions.
+  id: totrans-347
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个标记为“步幅 2, 1”的序列以步幅为 2 的反向残差瓶颈块开始，没有跳过连接。序列继续使用常规的反向残差瓶颈块。如前所述，“conv”表示常规卷积层，“dw-cnv”表示深度卷积。
+- en: EfficientNetB1 through B7 have the exact same general structure, with seven
+    sequences of inverted residual bottlenecks; only the parameters differ. [Figure 3-46](#the_efficientnetbzeero_through_efficient)
+    provides the scaling parameters for the entire family.
+  id: totrans-348
+  prefs: []
+  type: TYPE_NORMAL
+  zh: EfficientNetB1 到 B7 具有完全相同的一般结构，包括七个反向残差瓶颈序列；只是参数不同。 [图 3-46](#the_efficientnetbzeero_through_efficient)
+    提供了整个系列的缩放参数。
+- en: '![](Images/pmlc_0346.png)'
+  id: totrans-349
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0346.png)'
+- en: Figure 3-46\. The EfficientNetB0 through EfficientNetB7 family, showing the
+    parameters of the seven sequences of inverted residual bottlenecks that make up
+    the EfficientNet architecture.
+  id: totrans-350
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-46\. EfficientNetB0 到 EfficientNetB7 系列，展示了构成 EfficientNet 架构的七个反向残差瓶颈序列的参数。
+- en: As shown in [Figure 3-46](#the_efficientnetbzeero_through_efficient), each neural
+    network in the family has an ideal input image size. It has been trained on images
+    of this size, though it can also be used with other image sizes. The number of
+    layers and number of channels in each layer are scaled along with the input image
+    size. The multiplier between the external and internal number of channels in inverted
+    residual bottlenecks is always 6, apart from in the first row where it is 1.
+  id: totrans-351
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如 [图 3-46](#the_efficientnetbzeero_through_efficient) 所示，系列中的每个神经网络都有一个理想的输入图像大小。它已经在这种大小的图像上进行了训练，尽管也可以使用其他图像大小。每层中的层数和通道数与输入图像大小一起进行缩放。反向残差瓶颈中外部和内部通道数之间的乘数始终为
+    6，除了第一行是 1。
+- en: So are these scaling parameters actually effective? The EfficientNet paper shows
+    they are. The compound scaling outlined above is more efficient than scaling the
+    network by layers, channels, or image resolution alone ([Figure 3-47](#accuracy_of_efficientnet_classifiers_sca)).
+  id: totrans-352
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么这些缩放参数真的有效吗？EfficientNet 论文显示它们是有效的。上文中概述的复合缩放比单独缩放网络层数、通道或图像分辨率更有效 ([图 3-47](#accuracy_of_efficientnet_classifiers_sca))。
+- en: '![](Images/pmlc_0347.png)'
+  id: totrans-353
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0347.png)'
+- en: 'Figure 3-47\. Accuracy of EfficientNet classifiers scaled using the compound
+    scaling method from the EfficientNet paper versus scaling by a single factor:
+    width (the number of channels in convolutional blocks), depth (the number of convolutional
+    layers), or image resolution. Image from [Tan & Le, 2019](https://arxiv.org/abs/1905.11946).'
+  id: totrans-354
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-47\. 使用来自 EfficientNet 论文的复合缩放方法缩放的 EfficientNet 分类器的准确性，与仅缩放单一因素：宽度（卷积块中通道数）、深度（卷积层数）或图像分辨率。图片来源于
+    [Tan & Le, 2019](https://arxiv.org/abs/1905.11946)。
+- en: The authors of the EfficientNet paper also used the class activation map technique
+    from [Zhou et al., 2016](https://arxiv.org/abs/1512.04150) to visualize what the
+    trained networks “see.” Again, compound scaling achieves better results by helping
+    the network focus on the important parts of the image ([Figure 3-48](#class_activation_maps_left_parenthesiszh)).
+  id: totrans-355
+  prefs: []
+  type: TYPE_NORMAL
+  zh: EfficientNet 论文的作者还使用了来自 [Zhou et al., 2016](https://arxiv.org/abs/1512.04150)
+    的类激活映射技术来可视化训练过的网络所“看到”的内容。同样，复合缩放通过帮助网络专注于图像的重要部分获得了更好的结果 ([图 3-48](#class_activation_maps_left_parenthesiszh))。
+- en: '![](Images/pmlc_0348.png)'
+  id: totrans-356
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0348.png)'
+- en: Figure 3-48\. Class activation maps (Zhou et al., 2016) for two input images
+    as seen through several EfficientNet variants. The model obtained through compound
+    scaling (last column) focuses on more relevant regions with more object detail.
+    Image from [Tan & Le, 2019](https://arxiv.org/abs/1905.11946).
+  id: totrans-357
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-48\. 类激活映射（Zhou等人，2016）显示了几种EfficientNet变体中两个输入图像的模型。通过复合缩放（最后一列）获得的模型聚焦于更相关的区域，具有更多的对象细节。图像来源于[Tan和Le，2019](https://arxiv.org/abs/1905.11946)。
+- en: 'EfficientNet also incorporates some additional optimizations. Briefly:'
+  id: totrans-358
+  prefs: []
+  type: TYPE_NORMAL
+  zh: EfficientNet还整合了一些额外的优化。简而言之：
+- en: Every inverted bottleneck block is further optimized through the “squeeze-excite”
+    channel optimization, as per [Jie et al., 2017](https://arxiv.org/abs/1709.01507).
+    This technique is a channel-wise attention mechanism that “renormalizes” output
+    channels (i.e., boosts some and attenuates others) before the final 1x1 convolution
+    of each block. Like any “attention” technique, it involves a small additional
+    neural network that learns to produce the ideal renormalization weights. This
+    additional network is not represented in [Figure 3-45](#the_efficientnetbzeero_architecturedot_n).
+    Its contribution to the total count of learnable weights is small. This technique
+    can be applied to any convolutional block, not just inverted residual bottlenecks,
+    and boosts network accuracy by about one percentage point.
+  id: totrans-359
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个倒置瓶颈块都通过“挤压-激励”通道优化进一步优化，如[Jie等人，2017](https://arxiv.org/abs/1709.01507)所述。这种技术是一种通道注意机制，可以在每个块的最终1x1卷积之前“重新标准化”输出通道（即增强某些通道并减弱其他通道）。与任何“注意力”技术一样，它涉及一个小的额外神经网络，该网络学习产生理想的重新标准化权重。这个额外的网络不在[图3-45](#the_efficientnetbzeero_architecturedot_n)中表示。它对可学习权重的总数的贡献很小。这种技术可以应用于任何卷积块，而不仅仅是倒置残差瓶颈，并且通过大约一个百分点增加了网络的准确性。
+- en: Dropout is used in all members of the EfficientNet family to help with overfitting.
+    Larger networks in the family use slightly larger dropout rates (0.2, 0.2, 0.3,
+    0.3, 0.4, 0.4, 0.5, and 0.5, respectively, for EfficientNetB0 through B7).
+  id: totrans-360
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: EfficientNet系列中的所有成员都使用Dropout来帮助应对过拟合问题。家族中较大的网络使用稍大的Dropout率（分别为0.2, 0.2,
+    0.3, 0.3, 0.4, 0.4, 0.5和0.5，对应于EfficientNetB0至B7）。
+- en: The activation function used in EfficientNet is SiLU (also called Swish-1) as
+    described in [Ramachandran et al., 2017](https://arxiv.org/abs/1710.05941). The
+    function is *f*(*x*) = *x* ⋅ sigmoid(*x*).
+  id: totrans-361
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: EfficientNet中使用的激活函数是SiLU（也称为Swish-1），如[Ramachandran等人，2017](https://arxiv.org/abs/1710.05941)所述。该函数为*f*(*x*)
+    = *x* ⋅ sigmoid(*x*)。
+- en: The training dataset was automatically expanded using the AutoAugment technique,
+    as described in [Cubuk et al., 2018](https://arxiv.org/abs/1805.09501).
+  id: totrans-362
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练数据集使用AutoAugment技术自动扩展，如[Cubuk等人，2018](https://arxiv.org/abs/1805.09501)所述。
+- en: The “stochastic depth” technique is used during training, as described in [Huang
+    et al., 2016](https://arxiv.org/abs/1603.09382). We are not sure how effective
+    this part was since the stochastic depth paper itself reports that the technique
+    does not work with a ResNet152 trained on ImageNet. It might do something on deeper
+    networks.
+  id: totrans-363
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在训练过程中使用了“随机深度”技术，如[Huang等人，2016](https://arxiv.org/abs/1603.09382)所述。我们不确定这部分的效果如何，因为随机深度论文本身报告称，该技术对在ImageNet上训练的ResNet152没有作用。它可能对更深的网络有所作为。
+- en: 'Beyond Convolution: The Transformer Architecture'
+  id: totrans-364
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 超越卷积：变压器架构
+- en: The architectures for computer vision that are discussed in this chapter all
+    rely on convolutional filters. Compared to the naive dense neural networks discussed
+    in [Chapter 2](ch02.xhtml#ml_models_for_vision), convolutional filters reduce
+    the number of weights necessary to learn how to extract information from images.
+    However, as dataset sizes keep increasing, there comes a point where this weight
+    reduction is no longer necessary.
+  id: totrans-365
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 计算机视觉中讨论的架构都依赖于卷积滤波器。与在[第2章](ch02.xhtml#ml_models_for_vision)讨论的天真密集神经网络相比，卷积滤波器减少了学习如何从图像中提取信息所需的权重数量。然而，随着数据集大小的增加，会有一个点，这种减少权重的效果就不再必要了。
+- en: 'Ashish Vaswani et al. proposed the Transformer architecture for natural language
+    processing in a 2017 [paper](https://arxiv.org/abs/1706.03762) with the catchy
+    title “Attention Is All You Need.” As the title indicates, the key innovation
+    in the Transformer architecture is the concept of *attention*—having the model
+    focus on some part of the input text sequence when predicting each word. For example,
+    consider a model that needs to translate the French phrase “ma chemise rouge”
+    into English (“my red shirt”). The model would learn to focus on the word *rouge*
+    when predicting the second word of the English translation, *red*. The Transformer
+    model achieves this by using *positional encodings*. Instead of simply representing
+    the input phrase by its words, it adds the position of each word as an input:
+    (ma, 1), (chemise, 2), (rouge, 3). The model then learns from the training dataset
+    which word of the input it needs to focus on when predicting a specific word of
+    the output.'
+  id: totrans-366
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Ashish Vaswani 等人在 2017 年的 [论文](https://arxiv.org/abs/1706.03762) 中提出了 Transformer
+    架构，标题为“Attention Is All You Need”。正如标题所示，Transformer 架构的关键创新在于 *注意力* 的概念——在预测每个单词时，模型专注于输入文本序列的某些部分。例如，考虑一个模型需要将法语短语“ma
+    chemise rouge”翻译成英语（“my red shirt”）。当预测英语翻译的第二个单词“red”时，模型会学习专注于单词 *rouge*。Transformer
+    模型通过使用 *位置编码* 来实现这一点。它不仅简单地用单词表示输入短语，还添加了每个单词的位置作为输入：(ma, 1), (chemise, 2), (rouge,
+    3)。然后，模型通过训练数据集学习，在预测输出的特定单词时需要专注于输入的哪个单词。
+- en: 'The [Vision Transformer (ViT)](https://arxiv.org/abs/2010.11929) model adapts
+    the Transformer idea to work on images. The equivalent of words in images are
+    square patches, so the first step is to take the input image and break it into
+    patches, as shown in [Figure 3-49](#the_input_image_is_broken_into_patches_t)
+    (the full code is available in [*03m_transformer_flowers104.ipynb* on GitHub](https://www.github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03m_transformer_flowers104.ipynb)):'
+  id: totrans-367
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Vision Transformer (ViT)](https://arxiv.org/abs/2010.11929) 模型将 Transformer
+    的思想应用于图像。图像中的等效词汇是方形补丁，因此第一步是将输入图像分成补丁，如 [Figure 3-49](#the_input_image_is_broken_into_patches_t)
+    所示（完整代码在 GitHub 上的 [*03m_transformer_flowers104.ipynb*](https://www.github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03m_transformer_flowers104.ipynb)
+    可以找到）：'
+- en: '[PRE16]'
+  id: totrans-368
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: '![](Images/pmlc_0349.png)'
+  id: totrans-369
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0349.png)'
+- en: Figure 3-49\. The input image is broken into patches that are treated as the
+    sequence input to the Transformer.
+  id: totrans-370
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-49\. 输入图像被分成补丁，这些补丁被视为传递给 Transformer 的序列输入。
+- en: 'The patches are represented by concatenating the patch pixel values and the
+    patch position within the image:'
+  id: totrans-371
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 补丁通过连接补丁像素值和图像内的补丁位置来表示：
+- en: '[PRE17]'
+  id: totrans-372
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Note that the patch position is the ordinal number (5th, 6th, etc.) of the patch
+    and is treated as a categorical variable. A learnable embedding is employed to
+    capture closeness relationships between patches that have related content.
+  id: totrans-373
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，补丁位置是补丁的序数（第5个，第6个等），被视为一种分类变量。采用可学习的嵌入来捕捉具有相关内容的补丁之间的接近关系。
+- en: 'The patch representation is passed through multiple transformer blocks, each
+    of which consists of an attention head (to learn which parts of the input to focus
+    on):'
+  id: totrans-374
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 补丁表示通过多个 Transformer 块传递，每个块包括一个注意头（用于学习关注输入的哪些部分）：
+- en: '[PRE18]'
+  id: totrans-375
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'The attention output is used to add emphasis to the patch representation:'
+  id: totrans-376
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意力输出用于强调补丁表示：
+- en: '[PRE19]'
+  id: totrans-377
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'and passed through a set of dense layers:'
+  id: totrans-378
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并传递到一组密集层中：
+- en: '[PRE20]'
+  id: totrans-379
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: The training loop is similar to that of any of the convolutional network architectures
+    discussed in this chapter. Note that the ViT architecture requires a lot more
+    data than convolutional network models—the authors suggest pretraining the ViT
+    model on large amounts of data and then fine-tuning on smaller datasets. Indeed,
+    training from scratch on the 104 flowers dataset yields only a 34% accuracy.
+  id: totrans-380
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练循环与本章讨论的任何卷积网络架构相似。请注意，ViT 架构需要比卷积网络模型更多的数据——作者建议在大量数据上预训练 ViT 模型，然后在较小的数据集上进行微调。确实，在
+    104 flowers 数据集上从头开始训练仅能达到 34% 的准确率。
+- en: Even though not particularly promising at present for our relatively small dataset,
+    the idea of applying the Transformer architecture to images is interesting, and
+    a potential source of new innovations in computer vision.
+  id: totrans-381
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管目前对于我们相对较小的数据集来说并不特别有前景，但将 Transformer 架构应用于图像的想法是有趣的，并且是计算机视觉中新创新的潜在来源。
+- en: Choosing a Model
+  id: totrans-382
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 选择模型
+- en: This section will provide some tips on choosing a model architecture for your
+    task. First of all, create a benchmark using code-free services to train ML models
+    so that you have a good idea of what kind of accuracy is achievable on your problem. 
+    If you are training on Google Cloud, consider [Google Cloud AutoML](https://oreil.ly/bw0fE),
+    which utilizes neural architecture search (NAS). If you are using Microsoft Azure,
+    consider [Custom Vision AI](https://www.customvision.ai). [DataRobot](https://oreil.ly/I6GHs)
+    and [H2O.ai](https://oreil.ly/dubZl) employ transfer learning for code-free image
+    classification. It is unlikely that you will get an accuracy that is significantly
+    higher than what these services provide out of the box, so you can use them as
+    a way to quickly do a proof of concept before you invest too much time on an infeasible
+    problem.
+  id: totrans-383
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节将提供一些关于为您的任务选择模型架构的建议。首先，使用无代码服务创建基准，以训练机器学习模型，这样您就可以清楚地了解在您的问题上可以实现什么样的准确率。
+    如果在 Google Cloud 上进行训练，请考虑使用 [Google Cloud AutoML](https://oreil.ly/bw0fE)，该服务利用神经架构搜索（NAS）。
+    如果您使用 Microsoft Azure，请考虑 [Custom Vision AI](https://www.customvision.ai)。 [DataRobot](https://oreil.ly/I6GHs)
+    和 [H2O.ai](https://oreil.ly/dubZl) 则利用无代码转移学习进行图像分类。 您不太可能获得显著高于这些服务提供的开箱即用准确率，因此您可以将它们用作在投入过多时间处理不可行问题之前快速进行概念验证的一种方式。
+- en: Performance Comparison
+  id: totrans-384
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 性能比较
+- en: Let’s summarize the performance numbers seen so far, first for fine-tuning ([Table 3-11](#eight_model_architectures_fine-tuned_on)).
+    Notice the new entrant at the bottom, called “ensemble.” We will cover this in
+    the next section.
+  id: totrans-385
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们总结迄今为止所看到的性能数字，首先是针对微调的情况（[表 3-11](#eight_model_architectures_fine-tuned_on)）。请注意，在底部看到的新入围者名为“组合”。我们将在下一节中讨论这一点。
+- en: Table 3-11\. Eight model architectures fine-tuned on the 104 flowers dataset
+  id: totrans-386
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 3-11\. 在104种花数据集上微调的八种模型架构
+- en: '| Model | Parameters (excl. classification head^([a](ch03.xhtml#ch03fn20)))
+    | ImageNet accuracy | 104 flowers F1 score^([b](ch03.xhtml#ch03fn21)) (fine-tuning)
+    |'
+  id: totrans-387
+  prefs: []
+  type: TYPE_TB
+  zh: '| 模型 | 参数（不包括分类头^([a](ch03.xhtml#ch03fn20)）） | ImageNet 准确率 | 104 种花 F1 分数^([b](ch03.xhtml#ch03fn21))（经过微调）
+    |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-388
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| EfficientNetB6 | 40M | 84% | 95.5% |'
+  id: totrans-389
+  prefs: []
+  type: TYPE_TB
+  zh: '| EfficientNetB6 | 40M | 84% | 95.5% |'
+- en: '| EfficientNetB7 | 64M | 84% | 95.5% |'
+  id: totrans-390
+  prefs: []
+  type: TYPE_TB
+  zh: '| EfficientNetB7 | 64M | 84% | 95.5% |'
+- en: '| DenseNet201 | 18M | 77% | 95.4% |'
+  id: totrans-391
+  prefs: []
+  type: TYPE_TB
+  zh: '| DenseNet201 | 18M | 77% | 95.4% |'
+- en: '| Xception | 21M | 79% | 94.6% |'
+  id: totrans-392
+  prefs: []
+  type: TYPE_TB
+  zh: '| Xception | 21M | 79% | 94.6% |'
+- en: '| InceptionV3 | 22M | 78% | 94.6% |'
+  id: totrans-393
+  prefs: []
+  type: TYPE_TB
+  zh: '| InceptionV3 | 22M | 78% | 94.6% |'
+- en: '| ResNet50 | 23M | 75% | 94.1% |'
+  id: totrans-394
+  prefs: []
+  type: TYPE_TB
+  zh: '| ResNet50 | 23M | 75% | 94.1% |'
+- en: '| MobileNetV2 | 2.3M | 71% | 92% |'
+  id: totrans-395
+  prefs: []
+  type: TYPE_TB
+  zh: '| MobileNetV2 | 2.3M | 71% | 92% |'
+- en: '| NASNetLarge | 85M | 82% | 89% |'
+  id: totrans-396
+  prefs: []
+  type: TYPE_TB
+  zh: '| NASNetLarge | 85M | 82% | 89% |'
+- en: '| VGG19 | 20M | 71% | 88% |'
+  id: totrans-397
+  prefs: []
+  type: TYPE_TB
+  zh: '| VGG19 | 20M | 71% | 88% |'
+- en: '| Ensemble | 79M (DenseNet210 + Xception + EfficientNetB6) | - | 96.2% |'
+  id: totrans-398
+  prefs: []
+  type: TYPE_TB
+  zh: '| 组合 | 79M（DenseNet210 + Xception + EfficientNetB6） | - | 96.2% |'
+- en: '| ^([a](ch03.xhtml#ch03fn20-marker)) Excluding classification head from parameter
+    counts for easier comparisons between architectures. Without the classification
+    head, the number of parameters in the network is resolution-independent. Also,
+    in fine-tuning examples, a different classification head might be used.^([b](ch03.xhtml#ch03fn21-marker))
+    For accuracy, precision, recall, and F1 score values, higher is better. |'
+  id: totrans-399
+  prefs: []
+  type: TYPE_TB
+  zh: '| ^([a](ch03.xhtml#ch03fn20-marker)) 在参数计数中排除分类头，以便更容易地比较架构之间的差异。 没有分类头，网络中的参数数量与分辨率无关。
+    此外，在微调示例中，可能会使用不同的分类头。 ^([b](ch03.xhtml#ch03fn21-marker)) 对于准确率、精确度、召回率和F1分数值，数值越高越好。
+    |'
+- en: And now for training from scratch ([Table 3-12](#six_model_architectures_trained_from_scr)).
+    Since fine-tuning worked much better on the 104 flowers dataset, not all the models
+    have been trained from scratch.
+  id: totrans-400
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在是从零开始训练（[表 3-12](#six_model_architectures_trained_from_scr)）。由于在104种花数据集上微调效果更好，因此并非所有模型都是从零开始训练的。
+- en: Table 3-12\. Six model architectures trained from scratch on the 104 flowers
+    dataset
+  id: totrans-401
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 3-12\. 在104种花数据集上从零开始训练的六种模型架构
+- en: '| Model | Parameters (excl. classification head^([a](ch03.xhtml#ch03fn22)))
+    | ImageNet accuracy | 104 flowers F1 score^([b](ch03.xhtml#ch03fn23)) (trained
+    from scratch) |'
+  id: totrans-402
+  prefs: []
+  type: TYPE_TB
+  zh: '| 模型 | 参数（不包括分类头^([a](ch03.xhtml#ch03fn22)）） | ImageNet 准确率 | 104 种花 F1 分数^([b](ch03.xhtml#ch03fn23))（从零开始训练）
+    |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-403
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| Xception | 21M | 79% | 82.6% |'
+  id: totrans-404
+  prefs: []
+  type: TYPE_TB
+  zh: '| Xception | 21M | 79% | 82.6% |'
+- en: '| SqueezeNet, 24 layers | 2.7M | - | 76.2% |'
+  id: totrans-405
+  prefs: []
+  type: TYPE_TB
+  zh: '| SqueezeNet，24层 | 2.7M | - | 76.2% |'
+- en: '| DenseNet121 | 7M | 75% | 76.1% |'
+  id: totrans-406
+  prefs: []
+  type: TYPE_TB
+  zh: '| DenseNet121 | 7M | 75% | 76.1% |'
+- en: '| ResNet50 | 23M | 75% | 73% |'
+  id: totrans-407
+  prefs: []
+  type: TYPE_TB
+  zh: '| ResNet50 | 23M | 75% | 73% |'
+- en: '| EfficientNetB4 | 18M | 83% | 69% |'
+  id: totrans-408
+  prefs: []
+  type: TYPE_TB
+  zh: '| EfficientNetB4 | 18M | 83% | 69% |'
+- en: '| AlexNet | 3.7M | 60% | 39% |'
+  id: totrans-409
+  prefs: []
+  type: TYPE_TB
+  zh: '| AlexNet | 3.7M | 60% | 39% |'
+- en: '| ^([a](ch03.xhtml#ch03fn22-marker)) Excluding classification head from parameter
+    counts for easier comparisons between architectures. Without the classification
+    head, the number of parameters in the network is resolution-independent. Also,
+    in fine-tuning examples, a different classification head might be used.^([b](ch03.xhtml#ch03fn23-marker))
+    For accuracy, precision, recall, and F1 score values, higher is better. |'
+  id: totrans-410
+  prefs: []
+  type: TYPE_TB
+  zh: '| ^([a](ch03.xhtml#ch03fn22-marker)) 在参数计数中排除分类头部，以便更容易地比较不同架构。没有分类头部，网络中的参数数量与分辨率无关。此外，在微调示例中，可能会使用不同的分类头部。^([b](ch03.xhtml#ch03fn23-marker))
+    对于准确度、精确度、召回率和F1分数值，数值越高越好。 |'
+- en: Xception takes the first spot here, which is a bit surprising since it is not
+    the most recent architecture. Xception’s author also noticed in his paper that
+    his model seemed to work better than others when applied to real-world datasets
+    other than ImageNet and other standard datasets used in academia. The fact that
+    the second spot is taken by a SqueezeNet-like model quickly thrown together by
+    the author of the book is significant. When you want to try your own architecture,
+    SqueezeNet is both very simple to code and quite efficient. This model is also
+    the smallest one in the selection. Its size is probably well adapted to the relatively
+    small size of the 104 flowers dataset (approximately 20K pictures). The DenseNet
+    architecture shares the second place with SqueezeNet. It is by far the most unconventional
+    architecture in this selection, but it seems to have a lot of potential on unconventional
+    datasets.
+  id: totrans-411
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Xception在这里占据了第一位，这有些令人惊讶，因为它并不是最新的架构。Xception的作者在他的论文中也注意到，当应用于除ImageNet和学术界常用的其他标准数据集外的真实世界数据集时，他的模型似乎比其他模型效果更好。第二位由书籍作者快速拼凑的一个类似SqueezeNet的模型占据。当您想尝试自己的架构时，SqueezeNet既非常简单编码又非常高效。这个模型也是选择中最小的一个。它的大小可能非常适合相对较小的104花卉数据集（约20K张图片）。DenseNet架构与SqueezeNet共享了第二名。在这个选择中，它显然是最不寻常的架构，但在非传统数据集上似乎有很大潜力。
+- en: It might be worth looking at the other variations and versions of these models
+    to pick the most suitable and most up-to-date one. As mentioned, EfficientNet
+    was the state-of-the-art model at the time we wrote this book (January 2021).
+    There might be something newer by the time you are reading it. You can check [TensorFlow
+    Hub](https://www.tensorflow.org/hub) for new models.
+  id: totrans-412
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值得一提的是，要查看这些模型的其他变体和版本，以选择最合适且最新的模型。正如提到的，EfficientNet在我们编写本书时（2021年1月）是当时的最先进模型。您阅读时可能会有更新的内容。您可以查看[TensorFlow
+    Hub](https://www.tensorflow.org/hub)获取新模型信息。
+- en: A last option is to use multiple models at the same time, a technique called
+    *ensembling*. We’ll look at this next.
+  id: totrans-413
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一种选择是同时使用多个模型，一种称为*集成*的技术。接下来我们将详细讨论这个技术。
+- en: Ensembling
+  id: totrans-414
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 集成
+- en: When looking for the maximum accuracy, and when model size and inference times
+    are not an issue, multiple models can be used at the same time and their predictions
+    combined. Such *ensemble models* can often give better predictions than any of
+    the models composing them. Their predictions are also more robust on real-life
+    images. The key consideration when selecting models to ensemble is to choose models
+    that are as different as possible from each other. Models with very different
+    architectures are more likely to have different weaknesses. When combined in an
+    ensemble, the strengths and weaknesses of different models will compensate for
+    each other, as long as they are not in the same classes.
+  id: totrans-415
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当寻求最高精度且模型大小和推断时间不是问题时，可以同时使用多个模型并将它们的预测结果合并。这种*集成模型*通常能比组成它们的任何单个模型给出更好的预测。它们在实际图像上的预测也更为稳健。在选择要集成的模型时，关键考虑因素是选择尽可能不同的模型。架构非常不同的模型更可能具有不同的弱点。当集成时，不同模型的优势和劣势将彼此补偿，只要它们不属于同一类别。
+- en: 'A [notebook, *03z_ensemble_finetune_flowers104.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03z_ensemble_finetune_flowers104.ipynb),
+    is provided in the GitHub repository showcasing an ensemble of three models fine-tuned
+    on the 104 flowers dataset: DenseNet210, Xception, and EfficientNetB6\. As seen
+    in [Table 3-13](#comparison_of_model_ensembling_versus_in), the ensemble wins
+    by a respectable margin.'
+  id: totrans-416
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提供了一个[笔记本，*03z_ensemble_finetune_flowers104.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/03_image_models/03z_ensemble_finetune_flowers104.ipynb)，展示了在104花卉数据集上微调的三个模型的集成：DenseNet210、Xception和EfficientNetB6。如[Tabel
+    3-13](#comparison_of_model_ensembling_versus_in)所示，这个集成模型以可观的优势获胜。
+- en: Table 3-13\. Comparison of model ensembling versus individual models
+  id: totrans-417
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表3-13. 模型集成与单独模型的比较
+- en: '| Model | Parameters (excl. classification head^([a](ch03.xhtml#ch03fn24)))
+    | ImageNet accuracy | 104 flowers F1 score^([b](ch03.xhtml#ch03fn25)) (fine-tuning)
+    |'
+  id: totrans-418
+  prefs: []
+  type: TYPE_TB
+  zh: '| 模型 | 参数（不含分类头^([a](ch03.xhtml#ch03fn24)） | ImageNet准确率 | 104种花卉F1分数^([b](ch03.xhtml#ch03fn25)）（微调）
+    |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-419
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| EfficientNetB6 | 40M | 84% | 95.5% |'
+  id: totrans-420
+  prefs: []
+  type: TYPE_TB
+  zh: '| EfficientNetB6 | 40M | 84% | 95.5% |'
+- en: '| DenseNet201 | 18M | 77% | 95.4% |'
+  id: totrans-421
+  prefs: []
+  type: TYPE_TB
+  zh: '| DenseNet201 | 18M | 77% | 95.4% |'
+- en: '| Xception | 21M | 79% | 94.6% |'
+  id: totrans-422
+  prefs: []
+  type: TYPE_TB
+  zh: '| Xception | 21M | 79% | 94.6% |'
+- en: '| Ensemble | 79M |   | 96.2% |'
+  id: totrans-423
+  prefs: []
+  type: TYPE_TB
+  zh: '| Ensemble | 79M |   | 96.2% |'
+- en: '| ^([a](ch03.xhtml#ch03fn24-marker)) Excluding classification head from parameter
+    counts for easier comparisons between architectures. Without the classification
+    head, the number of parameters in the network is resolution-independent. Also,
+    in fine-tuning examples, a different classification head might be used.^([b](ch03.xhtml#ch03fn25-marker))
+    For accuracy, precision, recall, and F1 score values, higher is better. |'
+  id: totrans-424
+  prefs: []
+  type: TYPE_TB
+  zh: '| ^([a](ch03.xhtml#ch03fn24-marker)) 在参数计数中排除分类头，以便更轻松地比较不同架构。没有分类头，网络中的参数数量与分辨率无关。此外，在微调示例中，可能使用不同的分类头。^([b](ch03.xhtml#ch03fn25-marker))
+    对于准确率、精确率、召回率和F1分数，数值越高越好。 |'
+- en: The easiest way to ensemble the three models is to average the class probabilities
+    they predict. Another possibility, theoretically better, is to average their logits
+    (the outputs of the last layer before softmax activation) and apply softmax on
+    the averages to compute class probabilities. The sample notebook shows both options.
+    On the 104 flowers dataset, they perform equally.
+  id: totrans-425
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集成这三个模型的最简单方法是对它们预测的类概率进行平均。另一种可能性，在理论上更好，是对它们的logits（softmax激活之前的最后一层输出）进行平均，并对平均值应用softmax来计算类概率。示例笔记本展示了这两种选项。在104种花卉数据集上，它们的表现相同。
+- en: Note
+  id: totrans-426
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: One point of caution when averaging logits is that logits, contrary to probabilities,
+    are not normalized. They can have very different values in different models. Computing
+    a weighted average instead of a simple average might help in that case. The training
+    dataset should be used to compute the best weights.
+  id: totrans-427
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当对logits进行平均时要注意的一点是，与概率相反，logits并不被归一化。它们在不同模型中的值可能非常不同。在这种情况下，计算加权平均而不是简单平均可能有所帮助。应使用训练数据集来计算最佳权重。
+- en: Recommended Strategy
+  id: totrans-428
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 推荐策略
+- en: Here is our recommended strategy to tackle computer vision problems.
+  id: totrans-429
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是我们处理计算机视觉问题的推荐策略。
+- en: 'First, choose your training method based on the size of your dataset:'
+  id: totrans-430
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，根据数据集的大小选择您的训练方法：
+- en: If you have a very small dataset (less than one thousand images per label),
+    use transfer learning.
+  id: totrans-431
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您有一个非常小的数据集（每个标签少于一千张图像），请使用迁移学习。
+- en: If you have a moderate-sized dataset (one to five thousand images per label),
+    use fine-tuning.
+  id: totrans-432
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您有一个中等大小的数据集（每个标签一千到五千张图像），请使用微调。
+- en: If you have a large dataset (more than five thousand images per label), train
+    from scratch.
+  id: totrans-433
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您有一个大型数据集（每个标签超过五千张图像），请从头开始训练。
+- en: These numbers are rules of thumb and vary depending on the difficulty of the
+    use case, the complexity of your model, and the quality of the data. You may have
+    to experiment with a couple of the options. For example, the 104 flowers dataset
+    has between one hundred and three thousand images per class, depending on the
+    class; fine-tuning was still very effective on it.
+  id: totrans-434
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些数字是经验法则，因用例的难度、模型的复杂性和数据质量的不同而变化。您可能需要尝试几种选项。例如，104种花卉数据集每类的图像数量在一百到三千张之间不等；在此数据集上，微调仍然非常有效。
+- en: Whether you are doing transfer learning, fine-tuning, or training from scratch,
+    you will need to select a model architecture. Which one should you pick?
+  id: totrans-435
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论您是进行迁移学习、微调还是从头开始训练，都需要选择一个模型架构。您应该选择哪一个呢？
+- en: If you want to roll your own layers, start with SqueezeNet. It’s the simplest
+    model that will perform well.
+  id: totrans-436
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您想自定义层，可以从SqueezeNet开始。这是一个简单的模型，表现良好。
+- en: For edge devices, you typically want to optimize for models that can be downloaded
+    fast, occupy very little space on the device, and don’t incur high latencies during
+    prediction. For a small model that runs fast on low-power devices, consider MobileNetV2.
+  id: totrans-437
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于边缘设备，通常需要优化可以快速下载、在设备上占用空间极少，并且在预测过程中不会产生高延迟的模型。对于在低功耗设备上快速运行的小型模型，可以考虑使用MobileNetV2。
+- en: If you don’t have size/speed restrictions (such as if inference will be done
+    on autoscaling cloud systems) and want the best/fanciest model, consider EfficientNet.
+  id: totrans-438
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您没有大小/速度限制（例如如果推理将在自动扩展的云系统上进行）并且希望获得最佳/最新的模型，请考虑EfficientNet。
+- en: If you belong to a conservative organization that wants to stick with something
+    tried and true, choose ResNet50 or one of its larger variants.
+  id: totrans-439
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您属于一个希望坚持传统的保守组织，请选择ResNet50或其较大的变体之一。
+- en: If training cost and prediction latency are not of concern, or if small improvements
+    in model accuracy bring outside rewards, consider an ensemble of three complementary
+    models.
+  id: totrans-440
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果培训成本和预测延迟不是问题，或者如果模型准确性的小幅改进会带来外部奖励，请考虑使用三个互补模型的集成。
+- en: Summary
+  id: totrans-441
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: 'This chapter focused on image classification techniques. It first explained
+    how to use pretrained models and adapt them to a new dataset. This is by far the
+    most popular technique and will work if the pretraining dataset and the target
+    dataset share at least some similarities. We explored two variants of this technique:
+    transfer learning, where the pretrained model is frozen and used as a static image
+    encoder; and fine-tuning, where the weights of the pretrained model are used as
+    initial values in a new training run on the new dataset. We then examined the
+    historical and current state-of-the-art image classification architectures, from
+    AlexNet to EfficientNets. All the building blocks of these architectures were
+    explained, starting of course with convolutional layers, to give you a complete
+    understanding of how these models work.'
+  id: totrans-442
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章重点介绍了图像分类技术。首先解释了如何使用预训练模型并将其调整到新数据集上。这是目前最流行的技术之一，如果预训练数据集和目标数据集至少有一些相似性，它将起作用。我们探讨了这种技术的两个变体：迁移学习，其中预训练模型被冻结并用作静态图像编码器；以及微调，其中预训练模型的权重用作新数据集上新训练运行的初始值。然后我们研究了历史上和当前最先进的图像分类架构，从AlexNet到EfficientNets。所有这些架构的构建模块都有详细解释，当然从卷积层开始，以便您完全理解这些模型的工作原理。
+- en: In [Chapter 4](ch04.xhtml#object_detection_and_image_segmentation), we will
+    look at using any of these image model architectures to solve common computer
+    vision problems.
+  id: totrans-443
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第四章](ch04.xhtml#object_detection_and_image_segmentation)中，我们将研究如何使用这些图像模型架构来解决常见的计算机视觉问题。

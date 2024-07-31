@@ -1,0 +1,1012 @@
+- en: Chapter 18\. Transfer Learning in JavaScript
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第18章 JavaScript中的迁移学习
+- en: 'In [Chapter 17](ch17.xhtml#reusing_and_converting_python_models_to) you explored
+    two methods for getting models into JavaScript: converting a Python-based model
+    and using a preexisting model provided by the TensorFlow team. Aside from training
+    from scratch, there’s one more option: transfer learning, where a model that was
+    previously trained for one scenario has some of its layers reused for another.
+    For example, a convolutional neural network for computer vision might have learned
+    several layers of filters. If it was trained on a large dataset to recognize many
+    classes, it may have very general filters that can be used for other scenarios.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第17章](ch17.xhtml#reusing_and_converting_python_models_to)中，你探讨了两种将模型转换到JavaScript的方法：转换基于Python的模型和使用TensorFlow团队提供的预先存在的模型。除了从头开始训练，还有一种选择：迁移学习，即之前为一个场景训练过的模型，可以重复使用其部分层次。例如，用于计算机视觉的卷积神经网络可能已经学习了多层滤波器。如果它是在大型数据集上训练的，以识别多个类别，那么它可能有非常通用的滤波器，可以用于其他情景。
+- en: 'To do transfer learning with TensorFlow.js, there are a number of options,
+    depending on how the preexisting model is distributed. The possibilities fall
+    into three main categories:'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用TensorFlow.js进行迁移学习时，有多种选择，取决于预先存在的模型如何分布。可能性主要分为三类：
+- en: If the model has a *model.json* file, created by using the TensorFlow.js converter
+    to convert it into a layers-based model, you can explore the layers, choose one
+    of them, and have that become the input to a new model that you train.
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果模型有一个*model.json*文件，通过使用TensorFlow.js转换器将其转换为基于层的模型，你可以探索层次，选择其中之一，并使其成为你训练的新模型的输入。
+- en: If the model has been converted to a graph-based model, like those commonly
+    found on TensorFlow Hub, you can connect feature vectors from it to another model
+    to take advantage of its learned features.
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果模型已转换为基于图的模型，例如TensorFlow Hub中常见的模型，你可以连接其特征向量到另一个模型，以利用其学习到的特征。
+- en: If the model has been wrapped in a JavaScript file for easy distribution, this
+    file will give you some handy shortcuts for prediction or transfer learning by
+    accessing embeddings or other feature vectors.
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果模型已封装为JavaScript文件以便于分发，该文件将为你提供一些方便的快捷方式，用于通过访问嵌入或其他特征向量进行预测或迁移学习。
+- en: In this chapter, you’ll explore all three. We’ll start by examining how you
+    can access the prelearned layers in MobileNet, which you used as an image classifier
+    in [Chapter 17](ch17.xhtml#reusing_and_converting_python_models_to), and add them
+    to your own model.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你将探索这三种方法。我们将从检查如何访问MobileNet中的预先学习层开始，这是你在[第17章](ch17.xhtml#reusing_and_converting_python_models_to)中用作图像分类器的模型，并将其添加到你自己的模型中。
+- en: Transfer Learning from MobileNet
+  id: totrans-7
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 从MobileNet进行迁移学习
+- en: The MobileNet architecture defines a [family of models](https://oreil.ly/yl3ka)
+    trained primarily for on-device image recognition. They’re trained on the ImageNet
+    dataset of over 10 million images, with 1,000 classes. With transfer learning,
+    you can use their prelearned filters and change the bottom-dense layers to match
+    your classes instead of the thousand that the model was originally trained for.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MobileNet架构定义了一个[模型家族](https://oreil.ly/yl3ka)，主要用于设备上的图像识别。它们是在ImageNet数据集上训练的，该数据集包含超过1000万张图片，分为1000个类别。通过迁移学习，你可以使用它们预先学习的滤波器，并更改底部密集层，以适应你自己的类别，而不是原始模型训练时的1000个类别。
+- en: 'To build an app that uses transfer learning, there are a number of steps that
+    you’ll have to follow:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要构建一个使用迁移学习的应用程序，你需要遵循以下几个步骤：
+- en: Download the MobileNet model and identify which layers to use.
+  id: totrans-10
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 下载MobileNet模型并确定要使用的层次。
+- en: Create your own model architecture with the outputs from MobileNet as its input.
+  id: totrans-11
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建自己的模型架构，其输入为MobileNet的输出。
+- en: Gather data into a dataset that can be used for training.
+  id: totrans-12
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将数据收集到可用于训练的数据集中。
+- en: Train the model.
+  id: totrans-13
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 训练模型。
+- en: Run inference.
+  id: totrans-14
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行推断。
+- en: You’ll go through all of these here by building a browser application that captures
+    images from the webcam of a hand making Rock/Paper/Scissors gestures. The application
+    then uses these to train a new model. The model will use the prelearned layers
+    from MobileNet and add a new set of dense layers for your classes underneath.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过构建一个从网络摄像头捕捉Rock/Paper/Scissors手势图像的浏览器应用程序，你将经历所有这些步骤。然后，该应用程序使用这些图像来训练一个新模型。该模型将使用MobileNet的预先学习层，并在其下方添加一组新的密集层用于你的类别。
+- en: Step 1\. Download MobileNet and Identify the Layers to Use
+  id: totrans-16
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 步骤1. 下载MobileNet并确定要使用的层次
+- en: The TensorFlow.js team hosts a number of preconverted models in Google Cloud
+    Storage. You can find a [list of URLs](https://oreil.ly/I6ykm) in the GitHub repo
+    for this book, if you want to try them for yourself. There are several MobileNet
+    models, including the one you’ll use in this chapter (*mobilenet_v1_0.25_224/model.json*).
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow.js团队在Google Cloud Storage上托管了许多预转换的模型。如果你想自己尝试，你可以在这本书的GitHub repo中找到一个[URL列表](https://oreil.ly/I6ykm)。这里有几个MobileNet模型，包括你将在本章中使用的一个(*mobilenet_v1_0.25_224/model.json*)。
+- en: 'To explore the model, create a new HTML file and call it *mobilenet-transfer.html*.
+    In this file, you’ll load TensorFlow.js and an external file called *index.js*
+    that you’ll create in a moment:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要探索这个模型，创建一个新的HTML文件并命名为*mobilenet-transfer.html*。在这个文件中，你会加载TensorFlow.js和一个名为*index.js*的外部文件，稍后你会创建它：
+- en: '[PRE0]'
+  id: totrans-19
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Next, create the *index.js* file that the preceding HTML is referring to. This
+    will contain an asynchronous method that downloads the model and prints its summary:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，创建前面HTML文件所引用的*index.js*文件。这将包含一个异步方法，用于下载模型并打印其摘要：
+- en: '[PRE1]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: If you look at the `model.summary` output in the console and scroll to the bottom,
+    you’ll see something like [Figure 18-1](#output_of_modeldotsummary_for_the_mobil).
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你在控制台中查看`model.summary`输出并向下滚动，你会看到类似于[图 18-1](#output_of_modeldotsummary_for_the_mobil)的内容。
+- en: '![Output of model.summary for the MobileNet JSON model](Images/aiml_1801.png)'
+  id: totrans-23
+  prefs: []
+  type: TYPE_IMG
+  zh: '![MobileNet JSON模型的model.summary输出](Images/aiml_1801.png)'
+- en: Figure 18-1\. Output of model.summary for the MobileNet JSON model
+  id: totrans-24
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-1。MobileNet JSON模型的model.summary输出
+- en: The key to transfer learning with MobileNet is to look for the *activation*
+    layers. As you can see, there are two right at the bottom. The last one has one
+    thousand outputs, which corresponds to the thousand classes that MobileNet supports.
+    So, if you want the learned activation layers—in particular, the learned convolutional
+    filters—look for activation layers above this, and note their names. As you can
+    see in [Figure 18-1](#output_of_modeldotsummary_for_the_mobil), the last activation
+    layer in the model, before the final one, is called `conv_pw_13_relu`. You can
+    use that (or indeed, any activation layers before it) as your outputs from the
+    model if you want to do transfer learning.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用MobileNet进行迁移学习的关键是寻找*激活*层。正如你所看到的，底部有两个激活层。最后一个有一千个输出，对应于MobileNet支持的一千个类别。因此，如果你想要学习的激活层，特别是学习的卷积滤波器，可以寻找在此之上的激活层，并注意它们的名称。如你在[图 18-1](#output_of_modeldotsummary_for_the_mobil)中所见，模型中最后一个激活层，在最终层之前，被称为`conv_pw_13_relu`。如果你想进行迁移学习，你可以使用它（或者实际上，在它之前的任何激活层）作为模型的输出。
+- en: Step 2\. Create Your Own Model Architecture with the Outputs from MobileNet
+    as Its Input
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第二步。使用MobileNet的输出创建你自己的模型架构
+- en: When designing a model, you typically design all your layers, starting with
+    the input layer and ending with the output one. With transfer learning, you will
+    pass input to the model from which you are transferring, and you will create new
+    output layers. Consider [Figure 18-2](#high_level_mobilenet_architecture)—this
+    is the rough, high-level architecture of MobileNet. It takes in images of dimension
+    224 × 224 × 3 and passes them through a neural network architecture, giving you
+    an output of one thousand values, each of which is the probability that the image
+    contains the relevant class.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在设计模型时，通常会设计所有的层，从输入层开始，到输出层结束。通过迁移学习，你将从要转移的模型传递输入，并创建新的输出层。考虑到[图 18-2](#high_level_mobilenet_architecture)，这是MobileNet的粗略高级架构。它接收尺寸为224
+    × 224 × 3的图像，并将它们通过神经网络架构传递，输出一千个值，每个值代表图像包含相关类别的概率。
+- en: '![High-level MobileNet architecture](Images/aiml_1802.png)'
+  id: totrans-28
+  prefs: []
+  type: TYPE_IMG
+  zh: '![MobileNet的高级架构](Images/aiml_1802.png)'
+- en: Figure 18-2\. High-level MobileNet architecture
+  id: totrans-29
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-2。MobileNet的高级架构
+- en: Earlier you looked at the innards of that architecture and identified the last
+    activation convolutional layer, called `conv_pw_13_relu`. You can see what the
+    architecture looks like with this layer included in [Figure 18-3](#high_level_mobilenet_architecture_showi).
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前你查看了该架构的内部并识别了最后的激活卷积层，称为`conv_pw_13_relu`。你可以看到在[图 18-3](#high_level_mobilenet_architecture_showi)中包含这一层的架构是什么样子的。
+- en: The MobileNet architecture still has one thousand classes that it recognizes,
+    none of which are the ones you want to implement (a hand making gestures for the
+    game Rock Paper Scissors). You’ll need a new model that is trained on these three
+    classes. You could train it from scratch and have it learn all the filters that
+    will give you the features to distinguish them, as seen in earlier chapters. Or
+    you can take the prelearned filters from MobileNet, using the architecture all
+    the way up to `conv_pw_13_relu`, and feed that to a new model that classifies
+    only three classes. See [Figure 18-4](#transfer_learning_from_conv_pw_onethree)
+    for an abstraction of this.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MobileNet 架构仍然识别一千个类别，而其中没有您要实现的类别（手势游戏“石头剪刀布”中的手势）。您需要一个新模型，该模型经过训练可以识别这三个类别。您可以从头开始训练它，并学习所有能够帮助您区分它们的滤波器，正如前几章所示。或者，您可以从
+    MobileNet 中获取预学习的滤波器，使用直到 `conv_pw_13_relu` 的架构，并将其提供给一个仅分类三个类别的新模型。请参见 [图 18-4](#transfer_learning_from_conv_pw_onethree)
+    的抽象化过程。
+- en: '![High-level MobileNet architecture showing conv_pw_13_relu](Images/aiml_1803.png)'
+  id: totrans-32
+  prefs: []
+  type: TYPE_IMG
+  zh: '![高级 MobileNet 架构展示 conv_pw_13_relu](Images/aiml_1803.png)'
+- en: Figure 18-3\. High-level MobileNet architecture showing conv_pw_13_relu
+  id: totrans-33
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-3\. 高级 MobileNet 架构展示 conv_pw_13_relu
+- en: '![Transfer learning from conv_pw_13_relu to a new architecture](Images/aiml_1804.png)'
+  id: totrans-34
+  prefs: []
+  type: TYPE_IMG
+  zh: '![从 conv_pw_13_relu 到新架构的转移学习](Images/aiml_1804.png)'
+- en: Figure 18-4\. Transfer learning from conv_pw_13_relu to a new architecture
+  id: totrans-35
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-4\. 从 conv_pw_13_relu 转移学习到新架构
+- en: 'To implement this in code, you can update your *index.js* to the following:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在代码中实现这一点，您可以将您的 *index.js* 更新如下：
+- en: '[PRE2]'
+  id: totrans-37
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The loading of `mobilenet` has been put into its own async function. Once the
+    model has finished loading, the `conv_pw_13_relu` layer can be extracted from
+    it using the `getLayer` method. The function will then return a model with its
+    inputs set to `mobilenet`’s inputs and its outputs set to `conv_pw_13_relu`’s
+    outputs. This is visualized by the right-pointing arrow in [Figure 18-4](#transfer_learning_from_conv_pw_onethree).
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`mobilenet` 的加载已经放入了自己的异步函数中。一旦模型加载完成，可以使用 `getLayer` 方法从中提取 `conv_pw_13_relu`
+    层。然后该函数将返回一个模型，其输入设置为 `mobilenet` 的输入，输出设置为 `conv_pw_13_relu` 的输出。这由 [图 18-4](#transfer_learning_from_conv_pw_onethree)
+    中的右向箭头进行可视化。'
+- en: Once this function returns, you can create a new sequential model. Note the
+    first layer in it—it’s a flatten of the `mobilenet` outputs (i.e., the `conv_pw_13_relu`
+    outputs), which then feeds into a dense layer of one hundred neurons, which feeds
+    into a dense layer of three neurons (one each for Rock, Paper, and Scissors).
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦此函数返回，您可以创建一个新的序列模型。请注意其中的第一层——它是 `mobilenet` 输出的扁平化（即 `conv_pw_13_relu` 输出），然后进入一个包含一百个神经元的密集层，再进入一个包含三个神经元的密集层（分别对应石头、剪刀和布）。
+- en: If you now do a `model.fit` on this model, you’ll train it to recognize three
+    classes—but instead of learning all the filters to identify features in the image
+    from scratch, you’ll be able to use the ones that were previously learned by MobileNet.
+    Before you can do that, though, you’ll need some data. You’ll see how to gather
+    that in the next step.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您现在对这个模型进行 `model.fit`，您将训练它识别三个类别——但与其从头学习识别图像中的所有滤波器不同，您可以使用之前由 MobileNet
+    学到的滤波器。但在此之前，您需要一些数据。接下来的步骤将展示如何收集这些数据。
+- en: Step 3\. Gather and Format the Data
+  id: totrans-41
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 步骤 3\. 收集和格式化数据
+- en: 'For this example, you’ll use the webcam in the browser to capture images of
+    a hand making Rock/Paper/Scissors gestures. Capturing data from the webcam is
+    beyond the scope of this book, so I won’t go into detail on it here, but there’s
+    a *webcam.js* file in the GitHub repo for this book (created by the TensorFlow
+    team) that can handle everything for you. This captures images from the webcam
+    and returns them in a TensorFlow-friendly format as batched images. It also handles
+    all the tidying-up code from TensorFlow.js that the browser will need to avoid
+    memory leaks. Here’s a snippet from the file:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于本示例，您将使用浏览器中的网络摄像头捕获手势“石头/剪刀/布”的图像。从网络摄像头捕获图像的数据超出了本书的范围，因此这里不会详细介绍，但在这本书的
+    GitHub 仓库中有一个名为 *webcam.js* 的文件（由 TensorFlow 团队创建），可以为您处理所有这些。它从网络摄像头捕获图像，并将它们以
+    TensorFlow 友好的格式返回为批处理图像。它还处理了浏览器所需的所有来自 TensorFlow.js 的清理代码，以避免内存泄漏。以下是该文件的一部分示例：
+- en: '[PRE3]'
+  id: totrans-43
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'You can include this *.js* file in your HTML with a simple `<script>` tag:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过简单的 `<script>` 标签将此 *.js* 文件包含在您的 HTML 中：
+- en: '[PRE4]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'You can then update the HTML with a `<div>` to hold the video preview from
+    the webcam, buttons that the user will select to capture samples of Rock/Paper/Scissors
+    gestures, and `<div>`s to output the number of samples captured. Here’s what it
+    should look like:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以更新 HTML，使用一个 `<div>` 来容纳来自网络摄像头的视频预览，用户将选择捕获石头/剪刀/布手势样本的按钮，以及输出捕获样本数量的 `<div>`。应如下所示：
+- en: '[PRE5]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Then all you need to do is add a `const` to the top of your *index.js* file
+    that initializes the webcam with the ID of the `<video>` tag in your HTML:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，您只需在您的 *index.js* 文件顶部添加一个 `const` 来初始化具有 HTML 中 `<video>` 标签 ID 的网络摄像头：
+- en: '[PRE6]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'You can then initialize the webcam within your `init` function:'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，您可以在 `init` 函数中初始化网络摄像头：
+- en: '[PRE7]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Running the page will now give you a webcam preview along with the three buttons
+    (see [Figure 18-5](#getting_the_webcam_preview_to_work)).
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行页面现在将为您提供一个带有网络摄像头预览的页面，以及三个按钮（参见 [图 18-5](#getting_the_webcam_preview_to_work)）。
+- en: '![Getting the webcam preview to work](Images/aiml_1805.png)'
+  id: totrans-53
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使网络摄像头预览正常工作](Images/aiml_1805.png)'
+- en: Figure 18-5\. Getting the webcam preview to work
+  id: totrans-54
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-5\. 使网络摄像头预览正常工作
+- en: Note that if you don’t see the preview, you should see an icon like the one
+    highlighted at the top of this figure in the Chrome status bar. If it has a red
+    line through it, you need to give the browser permission to use the webcam, after
+    which you should see the preview. The next thing you need to do is capture the
+    images and put them in a format that makes it easy for you to train the model
+    you created in step 2.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，如果您看不到预览，请查看 Chrome 状态栏顶部突出显示的图标。如果它有一条红线，您需要允许浏览器使用网络摄像头，然后您应该能看到预览。接下来，您需要做的是捕获图像，并将其放入使您在第
+    2 步中创建的模型训练变得容易的格式中。
+- en: 'As TensorFlow.js cannot take advantage of built-in datasets like Python, you’ll
+    have to roll your own dataset class. Fortunately, it’s not as difficult as it
+    sounds. In JavaScript, create a new file called *rps-dataset.js*. Construct it
+    with an array for the labels, as follows:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 TensorFlow.js 无法利用像 Python 那样的内置数据集，您将不得不自己创建数据集类。幸运的是，这并不像听起来那么困难。在 JavaScript
+    中，创建一个名为 *rps-dataset.js* 的新文件。构造一个带有标签数组的对象，如下所示：
+- en: '[PRE8]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Every time you capture a new example of a Rock/Paper/Scissors gesture from the
+    webcam, you’ll want to add it to the dataset. This can be achieved with an `addExample`
+    method. The examples will be added as `xs`. Note that this will not add the raw
+    image, but the classification of the image by the truncated `mobilenet`. You’ll
+    see this in a moment.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每次从网络摄像头捕获一个新的石头/剪刀/布手势示例时，您都希望将其添加到数据集中。可以通过 `addExample` 方法实现这一点。示例将作为 `xs`
+    添加。请注意，这不会添加原始图像，而是通过截断的 `mobilenet` 对图像进行分类。稍后您将看到这一点。
+- en: 'The first time you call this, the `xs` will be `null`, so you’ll create the
+    `xs` using the `tf.keep` method. This, as its name suggests, prevents a tensor
+    from being destroyed in a `tf.tidy` call. It also pushes the label to the `labels`
+    array created in the constructor. For subsequent calls, the `xs` will not be `null`,
+    so you’ll copy the `xs` into an `oldX` and then `concat` the example to that,
+    making that the new `xs`. You’ll then push the label to the `labels` array and
+    dispose of the old `xs`:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一次调用此函数时，`xs` 将为 `null`，因此您将使用 `tf.keep` 方法创建 `xs`。正如其名称所示，此方法防止在 `tf.tidy`
+    调用中销毁张量。它还将标签推送到构造函数中创建的 `labels` 数组中。对于后续调用，`xs` 将不为 `null`，因此您将 `xs` 复制到 `oldX`
+    中，然后将示例连接到其中，使其成为新的 `xs`。然后，您将标签推送到 `labels` 数组中，并且丢弃旧的 `xs`：
+- en: '[PRE9]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'Following this approach, your labels will be an array of values. But to train
+    the model you need them as a one-hot encoded array, so you’ll need to add a helper
+    function to your dataset class. This JavaScript will encode the `labels` array
+    into a number of classes specified by the `numClasses` parameter:'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 遵循这种方法，您的标签将成为一个值数组。但是要训练模型，您需要将它们作为一个独热编码数组，因此您需要向数据集类添加一个辅助函数。此 JavaScript
+    将 `labels` 数组编码为 `numClasses` 参数指定的类数：
+- en: '[PRE10]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: The key is the `tf.oneHot` method, which, as its name suggests, encodes its
+    given parameters into a one-hot encoding.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关键在于 `tf.oneHot` 方法，正如其名称所示，它将给定的参数编码为独热编码。
+- en: 'In your HTML you added the three buttons and specified their `onclick` to call
+    a function called `handleButton`, like this:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在您的 HTML 中，您已添加了三个按钮，并指定它们的 `onclick` 调用一个名为 `handleButton` 的函数，如下所示：
+- en: '[PRE11]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'You can implement this in your *index.js* script by switching on the element
+    ID (which is 0, 1, or 2 for Rock, Paper, and Scissors, respectively), turning
+    that into a label, capturing the webcam image, calling the `predict` method on
+    `mobilenet`, and adding the result as an example to the dataset using the method
+    you created earlier:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在*index.js*脚本中实现这个功能，通过打开元素 ID（石头、剪刀和布分别是 0、1 或 2），将其转换为标签，捕获网络摄像头图像，调用`mobilenet`的`predict`方法，并使用你早先创建的方法将结果作为示例添加到数据集中：
+- en: '[PRE12]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: It’s worth making sure you understand the `addExample` method before going further.
+    While you *could* create a dataset that captures the raw images and adds them
+    to a dataset, recall [Figure 18-4](#transfer_learning_from_conv_pw_onethree).
+    You created the `mobilenet` object with the output of `conv_pw_13_relu`. By calling
+    `predict`, you’ll get the output of that layer. And if you look back to [Figure 18-1](#output_of_modeldotsummary_for_the_mobil),
+    you’ll see that the output was [?, 7, 7, 256]. This is summarized in [Figure 18-6](#results_of_mobilenetdotpredict).
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在继续之前，确保你理解了`addExample`方法。虽然你*可以*创建一个捕获原始图像并将其添加到数据集的数据集，但请回忆[图 18-4](#transfer_learning_from_conv_pw_onethree)。你用`conv_pw_13_relu`的输出创建了`mobilenet`对象。通过调用`predict`，你将得到该层的输出。如果你回顾一下[图
+    18-1](#output_of_modeldotsummary_for_the_mobil)，你会看到输出是[?, 7, 7, 256]。这在[图 18-6](#results_of_mobilenetdotpredict)中有总结。
+- en: '![Results of mobilenet.predict](Images/aiml_1806.png)'
+  id: totrans-69
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mobilenet.predict 的结果](Images/aiml_1806.png)'
+- en: Figure 18-6\. Results of mobilenet.predict
+  id: totrans-70
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-6\. mobilenet.predict 的结果
+- en: Recall that with a CNN, as the image progresses through the network a number
+    of filters are learned, and the results of these filters are multiplied into the
+    image. They usually get pooled and passed to the next layer. With this architecture,
+    by the time the image reaches the output layer, instead of a single color image
+    you’ll have 256 7 × 7 images, which are the results of all the filter applications.
+    These can then be fed into a dense network for classification.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，使用 CNN，随着图像通过网络的进展，会学习到多个滤波器，并且这些滤波器的结果会乘以图像。它们通常被池化并传递到下一层。通过这种架构，当图像到达输出层时，你将得到
+    256 个 7 × 7 的图像，这些是所有滤波器应用的结果。然后可以将这些图像馈送到密集网络中进行分类。
+- en: You can also add code to this to update the user interface, counting the number
+    of samples added. I’ve omitted it here for brevity, but it’s all in the GitHub
+    repo.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你也可以添加代码以更新用户界面，计算添加的样本数。我这里为了简洁起见省略了它，但都在 GitHub 仓库中。
+- en: 'Don’t forget to add the *rps-dataset.js* file to your HTML using a `<script>`
+    tag:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要忘记使用`<script>`标签将*rps-dataset.js*文件添加到你的 HTML 中：
+- en: '[PRE13]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: In the Chrome developer tools, you can add breakpoints and watch variables.
+    Run your code, and add a watch to the `dataset` variable, and a breakpoint to
+    the `dataset.addExample` method. Click one of the Rock/Paper/Scissors buttons
+    and you’ll see the dataset get updated. In [Figure 18-7](#exploring_the_dataset)
+    you can see the results after I clicked each of the three buttons.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Chrome 开发者工具中，你可以添加断点并观察变量。运行你的代码，添加一个对`dataset`变量的观察，并在`dataset.addExample`方法上设置一个断点。点击石头/剪刀/布中的一个按钮，你将看到数据集被更新。在[图
+    18-7](#exploring_the_dataset)中，你可以看到在我点击这三个按钮后的结果。
+- en: '![Exploring the dataset](Images/aiml_1807.png)'
+  id: totrans-76
+  prefs: []
+  type: TYPE_IMG
+  zh: '![探索数据集](Images/aiml_1807.png)'
+- en: Figure 18-7\. Exploring the dataset
+  id: totrans-77
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-7\. 探索数据集
+- en: Note that the `labels` array is set up with 0, 1, 2 for the three labels. It
+    hasn’t been one-hot encoded yet. Also, within the dataset you can see a 4D tensor
+    with all of the gathered data. The first dimension (3) is the number of samples
+    gathered. The subsequent dimensions (7, 7, 256) are the activations from `mobilenet`.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意`labels`数组设置为 0、1、2 表示三种标签。它还没有进行独热编码。此外，在数据集中，你可以看到一个包含所有收集数据的 4D 张量。第一个维度（3）是收集的样本数。随后的维度（7,
+    7, 256）是来自`mobilenet`的激活。
+- en: You now have a dataset that can be used to train your model. At runtime you
+    can have your users click each of the buttons to gather a number of samples of
+    each type, which will then be fed into the dense layers that you specified for
+    classification.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你有了一个可以用来训练模型的数据集。在运行时，你可以让用户点击每个按钮来收集每种类型的样本数量，然后将其馈送到你为分类指定的密集层中。
+- en: Step 4\. Train the Model
+  id: totrans-80
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 步骤 4\. 训练模型
+- en: This app will work by having a button to train the model. Once the training
+    is complete, you can press a button to start the model predicting what it sees
+    in the webcam, and another to stop predicting.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个应用程序将通过一个按钮来训练模型。一旦训练完成，你可以按一个按钮开始模型在网络摄像头中看到的内容进行预测，并按另一个按钮停止预测。
+- en: 'Add the following HTML to your page to add these three buttons, and some `<div>`
+    tags to hold the output. Note that the buttons call methods called `doTraining`,
+    `startPredicting`, and `stopPredicting`:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将以下 HTML 添加到您的页面以添加这三个按钮，并添加一些 `<div>` 标签来保存输出。请注意，这些按钮调用名为 `doTraining`、`startPredicting`
+    和 `stopPredicting` 的方法：
+- en: '[PRE14]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Within your *index.js*, you can then add a `doTraining` method and populate
+    it:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在您的 *index.js* 中，您可以添加一个名为 `doTraining` 的方法并填充它：
+- en: '[PRE15]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'Within the `train` method you can then define your model architecture, one-hot
+    encode the labels, and train the model. Note the first layer in the model has
+    its `inputShape` defined as the output shape of `mobilenet`, and you previously
+    specified the `mobilenet` object’s output to be the `conv_pw_13_relu`:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 `train` 方法内部，您可以定义模型架构，对标签进行独热编码并训练模型。请注意，模型中的第一层的 `inputShape` 已定义为 `mobilenet`
+    的输出形状，而您之前已将 `mobilenet` 对象的输出指定为 `conv_pw_13_relu`：
+- en: '[PRE16]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: This will train the model for 10 epochs. You can adjust this as you see fit
+    depending on the loss in the model.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将训练模型进行 10 个 epochs。您可以根据模型中的损失情况自行调整。
+- en: 'Earlier you defined the model in *init.js*, but it’s a good idea to move it
+    here instead and keep the `init` function just for initialization. So, your `init`
+    should look like this:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 *init.js* 中早些时候，您定义了模型，但是最好将其移到这里并将 `init` 函数仅用于初始化。因此，您的 `init` 应该如下所示：
+- en: '[PRE17]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: At this point you can practice making Rock/Paper/Scissors gestures in front
+    of the webcam. Press the appropriate button to capture an example of a given class.
+    Repeat this about 50 times for each of the classes, and then press Train Network.
+    After a few moments, the training will complete, and in the console you’ll see
+    the loss values. In my case the loss started at about 2.5 and ended at 0.0004,
+    indicating that the model was learning well.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此时，您可以在网络摄像头前练习做出石头/剪刀/布手势。按适当的按钮来捕获给定类别的示例。每个类别重复约 50 次，然后按“Train Network”按钮。几秒钟后，训练将完成，您将在控制台中看到损失值。在我的情况下，损失从约
+    2.5 开始，最终降至 0.0004，表明模型学习良好。
+- en: Note that 50 samples is more than enough for each class, because when we add
+    the examples to the dataset, we add the *activated* examples. Each image gives
+    us 256 7 × 7 images to feed into the dense layers, so 150 samples gives us 38,400
+    overall items for training.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，每个类别的 50 个样本足够了，因为当我们将示例添加到数据集时，我们添加了 *activated* 的示例。每个图像为我们提供 256 个 7
+    × 7 的图像以供馈送到密集层，因此，150 个样本为我们提供了总共 38,400 个用于训练的项目。
+- en: Now that you have a trained model, you can try doing predictions with it!
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经有了一个训练好的模型，可以尝试使用它进行预测！
+- en: Step 5\. Run Inference with the Model
+  id: totrans-94
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第 5 步：使用模型进行推断
+- en: 'Having completed step 4, you should have code that gives you a fully trained
+    model. You also created HTML buttons to start and stop predicting. These were
+    configured to call the `startPredicting` and `stopPredicting` methods, so you
+    should create them now. Each one should just set an `isPredicting` Boolean to
+    `true`/`false`, respectively, for whether you want to predict or not. After that
+    they call the `predict` method:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完成第 4 步后，您应该拥有一个能够提供完全训练好的模型的代码。您还创建了用于启动和停止预测的 HTML 按钮。这些按钮配置为调用 `startPredicting`
+    和 `stopPredicting` 方法，因此现在应创建它们。每个方法只需将一个 `isPredicting` 布尔值设置为 `true` 或 `false`，分别用于确定是否要进行预测。然后它们调用
+    `predict` 方法：
+- en: '[PRE18]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'The `predict` method then can use your trained model. It will capture the webcam
+    input and get the activations by calling `mobilenet.predict` with the image. Then,
+    once it has the activations, it can pass them to the model to get a prediction.
+    As the labels were one-hot encoded, you can call `argMax` on the predictions to
+    get the likely output:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`predict` 方法可以使用您训练好的模型。它将捕获网络摄像头输入，并通过调用 `mobilenet.predict` 方法获取激活值。然后，一旦获取了激活值，它就可以将它们传递给模型以进行预测。由于标签是独热编码的，您可以在预测结果上调用
+    `argMax` 来获取可能的输出：'
+- en: '[PRE19]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: With 0, 1, or 2 as the result, you can then write the value to the prediction
+    `<div>` and clean up.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果为 0、1 或 2，然后您可以将该值写入预测 `<div>` 并进行清理。
+- en: Note that this is gated on the `isPredicting` Boolean, so you can turn predictions
+    on or off with the relevant buttons. Now when you run the page you can collect
+    samples, train the model, and run inference. See [Figure 18-8](#running_inference_in_the_browser_with_t)
+    for an example, where it classified my hand gesture as Scissors!
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意这取决于 `isPredicting` 布尔值，因此您可以通过相关按钮打开或关闭预测功能。现在当您运行页面时，您可以收集样本、训练模型并进行推断。查看
+    [Figure 18-8](#running_inference_in_the_browser_with_t) 的示例，它将我的手势分类为剪刀！
+- en: '![Running inference in the browser with the trained model](Images/aiml_1808.png)'
+  id: totrans-101
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用训练好的模型在浏览器中进行推断](Images/aiml_1808.png)'
+- en: Figure 18-8\. Running inference in the browser with the trained model
+  id: totrans-102
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-8\. 使用训练模型在浏览器中运行推理
+- en: From this example, you saw how to build your own model for transfer learning.
+    Next you’ll explore an alternative approach using graph-based models stored in
+    TensorFlow Hub.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从这个示例中，您看到了如何为迁移学习构建您自己的模型。接下来，您将探索一种使用存储在 TensorFlow Hub 中的基于图形的模型的替代方法。
+- en: Transfer Learning from TensorFlow Hub
+  id: totrans-104
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 从 TensorFlow Hub 进行迁移学习
+- en: '[TensorFlow Hub](https://www.tensorflow.org/hub) is an online library of reusable
+    TensorFlow models. Many of the models have already been converted into JavaScript
+    for you—but when it comes to transfer learning, you should look for “image feature
+    vector” model types, and not the full models themselves. These are models that
+    have already been pruned to output the learned features. The approach here is
+    a little different from the example in the previous section, where you had activations
+    output from MobileNet that you could then transfer to your custom model. Instead,
+    a *feature vector* is a 1D tensor that represents the entire image.'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[TensorFlow Hub](https://www.tensorflow.org/hub) 是一个可重复使用的 TensorFlow 模型在线库。许多模型已经转换为
+    JavaScript 版本供您使用，但是在进行迁移学习时，您应该寻找“图像特征向量”模型类型，而不是完整的模型本身。这些模型已经被剪枝以输出学习到的特征。这里的方法与上一节示例中的方法略有不同，那里是从
+    MobileNet 输出激活值，然后将其转移到您的自定义模型中。相反，*特征向量* 是表示整个图像的一维张量。'
+- en: To find a MobileNet model to experiment with, visit TFHub.dev, choose TF.js
+    as the model format you want, and select the MobileNet architecture. You’ll see
+    lots of options of models that are available to you, as shown in [Figure 18-9](#using_tfhubdotdev_to_find_javascript_mo).
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要找到要试验的 MobileNet 模型，请访问 TFHub.dev，选择 TF.js 作为您想要的模型格式，并选择 MobileNet 架构。您将看到许多可用的模型选项，如[图 18-9](#using_tfhubdotdev_to_find_javascript_mo)所示。
+- en: '![Using TFHub.dev to find JavaScript models](Images/aiml_1809.png)'
+  id: totrans-107
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用 TFHub.dev 查找 JavaScript 模型](Images/aiml_1809.png)'
+- en: Figure 18-9\. Using TFHub.dev to find JavaScript models
+  id: totrans-108
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-9\. 使用 TFHub.dev 查找 JavaScript 模型
+- en: 'Find an image feature vector model (I’m using 025_224), and select it. In the
+    “Example use” section on the model’s details page, you’ll find code indicating
+    how to download the image—for example:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 找到一个图像特征向量模型（我使用 025_224），并选择它。在模型详细信息页面的“示例用法”部分，您将找到如何下载图像的代码，例如：
+- en: '[PRE20]'
+  id: totrans-110
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'You can use this to download the model so you can inspect the dimensions of
+    the feature vector. Here’s a simple HTML file with this code in it that classifies
+    an image called *dog.jpg*, which should be in the same directory:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用此功能来下载模型，以便检查特征向量的维度。这里是一个简单的 HTML 文件，其中包含此代码，用于对称为 *dog.jpg* 的图像进行分类：
+- en: '[PRE21]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: When you run this and look in the console, you’ll see the output from this classifier
+    ([Figure 18-10](#exploring_the_console_output)). If you are using the same model
+    as me, you should see a `Float32Array` with 256 elements in it. Other MobileNet
+    versions may have output of different sizes.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您运行此代码并查看控制台时，您将看到此分类器的输出（如[图 18-10](#exploring_the_console_output)）。如果您使用与我相同的模型，则应看到其中有
+    256 个元素的 `Float32Array`。其他 MobileNet 版本可能具有不同大小的输出。
+- en: '![Exploring the console output](Images/aiml_1810.png)'
+  id: totrans-114
+  prefs: []
+  type: TYPE_IMG
+  zh: '![探索控制台输出](Images/aiml_1810.png)'
+- en: Figure 18-10\. Exploring the console output
+  id: totrans-115
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-10\. 探索控制台输出
+- en: Once you know the output shape of the image feature vector model, you can use
+    it for transfer learning. So, for example, for the Rock/Paper/Scissors example,
+    you could use an architecture like that in [Figure 18-11](#transfer_learning_using_image_feature_v).
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您知道图像特征向量模型的输出形状，您就可以将其用于迁移学习。因此，例如，对于石头/剪刀/布的示例，您可以使用类似于[图 18-11](#transfer_learning_using_image_feature_v)中的架构。
+- en: '![Transfer learning using image feature vectors](Images/aiml_1811.png)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用图像特征向量进行迁移学习](Images/aiml_1811.png)'
+- en: Figure 18-11\. Transfer learning using image feature vectors
+  id: totrans-118
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-11\. 使用图像特征向量进行迁移学习
+- en: Now you can edit the code for your transfer learning Rock/Paper/Scissors app
+    by changing how and where you load the model from, and by amending the classifier
+    to accept the image feature vector instead of the activated features, as earlier.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，您可以通过更改从何处以及如何加载模型，并修改分类器以接受图像特征向量而不是先前的激活特征来编辑您的迁移学习石头/剪刀/布应用程序的代码。
+- en: 'If you want to load your model from TensorFlow Hub, just update the `loadMobilenet`
+    function like this:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您想从 TensorFlow Hub 加载您的模型，只需像这样更新 `loadMobilenet` 函数：
+- en: '[PRE22]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'And then, in your `train` method, where you define the model for the classification,
+    you update it to receive the output from the image feature vector (`[256]`) to
+    the first layer. Here’s the code:'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，在您的`train`方法中，您定义分类模型时，更新它以接收来自图像特征向量的输出（`[256]`）到第一层。以下是代码：
+- en: '[PRE23]'
+  id: totrans-123
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: Note that this shape will be different for different models. You can use code
+    like the HTML shown earlier to find it if it isn’t published for you.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，对于不同的模型，这种形状会有所不同。如果没有为您发布，您可以使用类似之前显示的HTML代码来查找它。
+- en: Once this is done, you can do transfer learning from the model in TensorFlow
+    Hub using JavaScript!
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦完成，您就可以在TensorFlow Hub模型上使用JavaScript进行迁移学习！
+- en: Using Models from TensorFlow.org
+  id: totrans-126
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用来自TensorFlow.org的模型
+- en: Another source for [models for JavaScript developers](https://oreil.ly/Xw8lI)
+    is TensorFlow.org (see [Figure 18-12](#browsing_models_on_tensorflowdotorg)).
+    The models provided here, for image classification, object detection, and more,
+    are ready for immediate use. Clicking any of the links will take you to a GitHub
+    repository of JavaScript classes that wrap the graph-based models with logic to
+    make using them much easier.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[JavaScript开发者的模型另一个来源](https://oreil.ly/Xw8lI)是TensorFlow.org（见[图 18-12](#browsing_models_on_tensorflowdotorg)）。这里提供的模型，如图像分类、物体检测等，可立即使用。点击任何链接都会带您进入一个包装了基于图的模型的JavaScript类的GitHub仓库，使其使用变得更加容易。'
+- en: 'In the case of [MobileNet](https://oreil.ly/OTRUU), you can use the model with
+    a `<script>` include like this:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于[MobileNet](https://oreil.ly/OTRUU)，您可以像这样使用包含`<script>`的模型：
+- en: '[PRE24]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: '![Browsing models on TensorFlow.org](Images/aiml_1812.png)'
+  id: totrans-130
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在TensorFlow.org上浏览模型](Images/aiml_1812.png)'
+- en: Figure 18-12\. Browsing models on [TensorFlow.org](http://TensorFlow.org)
+  id: totrans-131
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 18-12\. 在[TensorFlow.org](http://TensorFlow.org)上浏览模型
+- en: 'If you take a look at the code, you’ll notice two things. First, the set of
+    labels is encoded within the JavaScript, giving you a handy way of seeing the
+    inference results without a secondary lookup. You can see a snippet of the code
+    here:'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您看一下代码，您会注意到两件事。首先，标签集编码在JavaScript内部，为您提供了一种方便的查看推理结果的方式，无需进行第二次查找。您可以在这里看到代码片段：
+- en: '[PRE25]'
+  id: totrans-133
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'Additionally, toward the bottom of this file you’ll see a number of models,
+    layers, and activations from TensorFlow Hub that you can load into JavaScript
+    variables. For example, for version 1 of MobileNet you may see an entry like this:'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，文件底部还有来自TensorFlow Hub的许多模型、层和激活，您可以将它们加载到JavaScript变量中。例如，对于MobileNet的版本1，您可能会看到像这样的条目：
+- en: '[PRE26]'
+  id: totrans-135
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: The values 0.25, 0.50, 0.75, etc. are “width multiplier” values. These are used
+    to construct smaller, less computationally expensive models; you can find details
+    in the [original paper](https://oreil.ly/95NIb) introducing the architecture.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值0.25、0.50、0.75等是“宽度乘数”值。这些用于构建更小、计算量较少的模型；您可以在引入架构的[原始论文](https://oreil.ly/95NIb)中找到详细信息。
+- en: 'The code offers many handy shortcuts. For example, when running inference on
+    an image, compare the following listing to the one shown a little earlier, where
+    you used MobileNet to get an inference for the dog image. Here’s the full HTML:'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '代码提供了许多便捷的快捷方式。例如，当在图像上运行推理时，请将以下列表与稍早显示的列表进行比较，其中您使用MobileNet获取了狗图像的推理结果。以下是完整的HTML代码： '
+- en: '[PRE27]'
+  id: totrans-138
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'Note how you don’t have to preconvert the image into tensors in order to do
+    the classification. This code is much cleaner, and allows you to just focus on
+    your predictions. To get embeddings, you can use `model.infer` instead of `model.classify`
+    like this:'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，您不必预先将图像转换为张量以进行分类。这段代码更加清晰，允许您专注于预测。要获取嵌入，您可以像这样使用`model.infer`而不是`model.classify`：
+- en: '[PRE28]'
+  id: totrans-140
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: So, if you wish, you could create a transfer learning scenario from MobileNet
+    using these embeddings.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，如果您愿意，可以使用这些嵌入从MobileNet创建一个迁移学习场景。
+- en: Summary
+  id: totrans-142
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: In this chapter you took a look at a variety of options for transfer learning
+    from preexisting JavaScript-based models. As there’s a range of different model
+    implementation types, there are also a number of options for accessing them for
+    transfer learning. First, you saw how to use the JSON files created by the TensorFlow.js
+    converter to explore the layers of the model and choose one to transfer from.
+    The second option was to use graph-based models. This is the favored type of model
+    on TensorFlow Hub (because they generally give faster inference), but you lose
+    a little of the flexibility of being able to choose the layer to do the transfer
+    learning from. When using this method, the JavaScript bundle that you download
+    doesn’t contain the full model, but instead truncates it as the feature vector
+    output. You transfer from this to your own model. Finally, you saw how to work
+    with the prewrapped JavaScript models made available by the TensorFlow team on
+    [TensorFlow.org](http://TensorFlow.org), which include helper functions for accessing
+    the data, inspecting the classes, as well as getting the embeddings or other feature
+    vectors from the model so they can be used for transfer learning.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您了解了从现有基于JavaScript的模型进行迁移学习的各种选项。由于存在不同的模型实现类型，因此也有多种访问它们以进行迁移学习的选项。首先，您看到了如何使用TensorFlow.js转换器创建的JSON文件来探索模型的层，并选择其中一层进行迁移。第二个选项是使用基于图形的模型。这是TensorFlow
+    Hub上首选的模型类型（因为它们通常提供更快的推断），但您会失去一些选择从哪一层进行迁移学习的灵活性。当使用这种方法时，您下载的JavaScript捆绑包不包含完整的模型，而是截断为特征向量输出。您可以将其从这里转移到您自己的模型中。最后，您了解了如何使用TensorFlow团队在[TensorFlow.org](http://TensorFlow.org)上提供的预包装JavaScript模型，这些模型包括用于访问数据、检查类别以及获取模型的嵌入或其他特征向量的辅助函数，以便用于迁移学习。
+- en: In general, I would recommend taking the TensorFlow Hub approach and using models
+    with prebuilt feature vector outputs when they’re available—but if they aren’t,
+    it’s good to know that TensorFlow.js has a flexible enough ecosystem to allow
+    for transfer learning in a variety of ways.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总的来说，我建议采用TensorFlow Hub的方法，并在可用时使用具有预构建特征向量输出的模型——但如果没有，了解TensorFlow.js具有足够灵活的生态系统以允许以多种方式进行迁移学习也是很好的。

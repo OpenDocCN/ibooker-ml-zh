@@ -1,0 +1,1947 @@
+- en: Chapter 6\. Preprocessing
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第6章. 预处理
+- en: In [Chapter 5](ch05.xhtml#creating_vision_datasets), we looked at how to create
+    training datasets for machine learning. This is the first step of the standard
+    image processing pipeline (see [Figure 6-1](Images/#raw_images_have_to_be_preprocessed_befor)).
+    The next stage is preprocessing the raw images in order to feed them into the
+    model for training or inference. In this chapter, we will look at why images need
+    to be preprocessed, how to set up preprocessing to ensure reproducibility in production,
+    and ways to implement a variety of preprocessing operations in Keras/TensorFlow.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第5章](ch05.xhtml#creating_vision_datasets)中，我们看到了如何为机器学习创建训练数据集。这是标准图像处理流程的第一步（参见[图 6-1](Images/#raw_images_have_to_be_preprocessed_befor)）。下一个阶段是预处理原始图像，以便将其输入模型进行训练或推理。在本章中，我们将讨论为何需要对图像进行预处理，如何设置预处理以确保在生产环境中的可复现性，以及如何在Keras/TensorFlow中实现各种预处理操作。
+- en: '![](Images/pmlc_0601.png)'
+  id: totrans-2
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0601.png)'
+- en: Figure 6-1\. Raw images have to be preprocessed before they are fed into the
+    model, both during training (top) and during prediction (bottom).
+  id: totrans-3
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-1. 在将原始图像输入模型之前，它们必须经过预处理，无论是在训练（顶部）还是预测（底部）期间。
+- en: Tip
+  id: totrans-4
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: The code for this chapter is in the *06_preprocessing* folder of the book’s
+    [GitHub repository](https://github.com/GoogleCloudPlatform/practical-ml-vision-book).
+    We will provide file names for code samples and notebooks where applicable.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的代码位于该书的[GitHub仓库](https://github.com/GoogleCloudPlatform/practical-ml-vision-book)的*06_preprocessing*文件夹中。我们将在适当的情况下提供代码样本和笔记本的文件名。
+- en: Reasons for Preprocessing
+  id: totrans-6
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 预处理的原因
+- en: 'Before raw images can be fed into an image model, they usually have to be preprocessed.
+    Such preprocessing has several overlapping goals: shape transformation, data quality,
+    and model quality.'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在原始图像可以输入图像模型之前，它们通常需要经过预处理。此类预处理具有几个重叠的目标：形状转换、数据质量和模型质量。
+- en: Shape Transformation
+  id: totrans-8
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 形状转换
+- en: 'The input images typically have to be transformed into a consistent size. For
+    example, consider a simple DNN model:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输入图像通常必须转换为一致的大小。例如，考虑一个简单的DNN模型：
+- en: '[PRE0]'
+  id: totrans-10
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'This model requires that the images fed into it are 4D tensors with an inferred
+    batch size, 512 columns, 256 rows, and 3 channels. Every layer that we have considered
+    so far in this book needs a shape to be specified at construction. Sometimes the
+    specification can be inferred from previous layers, and does not have to be explicit:
+    the first `Dense` layer takes the output of the `Flatten` layer and therefore
+    is built to have 512 * 256 * 3 = 393,216 input nodes in the network architecture.
+    If the raw image data is not of this size, then there is no way to map each input
+    value to the nodes of the network. So, images that are not of the right size have
+    to be transformed into tensors with this exact shape. Any such transformation
+    will be carried out in the preprocessing stage.'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此模型要求输入的图像必须是4D张量，并推断出批处理大小、512列、256行和3个通道。迄今为止，在本书中考虑的每一层都需要在构建时指定形状。有时可以从前面的层推断出规格，不必显式指定：第一个`Dense`层接收`Flatten`层的输出，因此在网络架构中建立为具有512
+    * 256 * 3 = 393,216个输入节点。如果原始图像数据不是这个大小，则无法将每个输入值映射到网络节点。因此，大小不正确的图像必须转换为具有此确切形状的张量。任何此类转换将在预处理阶段执行。
+- en: Data Quality Transformation
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据质量转换
+- en: Another reason to do preprocessing is to enforce data quality. For example,
+    many satellite images have a terminator line (see [Figure 6-2](#impact_of_solar_lighting_left_parenthesi))
+    because of solar lighting or the Earth’s curvature.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个预处理的原因是确保数据质量。例如，许多卫星图像由于太阳照射或地球曲率的原因有终止线（见[图 6-2](#impact_of_solar_lighting_left_parenthesi)）。
+- en: Solar lighting can lead to different lighting levels in different parts of the
+    image. Since the terminator line moves throughout the day and its location is
+    known precisely from the timestamp, it can be helpful to normalize each pixel
+    value taking into account the solar illumination that the corresponding point
+    on the Earth receives. Or, due to the Earth’s curvature and the point of view
+    of the satellite, there might be parts of the images that were not sensed by the
+    satellite. Such pixels might be masked or assigned a value of `–inf`. In the preprocessing
+    step, it is necessary to handle this somehow because neural networks will expect
+    to see a finite floating-point value; one option is to replace these pixels with
+    the mean value in the image.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 太阳照明会导致图像不同部分的光照水平不同。由于地球上的终结线在一天中移动，并且其位置可以从时间戳精确确定，因此考虑到地球上对应点接收的太阳照明，规范化每个像素值可能是有帮助的。或者，由于地球的曲率和卫星的视角，可能有些图像部分未被卫星感测到。这些像素可能会被屏蔽或分配一个`–inf`的值。在预处理步骤中，有必要以某种方式处理这些，因为神经网络期望看到有限的浮点值；一种选项是用图像中的平均值替换这些像素。
+- en: '![](Images/pmlc_0602.png)'
+  id: totrans-15
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0602.png)'
+- en: Figure 6-2\. Impact of solar lighting (left) and Earth’s curvature (right).
+    Images from NASA © Living Earth and the NOAA GOES-16 satellite.
+  id: totrans-16
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-2\. 太阳照明的影响（左）和地球的曲率（右）。图像来源：NASA © Living Earth 和 NOAA GOES-16 卫星。
+- en: Even if your dataset doesn’t consist of satellite imagery, it’s important to
+    be aware that data quality problems, like the ones described here for satellite
+    data, pop up in many situations. For example, if some of your images are darker
+    than others, you might want to transform the pixel values within the images to
+    have a consistent white balance.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使您的数据集不包含卫星图像，也要意识到数据质量问题（如卫星数据中描述的问题）在许多情况下都会出现。例如，如果您的一些图像比其他图像暗，您可能希望在图像内部转换像素值以保持一致的白平衡。
+- en: Improving Model Quality
+  id: totrans-18
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 改善模型质量
+- en: A third goal of preprocessing is to carry out transformations that help improve
+    the accuracy of models trained on the data. For example, machine learning optimizers
+    work best when data values are small numbers. So, in the preprocessing stage,
+    it can be helpful to scale the pixel values to lie in the range [0, 1] or [–1,
+    1].
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预处理的第三个目标是进行转换，以帮助提高在数据上训练的模型的准确性。例如，机器学习优化器在数据值较小时效果最佳。因此，在预处理阶段，将像素值缩放到[0,
+    1]或[-1, 1]范围内可能会有所帮助。
+- en: Some transformations can help improve model quality by increasing the effective
+    size of the dataset that the model was trained on. For example, if you are training
+    a model to identify different types of animals, an easy way to double the size
+    of your dataset is to *augment* it by adding flipped versions of the images. In
+    addition, adding random perturbations to images results in more robust training
+    as it limits the extent to which the model overfits.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些转换可以通过增加模型训练的数据的有效大小来帮助提高模型的质量。例如，如果您正在训练一个用于识别不同动物类型的模型，一个简单的方法是通过添加图像的翻转版本来加倍您的数据集。此外，向图像添加随机扰动可以增强训练的稳健性，限制模型过拟合的程度。
+- en: Of course, we have to be careful when applying left-to-right transformations.
+    If we are training a model with images that contain a lot of text (such as road
+    signs), augmenting images by flipping them left to right would reduce the ability
+    of the model to recognize the text. Also, sometimes flipping the images can destroy
+    information that we require. For example, if we are trying to identify products
+    in a clothing store, flipping images of buttoned shirts left to right may destroy
+    information. Men’s shirts have the button on the wearer’s right and the button
+    hole on the wearer’s left, whereas women’s shirts are the opposite. Flipping the
+    images randomly would make it impossible for the model to use the position of
+    the buttons to determine the gender the clothes were designed for.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，在应用从左到右的转换时，我们必须小心。如果我们正在训练一个包含大量文本的图像模型（例如路标图像），通过左右翻转图像来增强数据可能会降低模型识别文本的能力。此外，有时候翻转图像可能会破坏我们需要的信息。例如，如果我们试图在服装店中识别产品，将扣子衬衫的图像左右翻转可能会破坏信息。男士的衬衫的扣子在穿着者的右侧，扣眼在左侧，而女士的则相反。随机翻转图像将使模型无法利用扣子的位置来确定服装设计的性别。
+- en: Size and Resolution
+  id: totrans-22
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 尺寸和分辨率
+- en: As discussed in the previous section, one of the key reasons to preprocess images
+    is to ensure that the image tensors have the shape expected by the input layer
+    of the ML model. In order to do this, we usually have to change the size and/or
+    resolution of the images being read in.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前文所述，图像预处理的一个关键原因是确保图像张量具有ML模型输入层期望的形状。为了做到这一点，通常我们需要改变正在读取的图像的大小和/或分辨率。
+- en: 'Consider the flower images that we wrote out into TensorFlow Records in [Chapter 5](ch05.xhtml#creating_vision_datasets).
+    As explained in that chapter, we can read those images using:'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑在[第5章](ch05.xhtml#creating_vision_datasets)中将花卉图像写入TensorFlow Records。正如在那一章中解释的那样，我们可以使用以下方式读取这些图像：
+- en: '[PRE1]'
+  id: totrans-25
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'Let’s display five of those images:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们显示其中的五张图像：
+- en: '[PRE2]'
+  id: totrans-27
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: As is clear from [Figure 6-3](Images/#five_of_the_images_in_the_five-flowers_t),
+    the images all have different sizes. The second image, for example (240x160),
+    is in portrait mode, whereas the third image (281x500) is horizontally elongated.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[图 6-3](Images/#five_of_the_images_in_the_five-flowers_t)所示，这些图像的尺寸各不相同。例如，第二幅图像（240x160）是竖直模式，而第三幅图像（281x500）是水平拉伸的。
+- en: '![](Images/pmlc_0603.png)'
+  id: totrans-29
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0603.png)'
+- en: Figure 6-3\. Five of the images in the 5-flowers training dataset. Note that
+    they all have different dimensions (marked on top of the image).
+  id: totrans-30
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-3\. 5-花训练数据集中的五幅图像。请注意，它们的尺寸各不相同（标在图像顶部）。
+- en: Using Keras Preprocessing Layers
+  id: totrans-31
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用 Keras 预处理层
+- en: 'When the input images are of different sizes, we need to preprocess them to
+    the shape expected by the input layer of the ML model. We did this in [Chapter 2](ch02.xhtml#ml_models_for_vision)
+    using a TensorFlow function when we read the images, specifying the desired height
+    and width:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当输入的图像尺寸各不相同时，我们需要对它们进行预处理，以符合ML模型输入层期望的形状。我们在[第2章](ch02.xhtml#ml_models_for_vision)中使用了TensorFlow函数来读取图像时指定了所需的高度和宽度：
+- en: '[PRE3]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'Keras has a preprocessing layer called `Resizing` that offers the same functionality.
+    Typically we will have multiple preprocessing operations, so we can create a Sequential
+    model that contains all of those operations:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras有一个名为`Resizing`的预处理层，提供相同的功能。通常我们会有多个预处理操作，因此我们可以创建一个包含所有这些操作的Sequential模型：
+- en: '[PRE4]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'To apply the preprocessing layer to our images, we could do:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将预处理层应用到我们的图像上，我们可以这样做：
+- en: '[PRE5]'
+  id: totrans-37
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: However, this won’t work because the `train_dataset` provides a tuple (img,
+    label) where the image is a 3D tensor (height, width, channels) while the Keras
+    Sequential model expects a 4D tensor (batchsize, height, width, channels).
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这种方法行不通，因为`train_dataset`提供的是一个元组（img, label），其中图像是一个 3D 张量（高度、宽度、通道），而 Keras
+    Sequential 模型期望的是一个 4D 张量（批次大小、高度、宽度、通道）。
+- en: 'The simplest solution is to write a function that adds an extra dimension to
+    the image at the first axis using `expand_dims()` and removes the batch dimension
+    from the result using `squeeze()`:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最简单的解决方案是编写一个函数，使用`expand_dims()`在图像的第一个轴上添加额外的维度，并使用`squeeze()`从结果中去除批次维度：
+- en: '[PRE6]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'With this function defined, we can apply the preprocessing layer to our tuple
+    using:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义了这个函数后，我们可以使用以下方式将预处理层应用到我们的元组中：
+- en: '[PRE7]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Note
+  id: totrans-43
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'Normally, we don’t have to call `expand_dims()` and `squeeze()` in a preprocessing
+    function because we apply the preprocessing function after a `batch()` call. For
+    example, we would normally do:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，我们不需要在预处理函数中调用`expand_dims()`和`squeeze()`，因为我们会在`batch()`调用之后应用预处理函数。例如，我们通常会这样做：
+- en: '[PRE8]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Here, however, we can’t do this because the images that come out of the `train_dataset`
+    are all of different sizes. To solve this problem, we can add an extra dimension
+    as shown or use [ragged batches](https://oreil.ly/LbavM).
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在这里，我们不能这样做，因为`train_dataset`中的图像尺寸都不同。为了解决这个问题，我们可以如上所示添加一个额外的维度，或者使用[ragged
+    batches](https://oreil.ly/LbavM)。
+- en: The result is shown in [Figure 6-4](Images/#the_effect_of_resizing_the_images_to_a_s).
+    Notice that all the images are now the same size, and because we passed in 224
+    for the `IMG_HEIGHT` and `IMG_WIDTH`, the images are squares. Comparing this with
+    [Figure 6-3](Images/#five_of_the_images_in_the_five-flowers_t), we notice that
+    the second image has been squashed vertically whereas the third image has been
+    squashed in the horizontal dimension and stretched vertically.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果显示在[图 6-4](Images/#the_effect_of_resizing_the_images_to_a_s)中。请注意，现在所有的图像都是相同的大小，因为我们传入了
+    224 作为`IMG_HEIGHT`和`IMG_WIDTH`，这些图像都是正方形的。与[图 6-3](Images/#five_of_the_images_in_the_five-flowers_t)进行比较，我们注意到第二幅图像在垂直方向被压扁，而第三幅图像在水平方向被压扁并在垂直方向上被拉伸。
+- en: '![](Images/pmlc_0604.png)'
+  id: totrans-48
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0604.png)'
+- en: Figure 6-4\. The effect of resizing the images to a shape of (224, 224, 3).
+    Intuitively, stretching and squashing flowers will make them harder to recognize,
+    so we would like to preserve the aspect ratio of the input images (the ratio of
+    height to width). Later in this chapter, we will look at other preprocessing options
+    that can do this.
+  id: totrans-49
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-4。将图像调整为形状为(224, 224, 3)的效果。直觉上，拉伸和压缩花朵会使它们更难识别，因此我们希望保留输入图像的长宽比（高度与宽度的比率）。本章后面，我们将看看其他能够做到这一点的预处理选项。
+- en: 'The Keras [`Resizing` layer](https://oreil.ly/pUrsF) offers several interpolation
+    options when doing the squashing and stretching: `bilinear`, `nearest`, `bicubic`,
+    `lanczos3`, `gaussian`, and so on. The default interpolation scheme (`bilinear`)
+    retains local structures, whereas the `gaussian` interpolation scheme is more
+    tolerant of noise. In practice, however, the differences between different interpolation
+    methods are pretty minor.'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras的[`Resizing`层](https://oreil.ly/pUrsF)在进行压缩和拉伸时提供了几种插值选项：`bilinear`、`nearest`、`bicubic`、`lanczos3`、`gaussian`等等。默认的插值方案(`bilinear`)保留了局部结构，而`gaussian`插值方案对噪声更宽容。然而，在实践中，不同插值方法之间的差异非常小。
+- en: The Keras preprocessing layers have an advantage that we will delve deeper into
+    later in this chapter—because they are part of the model, they are automatically
+    applied during prediction. Choosing between doing preprocessing in Keras or in
+    TensorFlow thus often comes down to a trade-off between efficiency and flexibility;
+    we will expand upon this later in the chapter.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras预处理层有一个优势，我们将在本章后面深入探讨—因为它们是模型的一部分，在预测时会自动应用。因此，选择在Keras或TensorFlow中进行预处理往往取决于效率和灵活性之间的权衡；我们将在本章后面扩展讨论这一点。
+- en: Using the TensorFlow Image Module
+  id: totrans-52
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用TensorFlow图像模块
+- en: In addition to the `resize()` function that we used in [Chapter 2](ch02.xhtml#ml_models_for_vision),
+    TensorFlow offers a plethora of image processing functions in the [`tf.image`
+    module](https://oreil.ly/K8r7W). We used `decode_jpeg()` from this module in [Chapter 5](ch05.xhtml#creating_vision_datasets),
+    but TensorFlow also has the ability to decode PNG, GIF, and BMP and to convert
+    images between color and grayscale. There are methods to work with bounding boxes
+    and to adjust contrast, brightness, and so on.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了我们在[第2章](ch02.xhtml#ml_models_for_vision)中使用的`resize()`函数外，TensorFlow的[`tf.image`模块](https://oreil.ly/K8r7W)还提供了大量图像处理函数。我们在[第5章](ch05.xhtml#creating_vision_datasets)中使用了这个模块的`decode_jpeg()`，但TensorFlow还可以解码PNG、GIF和BMP，并在彩色和灰度图像之间转换。有关工作于边界框和调整对比度、亮度等的方法也是如此。
+- en: 'In the realm of resizing, TensorFlow allows us to retain the aspect ratio when
+    resizing by cropping the image to the desired aspect ratio and stretching it:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在调整大小的领域，TensorFlow允许我们在调整大小时保持长宽比，通过裁剪图像到期望的长宽比并拉伸它：
+- en: '[PRE9]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'or padding the edges with zeros:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者用零填充边缘：
+- en: '[PRE10]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'We can apply this function directly to each (img, label) tuple in the dataset
+    as follows:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将此函数直接应用于数据集中的每个（img，label）元组，如下所示：
+- en: '[PRE11]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: The result is shown in [Figure 6-5](Images/#resizing_the_images_to_left_parenthesisf).
+    Note the effect of padding in the second and third panels in order to avoid stretching
+    or squashing the input images while providing the desired output size.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果显示在[图6-5](Images/#resizing_the_images_to_left_parenthesisf)中。注意填充效果，以避免拉伸或压缩输入图像同时提供所需的输出大小。
+- en: '![](Images/pmlc_0605.png)'
+  id: totrans-61
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0605.png)'
+- en: Figure 6-5\. Resizing the images to (448, 448) with padding.
+  id: totrans-62
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-5。将图像调整为(448, 448)，并进行填充。
+- en: The eagle-eyed among you may have noticed that we resized the images to be larger
+    than the desired height and width (twice as large, actually). The reason for this
+    is that it sets us up for the next step.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你们中的鹰眼可能已经注意到，我们将图像调整为比期望的高度和宽度大（实际上是两倍）。这样做是为了迎接下一步的挑战。
+- en: While we’ve preserved the aspect ratio by specifying a padding, we now have
+    padded images with black borders. This is not desirable either. What if we now
+    do a “center crop”—i.e., crop these images (which are larger than what we want
+    anyway) in the center?
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然我们通过指定填充方式保留了长宽比，但现在我们的图像被黑边填充了。这也是不理想的。如果现在我们进行“中心裁剪”—即在图像中心裁剪这些比我们想要的大的图像呢？
+- en: Mixing Keras and TensorFlow
+  id: totrans-65
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 混合使用Keras和TensorFlow
+- en: A center-cropping function is available in TensorFlow, but to keep things interesting,
+    let’s mix TensorFlow’s `resize_with_pad()` and Keras’s `CenterCrop` functionality.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow中有一个中心裁剪功能，但为了增加趣味性，让我们混合使用TensorFlow的`resize_with_pad()`和Keras的`CenterCrop`功能。
+- en: 'In order to call an arbitrary set of TensorFlow functions as part of a Keras
+    model, we wrap the function(s) inside a Keras `Lambda` layer:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了将任意一组 TensorFlow 函数作为 Keras 模型的一部分调用，我们将函数包装在 Keras 的 `Lambda` 层中：
+- en: '[PRE12]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'Here, because we want to do the resize and follow it by a center crop, our
+    preprocessing layers become:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里，因为我们希望先进行 resize，然后进行 center crop，我们的预处理层如下所示：
+- en: '[PRE13]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Note that the first layer (`Lambda`) carries an `input_shape` parameter. Because
+    the input images will be of different sizes, we specify the height and width as
+    `None`, which leaves the values to be determined at runtime. However, we do specify
+    that there will always be three channels.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意第一层 (`Lambda`) 带有 `input_shape` 参数。因为输入图像的大小会不同，我们将高度和宽度指定为 `None`，这样它们将在运行时确定。不过，我们确保始终有三个通道。
+- en: The result of applying this preprocessing is shown in [Figure 6-6](#the_effect_of_applying_two_processing_op).
+    Note how the aspect ratio of the flowers is preserved and all the images are 224x224.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用此预处理的结果显示在 [Figure 6-6](#the_effect_of_applying_two_processing_op) 中。请注意花朵的长宽比得到保留，并且所有图像都是
+    224x224。
+- en: '![](Images/pmlc_0606.png)'
+  id: totrans-73
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0606.png)'
+- en: 'Figure 6-6\. The effect of applying two processing operations: a resize with
+    pad followed by a center crop.'
+  id: totrans-74
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-6\. 应用两个处理操作的效果：resize with pad 后跟 center crop。
+- en: 'At this point, you have seen three different places to carry out preprocessing:
+    in Keras, as a preprocessing layer; in TensorFlow, as part of the `tf.data` pipeline;
+    and in Keras, as part of the model itself. As mentioned earlier, choosing between
+    these comes down to a trade-off between efficiency and flexibility; we’ll explore
+    this in more detail later in this chapter.'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，你已经看到三种不同的预处理方法：在 Keras 中，作为预处理层；在 TensorFlow 中，作为 `tf.data` 流水线的一部分；以及在
+    Keras 中，作为模型本身的一部分。正如前面提到的，选择其中之一取决于效率和灵活性之间的权衡；我们将在本章后面更详细地探讨这个问题。
+- en: Model Training
+  id: totrans-76
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型训练：
+- en: 'Had the input images all been the same size, we could have incorporated the
+    preprocessing layers into the model itself. However, because the input images
+    vary in size, they cannot be easily batched. Therefore, we will apply the preprocessing
+    in the ingest pipeline before doing the batching:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果输入图像都是相同大小，我们可以将预处理层合并到模型本身中。但是，由于输入图像大小不同，它们不容易成批处理。因此，我们将在进食流水线中进行批处理之前应用预处理：
+- en: '[PRE14]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'The model itself is the same MobileNet transfer learning model that we used
+    in [Chapter 3](ch03.xhtml#image_vision) (the full code is in [*06a_resizing.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06a_resizing.ipynb)):'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型本身是相同的 MobileNet 迁移学习模型，我们在 [Chapter 3](ch03.xhtml#image_vision) 中使用过（完整代码在
+    GitHub 上的 [*06a_resizing.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06a_resizing.ipynb)
+    中）。
+- en: '[PRE15]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: The model training converges and the validation accuracy plateaus at 0.85 (see
+    [Figure 6-7](#the_loss_and_accuracy_curves_for_a_mobil)).
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型训练收敛并且验证准确率在 0.85 时平稳（见 [Figure 6-7](#the_loss_and_accuracy_curves_for_a_mobil)）。
+- en: '![](Images/pmlc_0607.png)'
+  id: totrans-82
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0607.png)'
+- en: Figure 6-7\. The loss and accuracy curves for a MobileNet transfer learning
+    model with preprocessed layers as input.
+  id: totrans-83
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-7\. MobileNet 迁移学习模型的损失和准确率曲线，以预处理层作为输入。
+- en: Comparing [Figure 6-7](#the_loss_and_accuracy_curves_for_a_mobil) against [Figure 3-3](ch03.xhtml#the_loss_and_accuracy_curves_for-id00003),
+    it seems that we have fared worse with padding and center cropping than with the
+    naive resizing we did in [Chapter 3](ch03.xhtml#image_vision). Even though the
+    validation datasets are different in the two cases, and so the accuracy numbers
+    are not directly comparable, the difference in accuracy (0.85 versus 0.9) is large
+    enough that it is quite likely that the [Chapter 6](#preprocessing) model is worse
+    than the [Chapter 3](ch03.xhtml#image_vision) one. Machine learning is an experimental
+    discipline, and we would not have known this unless we tried. It’s quite possible
+    that on a different dataset, fancier preprocessing operations will improve the
+    end result; you have to try multiple options to figure out which method works
+    best for your dataset.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将 [Figure 6-7](#the_loss_and_accuracy_curves_for_a_mobil) 与 [Figure 3-3](ch03.xhtml#the_loss_and_accuracy_curves_for-id00003)
+    进行比较，似乎我们在填充和中心裁剪方面的效果不如在 [Chapter 3](ch03.xhtml#image_vision) 中简单的 resize 操作（0.85
+    与 0.9 的准确率）。尽管验证数据集在两种情况下不同，因此准确性数字不直接可比，但准确性差异足够大，很可能 [Chapter 6](#preprocessing)
+    模型比 [Chapter 3](ch03.xhtml#image_vision) 中的模型更差。机器学习是一门实验性学科，除非尝试，否则我们不会知道这一点。在不同的数据集上，更复杂的预处理操作可能会改善最终结果；你需要尝试多种选择来找出哪种方法最适合你的数据集。
+- en: Some prediction results are shown in [Figure 6-8](Images/#images_as_input_to_the_modelcomma_and_pr).
+    Note that the input images all have a natural aspect ratio and are center cropped.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些预测结果显示在[Figure 6-8](Images/#images_as_input_to_the_modelcomma_and_pr)中。请注意，输入图像都具有自然的纵横比，并且中心裁剪。
+- en: '![](Images/pmlc_0608.png)'
+  id: totrans-86
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0608.png)'
+- en: Figure 6-8\. Images as input to the model, and predictions on those images.
+  id: totrans-87
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-8\. 将图像作为模型的输入，并对这些图像进行预测。
+- en: Training-Serving Skew
+  id: totrans-88
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 训练-服务偏差
+- en: 'During inference, we need to carry out the exact same set of operations on
+    the image that we did during training (see [Figure 6-1](Images/#raw_images_have_to_be_preprocessed_befor)).
+    Recall that we did preprocessing in three places:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在推理期间，我们需要对图像执行与训练期间完全相同的操作（参见[Figure 6-1](Images/#raw_images_have_to_be_preprocessed_befor)）。回想一下，我们在三个地方进行了预处理：
+- en: When creating the file. When we wrote out the TensorFlow Records in [Chapter 5](ch05.xhtml#creating_vision_datasets),
+    we decoded the JPEG files and scaled the input values to [0, 1].
+  id: totrans-90
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建文件时。当我们在[第 5 章](ch05.xhtml#creating_vision_datasets)中写出 TensorFlow Records
+    时，我们解码了 JPEG 文件并将输入值缩放到 [0, 1]。
+- en: When reading the file. We applied the function `parse_tfr()` to the training
+    dataset. The only preprocessing this function did was to reshape the image tensor
+    to [height, width, 3], where the height and width are the original size of the
+    image.
+  id: totrans-91
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在读取文件时。我们对训练数据集应用了函数 `parse_tfr()`。该函数唯一的预处理是将图像张量重塑为 [height, width, 3]，其中
+    height 和 width 是图像的原始尺寸。
+- en: In the Keras model. We then applied `preproc_layers()` to the images. In the
+    last version of this method, we resized the images with padding to 448x448 and
+    then center cropped them to 224x224.
+  id: totrans-92
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在 Keras 模型中。然后我们对图像应用了 `preproc_layers()`。在此方法的最后版本中，我们将图像调整大小并填充至 448x448，然后中心裁剪为
+    224x224。
+- en: In the inference pipeline, we have to perform all those operations (decoding,
+    scaling, reshaping, resizing, center cropping) on the images provided by clients.^([1](ch06.xhtml#ch06fn01))
+    If we were to miss an operation or carry it out slightly differently between training
+    and inference, it would cause potentially incorrect results. The condition where
+    the training and inference pipelines diverge (therefore creating unexpected or
+    incorrect behavior during inference not seen during training) is called *training-serving
+    skew*. In order to prevent training-serving skew, it is ideal if we can reuse
+    the exact same code both in training and for inference.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在推理流程中，我们必须对客户端提供的图像执行所有这些操作（解码、缩放、重塑、调整大小、中心裁剪）^([1](ch06.xhtml#ch06fn01))。如果在训练和推理之间遗漏或者稍微不同地执行某个操作，可能会导致潜在的错误结果。训练和推理流程分歧的情况（因此在推理期间出现未预料或不正确的行为，而在训练期间未见）被称为*训练-服务偏差*。为了防止训练-服务偏差，最理想的情况是我们可以在训练和推理中重复使用完全相同的代码。
+- en: 'Broadly, there are three ways that we can set things up so that all the image
+    preprocessing done during training is also done during inference:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 广义上说，我们可以通过以下三种方式设置所有在训练期间进行的图像预处理也会在推理期间完成：
+- en: Put the preprocessing in functions that are called from both the training and
+    inference pipelines.
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将预处理步骤放入函数中，这些函数会从训练和推理流程中调用。
+- en: Incorporate the preprocessing into the model itself.
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将预处理整合到模型本身。
+- en: Use `tf.transform` to create and reuse artifacts.
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 `tf.transform` 创建和重用工件。
+- en: Let’s look at each of these methods. In each of these cases, we’ll want to refactor
+    the training pipeline so as to make it easier to reuse all the preprocessing code
+    during inference. The easier it is to reuse code between training and inference,
+    the more likely it is that subtle differences won’t crop up and cause training-serving
+    skew.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看每种方法。在每种情况下，我们都希望重构训练流程，以便在推理期间更轻松地重用所有预处理代码。代码在训练和推理之间重用得越容易，微小差异导致的问题就越少，从而避免训练-服务偏差的可能性就越大。
+- en: Reusing Functions
+  id: totrans-99
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 重复使用函数
+- en: The training pipeline in our case reads TensorFlow Records consisting of already
+    decoded and scaled JPEG files, whereas the prediction pipeline needs to key off
+    the path to an *individual* image file. So, the preprocessing code will not be
+    identical, but we can still collect all the preprocessing into functions that
+    are reused and put them in a class that we’ll call `_Preprocessor`.^([2](ch06.xhtml#ch06fn02))
+    The full code is available in [*06b_reuse_functions.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06b_reuse_functions.ipynb).
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的情况下，训练管道读取由已解码和缩放的JPEG文件组成的TensorFlow Records，而预测管道需要依赖于*单个*图像文件的路径。因此，预处理代码不会完全相同，但我们仍然可以将所有预处理收集到可重用的函数中，并将它们放在一个我们称之为`_Preprocessor`的类中。^([2](ch06.xhtml#ch06fn02))
+    完整代码可以在[*GitHub上的06b_reuse_functions.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06b_reuse_functions.ipynb)找到。
+- en: 'The methods of the preprocessor class will be called from two functions, one
+    to create a dataset from TensorFlow Records and the other to create an individual
+    image from a JPEG file. The function to create a preprocessed dataset is:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预处理类的方法将从两个函数中调用，一个用于从TensorFlow Records创建数据集，另一个用于从JPEG文件创建一个单独的图像。创建预处理数据集的函数是：
+- en: '[PRE16]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'There are three functions of the preprocessor that are being invoked: the constructor,
+    a way to read TensorFlow Records into an image, and a way to preprocess the image.
+    The function to create an individual preprocessed image is:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正在调用预处理器的三个函数：构造函数、将TensorFlow Records读入图像的方法以及预处理图像的方法。创建单个预处理图像的函数是：
+- en: '[PRE17]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Here too, we are using the constructor and preprocessing method, but we’re using
+    a different way to read the data. Therefore, the preprocessor will require four
+    methods.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们正在使用构造函数和预处理方法，但我们正在使用一种不同的方式来读取数据。因此，预处理器将需要四种方法。
+- en: 'The constructor in Python consists of a method called `__init__()`:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Python中的构造函数由名为`__init__()`的方法组成：
+- en: '[PRE18]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: In the `__init__()` method, we set up the preprocessing layers.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`__init__()`方法中，我们设置了预处理层。
+- en: 'To read from a TFRecord we use the `parse_tfr()` function from [Chapter 5](ch05.xhtml#creating_vision_datasets),
+    now a method of our class:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要从TFRecord中读取，我们使用来自[第5章](ch05.xhtml#creating_vision_datasets)的`parse_tfr()`函数，现在是我们类的方法：
+- en: '[PRE19]'
+  id: totrans-110
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'Preprocessing consists of taking the image, sizing it consistently, putting
+    into a batch, invoking the preprocessing layers, and unbatching the result:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预处理包括获取图像，将其大小调整一致，放入批处理中，调用预处理层，并取消批处理结果：
+- en: '[PRE20]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'When reading from a JPEG file, we take care to do all the steps that were carried
+    out when the TFRecord files were written out:'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当从JPEG文件读取时，我们务必执行所有在TFRecord文件写出时执行的步骤：
+- en: '[PRE21]'
+  id: totrans-114
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'Now, the training pipeline can create the training and validation datasets
+    using the `create_preproc_dataset()` function that we have defined:'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，训练管道可以使用我们定义的`create_preproc_dataset()`函数创建训练和验证数据集：
+- en: '[PRE22]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: The prediction code (which will go into a serving function, covered in [Chapter 9](ch09.xhtml#model_predictions))
+    will take advantage of the `create_preproc_image()` function to read individual
+    JPEG files and then invoke `model.predict()`.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预测代码（将进入一个服务函数，在[第9章](ch09.xhtml#model_predictions)中进行覆盖）将利用`create_preproc_image()`函数来读取单个JPEG文件，然后调用`model.predict()`。
+- en: Preprocessing Within the Model
+  id: totrans-118
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型内的预处理
+- en: 'Note that we did not have to do anything special to reuse the model itself
+    for prediction. For example, we did not have to write different variations of
+    the layers: the Hub layer representing MobileNet and the dense layer were all
+    transparently reusable between training and prediction.'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们不必采取任何特殊措施来重新使用模型本身进行预测。例如，我们不必编写不同版本的层：表示MobileNet的Hub层和密集层在训练和预测之间都是透明可重用的。
+- en: 'Any preprocessing code that we put into the Keras model will be automatically
+    applied during prediction. Therefore, let’s take the center-cropping functionality
+    out of the `_Preprocessor` class and move it into the model itself (see [*06b_reuse_functions.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06b_reuse_functions.ipynb)
+    for the code):'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将任何放入Keras模型的预处理代码自动应用于预测中。因此，让我们将中心裁剪功能从`_Preprocessor`类中取出，并将其移入模型本身（请参阅[*GitHub上的06b_reuse_functions.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06b_reuse_functions.ipynb)获取代码）：
+- en: '[PRE23]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'The `CenterCrop` layer moves into the Keras model, which now becomes:'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`CenterCrop`层移入Keras模型，现在变成了：'
+- en: '[PRE24]'
+  id: totrans-123
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: Recall that the first layer of a Sequential model is the one that carries the
+    `input_shape` parameter. So, we have removed this parameter from the Hub layer
+    and added it to the `CenterCrop` layer. The input to this layer is twice the desired
+    size of the images, so that’s what we specify.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下 Sequential 模型的第一层是带有 `input_shape` 参数的层。因此，我们已从 Hub 层中删除了此参数，并将其添加到 `CenterCrop`
+    层中。此层的输入是图像的所需大小的两倍，因此我们指定了这个大小。
+- en: 'The model now includes the `CenterCrop` layer and its output shape is 224x224,
+    our desired output shape:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型现在包括 `CenterCrop` 层，其输出形状为 224x224，即我们期望的输出形状：
+- en: '[PRE25]'
+  id: totrans-126
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: Of course, if both the training and prediction pipelines read the same data
+    format, we could get rid of the preprocessor completely.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，如果训练和预测流水线都读取相同的数据格式，我们完全可以摆脱预处理器。
+- en: Using tf.transform
+  id: totrans-128
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用 tf.transform
+- en: What we did in the previous section—writing a `_Preprocessor` class and expecting
+    to keep `read_from_tfr()` and `read_from_jpegfile()` consistent in terms of the
+    preprocessing that is carried out—is hard to enforce. This will be a perennial
+    source of bugs in your ML pipelines because ML engineering teams tend to keep
+    fiddling around with preprocessing and data cleanup routines.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一节中所做的事情——编写 `_Preprocessor` 类，并期望保持 `read_from_tfr()` 和 `read_from_jpegfile()`
+    在预处理方面的一致性——这很难强制执行。这将成为 ML 流水线中常见的错误源，因为 ML 工程团队倾向于不断调整预处理和数据清理例程。
+- en: For example, suppose we write out already cropped images into TFRecords for
+    efficiency. How can we ensure that this cropping happens during inference? To
+    mitigate training-serving skew, it is best if we save all the preprocessing operations
+    in an artifacts registry and automatically apply these operations as part of the
+    serving pipeline.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设我们已经将已裁剪的图像写入 TFRecords 以提高效率。在推断期间如何确保进行裁剪？为了减少训练-服务偏差，最好将所有预处理操作保存在工件注册表中，并自动将这些操作作为服务流水线的一部分应用。
+- en: 'The TensorFlow library that does this is [TensorFlow Transform](https://oreil.ly/25SxU)
+    (`tf.transform`). To use `tf.transform`, we need to:'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进行此操作的 TensorFlow 库是 [TensorFlow Transform](https://oreil.ly/25SxU) (`tf.transform`)。要使用
+    `tf.transform`，我们需要：
+- en: Write an Apache Beam pipeline to carry out analysis of the training data, precompute
+    any statistics needed for the preprocessing (e.g., mean/variance to use for normalization),
+    and apply the preprocessing.
+  id: totrans-132
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 编写 Apache Beam 流水线以分析训练数据，预计算预处理所需的任何统计信息（例如用于归一化的平均值/方差），并应用预处理。
+- en: Change the training code to read the preprocessed files.
+  id: totrans-133
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将训练代码更改为读取预处理后的文件。
+- en: Change the training code to save the transform function along with the model.
+  id: totrans-134
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更改训练代码以保存转换函数及其模型。
+- en: Change the inference code to apply the saved transform function.
+  id: totrans-135
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更改推断代码以应用保存的转换函数。
+- en: Let’s look at each of these briefly (the full code is available in [*06h_tftransform.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06h_tftransform.ipynb)).
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们简要看一下每一个（完整代码可以在 GitHub 上的 [*06h_tftransform.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06h_tftransform.ipynb)
+    中找到）。
+- en: Writing the Beam pipeline
+  id: totrans-137
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 编写 Beam 流水线
+- en: 'The Beam pipeline to carry out the preprocessing is similar to the pipeline
+    we used in [Chapter 5](ch05.xhtml#creating_vision_datasets) to convert the JPEG
+    files into TensorFlow Records. The difference is that we use the built-in functionality
+    of TensorFlow Extended (TFX) to create a CSV reader:'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进行预处理的 Beam 流水线类似于我们在 [第 5 章](ch05.xhtml#creating_vision_datasets) 中用于将 JPEG
+    文件转换为 TensorFlow 记录的流水线。不同之处在于，我们使用 TensorFlow Extended（TFX）的内置功能来创建 CSV 读取器：
+- en: '[PRE26]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'The input record at this point contains the JPEG data read, and a label index,
+    so we specify this as the schema (see [*jpeg_to_tfrecord_tft.py*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/jpeg_to_tfrecord_tft.py))
+    to create the dataset that will be transformed:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此时的输入记录包含读取的 JPEG 数据和标签索引，因此我们将其指定为模式（参见 [*jpeg_to_tfrecord_tft.py*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/jpeg_to_tfrecord_tft.py)），以创建将进行转换的数据集：
+- en: '[PRE27]'
+  id: totrans-141
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: Transforming the data
+  id: totrans-142
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 转换数据
+- en: 'To transform the data, we pass in the original data and metadata to a function
+    that we call `tft_preprocess()`:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要转换数据，我们将原始数据和元数据传递给我们称之为 `tft_preprocess()` 的函数：
+- en: '[PRE28]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'The preprocessing function carries out the resizing operations using TensorFlow
+    functions:'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预处理函数使用 TensorFlow 函数执行调整大小操作：
+- en: '[PRE29]'
+  id: totrans-146
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: Saving the transform
+  id: totrans-147
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 保存转换
+- en: 'The resulting transformed data is written out as before. In addition, the transformation
+    function is written out:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生成的转换数据如前所述写出。此外，转换函数也会写出：
+- en: '[PRE30]'
+  id: totrans-149
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: This creates a SavedModel that contains all the preprocessing operations that
+    were carried out on the raw dataset.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样就创建了一个包含在原始数据集上执行的所有预处理操作的 SavedModel。
+- en: Reading the preprocessed data
+  id: totrans-151
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 读取预处理数据
+- en: 'During training, the transformed records can be read as follows:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练期间，可以如下读取转换后的记录：
+- en: '[PRE31]'
+  id: totrans-153
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: These images are already scaled and resized and so can be used directly in the
+    training code.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些图像已经被缩放和调整大小，因此可以直接在训练代码中使用。
+- en: Transformation during serving
+  id: totrans-155
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 服务期间的转换
+- en: We need to make the transformation function artifacts (that were saved using
+    `WriteTransformFn()`) available to the prediction system. We can do this by ensuring
+    that the `WriteTransformFn()` writes the transform artifacts to a Cloud Storage
+    location that is accessible to the serving system. Alternatively, the training
+    pipeline can copy over the transform artifacts so that they are available alongside
+    the exported model.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要使转换函数工件（使用`WriteTransformFn()`保存的工件）可用于预测系统。我们可以通过确保`WriteTransformFn()`将转换工件写入对服务系统可访问的
+    Cloud Storage 位置来实现这一点。或者，训练管道可以复制转换工件，以便它们与导出的模型一起可用。
+- en: 'At prediction time, all the scaling and preprocessing operations are loaded
+    and applied to the image bytes sent from the client:'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在预测时，所有缩放和预处理操作都将加载并应用于从客户端发送的图像字节：
+- en: '[PRE32]'
+  id: totrans-158
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: 'We then call `model.predict()` on the preprocessed data:'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们对预处理数据调用`model.predict()`：
+- en: '[PRE33]'
+  id: totrans-160
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: In [Chapter 7](ch07.xhtml#training_pipeline), we will look at how to write a
+    serving function that does these operations on behalf of the client.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第7章](ch07.xhtml#training_pipeline)中，我们将看到如何编写一个代表客户端执行这些操作的服务函数。
+- en: Benefits of tf.transform
+  id: totrans-162
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: tf.transform 的好处
+- en: 'Note that with `tf.transform` we have avoided having to make the trade-offs
+    inherent in either putting preprocessing code in the `tf.data` pipeline or including
+    it as part of the model. We now get the best of both approaches—efficient training
+    and transparent reuse to prevent training-serving skew:'
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，使用`tf.transform`，我们避免了在`tf.data`管道中放置预处理代码或将其包含为模型的内在折衷。现在我们可以兼顾两种方法的优势——高效的训练和透明的重复使用以防止训练-服务偏差：
+- en: The preprocessing (scaling and resizing of input images) happens only once.
+  id: totrans-164
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 预处理（对输入图像进行缩放和调整大小）只会发生一次。
+- en: The training pipeline reads already preprocessed images, and is therefore fast.
+  id: totrans-165
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练管道读取已经预处理的图像，因此速度很快。
+- en: The preprocessing functions are stored into a model artifact.
+  id: totrans-166
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 预处理函数被存储为模型工件。
+- en: The serving function can load the model artifact and apply the preprocessing
+    before invoking the model (details on how are covered shortly).
+  id: totrans-167
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 服务函数可以加载模型工件，并在调用模型之前应用预处理（如何实现将在稍后介绍）。
+- en: The serving function doesn’t need to know the details of the transformations,
+    only where the transform artifacts are stored. A common practice is to copy over
+    these artifacts to the model output directory as part of the training program,
+    so that they are available alongside the model itself. If we change the preprocessing
+    code, we simply run the preprocessing pipeline again; the model artifact containing
+    the preprocessing code gets updated, so the correct preprocessing gets applied
+    automatically.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务函数不需要了解转换的细节，只需知道转换后的工件存储在哪里。一种常见做法是在训练程序的一部分中将这些工件复制到模型输出目录中，以便它们与模型本身一起可用。如果我们更改预处理代码，只需再次运行预处理管道；包含预处理代码的模型工件将得到更新，因此正确的预处理会自动应用。
+- en: There are other advantages to using `tf.transform` beyond preventing training-serving
+    skew. For example, because `tf.transform` iterates over the entire dataset once
+    before training has even started, it is possible to use global statistics of the
+    dataset (e.g., the mean) to scale the values.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`tf.transform`除了防止训练-服务偏差之外，还有其他优点。例如，因为`tf.transform`在训练开始之前甚至可以全局统计数据集（例如平均值），所以可以使用数据集的全局统计信息来缩放值。
+- en: Data Augmentation
+  id: totrans-170
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 数据增强
+- en: Preprocessing is useful for more than simply reformatting images to the size
+    and shape required by the model. Preprocessing can also be a way to improve model
+    quality through *data augmentation*.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预处理不仅仅是将图像重新格式化为模型所需的大小和形状。预处理还可以通过*数据增强*来提高模型质量。
+- en: Data augmentation is a data-space solution to the problem of insufficient data
+    (or insufficient data of the right kind)—it is a set of techniques that enhance
+    the size and quality of training datasets with the goal of creating machine learning
+    models that are more accurate and that generalize better.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据增强是解决数据不足问题的一种数据空间解决方案（或缺乏正确类型数据问题），它是一组技术，旨在增强训练数据集的规模和质量，以创建更准确、泛化能力更强的机器学习模型。
+- en: Deep learning models have lots of weights, and the more weights there are, the
+    more data is needed to train the model. If our dataset is too small relative to
+    the size of the ML model, the model can employ its parameters to memorize the
+    input data, which results in overfitting (a condition where the model performs
+    well on training data, but produces poor results on unseen data at inference time).
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 深度学习模型具有大量的权重，权重越多，训练模型所需的数据就越多。如果我们的数据集相对于机器学习模型的大小太小，模型可以利用其参数来记忆输入数据，导致过拟合（模型在训练数据上表现良好，但在推断时对未见数据产生较差结果）。
+- en: As a thought experiment, consider an ML model with one million weights. If we
+    have only 10,000 training images, the model can assign 100 weights to each image,
+    and these weights can home in on some characteristic of each image that makes
+    it unique in some way—for example, perhaps this is the only image where there
+    is a bright patch centered around a specific pixel. The problem is that such an
+    overfit model will not perform well after it is put into production. The images
+    that the model will be required to predict will be different from the training
+    images, and the noisy information it has learned won’t be helpful. We need the
+    ML model to *generalize* from the training dataset. For that to happen, we need
+    a lot of data, and the larger the model we want, the more data we need.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为一种思维实验，考虑一个具有一百万个权重的机器学习模型。如果我们只有一万张训练图像，那么模型可能会为每张图像分配一百个权重，这些权重可能会聚焦于使每张图像在某种方面独特的某些特征上，例如，这可能是唯一一张图像，在其中有一个围绕特定像素中心的明亮区域。问题在于，这样一个过度拟合的模型在投入生产后性能不会很好。模型需要预测的图像将与训练图像不同，并且它学到的嘈杂信息将毫无帮助。我们需要机器学习模型从训练数据集中*泛化*。为了实现这一点，我们需要大量的数据，而我们希望的模型越大，我们需要的数据就越多。
+- en: 'Data augmentation techniques involve taking the images in the training dataset
+    and transforming them to create new training examples. Existing data augmentation
+    methods fall into three categories:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据增强技术涉及对训练数据集中的图像进行变换，以创建新的训练样本。现有的数据增强方法可分为三类：
+- en: Spatial transformation, such as random zooming, cropping, flipping, rotation,
+    and so on
+  id: totrans-176
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 空间变换，如随机缩放、裁剪、翻转、旋转等
+- en: Color distortion to change brightness, hue, etc.
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 色彩失真以改变亮度、色调等。
+- en: Information dropping, such as random masking or erasing of different parts of
+    the image
+  id: totrans-178
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 信息丢失，例如随机遮罩或擦除图像的不同部分
+- en: Let’s look at each of these in turn.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们依次看看每一个。
+- en: Spatial Transformations
+  id: totrans-180
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 空间变换
+- en: In many cases, we can flip or rotate an image without changing its essence.
+    For example, if we are trying to detect types of farm equipment, flipping the
+    images horizontally (left to right, as shown in the top row of [Figure 6-9](#some_geometric_transformations_of_an_ima))
+    would simply simulate the equipment as seen from the other side. By augmenting
+    the dataset using such image transformations, we are providing the model with
+    more variety—meaning more examples of the desired image object or class in varying
+    sizes, spatial locations, orientations, etc. This will help create a more robust
+    model that can handle these kinds of variations in real data.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多情况下，我们可以翻转或旋转图像而不改变其本质。例如，如果我们试图检测农场设备的类型，水平翻转图像（从左到右，如[图 6-9](#some_geometric_transformations_of_an_ima)中顶部行所示）将简单地模拟从另一侧看到的设备。通过使用这种图像变换来增加数据集，我们为模型提供了更多的多样性——意味着以不同大小、空间位置、方向等展示所需图像对象或类的更多示例。这将有助于创建一个能够处理真实数据中这些变化的更健壮模型。
+- en: '![](Images/pmlc_0609.png)'
+  id: totrans-182
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0609.png)'
+- en: Figure 6-9\. Some geometric transformations of an image of a tractor in a field.
+    Photograph by author.
+  id: totrans-183
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-9\. 一幅田野中拖拉机图像的几何变换。照片作者拍摄。
+- en: However, flipping the image vertically (top to bottom, as shown on the left
+    side of [Figure 6-9](#some_geometric_transformations_of_an_ima)) is not a good
+    idea, for a few reasons. First, the model is not expected to correctly classify
+    an upside-down image in production, so there is no point in adding this image
+    to the training dataset. Second, a vertically flipped tractor image makes it more
+    difficult for the ML model to identify features like the cabin that are not vertically
+    symmetric. Flipping the image vertically thus both adds an image type that the
+    model is not required to classify correctly and makes the learning problem tougher.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，垂直翻转图像（如[Figure 6-9](#some_geometric_transformations_of_an_ima)左侧所示）并不是一个好主意，原因有几点。首先，在生产中不会预期模型正确分类倒置的图像，因此将此类图像添加到训练数据集中没有意义。其次，垂直翻转的拖拉机图像使得ML模型更难识别像驾驶室这样的非垂直对称特征。因此，垂直翻转图像不仅添加了模型无需正确分类的图像类型，还使得学习问题更加困难。
+- en: Tip
+  id: totrans-185
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: Make sure that augmenting data makes the training dataset larger, but does not
+    make the problem more difficult. In general, this is the case only if the augmented
+    image is typical of the images that the model is expected to predict on, and not
+    if the augmentation creates a skewed, unnatural image. Information dropping methods,
+    discussed shortly, are an exception to this rule.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保数据增强使训练数据集变大，但不会使问题更加困难。一般来说，只有当增强图像典型于模型预期预测的图像时，才会出现这种情况，而如果增强造成了偏斜的、不自然的图像，则不会。不过，稍后讨论的信息丢弃方法是这一规则的一个例外。
+- en: Keras supports several [data augmentation layers](https://oreil.ly/8r8Z6), including
+    `RandomTranslation`, `RandomRotation`, `RandomZoom`, `RandomCrop`, `RandomFlip`,
+    and so on. They all work similarly.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras支持多种[数据增强层](https://oreil.ly/8r8Z6)，包括`RandomTranslation`、`RandomRotation`、`RandomZoom`、`RandomCrop`、`RandomFlip`等等。它们的工作原理都类似。
+- en: 'The `RandomFlip` layer will, during training, randomly either flip an image
+    or keep it in its original orientation. During inference, the image is passed
+    through unchanged. Keras does this automatically; all we have to do is add this
+    as one of the layers in our model:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`RandomFlip`层将在训练期间随机翻转图像或保持其原始方向。在推理期间，图像将保持不变。Keras会自动完成这一过程；我们只需将其添加为模型的一层即可：'
+- en: '[PRE34]'
+  id: totrans-189
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: The `mode` parameter controls the types of flips that are allowed, with a `horizontal`
+    flip being the one that flips the image left to right. Other modes are `vertical`
+    and `horizontal_and_vertical`.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`mode`参数控制允许的翻转类型，其中`horizontal`翻转将图像从左到右翻转。其他模式包括`vertical`和`horizontal_and_vertical`。'
+- en: In the previous section, we center cropped the images. When we do a center crop,
+    we lose a considerable part of the image. To improve our training performance,
+    we could consider augmenting the data by taking random crops of the desired size
+    from the input images. The `RandomCrop` layer in Keras will do random crops during
+    training (so that the model sees different parts of each image during each epoch,
+    although some of them will now include the padded edges and may not even include
+    the parts of the image that are of interest) and behave like a `CenterCrop` during
+    inference.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们对图像进行了中心裁剪。当我们进行中心裁剪时，会丢失图像的相当部分。为了提高我们的训练性能，我们可以考虑通过从输入图像中随机裁剪出所需大小的随机裁剪数据。在Keras中，`RandomCrop`层会在训练期间进行随机裁剪（使模型在每个epoch中看到图像的不同部分，尽管其中一些现在包括填充边缘，甚至可能不包括感兴趣的图像部分），并在推理期间表现得像`CenterCrop`。
+- en: 'The full code for this example is in [*06d_augmentation.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06d_augmentation.ipynb).
+    Combining these two operations, our model layers now become:'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此示例的完整代码在[*06d_augmentation.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06d_augmentation.ipynb)中。结合这两个操作，我们的模型层现在变为：
+- en: '[PRE35]'
+  id: totrans-193
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: 'And the model itself becomes:'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 而模型本身变成：
+- en: '[PRE36]'
+  id: totrans-195
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: Training this model is similar to training without augmentation. However, we
+    will need to train the model longer whenever we augment data—intuitively, we need
+    to train for twice as many epochs in order for the model to see both flips of
+    the image. The result is shown in [Figure 6-10](#the_loss_and_accuracy_curves_for-id00009).
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练这个模型类似于没有进行数据增强的训练。然而，每当我们进行数据增强时，需要更长时间地训练模型——直观上说，我们需要训练两倍的epoch以使模型看到图像的两种翻转。结果显示在[Figure 6-10](#the_loss_and_accuracy_curves_for-id00009)中。
+- en: '![](Images/pmlc_0610.png)'
+  id: totrans-197
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0610.png)'
+- en: Figure 6-10\. The loss and accuracy curves for a MobileNet transfer learning
+    model with data augmentation. Compare to [Figure 6-7](#the_loss_and_accuracy_curves_for_a_mobil).
+  id: totrans-198
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-10\. MobileNet 迁移学习模型的损失和准确率曲线。与[图6-7](#the_loss_and_accuracy_curves_for_a_mobil)进行比较。
+- en: Comparing [Figure 6-10](#the_loss_and_accuracy_curves_for-id00009) with [Figure 6-7](#the_loss_and_accuracy_curves_for_a_mobil),
+    we notice how much more resilient the model training has become with the addition
+    of data augmentation. Note that the training and validation loss are pretty much
+    in sync, as are the training and validation accuracies. The accuracy, at 0.86,
+    is only slightly better than before (0.85); the important thing is that we can
+    be more confident about this accuracy because of the much better behaved training
+    curves.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将[图6-10](#the_loss_and_accuracy_curves_for-id00009)与[图6-7](#the_loss_and_accuracy_curves_for_a_mobil)进行比较，我们可以注意到增加数据增强后模型训练的更具鲁棒性。请注意，训练和验证损失几乎同步，训练和验证精度也如此。精度为0.86，略高于之前的0.85；重要的是，由于训练曲线表现更好，我们对这个精度更有信心。
+- en: By adding data augmentation, we have dramatically lowered the extent of overfitting.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过添加数据增强，我们显著降低了过拟合的程度。
+- en: Color Distortion
+  id: totrans-201
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 色彩失真
+- en: It’s important to not limit yourself to the set of augmentation layers that
+    are readily available. Think instead about what kinds of variations of the images
+    the model is likely to encounter in production. For example, it is likely that
+    photographs provided to an ML model (especially if these are photographs by amateur
+    photographers) will vary quite considerably in terms of lighting. We can therefore
+    increase the effective size of the training dataset and make the ML model more
+    resilient if we augment the data by randomly changing the brightness, contrast,
+    saturation, etc. of the training images. While Keras has several built-in data
+    augmentation layers (like [`RandomFlip`](https://oreil.ly/818dT)), it doesn’t
+    currently support changing the contrast^([3](ch06.xhtml#ch06fn03)) and brightness.
+    So, let’s implement this ourselves.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要仅限于现有的增强层集合。相反，考虑模型在生产中可能遇到的图像变化类型。例如，提供给 ML 模型的照片（特别是来自业余摄影师的照片）在光照方面可能会有很大的差异。因此，如果我们通过随机改变训练图像的亮度、对比度、饱和度等来增强数据，我们可以增加训练数据集的有效大小，使
+    ML 模型更具鲁棒性。虽然 Keras 提供了几个内置的数据增强层（如[`RandomFlip`](https://oreil.ly/818dT)），但目前不支持更改对比度^([3](ch06.xhtml#ch06fn03))和亮度。因此，让我们自己来实现这一功能。
+- en: 'We’ll create a data augmentation layer from scratch that will randomly change
+    the contrast and brightness of an image. The class will inherit from the Keras
+    `Layer` class and take two arguments, the ranges within which to adjust the contrast
+    and the brightness (the full code is in [*06e_colordistortion.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06e_colordistortion.ipynb)):'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将从头开始创建一个数据增强层，随机改变图像的对比度和亮度。该类将继承自 Keras 的`Layer`类，并接受两个参数，即调整对比度和亮度的范围（完整代码在[*06e_colordistortion.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06e_colordistortion.ipynb)中）：
+- en: '[PRE37]'
+  id: totrans-204
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: 'When invoked, this layer will need to behave differently depending on whether
+    it is in training mode or not. If not in training mode, the layer will simply
+    return the original images. If it is in training mode, it will generate two random
+    numbers, one to adjust the contrast within the image and the other to adjust the
+    brightness. The actual adjustment is carried out using methods available in the
+    `tf.image` module:'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调用此层时，其行为将根据是否处于训练模式而有所不同。如果不处于训练模式，则该层将简单返回原始图像。如果处于训练模式，则将生成两个随机数，一个用于调整图像内的对比度，另一个用于调整亮度。实际的调整操作是使用`tf.image`模块中可用的方法进行的：
+- en: '[PRE38]'
+  id: totrans-206
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: Tip
+  id: totrans-207
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: It’s important that the implementation of the custom augmentation layer consists
+    of TensorFlow functions so that these functions can be implemented efficiently
+    on a GPU. See [Chapter 7](ch07.xhtml#training_pipeline) for recommendations on
+    writing efficient data pipelines.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实施自定义增强层时很重要的一点是使用 TensorFlow 函数，这样这些函数可以在 GPU 上高效实现。参见[第7章](ch07.xhtml#training_pipeline)，了解编写高效数据管道的建议。
+- en: The effect of this layer on a few training images is shown in [Figure 6-11](#random_contrast_and_brightness_adjustmen).
+    Note that the images have different contrast and brightness levels. By invoking
+    this layer many times on each input image (once per epoch), we ensure that the
+    model gets to see many color variations of the original training images.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一层对几个训练图像的效果显示在[图6-11](#random_contrast_and_brightness_adjustmen)中。请注意，图像具有不同的对比度和亮度级别。通过在每个输入图像上每个周期调用此层多次，我们确保模型能够看到原始训练图像的许多颜色变化。
+- en: '![](Images/pmlc_0611.png)'
+  id: totrans-210
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0611.png)'
+- en: Figure 6-11\. Random contrast and brightness adjustment on three of the training
+    images. The original images are shown in the first panel of each row, and four
+    generated images are shown in the other panels. If you’re looking at grayscale
+    images, please refer to [*06e_colordistortion.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06e_colordistortion.ipynb)
+    to see the effect of the color distortion.
+  id: totrans-211
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-11。对三个训练图像进行随机对比度和亮度调整。每行的第一个面板显示原始图像，其他面板显示生成的四幅图像。如果您查看的是灰度图像，请参考GitHub上的[*06e_colordistortion.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06e_colordistortion.ipynb)来查看颜色失真的效果。
+- en: 'The layer itself can be inserted into the model after the `RandomFlip` layer:'
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 层本身可以在`RandomFlip`层之后插入模型：
+- en: '[PRE39]'
+  id: totrans-213
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: 'The full model will then have this structure:'
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后整个模型将具有这种结构：
+- en: '[PRE40]'
+  id: totrans-215
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: Training of the model remains identical. The result is shown in [Figure 6-12](#the_loss_and_accuracy_curves_for-id00010).
+    We get better accuracy than with just geometric augmentation (0.88 instead of
+    0.86) and the training and validation curves remain totally in sync, indicating
+    that overfitting is under control.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型的训练保持不变。结果显示在[图6-12](#the_loss_and_accuracy_curves_for-id00010)中。我们比仅使用几何增强获得更好的准确性（0.88而不是0.86），训练和验证曲线保持完全同步，表明过拟合得到控制。
+- en: '![](Images/pmlc_0612.png)'
+  id: totrans-217
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0612.png)'
+- en: Figure 6-12\. The loss and accuracy curves for a MobileNet transfer learning
+    model with geometric and color augmentation. Compare to Figure [6-7](#the_loss_and_accuracy_curves_for_a_mobil)
+    and [6-10](#the_loss_and_accuracy_curves_for-id00009).
+  id: totrans-218
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-12。MobileNet迁移学习模型的损失和准确率曲线，带有几何和颜色增强。与图[6-7](#the_loss_and_accuracy_curves_for_a_mobil)和[6-10](#the_loss_and_accuracy_curves_for-id00009)进行比较。
+- en: Information Dropping
+  id: totrans-219
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 信息丢弃
+- en: 'Recent research highlights some new ideas in data augmentation that involve
+    making more dramatic changes to the images. These techniques *drop* information
+    from the images in order to make the training process more resilient and to help
+    the model attend to the important features of the images. They include:'
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最近的研究突出了一些数据增强中的新想法，涉及对图像进行更激烈的更改。这些技术*丢弃*图像中的信息，以使训练过程更具韧性，并帮助模型关注图像的重要特征。它们包括：
+- en: '[Cutout](https://arxiv.org/abs/1708.04552)'
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Cutout](https://arxiv.org/abs/1708.04552)'
+- en: Randomly mask out square regions of input during training. This helps the model
+    learn to disregard uninformative parts of the image (such as the sky) and attend
+    to the discriminative parts (such as the petals).
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练过程中随机遮罩输入的方形区域。这有助于模型学习忽略图像中无信息的部分（如天空），并注意区分性的部分（如花瓣）。
+- en: '[Mixup](https://arxiv.org/abs/1710.09412)'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Mixup](https://arxiv.org/abs/1710.09412)'
+- en: Linearly interpolate a pair of training images and assign as their label the
+    corresponding interpolated label value.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 线性插值一对训练图像，并将相应的插值标签值分配为它们的标签。
+- en: '[CutMix](https://arxiv.org/abs/1905.04899)'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[CutMix](https://arxiv.org/abs/1905.04899)'
+- en: A combination of cutout and mixup. Cut patches from different training images
+    and mix the ground truth labels proportionally to the area of the patches.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个cutout和mixup的组合。从不同的训练图像中剪切补丁，并且按照补丁区域的面积比例混合地真实标签。
+- en: '[GridMask](https://arxiv.org/pdf/2001.04086.pdf)'
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[GridMask](https://arxiv.org/pdf/2001.04086.pdf)'
+- en: Delete uniformly distributed square regions while controlling the density and
+    size of the deleted regions. The underlying assumption is that images are intentionally
+    collected—uniformly distributed square regions tend to be the background.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在控制删除区域的密度和大小的同时删除均匀分布的方形区域。其基本假设是故意收集的图像——均匀分布的方形区域往往是背景。
+- en: Cutout and GridMask involve preprocessing operations on a single image and can
+    be implemented similar to how we implemented the color distortion. Open source
+    code for [cutout](https://oreil.ly/fGHK6) and [GridMask](https://oreil.ly/3tzFk)
+    is available on GitHub.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Cutout 和 GridMask 是对单个图像进行的预处理操作，可以类似于我们实现的颜色失真。开源代码可以在 GitHub 上找到 [cutout](https://oreil.ly/fGHK6)
+    和 [GridMask](https://oreil.ly/3tzFk)。
+- en: Mixup and CutMix, however, use information from multiple training images to
+    create synthetic images that may bear no resemblance to reality. In this section
+    we’ll look at how to implement mixup, since it is simpler. The full code is in
+    [*06f_mixup.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06f_mixup.ipynb).
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，Mixup 和 CutMix 使用来自多个训练图像的信息创建合成图像，这些图像可能与现实没有任何相似之处。在本节中，我们将看看如何实现 mixup，因为它更简单。完整的代码在
+    [*GitHub 上的 06f_mixup.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06f_mixup.ipynb)
+    中。
+- en: 'The idea behind mixup is to linearly interpolate a pair of training images
+    and their labels. We can’t do this in a Keras custom layer because the layer only
+    receives images; it doesn’t get the labels. Therefore, let’s implement a function
+    that receives a batch of images and labels and does the mixup:'
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: mixup 的背后思想是线性插值一对训练图像及其标签。我们无法在 Keras 自定义层中实现这一点，因为该层只接收图像，而不接收标签。因此，让我们实现一个函数，接收一个图像和标签的批次，并执行
+    mixup：
+- en: '[PRE41]'
+  id: totrans-232
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: 'In this code, we have defined two parameters: `fracn` and `wt`. Instead of
+    mixing up all the images in the batch, we will mix up a fraction of them (by default,
+    0.4) and keep the remaining images (and labels) as they are. The parameter `fracn`
+    is the number of images in the batch that we have to mix up. In the function we
+    will also choose a weighting factor, `wt`, of between 0.1 and 0.4 to interpolate
+    the pair of images.'
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这段代码中，我们定义了两个参数：`fracn` 和 `wt`。我们不会将批次中所有图像混合在一起，而是将其中一部分图像混合在一起（默认情况下为 0.4），并保留其余图像（和标签）。参数
+    `fracn` 是我们必须混合的批次中的图像数量。在函数中，我们还会选择一个权重因子 `wt`，介于 0.1 和 0.4 之间，来插值图像对。
+- en: 'To interpolate, we need pairs of images. The first set of images will be the
+    first `fracn` images in the batch:'
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要进行插值，我们需要图像对。第一组图像将是批次中的前 `fracn` 个图像：
+- en: '[PRE42]'
+  id: totrans-235
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: 'How about the second image in each pair? We’ll do something quite simple: we’ll
+    pick the next image, so that the first image gets interpolated with the second,
+    the second with the third, and so on. Now that we have the pairs of images/labels,
+    interpolating can be done as follows:'
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么每对中的第二张图像呢？我们将做一些非常简单的事情：我们将选择下一张图像，这样第一张图像就与第二张图像插值，第二张图像与第三张图像插值，依此类推。现在我们有了图像/标签对，插值可以按以下方式完成：
+- en: '[PRE43]'
+  id: totrans-237
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: 'The results are shown in [Figure 6-13](#the_results_of_mixup_on_a_batch_of_five).
+    The top row is the original batch of five images. The bottom row is the result
+    of mixup: 40% of 5 is 2, so the first two images are the ones that are mixed up,
+    and the last three images are left as-is. The first mixed-up image is obtained
+    by interpolating the first and second original images, with a weight of 0.63 to
+    the first and 0.37 to the second. The second mixed-up image is obtained by mixing
+    up the second and third images from the top row. Note that the labels (the array
+    above each image) show the impact of the mixup as well.'
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果显示在 [Figure 6-13](#the_results_of_mixup_on_a_batch_of_five) 中。顶部行是五个图像的原始批次。底部行是
+    mixup 的结果：5 的 40% 是 2，因此混合的是前两个图像，剩下的三个图像保持不变。第一个混合图像是通过对前两个原始图像进行插值得到的，第一个图像权重为
+    0.63，第二个图像权重为 0.37。第二个混合图像是通过混合顶部行中的第二个和第三个图像得到的。请注意，标签（每个图像上方的数组）显示了 mixup 的影响。
+- en: '[PRE44]'
+  id: totrans-239
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: '![](Images/pmlc_0613.png)'
+  id: totrans-240
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0613.png)'
+- en: Figure 6-13\. The results of mixup on a batch of five images and their labels.
+    The original images are in the top row, and the first two images (40% of the batch)
+    in the bottom row are the ones that are mixed up.
+  id: totrans-241
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-13\. 五个图像及其标签的 mixup 结果。顶部行是原始批次中的图像。底部行是 mixup 的结果，40% 的批次是第一二个图像被混合。
+- en: 'At this point, we have `fracn` interpolated images built from the first `fracn+1`
+    images (we need `fracn+1` images to get `fracn` pairs, since the `fracn`th image
+    is interpolated with the `fracn+1`th one). We then stack the interpolated images
+    and the remaining unaltered images to get back a `batch_size` of images:'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们从前 `fracn+1` 个图像中生成了 `fracn` 对插值图像（我们需要 `fracn+1` 个图像来获取 `fracn` 对，因为第
+    `fracn` 个图像是与第 `fracn+1` 个图像插值的）。然后，我们堆叠插值图像和剩余的未改变图像，以重新获得一个 `batch_size` 的图像：
+- en: '[PRE45]'
+  id: totrans-243
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: 'The `augment_mixup()` method can be passed into the `tf.data` pipeline that
+    is used to create the training dataset:'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`augment_mixup()` 方法可以传递到用于创建训练数据集的 `tf.data` 管道中：'
+- en: '[PRE46]'
+  id: totrans-245
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: There are a couple of things to notice in this code. First, we have added a
+    `shuffle()` step to ensure that the batches are different in each epoch (otherwise,
+    we won’t get any variety in our mixup). We ask `tf.data` to drop any leftover
+    items in the last batch, because computation of the parameter `n` could run into
+    problems on very small batches. Because of the shuffle, we’ll be dropping different
+    items each time, so we’re not too bothered about this.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这段代码中，有几点需要注意。首先，我们添加了一个 `shuffle()` 步骤，以确保每个 epoch 的批次是不同的（否则，我们在 mixup 中将得不到任何变化）。我们要求
+    `tf.data` 丢弃最后一个批次中的任何剩余项目，因为在非常小的批次上计算参数 `n` 可能会遇到问题。由于洗牌，每次我们都会丢弃不同的项目，所以我们对此并不过于担心。
+- en: Tip
+  id: totrans-247
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: '`shuffle()` works by reading records into a buffer, shuffling the records in
+    the buffer, and then providing the records to the next step of the data pipeline.
+    Because we want the records in a batch to be different during each epoch, we will
+    need the size of the shuffle buffer to be much larger than the batch size—shuffling
+    the records within a batch won’t suffice. Hence, we use:'
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`shuffle()` 函数的工作原理是将记录读入缓冲区，对缓冲区中的记录进行洗牌，然后将记录提供给数据管道的下一步。因为我们希望每个 epoch 中的批次中的记录是不同的，所以我们需要的洗牌缓冲区大小要远远大于批次大小——在批次内部洗牌是不够的。因此，我们使用：'
+- en: '[PRE47]'
+  id: totrans-249
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: 'Interpolating labels is not possible if we keep the labels as sparse integers
+    (e.g., 4 for tulips). Instead, we have to one-hot encode the labels (see [Figure 6-13](#the_results_of_mixup_on_a_batch_of_five)).
+    Therefore, we make two changes to our training program. First, our `read_from_tfr()`
+    method does the one-hot encoding instead of simply returning `label_int`:'
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们保持标签为稀疏整数（例如，郁金香的标签为 4），则无法进行插值标签。相反，我们必须对标签进行独热编码（参见 [图 6-13](#the_results_of_mixup_on_a_batch_of_five)）。因此，我们对训练程序进行了两个更改。首先，我们的
+    `read_from_tfr()` 方法执行独热编码，而不是简单地返回 `label_int`：
+- en: '[PRE48]'
+  id: totrans-251
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE48]'
+- en: 'Second, we change the loss function from `SparseCategoricalCrossentropy()`
+    to `CategoricalCrossentropy()` since the labels are now one-hot encoded:'
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，我们将损失函数从 `SparseCategoricalCrossentropy()` 更改为 `CategoricalCrossentropy()`，因为标签现在是独热编码：
+- en: '[PRE49]'
+  id: totrans-253
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE49]'
+- en: On the 5-flowers dataset, mixup doesn’t improve the performance of the model—we
+    got the same accuracy (0.88, see [Figure 6-14](#the_loss_and_accuracy_curves_fo-id00011))
+    with mixup as without it. However, it might help in other situations. Recall that
+    information dropping helps the model learn to disregard uninformative parts of
+    the image and mixup works by linearly interpolating pairs of training images.
+    So, information dropping via mixup would work well in situations where only a
+    small section of the image is informative, and where the pixel intensity is informative—think,
+    for example, of remotely sensed imagery where we are trying to identify deforested
+    patches of land.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 5-花数据集上，mixup 并未改善模型的性能——使用 mixup 的准确率（0.88，见 [图 6-14](#the_loss_and_accuracy_curves_fo-id00011)）与未使用时相同。然而，在其他情况下可能有所帮助。回想一下，信息丢弃帮助模型学会忽略图像中无用的部分，而
+    mixup 通过线性插值训练图像对工作。因此，在仅有图像的一小部分信息有用且像素强度信息有用的情况下，信息丢弃通过 mixup 将起到良好的作用——例如，遥感图像中我们试图识别的破坏林地。
+- en: '![](Images/pmlc_0614.png)'
+  id: totrans-255
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0614.png)'
+- en: Figure 6-14\. The loss and accuracy curves for a MobileNet transfer learning
+    model with mixup. Compare to [Figure 6-12](#the_loss_and_accuracy_curves_for-id00010).
+  id: totrans-256
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-14。MobileNet 转移学习模型与 mixup 的损失和准确率曲线。与 [图 6-12](#the_loss_and_accuracy_curves_for-id00010)
+    进行比较。
+- en: Interestingly, the validation accuracy and loss are now better than the training
+    accuracy. This is logical when we recognize that the training dataset is “harder”
+    than the validation dataset—there are no mixed-up images in the validation set.
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有趣的是，验证的准确率和损失现在比训练的更好。当我们意识到训练数据集比验证数据集“更难”时，这是合理的——验证集中没有混合图像。
+- en: Forming Input Images
+  id: totrans-258
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 形成输入图像
+- en: The preprocessing operations we have looked at so far are one-to-one, in that
+    they simply modify the input image and provide a single image to the model for
+    every image that is input. This is not necessary, however. Sometimes, it can be
+    helpful to use the preprocessing pipeline to break down each input into multiple
+    images that are then fed to the model for training and inference (see [Figure 6-15](#breaking_down_a_single_input_into_compon)).
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们看过的预处理操作是一对一的，即它们仅修改输入图像，并为每个输入图像提供一个单独的图像给模型。 然而，这并非必须如此。 有时，使用预处理管道将每个输入拆分为多个图像并将其馈送到模型进行训练和推断可能是有帮助的（见[图 6-15](#breaking_down_a_single_input_into_compon)）。
+- en: '![](Images/pmlc_0615.png)'
+  id: totrans-260
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0615.png)'
+- en: Figure 6-15\. Breaking down a single input into component images that are used
+    to train the model. The operation used to break an input into its component images
+    during training also has to be repeated during inference.
+  id: totrans-261
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-15\. 将单个输入拆分为用于训练模型的组成图像。 在训练期间用于将输入拆分为其组成图像的操作也必须在推断期间重复执行。
+- en: One method of forming the images that are input to a model is *tiling*. Tiling
+    is useful in any field where we have extremely large images and where predictions
+    can be carried out on parts of the large image and then assembled. This tends
+    to be the case for geospatial imagery (identifying deforested areas), medical
+    images (identifying cancerous tissue), and surveillance (identifying liquid spills
+    on a factory floor).
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 形成输入模型的图像的一种方法是*平铺*。 在我们需要处理极大图像并且可以对大图像的部分进行预测并进行组合的任何领域中，平铺都是非常有用的。 这通常适用于地理空间图像（识别被砍伐的区域）、医学图像（识别癌组织）和监控（识别工厂地板上的液体泄漏）。
+- en: Imagine that we have a remotely sensed image of the Earth and would like to
+    identify forest fires (see [Figure 6-16](#remotely_sensed_image_of_wildfires_in_ca)).
+    To do this, a machine learning model would have to predict whether an individual
+    pixel contains a forest fire or not. The input to such a model would be a *tile*,
+    the part of the original image immediately surrounding the pixel to be predicted.
+    We can preprocess geospatial images to yield equal-sized tiles that are used to
+    train ML models and obtain predictions from them.
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们有一幅地球的遥感图像，并希望识别森林火灾（参见[图 6-16](#remotely_sensed_image_of_wildfires_in_ca)）。
+    为此，机器学习模型需要预测单个像素是否包含森林火灾。 这样的模型的输入将是一个*平铺*，即原始图像周围即将预测的像素部分。 我们可以对地理空间图像进行预处理，以生成用于训练ML模型和获取其预测的相同大小的平铺。
+- en: '![](Images/pmlc_0616.png)'
+  id: totrans-264
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0616.png)'
+- en: Figure 6-16\. Remotely sensed image of wildfires in California. Image courtesy
+    of NOAA.
+  id: totrans-265
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-16\. 加利福尼亚野火的遥感图像。 图像由美国国家海洋和大气管理局提供。
+- en: 'For each of the tiles, we’ll need a label that signifies whether or not there
+    is fire within the tile. To create these labels, we can take fire locations called
+    in by fire lookout towers and map them to an image the size of the remotely sensed
+    image (the full code is in [*06g_tiling.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06g_tiling.ipynb)):'
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于每个平铺，我们需要一个标签来表示平铺内是否有火灾。 要创建这些标签，我们可以利用火灾观察塔检测到的火灾位置，并将其映射到与遥感图像相同大小的图像中（完整代码在GitHub上的[*06g_tiling.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06g_tiling.ipynb)中）：
+- en: '[PRE50]'
+  id: totrans-267
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE50]'
+- en: 'To generate the tiles, we will extract patches of the desired tile size and
+    stride forward by half the tile height and width (so that the tiles overlap):'
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要生成平铺，我们将提取所需平铺尺寸的补丁，并通过平铺高度和宽度的一半前进（使平铺重叠）：
+- en: '[PRE51]'
+  id: totrans-269
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE51]'
+- en: 'The result, after a few reshaping operations, is shown in [Figure 6-17](#tiles_generated_from_a_remotely_sensed_i).
+    In this figure, we are also annotating each tile by its label. The label for an
+    image tile is obtained by looking for the maximum value within the corresponding
+    label tile (this will be 1.0 if the tile contains a `fire_location` point):'
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在进行几次重塑操作后的结果如[图 6-17](#tiles_generated_from_a_remotely_sensed_i)所示。 在这个图中，我们还通过其标签注释每个平铺。
+    图像平铺的标签通过查找相应标签平铺内的最大值来获取（如果平铺包含`fire_location`点，则该值将为1.0）：
+- en: '[PRE52]'
+  id: totrans-271
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE52]'
+- en: '![](Images/pmlc_0617.png)'
+  id: totrans-272
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0617.png)'
+- en: Figure 6-17\. Tiles generated from a remotely sensed image of wildfires in California.
+    Tiles with fire are labeled “Fire.” Image courtesy of NOAA.
+  id: totrans-273
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-17\. 加利福尼亚野火遥感图像生成的平铺。 带有火灾的平铺标记为“Fire”。 图像由美国国家海洋和大气管理局提供。
+- en: These tiles and their labels can now be used to train an image classification
+    model. By reducing the stride by which we generate tiles, we can augment the training
+    dataset.
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些瓦片及其标签现在可以用来训练图像分类模型。通过减少生成瓦片的步幅，我们可以增强训练数据集。
+- en: Summary
+  id: totrans-275
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: In this chapter, we looked at various reasons why the preprocessing of images
+    is needed. It could be to reformat and reshape the input data into the data type
+    and shape required by the model, or to improve the data quality by carrying out
+    operations such as scaling and clipping. Another reason to do preprocessing is
+    to perform data augmentation, which is a set of techniques to increase the accuracy
+    and resilience of a model by generating new training examples from the existing
+    training dataset. We also looked at how to implement each of these types of preprocessing,
+    both as Keras layers and by wrapping TensorFlow operations into Keras layers.
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章中，我们探讨了图像预处理的各种必要性。可能是为了将输入数据重新格式化和重塑为模型所需的数据类型和形状，或者通过诸如缩放和裁剪等操作来提高数据质量。进行预处理的另一个原因是执行数据增强，这是一组技术，通过从现有训练数据集生成新的训练样本，以提高模型的准确性和鲁棒性。我们还讨论了如何实现每种类型的预处理，既作为Keras层，也通过将TensorFlow操作封装为Keras层。
+- en: In the next chapter, we will delve into the training loop itself.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，我们将深入讨论训练循环本身。
+- en: ^([1](ch06.xhtml#ch06fn01-marker)) Reality is more complex. There might be data
+    preprocessing (e.g., data augmentation, covered in the next section) that you
+    would only want to apply during training. Not all data preprocessing needs to
+    be consistent between training and inference.
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch06.xhtml#ch06fn01-marker)) 现实更为复杂。可能存在数据预处理（例如，数据增强，在下一节中讨论）仅在训练期间才希望应用的情况。并非所有数据预处理都需要在训练和推理之间保持一致。
+- en: ^([2](ch06.xhtml#ch06fn02-marker)) Ideally, all the functions in this class
+    would be private and only the functions `create_preproc_dataset()` and `create_preproc_image()`
+    would be public. Unfortunately, at the time of writing, `tf.data`’s map functionality
+    doesn’t handle the name wrangling that would be needed to use private methods
+    as lambdas. The underscore in the name of the class reminds us that its methods
+    are meant to be private.
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch06.xhtml#ch06fn02-marker)) 理想情况下，该类中所有的函数都应该是私有的，只有`create_preproc_dataset()`和`create_preproc_image()`这两个函数是公开的。不幸的是，在撰写本文时，`tf.data`的映射功能无法处理私有方法作为lambda函数所需的名称处理。类名中的下划线提醒我们其方法本应是私有的。
+- en: ^([3](ch06.xhtml#ch06fn03-marker)) [`RandomContrast`](https://oreil.ly/ZX7QN)
+    was added between the time this section was written and when the book went to
+    press.
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch06.xhtml#ch06fn03-marker)) [`RandomContrast`](https://oreil.ly/ZX7QN)
+    在撰写本节时和书稿付印之间进行了添加。

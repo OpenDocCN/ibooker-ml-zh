@@ -1,0 +1,2215 @@
+- en: Chapter 8\. TensorFlow Distributed Machine Learning Approach
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第八章\. TensorFlow 分布式机器学习方法
+- en: TensorFlow (TF) is an open source software library developed by the Google Brain
+    team to further advance deep learning in the industry. Their goal was, and still
+    is, to close the gap between research and practice.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow（TF）是由谷歌大脑团队开发的开源软件库，旨在推动行业中的深度学习进展。他们的目标是缩小研究和实践之间的差距。
+- en: When TF was released in 2015, it blew the data science crowd away. Today, it’s
+    one of the most used libraries for deep learning. To provide a holistic solution
+    allowing for a full production pipeline, the TF team released TensorFlow Extended
+    (TFX) to the public in 2019\. On top of that, Google created its own processing
+    units, called *tensor processing units* (TPUs), to accelerate machine learning
+    workloads that are developed with TF. If the acronym looks familiar, that’s because
+    it’s intentionally similar to GPU, which stands for *graphics processing unit*.
+    While TPUs provide some advanced capabilities, using them largely ties the technological
+    stack to Google technologies. GPUs are more agnostic and flexible, so using them
+    as accelerators will make your application hardware plan more cross-platform.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当 TF 在 2015 年发布时，它震惊了数据科学界。如今，它是深度学习中使用最广泛的库之一。为了提供一个完整的生产流水线解决方案，TF 团队在 2019
+    年向公众发布了 TensorFlow Extended (TFX)。除此之外，谷歌还创建了自己的处理单元，称为*张量处理单元*（TPUs），用于加速使用 TF
+    开发的机器学习工作负载。如果这个缩写看起来很熟悉，那是因为它有意与 GPU 相似，GPU 代表*图形处理单元*。虽然 TPUs 提供了一些先进的功能，但主要使用它们会将技术堆栈紧密地绑定到谷歌技术上。GPU
+    更为通用和灵活，因此使用它们作为加速器将使您的应用硬件计划更具跨平台性。
+- en: TF provides various distributed training strategies for GPUs, CPUs, and TPUs.
+    Using TF, you can enrich your machine learning capabilities beyond what Apache
+    Spark provides out of the box. To connect the machine learning workflow of preprocessing
+    the data with Spark and training a TF model, you can use MLflow (discussed in
+    [Chapter 3](ch03.xhtml#managing_the_ml_experiment_lifecycle_wi)).
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF 提供了各种分布式训练策略，适用于 GPU、CPU 和 TPU。使用 TF，您可以丰富您的机器学习能力，超越 Apache Spark 的默认功能。要连接数据预处理和使用
+    TF 训练模型的机器学习工作流程，您可以使用 MLflow（在[第 3 章](ch03.xhtml#managing_the_ml_experiment_lifecycle_wi)中讨论）。
+- en: In the previous chapter, we discussed how to bridge Spark and TensorFlow by
+    using Petastorm to enable TF to ingest Parquet data. This chapter continues along
+    that path and shows you how to use TF to train a large set of data. Basically,
+    the same data we processed with Spark and saved to Parquet is now available to
+    use with TF to train a model!
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们讨论了如何通过使用 Petastorm 将 Spark 和 TensorFlow 连接起来，以使 TF 能够处理 Parquet 数据。本章继续沿着这条路径，向您展示如何使用
+    TF 训练大量数据集。基本上，我们用 Spark 处理并保存到 Parquet 中的同一组数据现在可以用 TF 来训练模型了！
+- en: 'This chapter covers the following:'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖以下内容：
+- en: A quick overview of TF basics
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: TF 基础知识的快速概述
+- en: How to load Parquet data into a TensorFlow dataset
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何将 Parquet 数据加载到 TensorFlow 数据集中
+- en: TF distributed strategies for training models
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: TF 用于训练模型的分布式策略
+- en: TF training APIs and when to use them
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: TF 训练 API 及其使用时机
+- en: Putting it all together, from Petastorm to building a model with TF
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将 Petastorm 到使用 TF 构建模型的所有内容整合在一起
+- en: Let’s start by taking a look at the main components of TensorFlow.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从看一下 TensorFlow 的主要组成部分开始。
+- en: A Quick Overview of TensorFlow
+  id: totrans-12
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: TensorFlow 的快速概述
+- en: 'TensorFlow’s basics consist of tensors, variables, operations, functions, graphs,
+    and modules. Let’s do a quick overview of them:'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow 的基础包括张量、变量、操作、函数、图形和模块。让我们快速概述一下它们：
+- en: '`tf.Tensor`'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.Tensor`'
+- en: 'Similar to a Spark DataFrame, this is an immutable object: its state cannot
+    be changed after it has been created. A `tf.Tensor` represents a multidimensional
+    array. It has two properties, `shape` and `dtype`. `shape` is the size of the
+    tensor along its axes (for example, `(2, 3)`), and `dtype` is the data type of
+    the elements in the tensor (for example, `float32`). All the elements in a tensor
+    must be of the same type.'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 Spark DataFrame 类似，这是一个不可变对象：一旦创建，其状态就无法更改。`tf.Tensor` 表示一个多维数组。它有两个属性，`shape`
+    表示张量沿其轴的大小（例如 `(2, 3)`），`dtype` 是张量中元素的数据类型（例如 `float32`）。张量中的所有元素必须是相同的类型。
+- en: '`tf.Variable`'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.Variable`'
+- en: In contrast to `tf.Tensor`s, `tf.Variable`s are mutable objects, which means
+    their state can be modified at any time. Variables are shared and represent the
+    current state of the data—you can think of them as mutable multidimensional arrays,
+    similar to tensors whose values can be changed by running operations on them.
+    TF uses variables in machine learning training to store the model’s parameters
+    (for example, weights or other mutable state).
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 `tf.Tensor` 不同，`tf.Variable` 是可变对象，其状态可以随时修改。变量是共享的，并表示数据的当前状态——你可以把它们看作是可变的多维数组，类似于张量，其值可以通过在其上运行操作来更改。TF
+    在机器学习训练中使用变量来存储模型的参数（例如，权重或其他可变状态）。
+- en: '`tf.Operation`'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.Operation`'
+- en: A `tf.Operation` is a node in a graph that performs some computation on tensors
+    (for example, adding scalar values). It takes zero or more `Tensor` objects as
+    input and produces zero or more `Tensor` objects as output.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.Operation` 是图中执行一些计算的节点，例如添加标量值。它以零个或多个 `Tensor` 对象作为输入，并产生零个或多个 `Tensor`
+    对象作为输出。'
+- en: '`tf.function`'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.function`'
+- en: 'Those paying attention will notice that `function` is lowercase, whereas the
+    names of the other items in this list (`Tensor`, etc.) are capitalized. This is
+    because `tf.function` is an *annotation*, not a TF object: it compiles a function
+    into a call­able TF graph. This annotation provides us with a Pythonic approach
+    to building a custom-made `tf.Operation` on tensors. The following code example
+    shows a simple `add` function:'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意到**function**是小写的，而列表中其他项的名称（`Tensor` 等）是大写的。这是因为 `tf.function` 是一个*注解*，而不是
+    TF 对象：它将一个函数编译为可调用的 TF 图。这种注解为我们提供了一种 Pythonic 的方法来构建自定义的 `tf.Operation`，作用于张量上。以下代码示例展示了一个简单的
+    `add` 函数：
+- en: '[PRE0]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: '`tf.Graph`'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.Graph`'
+- en: 'In TensorFlow, there are two execution models: *eager execution*, where TF
+    functions execute operations immediately, and *graph execution*, where operations
+    are added to a `tf.Graph` to be executed later. The graph holds the plan for execution;
+    it contains both the data (tensors) and operations. Similar to Spark DAGs, TF
+    graphs can be optimized. The default graph optimization system in the TF runtime
+    is *Grappler*. It provides various optimizers that you can enable on demand, including
+    a pruning optimizer—if your computation graph has nodes that don’t affect the
+    output, the pruning optimizer will reduce the graph’s size by pruning the not-used
+    nodes before execution, so TF won’t run those computations at all. This is similar
+    to the optimization performed by the Spark Catalyst engine, discussed in [Chapter 2](ch02.xhtml#introduction_to_spark_and_pyspark),
+    which prunes nodes and optimizes the operations.'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 TensorFlow 中，有两种执行模型：*即时执行*，TF 函数会立即执行操作；*图执行*，操作被添加到一个 `tf.Graph` 中以便稍后执行。图包含执行计划，它包含数据（张量）和操作。类似于
+    Spark 的 DAGs，TF 图可以被优化。TF 运行时的默认图优化系统是 *Grappler*。它提供了各种优化器，可以按需启用，包括修剪优化器——如果你的计算图有不影响输出的节点，修剪优化器将通过修剪未使用的节点来减小图的大小，因此
+    TF 不会执行这些计算。这类似于 Spark Catalyst 引擎执行的优化，见 [第 2 章](ch02.xhtml#introduction_to_spark_and_pyspark)，该引擎修剪节点并优化操作。
+- en: '`tf.Module`'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.Module`'
+- en: '`tf.Module` is the base class for both TF machine learning layers and models.
+    A module is a container for variables (including variables that can be modified
+    either during or after training, as well as variables that can be modified but
+    are not for training purposes—any user input, essentially), other modules, and
+    functions that apply to input from the user.'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.Module` 是 TF 机器学习层和模型的基类。模块是变量（包括训练过程中或训练后可以修改的变量，以及可以修改但不用于训练的变量——基本上是任何用户输入的变量）、其他模块和应用于用户输入的函数的容器。'
+- en: Note
+  id: totrans-27
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The variables may include training parameters that change throughout the process
+    and hyperparameters that don’t change. In the case of linear regression models,
+    for instance, the parameters can be the weighted coefficients that are being calculated.
+    An example of a hyperparameter is the number of clusters in *k*-means clustering.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 变量可能包括在整个过程中会改变的训练参数和不会改变的超参数。例如，在线性回归模型中，参数可以是正在计算的加权系数。*k*-means 聚类中的超参数示例是簇的数量。
+- en: 'A few other important concepts to be aware of are the `model.compile` method
+    in the `tf.keras` library and TensorBoard, the TF visualization kit for machine
+    learning experimentation. `model.compile` configures a model for training, specifying
+    the loss function, graph optimizers, and metrics. Regarding TensorBoard, to present
+    the data, the TF cluster collects and logs information that is later visualized
+    here. TensorBoard also leverages the TF callback mechanism, which (as discussed
+    in [Chapter 3](ch03.xhtml#managing_the_ml_experiment_lifecycle_wi)) enables us
+    to inject a function into the training process to, for example, capture the performance
+    of the training. This is called *profiling*. The profiling process quantifies
+    the performance of the machine learning application to ensure it is running an
+    optimized version. Profiling capabilities are critical since the algorithms are
+    typically computationally expensive. To enable it, make sure to install the TensorFlow
+    Profiler as part of your cluster. You can do this with the following `pip` command:'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有一些其他重要概念需要了解，如`tf.keras`库中的 `model.compile` 方法和TensorBoard，这是TF用于机器学习实验的可视化工具包。`model.compile`
+    配置模型以进行训练，指定损失函数、图优化器和指标。关于TensorBoard，TF集群收集和记录数据，稍后在此处可视化。TensorBoard还利用TF回调机制，该机制（如[第三章](ch03.xhtml#managing_the_ml_experiment_lifecycle_wi)讨论的）使我们能够将函数注入训练过程中，例如捕获训练的性能。这称为*分析*。分析过程量化了机器学习应用的性能，以确保其运行优化版本。由于算法通常计算量大，分析能力至关重要。要启用它，请确保在集群中安装TensorFlow
+    Profiler。您可以使用以下`pip`命令执行此操作：
+- en: '[PRE1]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'And later, define the callback and incorporate it into the `model.fit` call,
+    as shown in the following code snippet:'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之后，定义回调函数并将其整合到 `model.fit` 调用中，如下所示的代码片段：
+- en: '[PRE2]'
+  id: totrans-32
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: This book won’t go into more detail on the mechanisms behind TF callbacks and
+    how to work with TensorBoard; for further information, consult an introductory
+    text like Aurélien Géron’s [*Hands-On Machine Learning with Scikit-Learn, Keras,
+    and TensorFlow*, 3rd edition](https://oreil.ly/ml-slktf) (O’Reilly).
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本书不会详细介绍TF回调机制及如何使用TensorBoard的工作原理；如需更多信息，请参考类似Aurélien Géron的入门文本 [*《Python机器学习实战：基于Scikit-Learn、Keras和TensorFlow》第三版*](https://oreil.ly/ml-slktf)（O'Reilly）。
+- en: Before we dig further into the mechanics of TensorFlow, let’s take a closer
+    look at the primary purpose it was designed to support—deep learning with neural
+    networks—and the different roles and responsibilities in a TF cluster.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们深入探讨TensorFlow的机制之前，让我们更加仔细地看一看它设计的主要目的——与神经网络一起进行深度学习——以及TF集群中的不同角色和职责。
+- en: What Is a Neural Network?
+  id: totrans-35
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 什么是神经网络？
+- en: Good question! Let’s run through it quickly, as an understanding of this concept
+    will come in handy for the next chapters as well!
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 很好的问题！让我们快速过一遍，因为对这个概念的理解在接下来的章节中也会很有用！
+- en: A neural network, sometimes called an *artificial neural network* (ANN) or simulated
+    neural network, is a system that attempts to mimic how the human brain operates.
+    The algorithm creates multiple layers of nodes or “neurons” that communicate and
+    train weights given input data. There is an input layer and an output layer, and
+    between these are one or more *hidden layers* that are responsible for transforming
+    the data, performing feature extraction, etc. The size of each layer and the number
+    of hidden layers depends on how we configure the algorithm. [Figure 8-1](#example_of_a_neural_network_graph)
+    is an abstraction of a neural network, with an input layer *x*, two hidden layers,
+    and an output layer *y*.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 神经网络，有时称为*人工神经网络*（ANN）或模拟神经网络，是一种试图模仿人脑运作方式的系统。该算法创建多层节点或“神经元”，通过输入数据进行通信和训练权重。它包括一个输入层和一个输出层，之间有一个或多个*隐藏层*负责数据转换、执行特征提取等。每层的大小和隐藏层数量取决于我们如何配置算法。[图 8-1](#example_of_a_neural_network_graph)
+    是神经网络的抽象表示，包括一个输入层 *x*，两个隐藏层和一个输出层 *y*。
+- en: '![](assets/smls_0801.png)'
+  id: totrans-38
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0801.png)'
+- en: Figure 8-1\. Example of a neural network graph
+  id: totrans-39
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-1\. 神经网络图示例
+- en: Let’s assume we have only one neuron in our input layer, and we feed it with
+    our input data. The function inside the neuron calculates the output based on
+    some preconfigured weights (the trainable parameters), a bias function, and some
+    additional information. This neuron produces an output that can then be fed into
+    the next neuron. As mentioned in the previous chapter, this is called *forward
+    propagation*; a neural network where information flows in only this direction
+    is known as a *feed-forward network*. Training is reflected by adjusting the weights
+    in each neuron according to a *loss function*, which measures the difference between
+    the predicted and expected outcome. Because the expected outcome is known, this
+    is a supervised learning approach.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们的输入层中只有一个神经元，并且我们用输入数据来喂它。神经元内的函数根据一些预先配置的权重（可训练参数）、一个偏差函数和一些额外信息来计算输出。然后这个神经元产生一个输出，可以馈送到下一个神经元。正如前一章节中提到的，这被称为*前向传播*；信息只在这个方向上流动的神经网络称为*前馈网络*。训练通过根据*损失函数*调整每个神经元的权重来进行。因为预期的结果已知，这是一种监督学习方法。
+- en: 'After the loss (or gradient) is calculated, this information can be fed back
+    into the previous neuron so its weights can be adjusted to improve the performance.
+    This is known as *backward propagation*, or *backpropagation*. When working with
+    neural networks in TensorFlow, we will typically use its dedicated Keras API.
+    Keras (discussed in more detail later in this chapter) is a neural network library
+    built into Python that provides a high-level API for training models. The TensorFlow
+    Keras API, `tf.keras`, has a number of machine learning algorithms already implemented
+    and ready for use. Two key classes in this API are the `Layer` class and the `Model`
+    class:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在计算损失（或梯度）之后，可以将这些信息反馈给前面的神经元，以便调整其权重以改善性能。这被称为*反向传播*或*反向传递*。在TensorFlow中处理神经网络时，我们通常会使用其专用的Keras
+    API。Keras（本章后面将详细讨论）是内置于Python中的神经网络库，提供了用于训练模型的高级API。TensorFlow的Keras API，`tf.keras`，已经实现并准备好使用多种机器学习算法。该API中的两个关键类是`Layer`类和`Model`类：
+- en: '`tf.keras.layers.Layer`'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.keras.layers.Layer`'
+- en: This is the base class from which all layers inherit. Each layer takes one or
+    more tensors as input, runs the designated operation, and outputs one or more
+    tensors. It has a `call` method that applies the layer to the inputs and state
+    (its weight variables).
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是所有层继承的基类。每一层接受一个或多个张量作为输入，运行指定的操作，并输出一个或多个张量。它有一个`call`方法，将该层应用于输入和状态（其权重变量）。
+- en: '`tf.keras.Model`'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.keras.Model`'
+- en: This is the base class used to define a model architecture. Its main goal is
+    to run a group of operations on tensors. A `Model` groups layers into an object,
+    together with features for training and inference. To use the model in [Figure 8-1](#example_of_a_neural_network_graph)
+    for prediction, for example, all we need to do is run a forward pass with the
+    given data input (*x1*, *x2*, …) to extract the prediction (*y*).
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是用于定义模型架构的基类。其主要目标是在张量上运行一组操作。一个`Model`将多个层组合成一个对象，同时提供训练和推断的特性。例如，要对[图8-1](#example_of_a_neural_network_graph)中的模型进行预测，我们只需要使用给定的数据输入（*x1*，*x2*，…）进行前向传递，以获取预测结果（*y*）。
+- en: Note
+  id: totrans-46
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: For a comprehensive walkthrough of using TensorFlow, I recommend reading [“Getting
+    Started with TensorFlow”](https://oreil.ly/LT23z) from Aurélien Géron’s book *Hands-On
+    Machine Learning with Scikit-Learn, Keras, and TensorFlow*.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于全面学习如何使用TensorFlow，我建议阅读Aurélien Géron的书《*Python编程：从入门到实践*》中的[“Getting Started
+    with TensorFlow”](https://oreil.ly/LT23z)章节。
+- en: TensorFlow Cluster Process Roles and Responsibilities
+  id: totrans-48
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: TensorFlow集群过程的角色和责任
+- en: TensorFlow clusters follow a client/server model. As in Spark, you leverage
+    numerous machines to accomplish the heavy lifting of the compute requirements.
+    When a TF task is run, a session is created on one of those machines and the graph
+    is optimized and computed, with parts of it potentially distributed to different
+    machines in the cluster.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow集群遵循客户端/服务器模型。与Spark类似，您可以利用多台机器来完成计算需求的繁重工作。当运行TensorFlow任务时，在这些机器中的一台上创建一个会话，并且图被优化和计算，其中的部分可能分布在集群中的不同机器上。
+- en: 'Generally speaking, in a TensorFlow cluster there are multiple processes running,
+    either on the same machine (as threads) or on multiple machines. Each of them
+    has a distinct role and responsibilities, as they are each in charge of completing
+    a certain activity that is part of the larger processing plan. As with a Spark
+    cluster, each process is running a task or a TF server and has its own IP address
+    and port number. The roles include the following:'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一般来说，在 TensorFlow 集群中，有多个进程运行，可以是在同一台机器上（作为线程）或多台机器上。它们每个都有不同的角色和责任，因为它们各自负责完成大型处理计划的某一活动。与
+    Spark 集群类似，每个进程运行一个任务或 TF 服务器，并有自己的 IP 地址和端口号。这些角色包括以下内容：
+- en: Worker
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工作进程
+- en: A worker performs computations on behalf of the application.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工作进程代表应用程序执行计算。
+- en: Parameter server (PS)
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 参数服务器（PS）
+- en: The parameter server keeps track of variables’ values and state. More on this
+    in [“An Inside Look at TensorFlow’s Distributed Machine Learning Strategies”](#an_inside_look_at_tensorflowapostrophes).
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 参数服务器跟踪变量的值和状态。更多信息请参阅 [“深入了解 TensorFlow 的分布式机器学习策略”](#an_inside_look_at_tensorflowapostrophes)。
+- en: Chief
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Chief
+- en: The chief is similar to a worker, but it is assigned additional responsibilities
+    related to the cluster health, such as writing to TensorBoard logs or saving checkpoints.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Chief 类似于工作进程，但它还承担额外的责任，如与集群健康相关的工作，比如写入 TensorBoard 日志或保存检查点。
+- en: Evaluator
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 评估器
+- en: This is the process that is responsible for the evaluation of the model.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个进程负责对模型进行评估。
+- en: '[Figure 8-2](#distributed_compute_with_tf_and_the_var) shows communications
+    between the various processes. The chief is responsible for starting the program;
+    it also takes care of providing the configuration and the context for the rest
+    of the workers.'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 8-2](#distributed_compute_with_tf_and_the_var) 展示了各个进程之间的通信。Chief 负责启动程序；同时它还负责为其他工作进程提供配置和上下文。'
+- en: '![](assets/smls_0802.png)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0802.png)'
+- en: Figure 8-2\. Distributed compute with TF and the various processes’ responsibilities
+  id: totrans-61
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-2\. TF 分布式计算及各进程的责任
+- en: Processes’ roles and responsibilities are configured in the `TF_CONFIG` config
+    property of the cluster. I will share an example of configuring it later in this
+    chapter.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进程的角色和责任通过集群的 `TF_CONFIG` 配置属性进行配置。我稍后会在本章节中分享配置示例。
+- en: Now that you have a better understanding of TensorFlow’s basic components, it’s
+    time to learn how to load Parquet data into a TF dataset.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你对 TensorFlow 的基本组件有了更好的理解，是时候学习如何将 Parquet 数据加载到 TF 数据集中了。
+- en: Loading Parquet Data into a TensorFlow Dataset
+  id: totrans-64
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 将 Parquet 数据加载到 TensorFlow 数据集中
+- en: Like every machine learning process, this one starts with loading data. In TensorFlow,
+    this is done with the load function of the `tf.data.Dataset` object.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像每个机器学习过程一样，这个过程始于加载数据。在 TensorFlow 中，可以使用 `tf.data.Dataset` 对象的 load 函数来完成这一过程。
+- en: A TF dataset acts as an abstraction of the actual data (similar to a Spark DataFrame),
+    whether it’s on disk or in memory. This enables you to iterate over the distributed
+    data. You can ingest data from multiple sources that can then be used with any
+    TF model.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF 数据集充当实际数据的抽象（类似于 Spark DataFrame），无论数据位于磁盘上还是内存中。这使你可以迭代分布式数据。你可以从多个来源获取数据，然后与任何
+    TF 模型一起使用。
+- en: 'The load function is all you need if you’re using TensorFlow on its own. It
+    fetches the data from the source iteratively; later, you can preprocess it into
+    a standard format while the TF engine itself collects statistics on the data.
+    After preprocessing, TF will enable you to save the data to disk. Once the data
+    is saved to disk, it is ready for the next step: being used by TF to build the
+    model.'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果单独使用 TensorFlow，load 函数就是你所需要的。它会从源迭代地获取数据；稍后，你可以对其进行预处理，使其符合标准格式，而 TF 引擎本身会收集数据统计信息。预处理完成后，TF
+    可以让你将数据保存到磁盘。一旦数据保存到磁盘，就可以准备进行下一步操作：由 TF 使用来构建模型。
+- en: 'There’s a caveat, though: while this is true for CSV and other file formats,
+    such as images, this is not the case for Parquet. TF doesn’t support loading Parquet
+    out of the box.'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不过，需要注意的是：虽然对于 CSV 和其他文件格式（比如图像）是这样，但对于 Parquet 并非如此。TF 不原生支持加载 Parquet 文件。
+- en: How do you get around this? And why is it a problem? As described in [Chapter 4](ch04.xhtml#data_ingestioncomma_preprocessingcomma),
+    often you will want to take advantage of existing preprocessed data that you,
+    your team, or other teams in your organization have prepared. And more often than
+    not, the data will have been preprocessed with Spark and saved into Parquet format,
+    which TF datasets’ `load` function cannot load accurately.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何解决这个问题？为什么它是个问题？正如在[第4章](ch04.xhtml#data_ingestioncomma_preprocessingcomma)中描述的，通常您会希望利用您、您的团队或组织中其他团队准备的现有预处理数据。而数据通常会使用Spark预处理并保存为Parquet格式，这种情况下TF
+    datasets的`load`函数无法准确加载。
+- en: In the previous chapter, we used Petastorm as a bridge between the frameworks.
+    Petastorm has a `make_petastorm_dataset` function that creates a `tf.data.Dataset`
+    instance, using an instance of `petastorm.reader.Reader`.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前一章中，我们将Petastorm用作框架之间的桥梁。Petastorm有一个`make_petastorm_dataset`函数，它创建一个`tf.data.Dataset`实例，使用一个`petastorm.reader.Reader`的实例。
+- en: As developers, after creating a Petastorm reader, it’s our responsibility to
+    programmatically pass it to the `make_petastorm_dataset` function. As discussed
+    in [Chapter 7](ch07.xhtml#bridging_spark_and_deep_learning_framew), we can choose
+    to save the data in Parquet format without relying on the Petastorm store directly.
+    In this case, to create the reader, we use the `make_batch_reader` function (instead
+    of `make_reader`). It creates a non-Petastorm Parquet reader, which is precisely
+    what we need.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为开发者，在创建Petastorm读取器之后，我们有责任以编程方式将其传递给`make_petastorm_dataset`函数。正如在[第7章](ch07.xhtml#bridging_spark_and_deep_learning_framew)中讨论的，我们可以选择以Parquet格式保存数据，而不依赖于Petastorm存储直接操作。在这种情况下，为了创建读取器，我们使用`make_batch_reader`函数（而不是`make_reader`）。它创建一个非Petastorm的Parquet读取器，这正是我们需要的。
+- en: 'The `make_batch_reader` function performs the following steps:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`make_batch_reader`函数执行以下步骤：'
+- en: Normalize the dataset URL according to where it runs and what we give it.
+  id: totrans-73
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 根据其运行位置和我们提供的内容，规范化数据集的URL。
+- en: Locate the filesystem paths for the data pieces.
+  id: totrans-74
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 定位数据片段的文件系统路径。
+- en: Analyze the Parquet metadata to determine the schema. This function supports
+    all standard Parquet types.
+  id: totrans-75
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 分析Parquet元数据以确定模式。此函数支持所有标准Parquet类型。
+- en: If there is a cache format, validate it.
+  id: totrans-76
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果有缓存格式，请验证它。
+- en: 'Determine the type of reader pool. This can be one of the following:'
+  id: totrans-77
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 确定读取器池的类型。可以是以下之一：
+- en: '`''thread''` (a pool of threads)'
+  id: totrans-78
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`''thread''`（线程池）'
+- en: '`''process''` (often a dedicated `ArrowTableSeralizer`)'
+  id: totrans-79
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`''process''`（通常是专用的`ArrowTableSeralizer`）'
+- en: '`''dummy''` (executes all `read` calls locally in the main thread)'
+  id: totrans-80
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`''dummy''`（在主线程中执行所有`read`调用）'
+- en: Return the reader instance configured with the filesystem and ready for use.
+  id: totrans-81
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 返回已配置文件系统并准备就绪的读取器实例。
+- en: This logic returns a reader instance that reads data from a Petastorm dataset
+    and encapsulates `ArrowReaderWorker`. `ArrowReaderWorker` is a Petastorm object
+    that, in turn, encapsulates `pyarrow` and enables us to work with the Parquet
+    data using the standard Arrow interconnecting format (discussed in [Chapter 5](ch05.xhtml#feature_engineering)).
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此逻辑返回一个从Petastorm数据集读取数据并封装`ArrowReaderWorker`的读取器实例。`ArrowReaderWorker`是一个Petastorm对象，反过来封装了`pyarrow`，使我们能够使用标准的Arrow互连格式处理Parquet数据（在[第5章](ch05.xhtml#feature_engineering)中讨论）。
+- en: 'Now that you understand the logic, let’s write some code! The next code snippet
+    shows how to import the function and use it in Python syntax. The second line
+    creates a reader that is ready to be used within the Python function scope:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您理解了这个逻辑，让我们写一些代码吧！下一个代码片段显示了如何导入函数并在Python语法中使用它。第二行创建了一个准备在Python函数范围内使用的读取器：
+- en: '[PRE3]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'We now have a Parquet reader, but it has limitations—not all `Dataset` features
+    will work. To remove those limitations, we can build the `petastorm.reader.Reader`
+    itself by providing the following arguments to the constructor:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了一个Parquet读取器，但它有一些限制——不是所有`Dataset`的特性都能正常工作。为了消除这些限制，我们可以通过向构造函数提供以下参数来构建`petastorm.reader.Reader`本身：
+- en: '`Dataset` has a dedicated `repeat` function that allows us to select how many
+    iterations to run over the dataset. Instead of `repeat`, use `num_epochs` when
+    building the reader itself, as Petastorm doesn’t support `repeat` in the way TensorFlow
+    does.'
+  id: totrans-86
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '`Dataset`有一个专门的`repeat`函数，允许我们选择数据集运行的迭代次数。在构建读取器时，不要使用`repeat`，而是使用`num_epochs`，因为Petastorm不支持像TensorFlow那样的`repeat`方式。'
+- en: Instead of using the `filter` function, use the `predicate` function to leverage
+    the power of Parquet as a columnar data format and load only the columns that
+    the `predicate` function has operated on before loading and decoding other columns.
+  id: totrans-87
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 不要使用`filter`函数，而是使用`predicate`函数来充分利用 Parquet 作为列式数据格式的优势，仅在加载和解码其他列之前加载`predicate`函数已操作的列。
+- en: 'Now that we have a reader, let’s create the dataset instance! For that, we
+    will use the `make_petastorm_dataset` function. It will create a `tensorflow.data.Dataset`
+    instance that we can use to train a TensorFlow model. Remember to import the function
+    from `petastorm.tf_utils`, as shown in the following code snippet. We can then
+    call this function later, providing it with the reader we just created. Here’s
+    an example of what the code might look like, with `num_epochs` configured as part
+    of the reader:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了读取器，让我们创建数据集实例吧！为此，我们将使用`make_petastorm_dataset`函数。它将创建一个`tensorflow.data.Dataset`实例，我们可以用它来训练
+    TensorFlow 模型。记得从`petastorm.tf_utils`导入这个函数，如下面的代码片段所示。然后我们可以稍后调用这个函数，提供刚刚创建的读取器。以下是代码的一个示例，其中`num_epochs`作为读取器的一部分进行配置：
+- en: '[PRE4]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: You now know how to load data in Parquet format into a TF dataset instance.
+    `make_petastorm_dataset` uses TF’s `tf.data.Dataset.from_generator` function,
+    which fetches the next piece of data from the dataset URL and filesystem. With
+    this dataset instance, we can begin training a distributed machine learning model.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您知道如何将 Parquet 格式的数据加载到 TF 数据集实例中了。`make_petastorm_dataset`使用了 TF 的`tf.data.Dataset.from_generator`函数，它从数据集的
+    URL 和文件系统获取下一块数据。有了这个数据集实例，我们可以开始训练分布式机器学习模型了。
+- en: The next section will discuss multiple distributed TF training strategies. It
+    will also help you understand how TensorFlow’s distributed approach differs from
+    Spark’s.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一节将讨论多个分布式 TF 训练策略。这也将帮助您理解 TensorFlow 分布式方法与 Spark 的区别。
+- en: An Inside Look at TensorFlow’s Distributed Machine Learning Strategies
+  id: totrans-92
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 深入了解 TensorFlow 的分布式机器学习策略
+- en: 'TF supports a variety of encapsulated strategies for distributed training:
+    synchronous versus asynchronous, all-reduce versus parameter servers, in-graph
+    versus between graphs, and CPUs/GPUs versus TPUs. All the strategies are available
+    via the *tf.distribute.Strategy* library.'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF 支持多种封装策略进行分布式训练：同步与异步、全局归约与参数服务器、图内与图间，以及 CPU/GPU 与 TPU。所有策略都可以通过 *tf.distribute.Strategy*
+    库使用。
+- en: TF supports data parallelism out of the box, so our dataset is split across
+    machines, and during training each machine in our cluster processes a different
+    piece of the data. The training operations’ logic is replicated across multiple
+    devices, and the algorithm’s variables are shared across them. Each copy of the
+    operations’ logic updates these variables via a mechanism that’s specific to the
+    used strategy. Therefore, during the training process, the machine learning algorithm
+    is changing the model’s variables (the trained ones), until it consolidates. To
+    support efficient consolidation of the algorithm, we need to pick an appropriate
+    strategy based on the data size, our cluster resources, etc.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF 支持数据并行ism，因此我们的数据集分布在多台机器上，在训练过程中，我们集群中的每台机器处理数据的不同部分。训练操作逻辑在多个设备上复制，并且算法的变量在它们之间共享。每个操作逻辑的副本通过特定于所使用的策略的机制更新这些变量。因此，在训练过程中，机器学习算法正在更改模型的变量（已经训练过的变量），直到巩固。为了支持算法的高效巩固，我们需要根据数据大小、集群资源等选择合适的策略。
+- en: 'What’s nice about the TF distributed strategy design is that it enables us
+    to write modular code, separating the functionality of training the model and
+    defining the training strategy. This allows us to incorporate multiple training
+    functions in the same strategy and to use different strategies while training.
+    The following code snippet shows how easy it is to switch between strategies.
+    Each strategy instance can be created from `tf.distribute`:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF 分布式策略设计的优点在于它使我们能够编写模块化代码，将训练模型的功能与定义训练策略分开。这允许我们在同一策略中合并多个训练函数，并在训练时使用不同的策略。下面的代码片段展示了在不同策略之间切换是多么容易。每个策略实例可以从`tf.distribute`创建：
+- en: '[PRE5]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: The decoupling of the training strategy from the model training code allows
+    for more experimentation. Take note of the `scope` function that defines where
+    the strategy takes place. In our example, within the scope, the training is leveraging
+    the `tf​.dis⁠tribute.MirroredStrategy` strategy.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练策略与模型训练代码的解耦允许进行更多的实验。请注意`scope`函数的使用范围定义了策略执行的位置。在我们的示例中，在此范围内，训练正在利用`tf.distribute.MirroredStrategy`策略。
+- en: TF supports five distributed training strategies and three different APIs for
+    training a machine learning model—you can use `tf.Keras` or the TF Estimator API
+    or build a custom training loop. [Table 8-1](#tfapostrophes_distributed_training_capa)
+    (from the TensorFlow docs) provides a breakdown of the support the different training
+    APIs, discussed in more detail in [“Training APIs”](#training_apis), offer for
+    the individual strategies at the time of writing. You can refer back to this table
+    as you progress through this chapter and to help you decide which combinations
+    might be best for your own projects. Bear in mind that some strategies currently
+    have limited or even experimental support, which means that this feature has not
+    yet been fully validated and is still under development; for up-to-date information
+    on the level of support, see the [docs](https://oreil.ly/NsUs0).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF支持五种分布式训练策略和三种不同的API用于训练机器学习模型——你可以使用`tf.Keras`或者TF Estimator API或者构建自定义训练循环。[表 8-1](#tfapostrophes_distributed_training_capa)（来自TensorFlow文档）详细介绍了这些不同训练API在各个策略上的支持情况，更多细节见[“训练API”](#training_apis)。在本章节中，你可以参考此表格，并帮助你决定哪种组合最适合你的项目。请注意，一些策略目前仅具有有限或实验性支持，这意味着这些功能尚未完全验证并仍在开发中；要获取最新的支持信息，请参阅[文档](https://oreil.ly/NsUs0)。
+- en: Table 8-1\. TF’s distributed training capabilities and their support in the
+    various training APIs
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 8-1\. TF的分布式训练能力及其在各种训练API中的支持情况
+- en: '| **Training API** | `Mirrored Strategy` | `TPU⁠Strategy` | `MultiWorkerMirror
+    Strat⁠egy` | `Central⁠Storage Strategy` | `ParameterServer Strat⁠egy` |'
+  id: totrans-100
+  prefs: []
+  type: TYPE_TB
+  zh: '| **训练API** | `Mirrored Strategy` | `TPU⁠Strategy` | `MultiWorkerMirror Strat⁠egy`
+    | `Central⁠Storage Strategy` | `ParameterServer Strat⁠egy` |'
+- en: '| --- | --- | --- | --- | --- | --- |'
+  id: totrans-101
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- | --- |'
+- en: '| **Keras Model.fit** | Supported | Supported | Supported | Experimental support
+    | Experimental support |'
+  id: totrans-102
+  prefs: []
+  type: TYPE_TB
+  zh: '| **Keras Model.fit** | 支持 | 支持 | 支持 | 实验性支持 | 实验性支持 |'
+- en: '| **Custom training loop** | Supported | Supported | Supported | Experimental
+    Support | Experimental Support |'
+  id: totrans-103
+  prefs: []
+  type: TYPE_TB
+  zh: '| **自定义训练循环** | 支持 | 支持 | 支持 | 实验性支持 | 实验性支持 |'
+- en: '| **Estimator API** | Limited support | Not supported | Limited support | Limited
+    support | Limited support |'
+  id: totrans-104
+  prefs: []
+  type: TYPE_TB
+  zh: '| **Estimator API** | 有限支持 | 不支持 | 有限支持 | 有限支持 | 有限支持 |'
+- en: In the remainder of this section, we will take a closer look at each of these
+    strategies in turn, starting with the original approach.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节的剩余部分，我们将依次详细介绍这些策略，从最初的方法开始。
+- en: ParameterServerStrategy
+  id: totrans-106
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 参数服务器策略
+- en: The `ParameterServerStrategy` (sometimes referred to as “parameter server and
+    worker”) is the oldest approach, which TF has supported from the beginning. Each
+    machine takes on the role of a worker or a parameter server, and TF divides the
+    tasks into worker tasks and parameter server tasks. Worker tasks can be anything
+    from reading input to updating variables, computing forward and backward passes,
+    and sending updates. Parameter server tasks include storing the parameters of
+    the machine learning model during training (i.e., the weights of the neural network),
+    maintaining strong consistency of the parameter values among the servers, and
+    serving information to the workers that process data and compute updates to the
+    parameters upon request.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ParameterServerStrategy`（有时称为“参数服务器和工作器”）是最古老的方法，TF从一开始就支持。每台机器承担工作器或参数服务器的角色，TF将任务分为工作器任务和参数服务器任务。工作器任务可以是从读取输入到更新变量，计算前向和反向传播，以及发送更新等任何任务。参数服务器任务包括在训练期间存储机器学习模型的参数（即神经网络的权重），保持参数值在服务器之间的强一致性，并根据请求向处理数据和计算参数更新的工作器提供信息。'
+- en: 'The rules are simple:'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 规则很简单：
+- en: Variables are stored on parameter servers and are read and updated by workers
+    during each training step.
+  id: totrans-109
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 变量存储在参数服务器上，并且在每个训练步骤中由工作器读取和更新。
+- en: Each variable is stored on a single parameter server.
+  id: totrans-110
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个变量存储在单个参数服务器上。
+- en: Workers perform their tasks independently, without communicating with other
+    workers. Workers communicate only with parameter servers.
+  id: totrans-111
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 工作人员独立执行其任务，不与其他工作人员通信。工作人员仅与参数服务器通信。
+- en: Depending on the number of variables, there may be one parameter server or multiple
+    parameter servers.
+  id: totrans-112
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 根据变量的数量，可能会有一个或多个参数服务器。
+- en: This model is great when there are many CPUs/GPUs, large matrices of calculations,
+    and sparse lookups. It is considered an *in-between graph strategy*. This is a
+    concept from TensorFlow 1, which means that each worker runs its own function
+    independently, reading the variables, performing the operations, and updating
+    the parameter server. This allows the workers to run asynchronously and makes
+    it easy to recover from failures.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当存在许多CPU/GPU、大量计算矩阵和稀疏查找时，这种模型效果很好。它被视为*中间图策略*。这是TensorFlow 1的一个概念，意味着每个工作人员都独立运行自己的函数，读取变量，执行操作并更新参数服务器。这使得工作人员可以异步运行，并且容易从故障中恢复。
+- en: With this strategy, the workers use asynchronous remote procedure calls (RPCs)^([1](ch08.xhtml#ch01fn20))
+    to communicate with the parameter servers to read and update each variable. This
+    allows the workers to act independently and process input at their own speed.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种策略，工作人员使用异步远程过程调用（RPCs）^([1](ch08.xhtml#ch01fn20))与参数服务器通信，以读取和更新每个变量。这使得工作人员可以独立操作，并以自己的速度处理输入。
+- en: A potential drawback with this approach is that network bottlenecks can occur
+    at the beginning of each training step, when the workers all attempt to contact
+    the parameter server(s) to read the variables without the runtime providing a
+    specific order. This is often an issue when calculating the first step of the
+    first neural network layer.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法的一个潜在缺点是，在每个训练步骤的开始阶段可能会出现网络瓶颈，当工作人员都尝试联系参数服务器以读取变量时，而运行时并未提供特定的顺序。在计算第一个神经网络层的第一步时经常会出现这个问题。
+- en: '[Figure 8-3](#parameterserverstrategy_architecture) shows a high-level diagram
+    of the architecture of this strategy. The parameter servers themselves can be
+    distributed, depending on the number of parameters, availability requirements,
+    etc. that they need to support. Each worker has a replica of the model and is
+    working on a specific piece of the data (X[1], X[2], X[3], etc.). The arrows in
+    the diagram show the worker–PS communication. Depending on the number and distribution
+    of the parameter servers, there may be a dedicated server manager (the “chief”
+    in [Figure 8-2](#distributed_compute_with_tf_and_the_var)) to manage each set
+    of PSs.'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 8-3](#parameterserverstrategy_architecture)显示了该策略架构的高级图表。根据参数服务器的数量、可用性需求等，参数服务器本身可以是分布式的。每个工作人员都有模型的一个副本，并且正在处理数据的特定部分（X[1]、X[2]、X[3]等）。图表中的箭头显示了工作人员与参数服务器之间的通信。根据参数服务器的数量和分布，可能会有一个专用的服务器管理器（“首席”在[图 8-2](#distributed_compute_with_tf_and_the_var)中）来管理每组参数服务器。'
+- en: '![](assets/smls_0803.png)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0803.png)'
+- en: Figure 8-3\. `ParameterServerStrategy` architecture
+  id: totrans-118
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-3\. `ParameterServerStrategy`架构
+- en: 'The `ParameterServerStrategy` is a generic strategy: all functions/operations
+    can run on a worker, so any machine learning algorithm that can be decomposed
+    into a series of independent functions can leverage it. With TensorFlow 2, the
+    strategy evolved, with the introduction of a dedicated [*cluster coordinator*](https://oreil.ly/GLZpk).
+    The cluster coordinator is responsible for creating the required resources for
+    workers and parameter servers while also coordinating the training itself. This
+    approach helps alleviate the overhead of RPCs in the initial phase.'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ParameterServerStrategy`是一种通用策略：所有函数/操作都可以在一个工作人员上运行，因此任何可以分解为一系列独立函数的机器学习算法都可以利用它。随着TensorFlow
+    2的推出，这种策略发展了，引入了一个专门的[*集群协调器*](https://oreil.ly/GLZpk)。集群协调器负责创建工作人员和参数服务器所需的资源，同时协调训练本身。这种方法有助于减轻初始阶段RPC的开销。'
+- en: 'The following code snippet shows how to define the strategy and the coordinator.
+    Both functions take multiple parameters, such as `cluster_resolver`, which holds
+    the cluster spec:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码片段展示了如何定义策略和协调器。这两个函数接受多个参数，例如`cluster_resolver`，其中包含集群规范：
+- en: '[PRE6]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Now that you understand the `ParameterServerStrategy`, let’s move on to the
+    next one and learn how the TF strategies evolved to overcome the challenges presented
+    so far.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您了解了`ParameterServerStrategy`，让我们继续学习下一个策略，并了解TF策略如何发展以克服迄今为止出现的挑战。
+- en: 'CentralStorageStrategy: One Machine, Multiple Processors'
+  id: totrans-123
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 'CentralStorageStrategy: 一台机器，多个处理器'
+- en: 'The `CentralStorageStrategy` was developed as an early solution to the RPC
+    problem. With this strategy, you have one machine with multiple CPUs and GPUs
+    to compute the in-graph operations:'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`CentralStorageStrategy`是对RPC问题的早期解决方案。使用这种策略，您可以在一台具有多个CPU和GPU的机器上计算图内操作：'
+- en: The CPUs hold variables (similar to a PS).
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CPU持有变量（类似于PS）。
+- en: The GPUs execute operations (similar to workers).
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: GPU执行操作（类似于工作器）。
+- en: They all communicate synchronously on the same device, which means they work
+    together in lockstep.
+  id: totrans-127
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有设备上的通信都是同步的，这意味着它们在锁步中共同工作。
+- en: Each CPU holds a subset of the variables, which it updates at each step. The
+    variables are not shared across processors; each one performs its updates, then
+    they exchange their information to synchronize the gradients (the model’s trained
+    variables) at every step. This can be done easily because the processors are all
+    on the same machine. Each training step involves one full run on the graph (a
+    full epoch). It is all coordinated via a single client, the main thread. This
+    strategy makes training on a single machine more efficient, which is useful in
+    embedded scenarios where there is only one machine available.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个CPU持有变量的子集，并在每一步更新它们。这些变量不在处理器之间共享；每个处理器执行其更新，然后它们交换信息以在每一步同步梯度（模型的训练变量）。这可以很容易地完成，因为所有处理器都在同一台机器上。每个训练步骤涉及一次完整的图运行（一个完整的时代）。所有这些都由单个客户端，即主线程协调。这种策略使得在单台机器上进行训练更加高效，这在只有一台机器可用的嵌入式场景中非常有用。
+- en: 'You can create a `CentralStorageStrategy` instance with this code snippet:'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用以下代码片段创建一个`CentralStorageStrategy`实例：
+- en: '[PRE7]'
+  id: totrans-130
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'While this approach overcomes the problem of networking bottlenecks, it introduces
+    a different difficulty: with one machine, there is only one central storage, and
+    the tasks share the same disk space and RAM. This means that each variable and
+    operation is represented in memory only once; you get a single copy of the variable
+    on the CPU and one replica of the model per process (GPU). It’s also important
+    to note that when there’s only one processor, there’s no acceleration happening.'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这种方法克服了网络瓶颈的问题，但引入了不同的困难：一台机器只有一个中央存储，任务共享相同的磁盘空间和RAM。这意味着每个变量和操作在内存中只表示一次；在CPU上有一个变量的单个副本，并且每个进程（GPU）有一个模型的副本。还需要注意的是，当只有一个处理器时，不会加速发生。
+- en: To work around these issues, TF introduced the `MirroredStrategy` approach.
+    We’ll look at that next.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决这些问题，TF引入了`MirroredStrategy`方法。我们接下来将看看这个方法。
+- en: 'MirroredStrategy: One Machine, Multiple Processors, Local Copy'
+  id: totrans-133
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: MirroredStrategy：一台机器，多处理器，本地副本
+- en: Similar to the `CentralStorageStrategy`, the `MirroredStrategy` supports multiple
+    CPUs/GPUs on one machine. However, every processor that holds a replica of the
+    training operations’ logic also holds its own local copy of every variable. The
+    variables are copied across all the processors and kept in sync (i.e., *mirrored*)
+    by applying identical updates across them, as you can see in [Figure 8-4](#mirroredstrategy_architecture).
+    This approach is different from the `ParameterServerStrategy` and `CentralStorageStrategy`
+    because with those each processor/machine holds a subset of the training variables,
+    not the entire set.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与`CentralStorageStrategy`类似，`MirroredStrategy`支持在一台机器上运行多个CPU/GPU。然而，每个持有训练操作逻辑副本的处理器也会持有每个变量的本地副本。这些变量会在所有处理器之间复制并保持同步（即*镜像*），通过在所有处理器上应用相同的更新来实现，如图[8-4](#mirroredstrategy_architecture)所示。这种方法与`ParameterServerStrategy`和`CentralStorageStrategy`不同，因为后者每个处理器/机器只持有训练变量的子集，而不是整体集合。
+- en: '![](assets/smls_0804.png)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图8-4](assets/smls_0804.png)'
+- en: Figure 8-4\. `MirroredStrategy` architecture
+  id: totrans-136
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-4。`MirroredStrategy`架构
+- en: To ensure identical updates are made across the processors, this strategy uses
+    an *all-reduce* algorithm, which is common in the computer science world. Each
+    processor communicates with every other processor to exchange updates (the “all”
+    part), and a `reduce` function is used to aggregate the values, reduce them to
+    a single value, and return that result to all the processors.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为确保在处理器之间进行相同的更新，该策略使用了*全归约*算法，在计算机科学领域很常见。每个处理器与所有其他处理器进行通信以交换更新（“全”部分），并使用`reduce`函数来聚合这些值，将它们减少到一个单一值，并将结果返回给所有处理器。
+- en: Reduce operations are commonly used in parallel programming to reduce each element
+    of an array into a single result. They must be associative operations. In other
+    words, the order in which you act on the data must not matter. An example is the
+    sum operation, where there is no importance to the order of the operands; the
+    result is the same regardless of whether you calculate *a* + *b* or *b* + *a*.
+    The same also holds for max, min, mean, and a number of other operations that
+    enable synchronization between variables.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 减少操作通常在并行编程中用于将数组的每个元素减少为单个结果。它们必须是可结合的操作。换句话说，对数据的操作顺序不应该影响结果。例如，求和操作中，操作数的顺序无关紧要；无论是计算*a*
+    + *b*还是*b* + *a*，结果都是相同的。对于max、min、mean以及许多其他操作也是如此，这些操作能够在变量之间进行同步。
+- en: Tip
+  id: totrans-139
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: An advantage of the all-reduce approach is that it can be optimized in hardware.
+    For example, if your machines use NVIDIA processors, you can configure your cluster
+    to use NVIDIA’s all-reduce communication functionality to accelerate the synchronization
+    of variables. I won’t discuss specific hardware optimizations here, as those vary
+    by vendor, but it is good to be aware of this and act accordingly.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 全局减少方法的优势在于可以在硬件上进行优化。例如，如果您的机器使用NVIDIA处理器，您可以配置集群以使用NVIDIA的全局减少通信功能来加速变量的同步。我不会在这里讨论具体的硬件优化，因为这些优化因供应商而异，但知道这一点并据此采取行动是很好的。
+- en: 'The following code snippet shows how to create a `MirroredStrategy` instance—to
+    specify the machines, you can either update the TensorFlow cluster config file
+    (more on that soon!) or pass this information to the function:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的代码片段显示如何创建`MirroredStrategy`实例——为了指定机器，您可以更新TensorFlow集群配置文件（很快就会详细讨论！）或将此信息传递给函数：
+- en: '[PRE8]'
+  id: totrans-142
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: While this strategy is great for specific scenarios, such as when working with
+    embedded devices, sometimes we need to train on multiple machines. This capability
+    is provided by the `MultiWorkerMirroredStrategy`, which I’ll cover next***.***
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这种策略在特定场景下非常有效，例如在使用嵌入式设备时，有时我们需要在多台机器上进行训练。这种能力由`MultiWorkerMirroredStrategy`提供，我将在下文中详细介绍。
+- en: 'MultiWorkerMirroredStrategy: Multiple Machines, Synchronous'
+  id: totrans-144
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: MultiWorkerMirroredStrategy：多台机器，同步
+- en: 'The `MultiWorkerMirroredStrategy` is very similar to the `MirroredStrategy`:
+    it provides an implementation of synchronous training distributed across machines,
+    each of which can have more than one processor. Each variable is replicated and
+    synced across machines and processors. This approach works well when there is
+    good connectivity between machines. Since it relies on an all-reduce algorithm,
+    all of the machines need to communicate in order to synchronize the variables.'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`MultiWorkerMirroredStrategy`与`MirroredStrategy`非常相似：它提供了一个跨多台机器进行同步训练的实现，每台机器可以有多个处理器。每个变量在机器和处理器之间都被复制和同步。当机器之间的连接良好时，这种方法效果很好。由于它依赖于全局减少算法，所有机器都需要通信以同步变量。'
+- en: 'So what does synchronous training actually look like in this case? Let’s say
+    we have an algorithm that consists of two neural network layers and has two variables
+    to train during the training process. Layers A and B are replicated to the two
+    machines, A and B, as shown in [Figure 8-5](#synchronous_computation_with_the_multiw).
+    You can see that each of those machines has its own copy of all the variables,
+    and each one has its own piece of the data as inputs: input 0 and input 1.'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么在这种情况下，同步训练实际上是什么样子呢？假设我们有一个算法，包含两个神经网络层，并在训练过程中有两个要训练的变量。如图[8-5](#synchronous_computation_with_the_multiw)所示，层A和B被复制到两台机器A和B上。您可以看到每台机器都有所有变量的副本，每个变量都有其自己的数据片段作为输入：input
+    0和input 1。
+- en: '![](assets/smls_0805.png)'
+  id: totrans-147
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0805.png)'
+- en: Figure 8-5\. Synchronous computation with the `MultiWorkerMirrorStrategy`
+  id: totrans-148
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-5\. 使用`MultiWorkerMirrorStrategy`进行同步计算
+- en: 'Let’s take a look at how the synchronization itself works. We have four components:'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看一下同步本身是如何工作的。我们有四个组件：
+- en: Two variable components, because we’re keeping separate copies of each of the
+    variables on each of the machines
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 两个变量组件，因为我们在每台机器上都保留了各自的变量副本
+- en: Two data components, because each machine operates on its own subset of the
+    training data (input 0 and input 1)
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由于每台机器都在其自己的训练数据子集（input 0和input 1）上操作，所以有两个数据组件。
+- en: 'The logic is as follows:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 逻辑如下：
+- en: Each machine takes in its own input (1) and does a forward propagation pass
+    using just its local copies of the variables (2). Machine A computes layer A and
+    layer B using input 0, and machine B computes layer A and layer B using input
+    1.
+  id: totrans-153
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每台机器都会接收自己的输入（1），然后仅使用其本地变量的副本进行前向传播（2）。机器A使用输入0计算层A和层B，机器B使用输入1计算层A和层B。
+- en: Before beginning the backward pass, we want to optimize the training variables,
+    so we compute the gradients using the local copies of the variables (3). Machine
+    A computes V[A0] and V[B0], and machine B computes V[A1] and V[B1].
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在开始反向传播之前，我们希望优化训练变量，因此使用本地变量的副本计算梯度（3）。机器A计算V[A0]和V[B0]，机器B计算V[A1]和V[B1]。
+- en: 'Now we want to aggregate the training variables to make sure they are in sync.
+    We do this using the all-reduce approach: we send the copies of the gradients
+    over the network and aggregate them (4). That is, each machine aggregates V[A1]
+    and V[A0] into ∆V[A], and V[B1] and V[B0] into ∆V[B]. Alternatively, this aggregation
+    may take place on a different machine/processor—for example, an NVIDIA GPU, which
+    is optimized to run reduce operations super fast—which may have this as its sole
+    job. After aggregation, it would broadcast the updated gradients, ∆V[A] and ∆V[B],
+    back to the machines.'
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 现在我们想要聚合训练变量以确保它们同步。我们使用全局归约方法来做到这一点：我们通过网络发送梯度的副本并将它们聚合（4）。也就是说，每台机器将V[A1]和V[A0]聚合为∆V[A]，将V[B1]和V[B0]聚合为∆V[B]。或者，这种聚合可能在不同的机器/处理器上进行，例如，一台优化运行归约操作的NVIDIA
+    GPU，可能将此作为其唯一任务。聚合完成后，它会将更新后的梯度∆V[A]和∆V[B]广播回机器。
+- en: Finally, we compute the backward pass (5).
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最后，我们进行反向传播（5）。
+- en: In this process, we used an all-reduce approach that communicates a single aggregated
+    gradient value out to all the machines (V[A0], V[A1], and so on). Each machine
+    then applies that gradient to its local variable. If you refer back to [Figure 8-5](#synchronous_computation_with_the_multiw),
+    you can see that each machine has four processors, which means that the gradient
+    is replicated locally to four processors. Since all-reduce produces the same value
+    in all the replicas, the updates are all the same, and the values stay in sync
+    across all the different machines and replicas.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此过程中，我们使用了全局归约方法，将单个聚合梯度值通信到所有机器（V[A0]，V[A1]等）。然后，每台机器将该梯度应用于其本地变量。如果您参考[图8-5](#synchronous_computation_with_the_multiw)，您会发现每台机器都有四个处理器，这意味着梯度在四个处理器中本地复制。由于全局归约在所有副本中产生相同的值，更新都是相同的，这些值在所有不同的机器和副本中保持同步。
+- en: Once this process is complete, the next forward pass can begin immediately;
+    there is no delay waiting for the values because, by the end of the step, all
+    of the replicas have updated and in-sync local copies of the full set of variables.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦此过程完成，下一个前向传播可以立即开始；不需要等待值，因为在步骤结束时，所有副本都已更新并具有同步的完整变量集的本地副本。
+- en: Additionally, we can get some parallelism here by doing an all-reduce of the
+    gradients of one layer at the same time as computing the gradients of other layers
+    (for example, calculating layer B’s gradients while exchanging layer A’s gradients
+    to sync the replicas. This approach works well when there is a backward pass;
+    with the appropriate synchronization, we can fully utilize our hardware by keeping
+    both the network communication and computation parts busy at the same time. This
+    is great for throughput and performance.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，我们可以通过在计算其他层的梯度时同时对一个层进行全局归约来实现一些并行化（例如，在计算层B的梯度的同时，交换层A的梯度以同步副本。这种方法在存在反向传播时效果很好；通过适当的同步，我们可以充分利用硬件，同时保持网络通信和计算部分的忙碌状态。这对吞吐量和性能非常有益。
+- en: Note
+  id: totrans-160
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: '*Hierarchical all-reduce* is an implementation of the all-reduce process where
+    aggregation and gradient calculation are done within each machine, and this information
+    is communicated across machines later, in a sort of hierarchical way. So if a
+    machine is a worker and each worker has multiple processors, they can run multiple
+    tasks in lockstep while synchronizing the gradients at each step locally. The
+    results can then be synced with those of the rest of the machines in the network
+    later. This approach often performs better and is more scalable. It reduces the
+    dependency on the parameter server, and it allows the next step of training (the
+    second epoch) to begin immediately, without the worker having to wait while its
+    results are synchronized with those of the other workers. Note that instead of
+    having four machines with one processor each, having two machines with two processors
+    each will result in faster execution (since there is less network communication
+    required) while still ensuring cluster fault tolerance.'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*分层全局归约*是全局归约过程的一种实现，其中聚合和梯度计算在每台机器内部完成，然后以分层方式跨机器传输信息。因此，如果一台机器是工作节点，并且每个工作节点有多个处理器，则它们可以在每一步同步梯度时同时运行多个任务。然后，可以稍后将结果与网络中其他机器的结果同步。这种方法通常表现更好，更具可伸缩性。它减少了对参数服务器的依赖，并允许立即开始训练的下一步（第二个epoch），而不必等待工作节点将其结果与其他工作节点同步。请注意，与每台机器只有一个处理器的四台机器相比，拥有每台机器有两个处理器的两台机器将导致更快的执行（因为需要更少的网络通信），同时仍然确保集群的容错性。'
+- en: 'The `MultiWorkerMirroredStrategy` also supports the *ring all-reduce* or *ring-reduce*
+    algorithm. The communication approach here is different: instead of all the processors
+    communicating with and receiving messages from all the others, each processor
+    receives information from just one processor, updates it, and sends the information
+    to a different processor. The processors are connected in a circular or ring formation,
+    as shown in [Figure 8-6](#ring_all_reduce_communication_architect). Ring all-reduce
+    is often more efficient than all-reduce since it sends fewer messages over the
+    network.'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`MultiWorkerMirroredStrategy`还支持*环形全局归约*或*环形归约*算法。这里的通信方式不同：每个处理器不是与所有其他处理器通信和接收消息，而是每个处理器只从一个处理器接收信息，更新它，并将信息发送给另一个处理器。处理器连接成圆形或环形结构，如[图8-6](#ring_all_reduce_communication_architect)所示。环形全局归约通常比全局归约更有效，因为它在网络上发送的消息更少。'
+- en: '![](assets/smls_0806.png)'
+  id: totrans-163
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0806.png)'
+- en: Figure 8-6\. Ring all-reduce communication architecture for synchronous gradient
+    computation
+  id: totrans-164
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-6\. 同步梯度计算的环形全局归约通信架构
+- en: Tip
+  id: totrans-165
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Tip
+- en: Additional variants of the all-reduce communication structure exist, such as
+    tree all-reduce, round-robin all-reduce, and many more. TensorFlow supports various
+    cross-device communication (or *device ops*) implementations out of the box, including
+    `tf​.distribute.CrossDeviceOps`, `tf.dis⁠tri⁠bute​.Hierarchical​Copy​All​Reduce`,
+    `tf​.distribute​.Reduction​ToOneDevice`, and `tf​.dis⁠tri⁠bute​.Nccl​All​Reduce`
+    for NVIDIA processors. When choosing one, always make sure to validate its support
+    in your hardware.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存在其他变体的全局归约通信结构，例如树形全局归约、轮换全局归约等等。TensorFlow支持各种跨设备通信（或*设备操作*）的实现，包括`tf​.distribute.CrossDeviceOps`、`tf.dis⁠tri⁠bute​.Hierarchical​Copy​All​Reduce`、`tf​.distribute​.Reduction​ToOneDevice`和`tf​.dis⁠tri⁠bute​.Nccl​All​Reduce`，适用于NVIDIA处理器。在选择时，请务必验证其在您的硬件上的支持。
+- en: 'Note that to enable this strategy, you have to make sure you set up the `TF_CONFIG`
+    environment variable to specify the roles of each machine in the TF cluster. Here
+    is an example of what this looks like in a configuration file:'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，要启用这种策略，您必须确保设置`TF_CONFIG`环境变量，以指定TF集群中每台机器的角色。以下是配置文件中的示例：
+- en: '[PRE9]'
+  id: totrans-168
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: With the `MultiWorkerMirroredStrategy`, there is a designated worker that coordinates
+    the cluster’s activities. This worker is responsible for producing a summary file
+    for further logging and checkpoint information for failure recovery, in addition
+    to processing its piece of data. It’s called the *chief worker*, and it is the
+    worker at index 0 in the array of cluster workers in `TF_CONFIG` (in our example,
+    the chief worker is *host1*).
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`MultiWorkerMirroredStrategy`，有一个指定的工作节点来协调集群的活动。这个节点负责生成用于进一步日志记录和失败恢复的摘要文件，还负责处理其数据片段。它被称为*主节点*，在`TF_CONFIG`中的集群工作节点数组中的索引为0（在我们的示例中，主节点是*host1*）。
+- en: The chief worker’s most important task is saving checkpoints, which capture
+    the exact values of all parameters used by the model at a particular point in
+    time. They can be used for fast recovery in the event of a machine, network communication,
+    or any other possible cluster failure, making the application resilient and fault-tolerant.
+    Suppose you’re in the middle of performing a massive computation to train your
+    machine learning model, which might take days or even weeks. Suddenly, there is
+    a power outage in the data center, and all the machines go down. Restarting the
+    entire training process could delay building the model by weeks or months—but
+    with the checkpoint mechanism, the chief worker is responsible for saving the
+    variables’ state and values to the filesystem at set intervals. This means that,
+    given the code and checkpoint data, we can recover the process from the last checkpoint
+    and don’t have to start the entire computation from the beginning again. This
+    is a massive time-saver. (As a side note, these scenarios do not happen rarely—they
+    are pretty common in a large cluster with many moving parts.) Both Spark and TensorFlow
+    allow for checkpoints to be saved during computations. TensorFlow persists the
+    state of the model and its data using `tf.train.Checkpoint`. Later, it can be
+    constructed through a high-level API. Spark saves the node metadata together with
+    the state of the data, making it straightforward to load and continue the computation
+    from the checkpoint.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首席工作节点的最重要任务是保存检查点，捕获模型在特定时间点使用的所有参数的确切值。在机器、网络通信或任何其他可能的集群故障情况下，它们可用于快速恢复，使应用具有弹性和容错性。假设您正在执行一项大量计算以训练机器学习模型的任务，可能需要数天甚至数周时间。突然间，数据中心停电，所有机器都宕机了。重新启动整个训练过程可能会延迟数周或数月建立模型——但通过检查点机制，首席工作节点负责定期将变量状态和值保存到文件系统。这意味着，借助代码和检查点数据，我们可以从上次检查点恢复进程，而不必再次从头开始整个计算过程。这节省了大量时间。（顺便说一句，这些情景并不少见——在具有许多活动部件的大型集群中，它们非常常见。）Spark和TensorFlow都允许在计算过程中保存检查点。TensorFlow使用`tf.train.Checkpoint`持久化模型及其数据的状态。稍后，可以通过高级API进行构建。Spark将节点元数据与数据状态一起保存，使得从检查点加载并继续计算变得简单。
+- en: Note
+  id: totrans-171
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: There is an inherent possibility that every task in a cluster might communicate
+    with tasks on other machines. Be sure to configure your firewall or virtual network
+    security protocols so that all communications between the cluster machines on
+    your defined port will be authorized. To reduce the configuration overhead, it
+    is often more convenient to use the same port for all cluster machines.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集群中的每个任务可能与其他机器上的任务通信。确保配置防火墙或虚拟网络安全协议，以便在定义的端口上所有集群机器之间的通信都被授权。为了减少配置开销，通常更方便地使用相同的端口用于所有集群机器。
+- en: TPUStrategy
+  id: totrans-173
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: TPUStrategy
+- en: The final distributed training strategy TensorFlow provides is the `TPUStrategy`,
+    for synchronous training on TPUs and TPU pods. It’s similar to the two mirrored
+    strategies, as it supports communication between individual processors within
+    a machine, as well as communication between machines. As mentioned earlier, TPUs
+    were created by Google and can be found in a number of Google platforms. Using
+    the `TPUStrategy` requires access to a dedicated Google platform and hardware,
+    so we’re not going to dive deeper into it in this book.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow提供的最终分布式训练策略是`TPUStrategy`，用于TPU和TPU Pod上的同步训练。与两个镜像策略类似，它支持单个处理器之间的通信，以及机器之间的通信。如前所述，TPU是由Google创建的，并且可以在多个Google平台上找到。使用`TPUStrategy`需要访问专用的Google平台和硬件，因此我们在本书中不会深入讨论它。
+- en: What Things Change When You Switch Strategies?
+  id: totrans-175
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 切换策略时会发生哪些变化？
+- en: 'As mentioned at the beginning of this section, TF provides a modular code approach
+    to switch between strategies. When choosing a training strategy, here are some
+    of the factors you will need to keep in mind:'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如本节开头所述，TF提供了一种模块化的代码方法来在不同策略之间切换。选择训练策略时，以下是您需要牢记的一些因素：
+- en: Communication style (either synchronous or asynchronous)
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通信方式（同步或异步）
+- en: Variable replication (whether local copies of all the variables are kept on
+    each worker)
+  id: totrans-178
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 变量复制（是否在每个工作节点上保留所有变量的本地副本）
+- en: How gradient aggregation takes place within and/or across machines and how the
+    results are communicated to the workers
+  id: totrans-179
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 梯度聚合在机器内和/或跨机器进行，以及如何将结果传送给工作节点
+- en: How backpropagation takes place and when syncing of the variables takes place
+    (during or only after the full process)
+  id: totrans-180
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 反向传播的进行方式以及变量同步的时间点（是在全过程中进行，还是仅在全过程结束后进行）
+- en: How metrics are accumulated, which is impacted by the all-reduce algorithm and
+    communication approach
+  id: totrans-181
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 度量如何累积，这受到全归约算法和通信方法的影响
+- en: Now that you’re familiar with the various TF distributed training strategies,
+    next we’ll turn our attention to the APIs it provides to train a machine learning
+    model.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经熟悉了各种 TF 分布式训练策略，接下来我们将关注它提供的 API 来训练机器学习模型。
+- en: Training APIs
+  id: totrans-183
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 训练 API
+- en: 'Choosing a training strategy is a crucial step, but as we saw in [Table 8-1](#tfapostrophes_distributed_training_capa),
+    our choice of strategy can be affected by the training API we want to use. TensorFlow
+    provides three options:'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择训练策略是一个关键步骤，但正如我们在 [表8-1](#tfapostrophes_distributed_training_capa) 中看到的，我们选择策略可能会受到我们想要使用的训练
+    API 的影响。TensorFlow 提供了三个选项：
+- en: Keras API
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras API
+- en: The `tf.keras` API offers a wide array of built-in algorithms and models that
+    are ready to be used for building machine learning models.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.keras` API 提供了各种内置算法和模型，可用于构建机器学习模型。'
+- en: Custom training loop
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自定义训练循环
+- en: We can use the TF Core APIs to build our own training loops, layers, operations,
+    etc.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用 TF Core API 来构建自己的训练循环、层、操作等。
+- en: Estimator API
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Estimator API
+- en: The Estimator API uses a similar approach to the Spark MLlib estimators that
+    we discussed in [Chapter 6](ch06.xhtml#training_models_with_spark_mllib). Estimators
+    enable various graph architectures; they are part of the TensorFlow v1 library
+    and abstract TensorFlow computational APIs. Depending on our needs, we can choose
+    to work with premade estimators or create customized ones to meet our requirements.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Estimator API 使用类似于我们在 [第6章](ch06.xhtml#training_models_with_spark_mllib) 中讨论过的
+    Spark MLlib 估计器的方法。估计器支持各种图形架构；它们是 TensorFlow v1 库的一部分，抽象了 TensorFlow 的计算 API。根据我们的需求，我们可以选择使用预制的估计器或创建定制的估计器以满足我们的需求。
+- en: Over the next few pages, you will see that these APIs provide varying degrees
+    of flexibility and so require different levels of machine learning expertise.
+    One of the simplest APIs to learn is the Keras API, which is what we will start
+    with.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的几页中，您将看到这些 API 提供了不同程度的灵活性，因此需要不同水平的机器学习专业知识。其中最简单的 API 之一是 Keras API，这也是我们将从中开始的地方。
+- en: Keras API
+  id: totrans-192
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Keras API
+- en: Keras is a high-level deep learning API written in Python that runs on top of
+    TensorFlow. The Keras API provides a Pythonic approach to train new machine learning
+    models and work with existing models. Keras provides extensive functionalities
+    and also includes numerous built-in public [datasets](https://oreil.ly/ZGBs0),
+    such as the Boston housing dataset, MNIST, CIFAR10, and others.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras 是一个用 Python 编写的高级深度学习 API，运行在 TensorFlow 之上。Keras API 提供了一种 Pythonic 的方式来训练新的机器学习模型并与现有模型一起工作。Keras
+    提供了广泛的功能，还包括许多内置的公共 [数据集](https://oreil.ly/ZGBs0)，如波士顿房价数据集、MNIST、CIFAR10 等。
+- en: 'Using a built-in dataset is a fantastic way to get started. If you want to
+    learn how to use the API, you don’t need to search for or create a dedicated dataset,
+    as you already have access to several that are ready to use: the datasets are
+    preprocessed and can be ingested into the training APIs immediately.'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用内置数据集是开始的绝佳方式。如果您想了解如何使用 API，您无需搜索或创建专用数据集，因为您已经可以立即将几个准备好的数据集导入到训练 API 中了，这些数据集已经过预处理。
+- en: 'Keras also provides numerous pretrained models. These are one of the greatest
+    advantages of this training API: since the models themselves are made of layers
+    (as depicted earlier, in [Figure 8-1](#example_of_a_neural_network_graph)), we
+    can decide whether we want to reuse the existing layers as they are or change
+    them. For example, we can use an existing model as a base model, then add a prediction
+    layer at the end that will be the output layer given the existing data. This saves
+    much of the work involved in training a model from scratch for the task at hand.'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras 还提供了许多预训练模型。这些是该训练 API 的最大优势之一：因为模型本身由层构成（如前文所示，在 [图8-1](#example_of_a_neural_network_graph)
+    中），我们可以决定是否要按照现有层的形式重用它们或更改它们。例如，我们可以将现有模型用作基础模型，然后在末尾添加一个预测层，这将是给定现有数据的输出层。这样做可以节省大量从头开始训练模型所需的工作量。
+- en: Why would that work? Or produce a good model at all? This is a great question.
+    When going through the various scenarios of when we might want to use a neural
+    network, there is often a common baseline, such as classifying images. Much of
+    the training is related to detecting colors, edges, shapes, etc. and is not dependent
+    on the exact data used as input. This means you can use the weights from a pretrained
+    model as a starting point for making predictions on your own data, based on your
+    business requirements.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么会有效？或者说能否生成一个好的模型？这是一个很好的问题。在研究使用神经网络的各种情景时，通常存在一个共同的基准，例如图像分类。大部分训练涉及检测颜色、边缘、形状等，并不依赖于确切的输入数据。这意味着您可以使用预训练模型的权重作为在基于业务需求处理自己数据时的起点。
+- en: As mentioned in [Chapter 5](ch05.xhtml#feature_engineering), this approach is
+    sometimes called *transfer learning*. In transfer learning, knowledge acquired
+    while solving one problem is applied to a different but related problem. The Keras
+    API makes it easy for us to do exactly that—I’ll show you how it works using MobileNetV2.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如在[第五章](ch05.xhtml#feature_engineering)中所述，这种方法有时被称为 *迁移学习*。在迁移学习中，通过解决一个问题获得的知识被应用于一个不同但相关的问题。Keras
+    API 使我们能够轻松实现这一点——我将向您展示如何使用 MobileNetV2。
+- en: MobileNetV2 transfer learning case study
+  id: totrans-198
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: MobileNetV2 迁移学习案例研究
+- en: MobileNetV2 is a deep convolutional neural network composed of 53 layers trained
+    on the ImageNet dataset, which consists of more than a million images in 1,000
+    different categories (for example, keyboards, mice, pencils, and many kinds of
+    animals). You can load a pretrained version of the network via the `tf.keras`
+    API.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MobileNetV2 是一个由 53 层组成的深度卷积神经网络，使用 ImageNet 数据集进行训练，该数据集包含超过一百万张图像，涵盖了 1,000
+    个不同的类别（例如键盘、鼠标、铅笔以及多种动物）。您可以通过 `tf.keras` API 加载预训练版本的网络。
+- en: 'Let’s start by importing it:'
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从导入开始：
+- en: '[PRE10]'
+  id: totrans-201
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'After importing the neural network, we can access its summary simply by calling
+    the `summary` function. We can also define how we want to load the model. This
+    is done by specifying the input shape of the data we’re working with (as `(``*height*``,`
+    `*width*``,` `*channels*``)`), whether we want to include the top (classification)
+    layer, and the weights to use. It’s important to define the weights if we intend
+    to avoid training the whole model from scratch with random weights, which is what
+    will happen if we don’t provide a value for this variable or specify None. In
+    our case, we want to leverage the existing weights based on the ImageNet dataset
+    (alternatively, you can pass in the path to a weights file to be loaded). The
+    following code snippet will load the model:'
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 导入神经网络后，我们可以通过调用 `summary` 函数来简单查看其摘要。我们还可以定义如何加载模型。这是通过指定我们处理的数据的输入形状（例如 `(``*height*``,`
+    `*width*``,` `*channels*``)`）、我们是否要包含顶部（分类）层以及要使用的权重来完成的。如果我们打算避免使用随机权重从头开始训练整个模型，重要的是定义权重。如果我们不为此变量提供值或指定为
+    None，则会发生这种情况。在我们的情况下，我们希望利用基于 ImageNet 数据集的现有权重（或者，您可以传递路径到要加载的权重文件）。以下代码片段将加载模型：
+- en: '[PRE11]'
+  id: totrans-203
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'Using the model requires an understanding of its layers and their usage. Some
+    layers, for example, are used for feature extraction. If we don’t want to extract
+    new features, we can freeze the parameters and define the `base_model` itself
+    as not trainable. This will enforce the transfer learning effect, and we will
+    only add a new classification layer to classify our images. The next code snippet
+    demonstrates exactly that:'
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用模型需要理解其层及其用法。例如，某些层用于特征提取。如果我们不想提取新特征，我们可以冻结参数并将 `base_model` 自身定义为不可训练。这将强化迁移学习的效果，我们只需添加一个新的分类层来对图像进行分类。下一个代码片段演示了这一点：
+- en: '[PRE12]'
+  id: totrans-205
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Note that I’ve also added a `GlobalAveragePooling2D` layer, which is intended
+    for pooling operations for spatial data. In images, pooling relates to the pool
+    of pixels. The goal of this layer is to progressively reduce the spatial size
+    of the representation and the number of parameters and amount of computation in
+    the network. This is a must-have when you want your final model to fit into smaller
+    devices, such as embedded or IoT devices.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我还添加了一个 `GlobalAveragePooling2D` 层，用于空间数据的池化操作。在图像中，池化与像素的池相关。此层的目标是逐渐减少表示的空间大小以及网络中的参数数量和计算量。当您希望最终模型适合较小的设备（例如嵌入式或物联网设备）时，这是必不可少的。
+- en: Note
+  id: totrans-207
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: While distributed training is usually done with a dataset that is too large
+    to fit in a single machine’s memory, that doesn’t necessarily mean that we can’t
+    end up with a small model that does. Reducing the size of a neural network or
+    other machine learning model so it can run on a memory- or power-constrained device—including
+    everyday IoT devices such as TVs, refrigerators, cars, etc.—is the main goal of
+    TinyML. If you are interested in learning more about this topic, take a look at
+    [*TinyML*](https://oreil.ly/tinyML) by Pete Warden and Daniel Situnayake (O’Reilly).
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然分布式训练通常使用的数据集太大，无法放入单个机器的内存中，但这并不意味着我们无法使用一个可以的小型模型来解决这个问题。减小神经网络或其他机器学习模型的大小，使其能够在内存或功耗受限设备上运行，包括日常物联网设备，如电视、冰箱、汽车等，是TinyML的主要目标。如果您对此主题感兴趣，可以看看[Pete
+    Warden 和 Daniel Situnayake](https://oreil.ly/tinyML)的《TinyML》（O'Reilly）。
+- en: 'Now that we have the `base_model` and two layers, we want to stack them together
+    into a final model. For that, we use the `Sequential` function, which enables
+    us to specify how the layers will be stacked. The function takes an array of layers,
+    which enables us to arrange the layers in the order in which we want the model
+    to operate, as you can see in the following code snippet:'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了`base_model`和两个层，我们希望将它们堆叠到一起形成最终模型。为此，我们使用`Sequential`函数，它允许我们指定如何堆叠这些层。该函数接受一个层的数组，这使我们能够按照希望模型操作的顺序排列层，正如您可以在以下代码片段中看到的那样：
+- en: '[PRE13]'
+  id: totrans-210
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'The outcome of this is a model where the added layers are not trained yet (only
+    the base model has its weights set up), and we need to train them to get the correct
+    weights. To train the last two layers, we ingest the training dataset into the
+    model, making sure to split it into a training set and a validation set (for training
+    purposes, our model needs both):'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果是一个模型，其中添加的层尚未训练（只有基础模型已经设置了其权重），我们需要训练它们以获取正确的权重。为了训练最后两层，我们将训练数据集输入模型，确保将其分成训练集和验证集（出于训练目的，我们的模型需要两者）：
+- en: '[PRE14]'
+  id: totrans-212
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: In this code snippet, we call the `model.fit` function on the model with all
+    the input it requires, including the training dataset. This will train the two
+    last layers and produce the fully trained model. You can also configure the number
+    of steps per epoch, number of epochs, and validation steps, to customize what
+    happens while the training is taking place.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个代码片段中，我们对模型调用`model.fit`函数，提供所有必要的输入，包括训练数据集。这将训练最后两层并生成完全训练好的模型。您还可以配置每个epoch的步数、epoch的数量和验证步数，以定制训练过程中发生的事情。
+- en: Now that we’ve created the model, we can configure it by adding a loss function,
+    metrics, and/or dedicated Grappler optimizers for the graph. To keep things simple
+    here, I’ll keep the model as it is, but in real-world scenarios, you’ll likely
+    want to configure it in a way that suits the business problem you are solving.
+    If you do decide to configure the model, use the `model.compile` function before
+    and after `fit`.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经创建了模型，我们可以通过添加损失函数、指标和/或专用的Grappler优化器来配置它。在这里保持简单，我将保持模型的现状，但在实际情况中，您可能希望根据解决的业务问题来配置它。如果决定配置模型，请在`fit`之前和之后使用`model.compile`函数。
+- en: 'Once it’s ready, we can use the `model.predict` function to make a prediction
+    with the model:'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦准备好，我们可以使用`model.predict`函数对模型进行预测：
+- en: '[PRE15]'
+  id: totrans-216
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: This will take a validation dataset item as input, do a forward pass through
+    the neural network, and provide a prediction.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将使用验证数据集项作为输入，通过神经网络进行前向传递，并提供预测结果。
+- en: This example illustrated how you can leverage the power of existing models in
+    Keras to solve your business problems by using those models as a foundation. Notice
+    that under the hood, `tf.keras` APIs themselves are distributed-aware. So, based
+    on the strategy you select, they know how to replicate variables and operations.
+    To have them run as part of the strategy’s scope, remember to specify the scope
+    with the `strategy.scope` function. Under that scope, you only need to define
+    the model and call `model.compile`. To train the model, we call `model.fit` (which
+    can be called outside of the strategy’s scope).
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此示例说明了您如何利用Keras中现有模型的力量来解决业务问题，通过将这些模型作为基础。请注意，在幕后，`tf.keras` API本身是分布感知的。因此，根据您选择的策略，它们知道如何复制变量和操作。要使它们作为策略范围的一部分运行，请记住使用`strategy.scope`函数指定范围。在该范围内，您只需定义模型并调用`model.compile`即可。要训练模型，我们调用`model.fit`（可以在策略范围之外调用）。
+- en: 'Here’s what it looks like all together:'
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 整体看起来是这样的：
+- en: '[PRE16]'
+  id: totrans-220
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: In this code, we create the `MultiWorkerMirroredStrategy` instance that replicates
+    the model across machines and then use its scope to define the model and compile
+    it. Following that, everything related to the model, such as sequential stacking,
+    compiling, fitting, and then saving it, happens within the relevant scope.
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这段代码中，我们创建了`MultiWorkerMirroredStrategy`实例，这个实例会在各个机器上复制模型，然后使用它的作用域来定义模型并对其进行编译。接下来，与模型相关的所有操作，比如顺序堆叠、编译、拟合，以及保存，都发生在相关作用域内。
+- en: The saved model is saved as a regular model (without the training strategy attached),
+    so when you load it, it will run as a regular model on a single device. This flexibility
+    enables us to decide how we want to load the trained model and run predictions
+    with it (more on that in [Chapter 10](ch10.xhtml#deployment_patterns_for_machine_learnin)).
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保存的模型是作为普通模型保存的（不附带训练策略），所以当你加载它时，它将在单个设备上作为普通模型运行。这种灵活性使我们能够决定如何加载训练好的模型并对其进行预测（有关更多信息，请参阅[第10章](ch10.xhtml#deployment_patterns_for_machine_learnin)）。
+- en: Now that you know how to leverage an existing model as a base and add layers
+    to build a solution, let’s take a look at how you would build it from scratch
+    with Keras.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你知道如何利用现有模型作为基础，并添加层来构建解决方案，让我们看看如何使用Keras从头构建模型。
+- en: Training the Keras MobileNetV2 algorithm from scratch
+  id: totrans-224
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 从头训练Keras MobileNetV2算法
+- en: The main difference between the previous approach and the one we’ll take here
+    is the trained weights of the neural network itself. When using an existing deep
+    learning algorithm without the pretrained weights, the layers are already defined,
+    and what changes are the weights connecting the graph layers and the feature extraction
+    process.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前面方法与我们将在这里采用的方法之间的主要区别在于神经网络本身的训练权重。在不使用预训练权重的现有深度学习算法中，层已经定义好了，而改变的是连接图层和特征提取过程的权重。
+- en: 'To get the neutral network itself without the trained weights, all we need
+    to do is specify `weights=''None''` when we create the base model instead of `weights=''imagenet''`,
+    as we did in the previous example. This results in random initialization of the
+    weights, which will be adjusted during training:'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要获得没有经过训练权重的神经网络本身，我们只需在创建基础模型时指定`weights='None'`，而不是像前面的例子中所做的`weights='imagenet'`。这会导致权重的随机初始化，在训练过程中会进行调整：
+- en: '[PRE17]'
+  id: totrans-227
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'Then, to enable training new parameters in the model’s feature extraction layers,
+    we need to set the `base_model.trainable` parameter to `True` like so:'
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，为了训练模型的特征提取层中的新参数，我们需要将`base_model.trainable`参数设置为`True`，就像这样：
+- en: '[PRE18]'
+  id: totrans-229
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'And that’s it! The rest of the flow goes just like the previous example. Next,
+    we’ll look at a much more low-level solution: building a custom training loop
+    (CTL) from scratch.'
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就是这样！其余的流程与前面的例子基本相同。接下来，我们将看一种更加低级的解决方案：从头开始构建自定义训练循环（CTL）。
+- en: Custom Training Loop
+  id: totrans-231
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 自定义训练循环
+- en: 'TF’s custom training loop API provides granular control over training and evaluating
+    loops built from scratch. It allows you to construct training loops step by step
+    and provides access to the framework’s low-level APIs. This is fantastic if you
+    want to customize the learning algorithm of a model. Note that with a CTL, we
+    are responsible for distributing the dataset using the strategy instance we create.
+    Here, we’ll use the `MultiWorkerMirroredStrategy` as an example:'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF的自定义训练循环API提供了对从头构建的训练和评估循环的细粒度控制。它允许您逐步构建训练循环，并提供对框架低级API的访问。如果您希望自定义模型的学习算法，这将非常棒。请注意，通过CTL，我们需要通过创建的策略实例来负责数据集的分发。在这里，我们将以`MultiWorkerMirroredStrategy`为例：
+- en: '[PRE19]'
+  id: totrans-233
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'When we write a CTL, we must take care of each step in the training process.
+    This includes the following:'
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们编写CTL时，必须注意训练过程中的每一步。这包括以下内容：
+- en: Providing the data sources to load the data from (the dataset that is split
+    and shared across replicas, and the variables that the replicas will update during
+    the training procedure)
+  id: totrans-235
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 提供数据源以从中加载数据（跨副本拆分和共享的数据集，以及副本在训练过程中将更新的变量）
+- en: Defining the computations that each replica will run on its piece of the dataset,
+    using its allocated resources
+  id: totrans-236
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 定义每个副本将在其数据集片段上运行的计算，使用其分配的资源
+- en: Combining the output of the replicas (which reduction operations to apply, e.g.,
+    *sum*, *mean*, *max*, etc.)
+  id: totrans-237
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 组合副本的输出（应用哪些减少操作，例如*sum*、*mean*、*max*等）
+- en: Deciding how to use the output from the previous step to update the variables
+    (e.g., all-reduce or, less commonly, concatenation for edge cases)
+  id: totrans-238
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 决定如何使用上一步骤的输出更新变量（例如全局减少或在边缘情况下更少地使用串联）
+- en: Broadcasting the result to all the replicas, in the case of all-reduce (you
+    can also use MPI or other functions that suit your use case better)
+  id: totrans-239
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将结果广播到所有副本，对于全局减少（您也可以使用 MPI 或其他更适合您用例的函数）
+- en: Performing the next round of training (up to the specified number of epochs)
+    given the updated variables
+  id: totrans-240
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 给定更新后的变量，执行下一轮训练（达到指定的 epoch 数）
+- en: This approach exists in TF to allow more complicated algorithms to be developed
+    for research purposes—I’m talking here about scenarios where there is no out-of-the-box
+    premade algorithm available or when the researcher wants to investigate how each
+    layer impacts other layers, take a novel approach to operator usage, and much
+    more. Since this API is more common in research settings, I will not discuss it
+    in detail; I invite you to learn more about it on the [Google Brain team’s website](https://oreil.ly/Zgm7y).
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法存在于 TF 中，允许为研究目的开发更复杂的算法——我在这里讨论的是没有现成算法可用或研究人员希望调查每个层如何影响其他层、采用新颖运算符使用方法等场景。由于这种
+    API 在研究环境中更常见，我不会详细讨论它；我邀请您在[Google Brain 团队的网站](https://oreil.ly/Zgm7y)上了解更多。
+- en: 'What I will show you now is how to build a custom loop with strategy awareness.
+    As you know already, we have to set up the strategy at the beginning, and as with
+    the Keras API, we can use the `scope` function:'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我将向您展示如何使用策略意识构建自定义循环。正如您已经知道的那样，我们必须在开始时设置策略，并且与 Keras API 一样，我们可以使用`scope`函数：
+- en: '[PRE20]'
+  id: totrans-243
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Notice that not all operators need to be inside the scope, but it is much simpler
+    to put everything inside the scope to avoid mistakes. This also makes your code
+    more modular.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，并非所有运算符都需要放在范围内，但将所有内容放在范围内会更简单，可以避免错误。这也使得您的代码更具模块化。
+- en: We pass the `make_petastorm_dataset` function a Petastorm reader instance created
+    with the `make_batch_reader` function, described in [“Loading Parquet Data into
+    a TensorFlow Dataset”](#loading_parquet_data_into_a_tensorflow). This takes care
+    of reading the data in batches when we provide it with a defined `batch_size`.
+    After that, the `strategy​.experi⁠men⁠tal​_​distribute_dataset` function determines
+    how to split the data based on the batch size. If you wish, you can provide TF
+    with a different split function, such as a function that takes an input context
+    and returns a dataset per replica batch size; however, I don’t recommend doing
+    that unless you are experienced in working with distributed data. Finally, we
+    call `create_model` from within the strategy’s scope so that any variables will
+    be created using the policy dictated by the strategy.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将 `make_petastorm_dataset` 函数传递给使用 `make_batch_reader` 函数创建的 Petastorm 读取器实例，详见[“将
+    Parquet 数据加载到 TensorFlow Dataset”](#loading_parquet_data_into_a_tensorflow)。当我们提供定义的
+    `batch_size` 时，此函数负责批量读取数据。然后，`strategy​.experi⁠men⁠tal​_​distribute_dataset`
+    函数根据批大小决定如何拆分数据。如果愿意，您可以提供 TF 不同的拆分函数，例如一个接受输入上下文并返回每个副本批大小数据集的函数；然而，除非您有处理分布式数据的经验，否则我不建议这样做。最后，我们在策略的范围内调用
+    `create_model`，以便任何变量都将按策略规定的策略创建。
+- en: With a CTL, you can leverage Keras APIs to define optimizers, loss functions,
+    and more—all of which should take place within the scope. Next, we’ll take a quick
+    look at the third training API, the TF Estimator API.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 CTL，您可以利用 Keras API 定义优化器、损失函数等——所有这些都应在范围内进行。接下来，我们将快速浏览第三个训练 API，TF Estimator
+    API。
+- en: Estimator API
+  id: totrans-247
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 估算器 API
+- en: Warning
+  id: totrans-248
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: This is an old API that should not be used for new code. I will briefly cover
+    it to help if you are working with legacy code and need to configure the training
+    distributed strategy. If you are developing new code, you should use one of the
+    training APIs discussed in the previous sections.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个不应用于新代码的旧 API。我将简要介绍它，以帮助您处理遗留代码并需要配置训练分布式策略。如果您正在开发新代码，应使用前几节讨论的其中一个训练
+    API。
+- en: 'The Estimator API offers limited support for all distributed training strategies
+    in TF v2\. This is because it is an older API (from TF v1) and is in maintenance
+    mode. Similar to the Keras API, it’s strategy-aware, which means that after defining
+    the training strategy, all we need to do is create a config instance and pass
+    it to the `Estimator` instance. This is what distributed training with an `Estimator`
+    looks like:'
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Estimator API 在 TF v2 中对所有分布式训练策略的支持有限。这是因为它是一个较旧的 API（来自 TF v1）并处于维护模式。与 Keras
+    API 类似，它具有策略感知功能，这意味着在定义训练策略后，我们只需创建一个配置实例并将其传递给 `Estimator` 实例即可。以下是使用 `Estimator`
+    进行分布式训练的示例：
+- en: '[PRE21]'
+  id: totrans-251
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: First, we create the strategy, then we specify the configuration for an `Estimator`
+    run. `tf.estimator.RunConfig` defines how the `Estimator` will operate, which
+    is why passing the strategy to the constructor with the `train_distributed` parameter
+    is a must.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们创建策略，然后我们为 `Estimator` 运行指定配置。`tf.estimator.RunConfig` 定义了 `Estimator`
+    的操作方式，因此将策略传递给构造函数并使用 `train_distributed` 参数是必须的。
+- en: The third line creates the `Estimator` itself, and the fourth line runs the
+    training as described in `run_config`.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三行创建了 `Estimator` 本身，第四行按照 `run_config` 中描述的方式运行训练。
+- en: Note that with this code, the `model_function` provided to the `Estimator` is
+    called once per replica. The `Estimator` itself already knows how to merge the
+    results of the model function into a single coherent answer.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，使用此代码时，提供给 `Estimator` 的 `model_function` 每个副本会调用一次。`Estimator` 本身已经知道如何将模型函数的结果合并为一个统一的答案。
+- en: How does this code differ from the previous approaches? We don’t use the `strategy.scope`
+    function! This makes the whole process of choosing the strategy and executing
+    within it kind of hidden to us.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这段代码与之前的方法有何不同？我们没有使用 `strategy.scope` 函数！这使得我们对选择策略和在其中执行的整个过程有点隐晦。
+- en: 'Now that we have a distributed model, we can save and load it using TensorFlow
+    APIs, similar to how we do with MLlib. Here is an example of how we do this:'
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了一个分布式模型，我们可以使用 TensorFlow API 来保存和加载它，类似于我们在 MLlib 中的操作。以下是我们如何实现这一点的示例：
+- en: '[PRE22]'
+  id: totrans-257
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: To learn more about how to handle this, including the different variations,
+    programming language support, and so on, see the [TensorFlow docs](https://oreil.ly/MjGCO).
+    We’ll discuss loading and deploying models further in [Chapter 10](ch10.xhtml#deployment_patterns_for_machine_learnin).
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解更多信息，包括不同变体、编程语言支持等，请参阅 [TensorFlow 文档](https://oreil.ly/MjGCO)。我们将在 [第10章](ch10.xhtml#deployment_patterns_for_machine_learnin)
+    进一步讨论加载和部署模型。
+- en: Putting It All Together
+  id: totrans-259
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 将所有内容整合在一起
+- en: You now have a good understanding of the various training strategies provided
+    by TF and how things work. Now it’s time to use the Caltech 256 image dataset
+    to tie everything together.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您现在已经对 TF 提供的各种训练策略及其工作原理有了很好的了解。现在是时候使用 Caltech 256 图像数据集将所有内容整合起来了。
+- en: In [Chapter 5](ch05.xhtml#feature_engineering), you learned how to extract features
+    from the Caltech 256 dataset, create grayscale versions of the images, extract
+    the labels, and more. To use this dataset with the Keras MobileNetV2 model, we
+    will need to do some additional data processing. We will use Petastorm for this,
+    and we’ll take advantage of TensorFlow’s transfer learning capabilities to train
+    only some of the layers.
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [第5章](ch05.xhtml#feature_engineering) 中，您学习了如何从 Caltech 256 数据集中提取特征，创建图像的灰度版本，提取标签等。要将此数据集与
+    Keras MobileNetV2 模型一起使用，我们需要进行一些额外的数据处理。我们将使用 Petastorm 进行此操作，并利用 TensorFlow
+    的迁移学习能力仅训练部分层。
+- en: 'As a first step, we’ll define a supporting function to convert the dataset
+    schema into a schema that can be used with MobileNetV2\. Our `preprocess` function
+    resizes each image using the Pillow API and creates a Keras image array, as shown
+    in the following code snippet:'
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们将定义一个支持函数，将数据集架构转换为可与 MobileNetV2 一起使用的架构。我们的 `preprocess` 函数使用 Pillow
+    API 调整每个图像的大小并创建一个 Keras 图像数组，如下面的代码片段所示：
+- en: '[PRE23]'
+  id: totrans-263
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: To run this function, we need to iterate over our dataset using the pandas DataFrame.
+    As discussed in previous chapters, Spark’s support for pandas DataFrames is more
+    optimized than Spark UDFs.
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要运行此功能，我们需要使用 pandas DataFrame 迭代我们的数据集。如前几章所述，Spark 对 pandas DataFrame 的支持比
+    Spark UDF 更优化。
+- en: 'The following supporting function will take a pandas DataFrame as input and
+    return a pandas DataFrame as output:'
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的支持函数将以 pandas DataFrame 作为输入，并返回一个 pandas DataFrame 作为输出：
+- en: '[PRE24]'
+  id: totrans-266
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: Here, we use the `map` function to iterate over the `content` column and execute
+    the `preprocess` function on it. We save the result in a new column named `features`;
+    then we remove the original `content` column with `drop(labels=['content'], axis=1)`,
+    since it is no longer needed. The function returns the updated `pd_batch`.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们使用 `map` 函数遍历 `content` 列并在其上执行 `preprocess` 函数。 我们将结果保存在名为 `features`
+    的新列中；然后，我们使用 `drop(labels=['content'], axis=1)` 删除原始的 `content` 列，因为它不再需要。 函数返回更新后的
+    `pd_batch`。
+- en: '`transform_row` is used with a Petastorm `TransformSpec` instance. `TransformSpec`
+    uses this function in the constructor to define how to transform the data from
+    Parquet into the format that fits the algorithm (in our case, MobileNetV2). `TransformSpec`
+    also takes the optional parameters `edit_fields` and `selected_fields`, specifying
+    the fields the transformation is operating on and the fields it needs to produce
+    at the end. The following code snippet shows how to use it:'
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`transform_row` 用于 Petastorm 的 `TransformSpec` 实例。 `TransformSpec` 在构造函数中使用此函数来定义如何将
+    Parquet 中的数据转换为适合算法（在我们的情况下是 MobileNetV2）的格式。 `TransformSpec` 还接受可选参数 `edit_fields`
+    和 `selected_fields`，指定转换操作的字段以及最终需要生成的字段。以下代码片段展示了如何使用它：'
+- en: '[PRE25]'
+  id: totrans-269
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'Note that we must provide the schema information for every column, represented
+    by a 4-tuple with the following information: `(name, numpy_dtype, shape, is_​nulla⁠ble)`.
+    In our case, we transform only one field, `features`, which is of type `np.uint8`.
+    We provide it with the `IMG_SHAPE` of `(224,224,3)` and specify `False` as the
+    field cannot be nullable.'
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们必须为每一列提供模式信息，用 4 元组表示，包含以下信息： `(name, numpy_dtype, shape, is_​nulla⁠ble)`。
+    在我们的情况下，我们只转换一个字段 `features`，其类型为 `np.uint8`。 我们为其提供了 `(224,224,3)` 的 `IMG_SHAPE`，并指定字段不能为
+    `nullable`，即 `False`。
+- en: 'Now that we’ve defined `transform_spec_fn`, we need to define the Petastorm
+    converter. We do this (as discussed in [Chapter 7](ch07.xhtml#bridging_spark_and_deep_learning_framew))
+    using the `make_spark_converter` function, which will leverage the Spark cluster
+    to build a converter and convert the data into a TF dataset:'
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经定义了 `transform_spec_fn`，我们需要定义 Petastorm 转换器。 我们使用 `make_spark_converter`
+    函数进行此操作（如 [第 7 章](ch07.xhtml#bridging_spark_and_deep_learning_framew) 中讨论的那样），该函数将利用
+    Spark 集群构建转换器并将数据转换为 TF 数据集：
+- en: '[PRE26]'
+  id: totrans-272
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: Note
+  id: totrans-273
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: We use the `make_spark_converter` function when we already have a materialized
+    Spark DataFrame and want to convert it into a TF dataset. This approach is different
+    from the approach we discussed before, which included writing the data to disk
+    and loading it using Petastorm.
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们已经有一个具体化的 Spark DataFrame 并希望将其转换为 TF 数据集时，我们使用 `make_spark_converter` 函数。
+    这种方法与我们之前讨论的方法不同，后者包括将数据写入磁盘并使用 Petastorm 加载它。
+- en: 'We can now convert the DataFrame with `make_tf_dataset`, configuring `transform_spec=transform_spec_fn`
+    and `batch_size=BATCH_SIZE`. Here we create two TensorFlow datasets, one for training
+    and the other for validation:'
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们可以使用 `make_tf_dataset` 转换 DataFrame，配置 `transform_spec=transform_spec_fn`
+    和 `batch_size=BATCH_SIZE`。 在这里，我们创建了两个 TensorFlow 数据集，一个用于训练，另一个用于验证：
+- en: '[PRE27]'
+  id: totrans-276
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: This code example uses the supporting function `get_model`, which returns the
+    model. We compile it with the `model.compile` function, discussed in [“MobileNetV2
+    transfer learning case study”](#mobilenetvtwo_transfer_learning_case_st), then
+    map the datasets with TF’s `map` function to fit Keras’s input requirements, as
+    it accepts only tuples and not namedtuples. `steps_per_epoch` is calculated by
+    dividing the training dataset size by the batch size. For example, if we have
+    1 million entries in the training dataset and a batch size of 1,000, `steps_per_epoch`
+    will be 1,000,000/1,000 = 1,000 (that is, there will be 1,000 steps per epoch).
+    The same goes for `validation_steps`. Last, we train the model with the `model.fit`
+    function. The `hist` instance returned by this function holds the history of each
+    epoch/iteration over the data. You can examine this information later to better
+    assess the model’s accuracy.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码示例使用了支持函数 `get_model`，该函数返回模型。 我们使用 `model.compile` 函数进行编译，该函数在 [“MobileNetV2
+    迁移学习案例研究”](#mobilenetvtwo_transfer_learning_case_st) 中讨论，然后使用 TF 的 `map` 函数映射数据集以适应
+    Keras 的输入要求，因为它只接受元组而不接受命名元组。 `steps_per_epoch` 通过将训练数据集大小除以批处理大小来计算。 例如，如果训练数据集中有
+    100 万条目，批处理大小为 1,000，则 `steps_per_epoch` 将为 1,000,000/1,000 = 1,000（即每个 epoch
+    将有 1,000 步）。 `validation_steps` 也是如此。 最后，我们使用 `model.fit` 函数训练模型。 此函数返回的 `hist`
+    实例保存了每个 epoch/迭代的历史记录。 您可以稍后检查此信息以更好地评估模型的准确性。
+- en: Troubleshooting
+  id: totrans-278
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 故障排除
+- en: 'Errors can occur during the conversion from Spark to Petastorm to TensorFlow.
+    For example, you may see an exception such as the following:'
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在从Spark转换到Petastorm再到TensorFlow的过程中可能会出现错误。例如，你可能会看到如下异常：
+- en: '[PRE28]'
+  id: totrans-280
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: To troubleshoot this, you need to go back to your `transform_spec` definition.
+    Petastorm translates this spec into the `arrow_reader_worker`, which requires
+    the TensorFlow tensor to be of a fixed shape. If you attempt to provide a `None`
+    value to represent the tensor shape, you will encounter this error.
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要解决这个问题，你需要回到你的`transform_spec`定义。Petastorm将此规范转换为`arrow_reader_worker`，它要求TensorFlow张量具有固定的形状。如果你尝试提供一个`None`值来表示张量形状，你将遇到这个错误。
+- en: To fix the problem, the `Unischema` variable has to be of a fixed length; otherwise,
+    the data coalesce logic it executes behind the scenes won’t work. In other words,
+    when preprocessing the data, you need to make sure your variables have fixed lengths.
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要解决问题，`Unischema`变量必须具有固定的长度；否则，它在幕后执行的数据聚合逻辑将无法工作。换句话说，在预处理数据时，你需要确保你的变量具有固定的长度。
+- en: 'On top of that, you’ll want to make sure your images are all the same size,
+    or you’ll run into the following error message:'
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，你需要确保你的图像大小都相同，否则你将会遇到以下错误消息：
+- en: '[PRE29]'
+  id: totrans-284
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: Summary
+  id: totrans-285
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: This chapter introduced several new concepts, focusing on the topic of TF’s
+    distribution strategies. We went deep into this framework’s approach to distributed
+    machine learning and walked through a full end-to-end example of using it to train
+    a model. You should now understand how TF’s strategies work and how they compare
+    to Spark’s. As you’ve seen, although there are many similarities between TF and
+    Apache Spark, there is also some variation in their naming conventions and operations.
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章介绍了几个新概念，重点讨论了TF的分布策略。我们深入探讨了这个框架在分布式机器学习中的方法，并通过一个完整的端到端示例演示了如何使用它来训练模型。你现在应该了解TF的策略如何工作，以及它们与Spark的比较。正如你所见，尽管TF和Apache
+    Spark之间有许多相似之处，但它们在命名约定和操作上也存在一些差异。
+- en: It is important to remember that there is no single authoritative approach to
+    building distributed systems but rather many different approaches based on adjacent
+    concepts, structures, and optimizations. The main difference between TF and Spark
+    is that Spark was built as a generic distributed analytics engine, while TF was
+    built as a deep learning engine.
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要记住，建立分布式系统没有单一的权威方法，而是基于相邻概念、结构和优化的许多不同方法。TF和Spark之间的主要区别在于，Spark是作为通用分布式分析引擎构建的，而TF是作为深度学习引擎构建的。
+- en: Next, we will explore PyTorch’s distributed training approach and how it differs
+    from TensorFlow’s.
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将探讨PyTorch的分布式训练方法及其与TensorFlow的区别。
+- en: ^([1](ch08.xhtml#ch01fn20-marker)) This model separates a remote procedure call
+    from its return value, overcoming some of the shortcomings of the traditional
+    RPC model (where the client is blocked until the call returns).
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch08.xhtml#ch01fn20-marker)) 这种模型将远程过程调用与其返回值分离，克服了传统RPC模型（客户端在调用返回前被阻塞）的一些缺点。

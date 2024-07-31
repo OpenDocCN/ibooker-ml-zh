@@ -1,0 +1,2252 @@
+- en: Chapter 8\. Refactoring and Technical Debt Management
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第8章。重构和技术债务管理
+- en: Programs must be written for people to read, and only incidentally for machines
+    to execute.
+  id: totrans-1
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 程序必须为人们而写，只是偶然为机器执行。
+- en: ''
+  id: totrans-2
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: Harold Abelson, *Structure and Interpretation of Computer Programs* (MIT Press)
+  id: totrans-3
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 哈罗德·阿贝尔森，《计算机程序的结构与解释》（麻省理工学院出版社）
+- en: ''
+  id: totrans-4
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: Without refactoring, the internal design—the architecture—of software tends
+    to decay. As people change code to achieve short-term goals, often without a full
+    comprehension of the architecture, the code loses its structure [...]. Loss of
+    the structure of code has a cumulative effect. The harder it is to see the design
+    in the code, the harder it is for me to preserve it, and the more rapidly it decays.
+    Regular refactoring helps keep the code in shape.
+  id: totrans-5
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在没有重构的情况下，软件的内部设计——架构——往往会衰退。随着人们修改代码以实现短期目标，往往没有完全理解架构，代码就失去了结构[...]。代码结构的丧失具有累积效应。代码中的设计越难看到，我保存它的难度就越大，它的衰变速度就越快。定期的重构有助于保持代码的良好状态。
+- en: ''
+  id: totrans-6
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: 'Martin Fowler, [*Refactoring: Improving the Design of Existing Code*](https://oreil.ly/e6sQo)
+    (Addison-Wesley Professional)'
+  id: totrans-7
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 马丁·福勒，《重构：改善现有代码的设计》（Addison-Wesley专业版）
+- en: As ML practitioners, we know that code can get messy, and usually much more
+    quickly than we expect. Typically, code to train ML models comprises semi-boilerplate
+    code glued together in a long notebook or script, generously peppered with side
+    effects—e.g., print statements, pretty-printed dataframes, data visualizations—and
+    usually without any automated tests.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为ML从业者，我们知道代码可能变得混乱，通常比我们预期的要快得多。通常，用于训练ML模型的代码包括半样板代码，这些代码在一个长长的笔记本或脚本中粘合在一起，大量地使用了副作用，例如打印语句、美化的数据框和数据可视化，并且通常没有任何自动化测试。
+- en: While this may be fine for notebooks targeted at teaching people about the ML
+    process, in real projects it’s a recipe for unmaintainable mess, cognitive overload,
+    and friction to the point of halting progress. Poor coding habits and the lack
+    of design makes code hard to understand and, consequently, very hard to change.
+    This makes feature development and model improvements increasingly difficult,
+    error-prone, and slow.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这可能适用于旨在教授ML过程的笔记本，但在实际项目中，这是导致难以维护的混乱、认知负荷过重以及摩擦到停滞不前的一种方案。糟糕的编码习惯和缺乏设计使得代码难以理解，因此也难以进行改变。这使得功能开发和模型改进变得越来越困难、容易出错且缓慢。
+- en: Thankfully, there is a better way. In this chapter, we’ll share techniques to
+    help you refactor a problematic, messy, and brittle codebase into a readable,
+    testable, maintainable, and evolvable solution. In the spirit of “learning by
+    doing,” we will drive this chapter with a hands-on example, starting with an ML
+    training pipeline that’s full of code smells and ending with a better solution.
+    Finally, we’ll share practices to help you and your team balance effective technical
+    debt management and product delivery.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，还有更好的方法。在本章中，我们将分享一些技术，帮助您将一个问题多多、混乱且脆弱的代码库重构为一个可读性强、可测试、易于维护和可发展的解决方案。在“通过实践学习”的精神下，我们将以一个ML训练流水线为例进行本章，该流水线充满了代码异味，并以更好的解决方案结束。最后，我们将分享一些实践方法，帮助您和您的团队平衡有效的技术债务管理和产品交付。
+- en: The goal of this chapter is not to teach you design patterns so that you can
+    write perfectly designed code without any issues. That is physically and empirically
+    impossible. Rather, the goal is to equip you and your team with skills to incrementally
+    and regularly improve your solutions, so that you can keep technical debt in check
+    and execute ideas at a sustainable pace.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的目标不是教你设计模式，以便你可以编写完全设计良好、没有任何问题的代码。这在物理上和经验上是不可能的。相反，目标是为您和您的团队提供增量和定期改进解决方案的技能，以便您可以控制技术债务并以可持续的速度执行想法。
+- en: We’ll start by discussing the costs of technical debt and how teams can pay
+    down technical debt incrementally and regularly with tests, design, and refactoring
+    techniques.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将从讨论技术债务的成本以及团队如何通过测试、设计和重构技术逐步和定期地偿还技术债务开始。
+- en: 'Technical Debt: The Sand in Our Gears'
+  id: totrans-13
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 技术债务：我们齿轮中的沙子
+- en: 'If you’ve been an ML practitioner for a while now, you would have no doubt
+    picked up a coding task that seemed straightforward at first, but ended up taking
+    much longer because of reasons such as:'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您是一名ML从业者已有一段时间，您无疑会遇到一个看起来一开始很简单的编码任务，但因为某些原因最终花费了更多时间，例如：
+- en: Code quality issues (e.g., poorly named variables, long functions spanning 100
+    lines of code or more), which made it hard to understand the code
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 代码质量问题（例如，命名不当的变量，长函数跨越 100 行或更多），使得代码难以理解
+- en: Poor design (e.g., a function that conflates multiple responsibilities), which
+    made it hard to implement the code changes
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 设计不良（例如，一个函数混淆了多个职责），这使得实现代码更加困难
+- en: Accidental errors—often discovered several steps too late—that forced you to
+    drop what you were doing to debug and troubleshoot issues
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 意外错误——通常是在几个步骤之后才被发现，迫使你中断正在进行的工作来调试和解决问题
+- en: These three reasons (code quality issues, poor design, and lack of automated
+    tests) are all examples of *technical debt*. Like financial debt, if we don’t
+    regularly pay down our technical debt, we will end up wasting valuable resources
+    on paying interest. For example, we may think we have four hours in a particular
+    day to work on a feature, but we might waste three hours getting stuck trying
+    to understand spaghetti code or debugging accidental errors. That’s 75% of your
+    time wasted on paying interest.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这三个原因（代码质量问题、设计不良和缺乏自动化测试）都是 *技术债务* 的例子。 与金融债务类似，如果我们不定期偿还技术债务，我们最终将浪费宝贵资源支付利息。
+    例如，我们可能认为某一天有四个小时用于完成一个功能，但我们可能会浪费三个小时陷入理解混乱代码或调试意外错误中。 这就是你的时间中有 75% 浪费在支付利息。
+- en: As the comic in [Figure 8-1](#technical_debt_left_parenthesissource_v) illustrates,
+    unrestrained technical debt can make a seemingly simple feature much harder to
+    implement. A codebase with high technical debt tends to attract even more technical
+    debt—because the state and structure of the codebase creates a path of least resistance
+    that makes it easier to put in a quick hack than to “do it right.” This further
+    entrenches the vicious cycle for the next time you need to implement a new feature
+    in the same area of the codebase.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如图 [8-1](#technical_debt_left_parenthesissource_v) 中的漫画所示，不受限制的技术债务可能会使看似简单的功能变得更难实现。
+    高技术债务的代码库往往会吸引更多技术债务——因为代码库的状态和结构创造了一条最易路径，使得快速补丁比“正确做事”更容易。 这进一步加深了下次需要在同一代码库区域实现新功能时的恶性循环。
+- en: '![](assets/emlt_0801.png)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0801.png)'
+- en: 'Figure 8-1\. Technical debt (source: [Vincent Deniél](https://oreil.ly/i3gFH),
+    used under [CC BY-NC 4.0](https://oreil.ly/-jzOM))'
+  id: totrans-21
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-1\. 技术债务（来源：[Vincent Deniél](https://oreil.ly/i3gFH)，在 [CC BY-NC 4.0](https://oreil.ly/-jzOM)
+    下使用）
+- en: In the paper [“Technical Debt Cripples Software Developer Productivity”](https://oreil.ly/rWYlk),
+    researchers found that developers (in their study) waste an average of 23% of
+    their working time due to technical debt. In another paper, [“The Influence of
+    Technical Debt on Software Developer Morale”](https://oreil.ly/0STM1), researchers
+    found that technical debt negatively impacts developers’ morale, confidence, and
+    rate of progress. Developers feel frustrated or fearful when working in areas
+    with large amounts of technical debt.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在论文 [“技术债务削弱软件开发者生产力”](https://oreil.ly/rWYlk) 中，研究人员发现，开发者（在他们的研究中）因技术债务平均浪费了工作时间的
+    23%。 在另一篇论文中， [“技术债务对软件开发者士气的影响”](https://oreil.ly/0STM1) ，研究人员发现，技术债务对开发者的士气、信心和进展速度产生了负面影响。
+    当在存在大量技术债务的区域工作时，开发者会感到沮丧或恐惧。
+- en: To extend the financial debt analogy further, there can be conditions under
+    which it’s reasonable to take on some debt, so long as we do so [prudently](https://oreil.ly/jBdAl).
+    Being prudent—acting with care and thought for the future—in this context means
+    that we make and act on plans to pay off our debt. The goal is not to be completely
+    free of technical debt. As Martin Fowler puts it, “crufty but stable areas of
+    code can be left alone. In contrast, areas of high activity need a *zero-tolerance
+    attitude* to cruft, because the interest payments are cripplingly high”^([1](ch08.html#ch01fn34))
+    (emphasis ours; [cruft](https://oreil.ly/JQDN0) refers to anything that is left
+    over, redundant, and getting in one’s way).
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进一步延伸金融债务的类比，可能存在某些条件，可以合理地承担一些债务，只要我们 [审慎地](https://oreil.ly/jBdAl) 这样做。 在这个背景下，审慎行事——为未来着想——意味着我们制定并执行还债计划。
+    目标不是完全摆脱技术债务。 正如马丁·福勒所说，“代码中又脏又稳定的区域可以不管它们。 相比之下，高活跃度的区域需要对混乱采取 *零容忍的态度*，因为利息支付太高”^([1](ch08.html#ch01fn34))（我们的强调；
+    [混乱](https://oreil.ly/JQDN0) 指的是任何留下的、多余的、妨碍工作的东西）。
+- en: 'Thankfully, there is a practice from the software engineering world that can
+    help us keep our technical debt at a healthy level: refactoring. In the next section,
+    we’ll share practical guidelines and techniques for refactoring (along with tests
+    and good design) that can help you reduce technical debt and sustain your pace
+    of experimentation and delivery.'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，软件工程界有一种实践可以帮助我们保持技术债务在健康水平上：重构。在接下来的部分中，我们将分享关于重构（以及测试和良好设计）的实用指导原则和技术，这可以帮助您减少技术债务并保持实验和交付的步伐。
+- en: Getting to a Healthy Level of Debt Through Tests, Design, and Refactoring
+  id: totrans-25
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 通过测试、设计和重构达到健康债务水平
+- en: In this section, we’ll share useful guiding principles when refactoring, but
+    before you can even refactor, you must understand two things. First, refactoring
+    without automated tests is highly risky, and we wouldn’t recommend it. In the
+    [hands-on exercise](https://oreil.ly/-vHKb), we will demonstrate how you can define
+    characterization tests to first create a safety harness before refactoring.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一节中，我们将分享重构时的有用指导原则，但在你甚至开始重构之前，你必须理解两件事。首先，没有自动化测试的重构是非常危险的，我们不建议这样做。在[实践操作](https://oreil.ly/-vHKb)中，我们将演示如何定义特征测试来首先创建一个安全带，然后再进行重构。
+- en: Second, software design matters. Good design saves time and reduces effort.
+    We know this to be true when we walk into a store room or a kitchen that is well
+    categorized and free of dangling cruft. Because ML systems design is complex,
+    we want to box up these complexities and categorize them well so we don’t have
+    to deal with everything all at once, which is overwhelming and sometimes plain
+    impossible. And good design helps us do that.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，软件设计很重要。良好的设计节省时间并减少工作量。当我们走进一个分类良好且没有杂物的仓库或厨房时，我们知道这是真的。因为ML系统设计是复杂的，我们希望把这些复杂性装箱和良好分类，这样我们就不必一次性处理所有东西，这是令人不安甚至有时根本不可能的。而良好的设计帮助我们做到这一点。
+- en: 'While we can certainly make low-level tactical refactorings without considering
+    design (e.g., renaming a poorly named variable), we need a *high-level picture*
+    of a *desirable* design to create a *readable and maintainable solution*. There’s
+    a couple of loaded concepts in that final sentence, so let’s unpack them:'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管我们当然可以在低级别战术重构中不考虑设计（例如重命名一个命名不佳的变量），但我们需要一个*理想设计的高层图片*来创建一个*可读性和可维护性解决方案*。最后一句中有几个深奥的概念，让我们来详细分析一下：
+- en: A high-level picture
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 高层图片
+- en: This refers to a tangible understanding of the components and modules of our
+    codebase (a physical visualization can often help, even with just pen and paper
+    or virtual stickies). What is in each module, in terms of data (object properties)
+    and behavior (object methods)?
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这指的是对我们代码库的组件和模块有一个具体的理解（物理可视化通常会有所帮助，甚至只需纸笔或虚拟便条）。每个模块中都包含哪些数据（对象属性）和行为（对象方法）？
+- en: How can we design our solution such that our components (e.g., data store, data
+    processing pipeline, ML model training pipeline, model inference API) can collaborate
+    to achieve the desired functionality? With a clear picture, we can identify and
+    eventually avoid architectural smells (e.g., duplication, tight coupling) so that
+    our solution isn’t an entangled mess.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何设计我们的解决方案，使我们的组件（例如数据存储、数据处理管道、ML模型训练管道、模型推断API）能够协作以实现所需功能？有了清晰的图片，我们可以识别并最终避免架构异味（例如重复、紧耦合），这样我们的解决方案不会变成一团乱麻。
+- en: The [C4 model](https://oreil.ly/1KlSE) for visualizing software architecture
+    is a useful tool for gaining clarity in this regard.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于可视化软件架构的[C4模型](https://oreil.ly/1KlSE)是在这方面获得清晰度的有用工具。
+- en: Desirable design
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理想的设计
+- en: In the real world, you don’t need to hot-wire your kettle to put a brew on (thanks
+    electrical sockets). Similarly, creating software with the right abstractions—functions
+    and classes with clear interfaces—can help us design composable and extensible
+    systems (the sidebar [“Software Design Building Blocks”](#software_design_building_blocks)
+    will demystify what we mean by abstractions and interfaces). This helps us minimize
+    such “hot-wiring,” which is a brittle way of adding functionality.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在现实世界中，你不需要给你的水壶接上热线来煮水（感谢电源插座）。同样地，通过使用正确的抽象——具有清晰接口的函数和类——来创建软件可以帮助我们设计可组合和可扩展的系统（侧边栏[“软件设计构建模块”](#software_design_building_blocks)
+    将阐明我们所说的抽象和接口）。这有助于我们最小化这种“热线接入”的情况，这种方式在增加功能时很脆弱。
+- en: If you imagine a codebase as a kitchen, are things (e.g., spoons and forks)
+    cohesively grouped or are there spare packets of sauce lurking in the utensil
+    drawer? When you need an oven tray, is it easily found next to other baking-related
+    objects?
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想象一个代码库就像一个厨房，东西（例如勺子和叉子）是否被紧密地分组，还是有备用的酱包藏在餐具抽屉里？当你需要烤盘时，它是否容易找到，放在其他与烘焙相关的物品旁边？
+- en: Taking the kitchen analogy further, while there is no single way of organizing
+    all kitchens, there are unifying design principles that can help us create reasonable
+    and ergonomic kitchens and codebases (we’ll share some helpful design principles
+    as they occur in this chapter). In contrast, without design, chaos is guaranteed.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 把厨房的类比再进一步，虽然没有一种方法可以组织所有的厨房，但有统一的设计原则可以帮助我们创建合理和人体工程学的厨房和代码库（我们将在本章中分享一些有用的设计原则）
+    。相反，没有设计，混乱是必然的。
+- en: We’re about to get a messy virtual “kitchen” (codebase) into shape, and by this
+    point you know that you need two essential toolboxes (tests and software design
+    principles). Now let’s look at the third and final toolbox of techniques (refactoring),
+    and then we’ll roll up our sleeves and get this cleaning party started.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们即将把一个混乱的虚拟“厨房”（代码库）整理成形，到这一步，你已经知道你需要两个基本的工具箱（测试和软件设计原则）。现在让我们看看第三个和最后一个技术工具箱（重构），然后我们就可以卷起袖子开始这场清理派对。
+- en: Refactoring 101
+  id: totrans-38
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 重构 101
+- en: In this section, we’ll cover principles to guide our micro-decisions when we
+    are refactoring.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将涵盖指导我们微观决策的原则，当我们进行重构时。
+- en: 'Before we begin, let’s revisit our definition of refactoring. [Refactoring](https://oreil.ly/UHb_t)
+    is the act of restructuring existing code without changing its observable behavior.
+    Martin Fowler describes it well: “Refactoring is all about applying small behavior-preserving
+    steps and making a big change by stringing together a sequence of these behavior-preserving
+    steps. Each individual refactoring is either pretty small itself or a combination
+    of small steps. As a result, when I’m refactoring, my code doesn’t spend much
+    time in a broken state, allowing me to stop at any moment even if I haven’t finished.
+    [...] If someone says their code was broken for a couple of days while they are
+    refactoring, you can be pretty sure they were not refactoring.”^([2](ch08.html#ch01fn35))'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们开始之前，让我们重新定义一下重构的定义。[重构](https://oreil.ly/UHb_t)是在不改变代码可观察行为的情况下对现有代码进行重组。马丁·福勒描述得很好：“重构的核心是通过应用小的保留行为的步骤，并通过串联这些保留行为的步骤来进行大的变更。每一个单独的重构要么非常小，要么是一系列小步骤的组合。因此，当我在进行重构时，我的代码不会长时间处于破碎状态，这意味着我可以随时停下来，即使我还没有完成。[...]
+    如果有人说他们在重构时代码断了几天，你可以非常肯定地说他们并没有在进行重构。”^([2](ch08.html#ch01fn35))
+- en: If we imagine our codebase or solution as a physical workshop, refactoring helps
+    us sort, systematize, and standardize our workshop so that it’s free of dangling
+    cruft, allowing us to work effectively instead of tripping over stuff all the
+    time.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们把我们的代码库或解决方案想象成一个实体的工作间，重构帮助我们整理、系统化和标准化我们的工作间，使其没有悬挂的垃圾，让我们能够有效地工作，而不是一直绊倒在东西上。
+- en: 'There are plenty of talks, books, and articles on refactoring (we’ll reference
+    some really great ones in this chapter) and we’ve distilled from them these four
+    heuristics that can help guide your decisions when refactoring:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于重构有很多演讲、书籍和文章（在本章中我们会引用一些非常棒的资源），我们从中总结出了这四条启发式原则，可以帮助指导你在重构时的决策：
+- en: The two hats
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两顶帽子
+- en: When refactoring (one hat), don’t add functionality (a second hat), and vice
+    versa. During programming, you may swap frequently between the [two hats](https://oreil.ly/ytTc2)
+    but wearing two hats at the same time is a recipe for excessive cognitive load
+    and a broken codebase.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当重构（戴一顶帽子）时，不要添加功能（第二顶帽子），反之亦然。在编程过程中，你可能经常在[两个角色](https://oreil.ly/ytTc2)之间切换，但同时戴两顶帽子会导致过多的认知负荷和破碎的代码库。
+- en: Scout rule
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 侦察规则
+- en: Leave the codebase a touch cleaner than when you found it. If you see a bit
+    of “litter” on the road, pick it up as part of your task if it doesn’t cost you
+    too much time to do so.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 离开代码库比找到它时要干净一点。如果你看到路上有点“垃圾”，如果不花太多时间，把它作为你的任务的一部分拾起来。
+- en: If it’s a pothole that requires more time and could potentially blow out the
+    scope of your task, make it visible on your team’s technical debt radar so that
+    the team remembers to come back to fix it (more on technical debt radar in the
+    final section). Until it’s fixed, the pothole will keep tripping people up and
+    perhaps even damage vehicles.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果这是一个需要更多时间并且可能激增你任务范围的坑洼，让它在你团队的技术债务雷达上可见，这样团队就会记得回来修复它（关于技术债务雷达的更多信息将在最后一节中介绍）。在它被修复之前，这个坑洼将继续绊倒人们，甚至可能损坏车辆。
+- en: The goal is not a gold-plated road. The goal is to maintain a functional and
+    reasonable codebase that allows everyone to write code without unnecessary accidents
+    or time-consuming detours.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目标不是镀金的大道。目标是保持一个功能合理的代码库，让每个人在不必要的事故或耗时的绕道情况下编写代码。
+- en: Assisted refactoring with your IDE
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用IDE辅助重构
+- en: As we covered in the preceding chapter, a properly configured code editor is
+    a powerful tool that can help you with many refactoring tasks. Want to rename
+    a variable or method that’s referenced 20 or 100 times in your codebase? Want
+    to extract 20 lines of code as a function? Want to change the signature of a function
+    that’s referenced 20 times? You can execute each of these with a single IDE shortcut.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在上一章中讨论的那样，一个正确配置的代码编辑器是一个强大的工具，可以帮助你完成许多重构任务。想要重命名在你的代码库中被引用了20或100次的变量或方法？想要将20行代码提取为一个函数？想要更改一个被引用了20次的函数的签名？你可以通过单个IDE快捷方式执行这些操作。
+- en: Avoid premature abstraction
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 避免过早抽象化
+- en: 'In my (David Tan’s) career, I’ve probably watched more than 100 conference
+    talks, but probably only five have stayed etched in my mind. One of them is [Sandi
+    Metz’ talk](https://oreil.ly/3s6kY) where she demonstrates the pitfalls of premature
+    abstraction. She articulates this well in her article [“The Wrong Abstraction”](https://oreil.ly/8b4vT)
+    when she writes: “Existing code exerts a powerful influence. Its very presence
+    argues that it is both correct and necessary. [T]he sad truth is that the more
+    complicated and incomprehensible the code, i.e. the deeper the investment in creating
+    it, the more we feel pressure to retain it (the ‘sunk cost fallacy’).”^([3](ch08.html#ch01fn36))'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我的（大卫·谭的）职业生涯中，我可能看过100多场会议演讲，但可能只有五场深深印在了我的脑海中。其中之一是[桑迪·梅兹的演讲](https://oreil.ly/3s6kY)，她在其中展示了过早抽象化的
+    pitfalls。在她的文章[“错误的抽象化”](https://oreil.ly/8b4vT)中，她写道：“现有的代码具有强大的影响力。它的存在本身就说明它既正确又必要。[T]悲伤的事实是，代码越复杂和难以理解，即创建它的投入越深，我们就越感到有压力要保留它（‘已沉没成本谬误’）。”^([3](ch08.html#ch01fn36))
+- en: Sometimes when we’re coding, the suitable code design is just lurking beyond
+    the reaches of the team’s mind. In such cases, we should prefer doing the simplest
+    possible thing (even if it means having no abstraction) over creating a wrong
+    abstraction. It’s far cheaper—mechanically and sentimentally—to create the right
+    abstraction when we see a suitable one than to pick apart an existing, but wrong,
+    design and redo it.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时候当我们编码时，适当的代码设计就在团队思维的边界之外。在这种情况下，我们应该更喜欢做最简单可能的事情（即使这意味着没有抽象化），而不是创建错误的抽象化。当我们看到合适的时机时，创造正确的抽象化比分解现有但错误的设计并重新做要便宜得多——无论从机械上还是从情感上。
+- en: However, remember to come back to create the right design. Otherwise, the design
+    you’ll end up with is the [Big Ball of Mud](https://oreil.ly/o8g6_), which Brian
+    Foote and Joseph Yoder define as “a haphazardly structured, sprawling, sloppy,
+    duct-tape-and-baling-wire, spaghetti-code jungle.”
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但请记住要回过头来创建正确的设计。否则，最终你会得到[BIG BALL OF MUD](https://oreil.ly/o8g6_)，布莱恩·弗特（Brian
+    Foote）和约瑟夫·约德尔（Joseph Yoder）将其定义为“一个杂乱无章、混乱、草率、用胶带和捆绑线搞成的意大利面代码丛林。”
+- en: Equipped with these refactoring heuristics and guidelines, we are now ready
+    to start refactoring a problematic codebase!
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 凭借这些重构启发和指南，我们现在可以开始重构一个有问题的代码库了！
+- en: How to Refactor a Notebook (or a Problematic Codebase)
+  id: totrans-56
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 如何重构笔记本（或有问题的代码库）
+- en: If we think of our codebase as a physical workshop, we know we have a problem
+    when we struggle to find the right tools or materials when we need them, or even
+    trip over things. The equivalent in our code could be needing to tease apart a
+    200-line function and tripping over messy and unreadable code in order to understand
+    the logic or behavior that we’re trying to update.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们把我们的代码库想象成一个实体的工作室，当我们在需要时很难找到正确的工具或材料，甚至会绊倒时，我们就知道有问题了。在我们的代码中，类似的情况可能是需要解开一个200行的函数并绊倒在杂乱和难以阅读的代码上，以理解我们试图更新的逻辑或行为。
+- en: In this section, let’s bring together the three toolboxes (tests, design principles,
+    refactoring techniques) to refactor a problematic codebase into a readable, maintainable,
+    and evolvable solution.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，让我们将三个工具箱（测试、设计原则、重构技术）汇集起来，将一个问题代码库重构为可读性强、可维护和可演变的解决方案。
+- en: To follow along, start by forking and cloning [this chapter’s exercise](https://oreil.ly/-vHKb).
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要跟随操作，请先分叉和克隆[本章节的练习](https://oreil.ly/-vHKb)。
+- en: Note
+  id: totrans-60
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: This exercise has been tested on Python 3.10 and 3.11\. If you’re on later versions
+    of Python (e.g., Python 3.12) and encounter issues when running `poetry install`,
+    please use Python 3.10 or 3.11 instead.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此练习已在Python 3.10和3.11上测试通过。如果你使用的是较新版本的Python（如Python 3.12），并在运行`poetry install`时遇到问题，请改用Python
+    3.10或3.11。
+- en: To install and use a specific version of Python, you can refer to [pyenv’s documentation](https://oreil.ly/jtNdz).
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要安装和使用特定版本的Python，可以参考[pyenv的文档](https://oreil.ly/jtNdz)。
+- en: 'Note that for Poetry, you’d need to tell Poetry to use the active version of
+    Python that you’ve selected using pyenv by running: `poetry config virtualenvs.prefer-active-python
+    true`. For more information, see [issue on Poetry](https://oreil.ly/3ac00).'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意对于Poetry，你需要告诉Poetry使用pyenv选择的活跃Python版本，方法是运行：`poetry config virtualenvs.prefer-active-python
+    true`。更多信息，请参阅[Poetry上的问题](https://oreil.ly/3ac00)。
+- en: 'The Map: Planning Your Journey'
+  id: totrans-64
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 地图：规划你的旅程
+- en: To guide your refactoring journey, use the refactoring cycle as your map (see
+    [Figure 8-2](#the_refactoring_cycle_is_a_useful_proce)). The refactoring cycle
+    includes *both* the preparatory steps (illustrated as the horizontal list of steps
+    along the top) and the iterative refactoring steps (illustrated as the circular
+    list of steps).
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了引导你的重构之旅，将重构周期作为你的地图（见[图 8-2](#the_refactoring_cycle_is_a_useful_proce)）。重构周期包括*准备步骤*（顶部水平步骤列表）和*迭代重构步骤*（圆形步骤列表）。
+- en: '![](assets/emlt_0802.png)'
+  id: totrans-66
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0802.png)'
+- en: 'Figure 8-2\. The refactoring cycle is a useful process for safely refactoring
+    problematic notebooks and codebases (source: adapted from an image in [“Coding
+    Habits for Data Scientists”](https://oreil.ly/j7xdh))'
+  id: totrans-67
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-2\. 重构周期是一个有用的过程，用于安全地重构有问题的笔记本和代码库（来源：改编自[“数据科学家的编码习惯”](https://oreil.ly/j7xdh)中的一幅图像）
+- en: 'Let’s introduce each step in the refactoring cycle:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们介绍重构周期中的每一个步骤：
+- en: 1\. Run the notebook or code and ensure it works as expected.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 1\. 运行笔记本或代码，并确保其按预期工作。
+- en: This step helps identify any errors that could derail your refactoring before
+    you start. This will save you the needless pain of having to figure out whether
+    you broke something while refactoring or whether the code was already broken.
+    For notebooks, always restart the kernel before running all cells to avoid [the
+    traps of hidden state in notebooks](https://oreil.ly/q-L6L).
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此步骤有助于识别在开始重构之前可能使您分心的任何错误。这将避免你不必要地去弄清楚是在重构过程中出了问题还是代码本身就有问题。对于笔记本，始终在运行所有单元格之前重新启动内核，以避免[笔记本中隐藏状态的陷阱](https://oreil.ly/q-L6L)。
+- en: 2\. Remove print statements.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 2\. 移除打印语句。
+- en: This step removes noise and visual clutter and makes the next step—listing code
+    smells—exponentially easier. If you see a print statement—or a variable left in
+    the last line of the cell, which is displayed in the notebook output—consider
+    whether it’s still serving a valid purpose. If it was added once upon a time to
+    help with debugging and is now adding noise to both the code and the runtime logs,
+    remove it.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此步骤消除噪音和视觉杂乱，使得下一步——列出代码异味——变得更加容易。如果你看到一个打印语句或者一个变量留在单元格的最后一行，并且在笔记本输出中显示，请考虑它是否仍然具有有效的目的。如果它曾经添加在代码中以帮助调试，但现在无论是对代码还是运行时日志都在制造噪音，那就将其删除。
+- en: There may be some exceptions where print statements are performing a critical
+    function (e.g., reporting model quality scores). You can keep such statements
+    for now, but they should eventually be replaced with actual function return values
+    and automated tests, instead of a printed side effect.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些例外情况下，打印语句可能正在执行关键功能（例如报告模型质量分数）。你可以暂时保留这样的语句，但最终应该用实际的函数返回值和自动化测试替换它们，而不是仅仅打印一个副作用。
+- en: It’s also crucial to review print statements for any potential logging of personally
+    identifiable information (PII). Removing such print statements not only enhances
+    code cleanliness but also helps safeguard sensitive data from being persisted
+    in logs, reducing the risk of data breaches and ensuring compliance with privacy
+    regulations.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于任何潜在记录个人可识别信息（PII）的打印语句，审查是至关重要的。删除这些打印语句不仅增强了代码的清洁度，还有助于保护敏感数据免受存储在日志中的风险，从而遵守隐私法规。
+- en: 3\. List code smells.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 3\. 列出代码异味。
+- en: If you open a box of leftover dinner and something assails your sense of smell,
+    it’s an indication that something has probably gone bad. Similarly, code smells
+    are useful signals that point to deeper problems in the codebase. For example,
+    a function with five lines of explanatory comments is a smell that suggests that
+    the function could be convoluted, obscure (i.e., not obvious), and possibly doing
+    too many things.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您打开剩饭盒，发现有什么异味刺激了您的嗅觉，这表明可能出了问题。同样，代码异味是有用的信号，指向代码库中更深层次的问题。例如，一个带有五行解释性注释的函数，表明这个函数可能复杂，晦涩（即不明显），可能做了太多事情。
+- en: There are tools that can assist you with this as well—such as [pylint](https://oreil.ly/ia1Bm)
+    and [SonarQube](https://oreil.ly/AFc3d). You can refer to [Chapter 7](ch07.html#supercharging_your_code_editor_with_sim)
+    for simple instructions for installing and configuring pylint. This will help
+    you identify lower level code smells and allow you to focus on design issues and
+    other code smells. For a full list of code smells and best practices, see the
+    [clean-code-ml repo](https://oreil.ly/FCY_q) and [refactoring.guru’s “Code Smells”](https://oreil.ly/anSAQ).
+    We have also included a handful of common code smells in the sidebar [“Code Smells”](#code_smells).
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 也有工具可以帮助您完成这项任务，例如[pylint](https://oreil.ly/ia1Bm)和[SonarQube](https://oreil.ly/AFc3d)。您可以参考[第7章](ch07.html#supercharging_your_code_editor_with_sim)中的简单说明来安装和配置pylint。这将帮助您识别较低级别的代码异味，并让您集中精力处理设计问题和其他代码异味。有关代码异味和最佳实践的完整列表，请参阅[clean-code-ml
+    repo](https://oreil.ly/FCY_q)和[refactoring.guru的“Code Smells”](https://oreil.ly/anSAQ)。我们还在侧边栏[“Code
+    Smells”](#code_smells)中包含了一些常见的代码异味。
+- en: The adage “a problem well stated is half solved” rings true. By going through
+    the codebase and listing the code smells, we are essentially creating a todo list
+    and a plan of attack for improving the codebase.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 格言“问题描述得当就是解决了一半”是正确的。通过查看代码库并列出代码异味，我们本质上正在创建一个待办事项列表和改善代码库的攻略。
+- en: 4\. Convert the notebook as a Python file.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 4\. 将笔记本转换为Python文件。
+- en: When working with Python files rather than notebooks, it’ll be easier for you
+    to decompose your spaghetti code into importable Python modules. As an added benefit,
+    it’ll enable you to use your IDE to execute refactorings (e.g., slide lines up
+    or down, extract method, move function to another module). This is where the shortcuts
+    that we covered in [Chapter 7](ch07.html#supercharging_your_code_editor_with_sim)
+    really shine.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当使用Python文件而不是笔记本时，您将更容易将您的意大利面条代码分解为可导入的Python模块。作为额外的好处，这将使您能够使用您的IDE执行重构（例如，上下滑动行，提取方法，将函数移动到另一个模块）。这是我们在[第7章](ch07.html#supercharging_your_code_editor_with_sim)中介绍的快捷方式真正发挥作用的地方。
+- en: 5\. Add characterization tests.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 5\. 添加特征化测试。
+- en: This is the most critical step in enabling refactoring. A [characterization
+    test](https://oreil.ly/mfIex) is an automated test that describes the actual behavior
+    of an existing piece of software, and therefore protects existing behavior of
+    legacy code against unintended changes.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是启用重构的最关键步骤。[特征化测试](https://oreil.ly/mfIex)是一种自动化测试，描述了现有软件的实际行为，因此保护了遗留代码现有的行为，避免了意外更改。
+- en: A characterization test treats your program as a black box and characterizes
+    its behavior—e.g., my notebook creates a model that has an accuracy score of 90%—and
+    asserts on that characteristic (i.e., the test fails if we run our code and get
+    a model with an accuracy score less than 90%). For reference on what such a test
+    would look like, you can use metrics tests and training smoke tests (detailed
+    in [Chapter 6](ch06.html#automated_testing_ml_model_tests)) as characterization
+    tests.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征化测试将您的程序视为黑匣子并描述其行为——例如，我的笔记本创建了一个具有90%准确度分数的模型——并对此特征进行断言（即，如果我们运行代码并获得准确度分数低于90%的模型，则测试失败）。有关此类测试的示例，请参考指标测试和训练烟雾测试（在[第6章](ch06.html#automated_testing_ml_model_tests)详细介绍）。
+- en: Characterization tests allow you to boldly and safely refactor because any and
+    every code change can be quickly tested against the specified expectations.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特性化测试允许你大胆而安全地重构，因为任何代码更改都可以快速根据指定的期望进行测试。
+- en: 6\. Refactor iteratively.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6\. 迭代地进行重构。
+- en: This is where you iteratively decompose a problematic codebase into modular,
+    reasonable, tested components.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是将有问题的代码库迭代地分解为模块化、合理、经过测试的组件的地方。
+- en: 'In the refactoring cycle, you:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在重构周期中，您：
+- en: Identify a block of code to extract
+  id: totrans-88
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 识别要提取的代码块
+- en: Write a unit test and watch it fail (the test will be red)
+  id: totrans-89
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 编写一个单元测试并观察其失败（测试将变为红色）
+- en: Make the test pass (the test goes green)
+  id: totrans-90
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 让测试通过（测试变为绿色）
+- en: Import and use a new function
+  id: totrans-91
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 导入并使用一个新函数
+- en: Ensure characterization tests are passing
+  id: totrans-92
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保特性化测试通过
+- en: Commit changes
+  id: totrans-93
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提交更改
+- en: 'It’s important that we make small and frequent commits when tests pass after
+    a reasonable chunk of code changes. When we make small and frequent commits, we
+    get the following benefits:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们在合理的代码更改块之后进行测试通过时，做出小而频繁的提交是很重要的。当我们做出小而频繁的提交时，我们获得以下好处：
+- en: Reduced visual distractions and lessened cognitive load.
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 减少视觉干扰和认知负荷。
+- en: No worries about accidentally breaking working code changes that have already
+    been committed.
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 不用担心意外破坏已经提交的工作代码更改。
+- en: Beyond [red-green-refactor](https://oreil.ly/kelfI), you can also [red-red-red-revert](https://oreil.ly/gmvbq).
+    If you were to inadvertently break something, you can easily fall back by checking
+    out to the latest commit and try again. This saves you from wasting time undoing
+    problems that you accidentally created when trying to solve the essential problem.
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 除了[红-绿-重构](https://oreil.ly/kelfI)，您还可以进行[红-红-红-还原](https://oreil.ly/gmvbq)。如果您意外地破坏了某些内容，您可以轻松地回退到最新的提交，并再次尝试。这样可以避免浪费时间来解决由于试图解决基本问题而意外创建的问题。
+- en: Now that you’ve charted your path, it’s time to hit the road and refactor this
+    problematic notebook.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经规划了您的路径，是时候上路并重构这个有问题的笔记本了。
+- en: Note
+  id: totrans-99
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: There are more than 60 refactoring techniques, which you can refer to in [Martin
+    Fowler’s “Refactoring Catalog”](https://oreil.ly/mGfkc) and [refactoring.guru’s
+    “Refactoring Techniques”](https://oreil.ly/UdtiV).
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有60多种重构技术，您可以在[Martin Fowler的“重构目录”](https://oreil.ly/mGfkc)和[refactoring.guru的“重构技术”](https://oreil.ly/UdtiV)中参考。
+- en: In this chapter, we will introduce you to just a handful of refactoring techniques
+    (e.g., [extract function](https://oreil.ly/zVZAc), and [slide lines](https://oreil.ly/cXUeO))
+    that help with code smells that we commonly face in typical ML codebases. We hope
+    you will check out these two great resources though, as you might find other techniques
+    relevant to code smells in your projects.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将向您介绍一些重构技术（例如，[提取函数](https://oreil.ly/zVZAc) 和 [滑动行](https://oreil.ly/cXUeO)），这些技术有助于解决我们在典型的ML代码库中经常遇到的代码异味。我们希望您查看这两个优秀的资源，因为您可能会发现其他与项目中的代码异味相关的技术。
+- en: 'The Journey: Hitting the Road'
+  id: totrans-102
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 旅程：踏上征途
+- en: In this section, we’ll cover each step of the refactoring cycle to clean up
+    this problematic codebase! The notebook performs feature engineering on the [Titanic
+    dataset](https://oreil.ly/JHbjZ) and trains a simple classification model to predict
+    passengers’ likelihood of survival. We’ll go from this [long, messy, and brittle
+    notebook](https://oreil.ly/MXR3T) (see [Figure 8-3](#a_small_snippet_of_our_starting_pointem))
+    to [a modular, readable, and tested solution](https://oreil.ly/oCdUy), as shown
+    in the code that follows, in which complexity is compartmentalized into functions
+    with clear responsibilities and understandable names. We can read the code like
+    a story, and we know where to go to understand or update a piece of logic.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将覆盖重构周期的每个步骤，以清理这个有问题的代码库！笔记本对[Titanic数据集](https://oreil.ly/JHbjZ)进行特征工程处理，并训练一个简单的分类模型来预测乘客的生存可能性。我们将从这个[长、混乱且脆弱的笔记本](https://oreil.ly/MXR3T)（参见[图8-3](#a_small_snippet_of_our_starting_pointem)）到[一个模块化、可读和经过测试的解决方案](https://oreil.ly/oCdUy)，如接下来的代码所示，在这些代码中，复杂性被分隔成具有清晰责任和可理解名称的函数。我们可以像读故事一样阅读代码，知道去哪里理解或更新一段逻辑。
+- en: Note
+  id: totrans-104
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The Titanic dataset contains PII such as passenger names. In a real-world model
+    training dataset, we will likely remove such features before it’s even made available
+    as training data.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Titanic数据集包含诸如乘客姓名之类的个人身份信息。在实际的模型训练数据集中，我们可能会在其成为训练数据之前删除此类特征。
+- en: '![](assets/emlt_0803.png)'
+  id: totrans-106
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0803.png)'
+- en: Figure 8-3\. A small snippet of our starting point—a long, messy, and brittle
+    notebook
+  id: totrans-107
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-3\. 我们起始点的一个小片段——一个冗长、混乱且脆弱的笔记本
+- en: '[PRE0]'
+  id: totrans-108
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Step 1\. Run the notebook or code and ensure it works as expected
+  id: totrans-109
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 步骤 1\. 运行笔记本或代码并确保其按预期工作
+- en: 'The first step is self-explanatory: Run the notebook or code and ensure it
+    works as expected. When you’ve cloned the repo, start the Jupyter server:'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一步是不言自明的：运行笔记本或代码并确保其按预期工作。当你克隆了仓库后，启动 Jupyter 服务器：
+- en: '[PRE1]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Open *titanic-notebook-0.ipynb* and run the entire notebook. The entire notebook
+    runs successfully, trains several models, and prints each model’s metrics.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 打开 *titanic-notebook-0.ipynb* 并运行整个笔记本。整个笔记本成功运行，训练了几个模型，并打印了每个模型的指标。
+- en: Step 2\. Remove print statements
+  id: totrans-113
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 步骤 2\. 删除打印语句
+- en: In this step, you want to remove print statements and plots that are obscuring
+    your vision. As demonstrated in [the resulting notebook](https://oreil.ly/w37x1),
+    we have much less visual clutter and the next step of listing code smells will
+    be much easier. In this step, we shortened the notebook from 37 pages to 10 pages.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一步中，你希望删除妨碍你视野的打印语句和图表。正如在[生成的笔记本](https://oreil.ly/w37x1)中展示的那样，我们减少了大量视觉杂乱，下一步列出代码异味将更加容易。在这一步中，我们将笔记本从37页缩短到10页。
+- en: To illustrate the benefit of doing this, compare the difference between Figures
+    [8-4](#before_removing_the_print_statements_le) and [8-5](#after_removing_the_print_statements_lef).
+    The two lines of data transformations are no longer buried in noise.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明这样做的好处，比较图[8-4](#before_removing_the_print_statements_le)和图[8-5](#after_removing_the_print_statements_lef)之间的差异。两行数据转换不再淹没在噪音中。
+- en: '![](assets/emlt_0804.png)'
+  id: totrans-116
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0804.png)'
+- en: Figure 8-4\. Before removing the print statements (visual clutter and noise
+    obscures our vision of the essential logic in our codebase)
+  id: totrans-117
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-4\. 在删除打印语句之前（视觉杂乱和噪音遮挡了我们代码库中基本逻辑的视野）
+- en: '![](assets/emlt_0805.png)'
+  id: totrans-118
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0805.png)'
+- en: Figure 8-5\. After removing the print statements (essential logic and data transformations
+    required for training our model become much more obvious)
+  id: totrans-119
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-5\. 在删除打印语句之后（培训我们的模型所需的基本逻辑和数据转换变得更加明显）
+- en: Step 3\. List code smells
+  id: totrans-120
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 步骤 3\. 列出代码异味
+- en: In this step, we go through the notebook and leave a comment for each code smell
+    we notice. As depicted in [Figure 8-6](#the_list_of_code_smells_becomes_our_tod),
+    we’ve spotted quite a few! For example, the first code smell is *exposed internals—*remember
+    our analogy earlier about reading the whole lentil soup recipe? It would be far
+    better if such complex implementation was hidden (i.e., abstracted) in a well-named
+    function (e.g., `derive_title_from_name()`).
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一步中，我们浏览笔记本并为我们注意到的每个代码异味留下注释。正如图[8-6](#the_list_of_code_smells_becomes_our_tod)所示，我们已经发现了相当多的问题！例如，第一个代码异味是*暴露内部——*还记得我们之前关于阅读整个扁豆汤食谱的类比吗？如果这样复杂的实现被隐藏（即抽象化）在一个良好命名的函数中（例如`derive_title_from_name()`），那会更好。
+- en: '![](assets/emlt_0806.png)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0806.png)'
+- en: Figure 8-6\. The list of code smells becomes our todo list for refactoring the
+    notebook
+  id: totrans-123
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-6\. 代码异味列表成为我们重构笔记本的待办事项列表
+- en: The second code smell is *duplicate responsibility*. The logic of dropping columns
+    happens in five different places in the notebook. It would be easier to reason
+    about the code if we dropped all the unnecessary columns in one place.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个代码异味是*重复责任*。在笔记本中，删除列的逻辑发生在五个不同的地方。如果我们在一个地方删除所有不必要的列，那么理解代码将会更加容易。
+- en: As shown in [Figure 8-6](#the_list_of_code_smells_becomes_our_tod), naming these
+    latent problems one by one eventually creates a todo list and a plan of attack
+    for our refactoring. To make it easier to work through this list, we prefix each
+    comment with a searchable “[code smell].” We’ll remove these comments one-by-one
+    as we refactor and resolve the code smell. You can refer to [this notebook](https://oreil.ly/KpQBi)
+    to see the resulting list of code smells, and at the end of this chapter you’ll
+    see it in a better state after refactoring.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如图[8-6](#the_list_of_code_smells_becomes_our_tod)所示，逐个命名这些潜在问题最终创建了一个待办事项列表和重构计划。为了更容易地处理这个列表，我们用可搜索的“[code
+    smell]”前缀每个注释。我们将逐个移除这些注释，随着重构和解决代码异味的进行，你可以参考[这个笔记本](https://oreil.ly/KpQBi)查看生成的代码异味列表，本章结束时你将看到重构后的笔记本变得更加清晰。
+- en: Step 4\. Convert the notebook to a Python file
+  id: totrans-126
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 步骤 4\. 将笔记本转换为 Python 文件
+- en: 'To convert the notebook to a Python file, run the following commands:'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将笔记本转换为 Python 文件，请运行以下命令：
+- en: '[PRE2]'
+  id: totrans-128
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'Now that you have converted your notebook to a Python script, you’ll use the
+    following command to ensure that it runs to completion without errors. In this
+    example, we see that there were errors due to two lines of code that only work
+    in the IPython kernel (e.g., `cd ..`). Read the error messages and delete the
+    two problematic lines of code. Run the following command again and this time the
+    script will run successfully:'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经将笔记本转换为Python脚本，您将使用以下命令确保它可以顺利运行而不出错。在这个例子中，我们看到由于两行代码只在IPython内核中有效（例如，`cd
+    ..`），导致了错误。阅读错误消息并删除这两行有问题的代码。再次运行以下命令，这次脚本将成功运行：
+- en: '[PRE3]'
+  id: totrans-130
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: '[![](assets/1.png)](#code_id_8_1)'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_8_1)'
+- en: This checks the exit status code of the preceding bash command. In our case,
+    it will return 0 when the preceding Python script runs successfully without errors.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这检查了前面bash命令的退出状态码。在我们的案例中，当前面的Python脚本无错误成功运行时，它将返回0。
+- en: 'You may also remove the comments that were introduced in the notebook conversion
+    process (e.g., `# In[1]: ...`). Two IDE shortcuts that we learned in the preceding
+    chapter can make this quick and easy: “Select next occurrence” and “Fix code formatting.”
+    Refer to [Chapter 7](ch07.html#supercharging_your_code_editor_with_sim) if you
+    need to look up keyboard shortcuts.'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '您还可以删除在笔记本转换过程中引入的注释（例如，`# In[1]: ...`）。我们在前一章中学习的两个IDE快捷键可以使这个过程快速简单：“选择下一个出现”和“修复代码格式”。如果需要查找键盘快捷键，请参阅[第7章](ch07.html#supercharging_your_code_editor_with_sim)。'
+- en: 'Finally, you can rename the Python file to match snake_case convention:'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，您可以将Python文件重命名为snake_case命名约定：
+- en: '[PRE4]'
+  id: totrans-135
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Step 5\. Adding characterization tests
+  id: totrans-136
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 第5步。添加表征测试
+- en: To add a characterization test, we’ll treat the code (now a Python script) as
+    a black box and characterize its behavior.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要添加表征测试，我们将把代码（现在是Python脚本）视为黑盒，并表征其行为。
+- en: In this case, the code trains seven classification models with accuracy scores
+    ranging between 71% and 86% (see [Figure 8-7](#at_the_end_of_this_notebookcomma_we_see)).
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，代码训练了七个分类模型，准确率介于71%和86%之间（参见[图 8-7](#at_the_end_of_this_notebookcomma_we_see)）。
+- en: '![](assets/emlt_0807.png)'
+  id: totrans-139
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0807.png)'
+- en: Figure 8-7\. At the end of this notebook, we see that the code trains seven
+    classification models with a range of accuracy scores
+  id: totrans-140
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-7。在这个笔记本的末尾，我们看到代码训练了七个分类模型，并得到了一系列的准确率分数
+- en: 'The training of seven models looks like something we’d do in exploratory data
+    analysis, and in our case, we may determine that our training pipeline needs to
+    produce just one model—the one with the best performance. As such, we can characterize
+    our program with the following test (in *tests/test_model_metrics.py*):'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练七个模型看起来像是我们在探索性数据分析中会做的事情，在我们的情况下，我们可能确定我们的训练流程只需要生成一个模型——性能最佳的模型。因此，我们可以用以下测试来表征我们的程序（位于*tests/test_model_metrics.py*）：
+- en: '[PRE5]'
+  id: totrans-142
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: '[![](assets/1.png)](#code_id_8_2)'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_8_2)'
+- en: We write a model metrics test in the style of a unit test. This is similar to
+    the metrics tests that we’ve written in the earlier chapter on ML model tests.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们以单元测试风格编写模型度量测试。这类似于我们在机器学习模型测试的早期章节中编写的度量测试。
+- en: '[![](assets/2.png)](#code_id_8_3)'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/2.png)](#code_id_8_3)'
+- en: We invoke the function (which is yet to be defined) that represents the “seams”
+    of our refactoring boundary. This function (`prepare_data_and_train_model()`)
+    is the box within which we will refactor, and by writing a test on this function,
+    we are creating a safety harness to catch ourselves should we make a mistake.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们调用了代表重构边界的函数（尚未定义），这个函数（`prepare_data_and_train_model()`）是我们将进行重构的框架，通过对这个函数编写测试，我们在需要时可以捕获错误。
+- en: '[![](assets/3.png)](#code_id_8_4)'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/3.png)](#code_id_8_4)'
+- en: We assert that the model accuracy is as good as what we have in our notebook.
+    This will give us fast feedback should we make any change that degrades the model
+    quality.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们断言模型的准确率与笔记本中的一样好。这样做将使我们在进行任何降低模型质量的更改时获得快速反馈。
+- en: 'Let’s wire up the tests with the following bash script:'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们用以下bash脚本连接这些测试：
+- en: '[PRE6]'
+  id: totrans-150
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'Run the test by running this bash script:'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过运行以下bash脚本来运行测试：
+- en: '[PRE7]'
+  id: totrans-152
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'You’ll see this test fail because `prepare_data_and_train_model()` is not defined
+    yet. Your first task is to do the simplest possible thing to get this test to
+    pass, and you do so by leveraging your IDE to “extract method”:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你会看到这个测试失败，因为`prepare_data_and_train_model()`还没有定义。你的第一个任务是尽可能简单地使这个测试通过，方法是利用你的IDE进行“方法提取”：
+- en: In your IDE, select all the lines of code in the script after the import statements.
+  id: totrans-154
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在你的IDE中，选择导入语句后脚本中的所有代码行。
+- en: 'Hit the IDE shortcut for “extract method.” Use the handy shortcut for PyCharm
+    (Mac: ⌘ ⌥ M, Windows/Linux: Ctrl Alt M) or VS Code (Ctrl .). You can name the
+    function whatever we specified in our test (i.e. `pre⁠pare​_data_and_train_model()`).'
+  id: totrans-155
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '按下“提取方法”IDE快捷键。使用PyCharm的方便快捷键（Mac: ⌘ ⌥ M, Windows/Linux: Ctrl Alt M）或者VS Code（Ctrl
+    .）。你可以根据我们在测试中指定的命名方式来命名函数（即`pre⁠pare​_data_and_train_model()`）。'
+- en: Run the test and see it fail because the function does not return the values
+    that we expected it to in the model metrics test.
+  id: totrans-156
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行测试并查看失败，因为函数未返回我们在模型指标测试中期望的值。
+- en: In the final line of `prepare_data_and_train_model()`, make the function return
+    an instance of a model, the validation set (`X_test`), and validation set labels
+    (`y_test`).
+  id: totrans-157
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在`prepare_data_and_train_model()`的最后一行，使函数返回一个模型实例，验证集（`X_test`）和验证集标签（`y_test`）。
+- en: The test should now pass. Woohoo—feel the dopamine!
+  id: totrans-158
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在测试应该通过了。哇哦——感受到多巴胺的作用！
+- en: In your context, you’re free to finesse this characterization test(s) further
+    to create the right safety harness around the existing behavior. For example,
+    you could choose a better metric than accuracy or you could write a stratified
+    metrics test. For our exercise, this is sufficient as a safety harness to give
+    us fast feedback on whether we’re going in the right direction or whether we’ve
+    made a misstep during refactoring.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你的上下文中，你可以进一步完善这个特性测试，以创建正确的安全防护机制来围绕现有行为。例如，你可以选择比准确度更好的度量标准，或者编写一个分层度量测试。对于我们的练习来说，这作为围绕是否朝着正确方向前进或是否在重构过程中犯了错误的快速反馈的安全防护已经足够了。
+- en: Step 6\. Refactor iteratively
+  id: totrans-160
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 步骤6. 迭代重构
+- en: This is where you reap the returns on your investments and rapidly work through
+    the list of code smells to improve your codebase. We’ll demonstrate the refactoring
+    cycle (see [Figure 8-8](#six_steps_for_iteratively_refactoring_p)) three times
+    and leave the remaining code smells as an exercise for you to practice and gain
+    confidence.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是你在投入的回报并快速处理代码异味列表以改进你的代码库的地方。我们将演示重构周期（见[图 8-8](#six_steps_for_iteratively_refactoring_p)）三次，并将剩余的代码异味作为你练习和增强信心的练习。
+- en: '![](assets/emlt_0808.png)'
+  id: totrans-162
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0808.png)'
+- en: 'Figure 8-8\. Six steps for iteratively refactoring problematic parts of the
+    codebase (source: adapted from an image in [“Coding Habits for Data Scientists”](https://oreil.ly/j7xdh))'
+  id: totrans-163
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-8. 迭代重构代码库中有问题部分的六个步骤（来源：改编自[“数据科学家的编码习惯”](https://oreil.ly/j7xdh)的一张图片）
+- en: 'The first refactoring: Remove dead code'
+  id: totrans-164
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 第一次重构：移除无效代码
+- en: Let’s start with a fun and easy one. Now that we expect our model training code
+    to only return the best performing model, the lines of code for training the six
+    other candidate models are essentially dead. This means that the program will
+    function according to our expectations (i.e., our tests will still pass) with
+    or without these lines of code (highlighted in [Figure 8-9](#the_highlighted_lines_represent_dead_co)).
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从一个有趣且简单的例子开始。现在，我们期望我们的模型训练代码仅返回最佳性能的模型，因此对其他六个候选模型进行训练的代码行实际上是无效的。这意味着程序将按照我们的期望运行（即，我们的测试仍将通过），无论是否有这些代码行（在[图 8-9](#the_highlighted_lines_represent_dead_co)中突出显示）。
+- en: '![](assets/emlt_0809.png)'
+  id: totrans-166
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0809.png)'
+- en: Figure 8-9\. The highlighted lines represent dead code
+  id: totrans-167
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-9. 突出显示的行表示无效代码
+- en: For your first refactoring, remove these lines of dead code, run the test, see
+    the tests pass, and make a commit. By our count, we’d have removed 44 lines of
+    code (out of a total of 146 lines of code), making our problem 30% smaller. Hooray!
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于你的第一个重构，移除这些无效代码行，运行测试，查看测试通过，然后提交。根据我们的统计，我们已经移除了44行代码（总共146行代码），使我们的问题减小了30%。万岁！
+- en: Note
+  id: totrans-169
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: We’re taking a shortcut in our refactoring cycle and skipping steps 2–4 (writing
+    a test, getting it to pass, and extracting a function) because we’re just removing
+    dead code and we’re not creating any new abstractions.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在重构周期中采取捷径，跳过步骤2-4（编写测试、让其通过和提取函数），因为我们只是删除了无效代码，而没有创建任何新的抽象。
+- en: 'The second refactoring: Abstract away implementation details'
+  id: totrans-171
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 第二次重构：抽象实现细节
+- en: 'Following the steps in our refactoring cycle, we first identify a block of
+    code to extract. The following code section contains complex implementation details
+    to derive a set of titles (Mr, Miss, Mrs, Master, Rare) from a regex-matched prefix
+    in the `Name` column (e.g., Mr, Ms, Mlle, Mme, Lady, Countess, Sir):'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据我们的重构周期中的步骤，首先要识别要提取的代码块。以下代码部分包含从`Name`列中的正则匹配前缀派生一组称谓（先生、小姐、夫人、大师、罕见物）的复杂实现细节：
+- en: '[PRE8]'
+  id: totrans-173
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: The code smell of *exposed internals* suggests that a well-named function could
+    help to hide the complex implementation details and make the code more readable
+    at the call site (i.e., where the new function will be invoked). In addition,
+    by abstracting these data transformations into a callable function, it then becomes
+    unit-testable.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*暴露内部细节*的代码异味表明，一个命名合理的函数可以帮助隐藏复杂的实现细节，并使调用点（即新函数将被调用的地方）的代码更易读。此外，通过将这些数据转换抽象为一个可调用函数，它变得更易于单元测试。'
+- en: 'Next, in the second step of our refactoring cycle, we write a failing unit
+    test:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，在我们重构周期的第二步中，我们编写一个失败的单元测试：
+- en: '[PRE9]'
+  id: totrans-176
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: '[![](assets/1.png)](#code_id_8_5)'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_8_5)'
+- en: Remember, with a sensible test name, the test virtually writes itself.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，有一个合理的测试名称，测试几乎可以自己写出来。
+- en: '[![](assets/2.png)](#code_id_8_6)'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/2.png)](#code_id_8_6)'
+- en: We specify the input dataframe with production-like values based on what we
+    observed in our training dataset.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们根据我们在训练数据集中观察到的内容，指定了生产类似的值的输入数据框架。
+- en: '[![](assets/3.png)](#code_id_8_7)'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/3.png)](#code_id_8_7)'
+- en: In the expected output dataframe, we add a Title column with the expected values,
+    based on the existing logic.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在预期的输出数据框架中，我们添加了一个Title列，其中包含基于现有逻辑的预期值。
+- en: '[![](assets/4.png)](#code_id_8_8)'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/4.png)](#code_id_8_8)'
+- en: Using pandas’ handy `assert_frame_equal()` test utility, we assert that the
+    actual dataframe returned by our function matches our expected dataframe. This
+    assertion will fail because we have yet to define `add_derived_title(df)`.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用pandas方便的`assert_frame_equal()`测试实用工具，我们断言我们函数返回的实际数据框架与我们期望的数据框架匹配。此断言将失败，因为我们尚未定义`add_derived_title(df)`。
+- en: 'Coming back to *src/train.py*, we select the code block that we wish to refactor,
+    and again we apply the *extract method* IDE shortcut, and name it as `add_derived_title()`.
+    We can now import this function in our test. Now that the function is defined,
+    the IDE’s auto fix shortcuts (PyCharm: Alt/Option Enter, VS Code: Ctrl .) can
+    help us import this function automatically in our test.'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '回到*src/train.py*，我们选择要重构的代码块，再次应用*提取方法*的IDE快捷方式，并将其命名为`add_derived_title()`。现在我们可以在我们的测试中导入这个函数。一旦函数被定义，IDE的自动修复快捷方式（PyCharm:
+    Alt/Option Enter, VS Code: Ctrl .）可以帮助我们在测试中自动导入这个函数。'
+- en: Run the test again and it’ll pass. Run all the tests (including the characterization
+    test) and if they’re all passing, we can commit our changes in git. We’ve completed
+    one full round of the refactoring cycle, and our codebase is several steps toward
+    a better state!
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次运行测试，它将通过。运行所有测试（包括特征测试），如果它们都通过，我们可以在git中提交我们的更改。我们完成了一轮完整的重构周期，我们的代码库迈向了更好的状态！
+- en: 'The third refactoring: Abstract away implementation details (again)'
+  id: totrans-187
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 第三次重构：再次抽象实现细节
+- en: 'Let’s go through another round of the refactoring cycle. For step 1, we’ve
+    identified a code block with several code smells:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们再进行一轮重构周期。对于第1步，我们已经识别出一个具有几个代码异味的代码块：
+- en: '[PRE10]'
+  id: totrans-189
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: '[![](assets/1.png)](#code_id_8_9)'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_8_9)'
+- en: '`SibSp` and `Parch` are poor column names (they stand for number of Siblings
+    and Spouses, and Parents and Children, respectively).'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`SibSp`和`Parch`是不好的列名（它们分别代表兄弟姐妹和配偶的数量，以及父母和子女的数量）。'
+- en: '[![](assets/2.png)](#code_id_8_10)'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/2.png)](#code_id_8_10)'
+- en: This line, along with the entire code block, exposes too many implementation
+    details, and makes the code hard to read and understand.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此行以及整个代码块显示了太多的实现细节，使得代码难以阅读和理解。
+- en: 'Let’s write a unit test and watch it fail:'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们编写一个单元测试并观察它失败：
+- en: '[PRE11]'
+  id: totrans-195
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'As usual, this new test fails (as it should). In the next step, we apply the
+    *extract method* refactoring shortcut to extract this logic to a new function:
+    `add_is_alone_column()`. We import this new function, ensure all tests are passing,
+    and commit our changes. Hooray again!'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 和往常一样，这个新的测试失败了（这是应该的）。在下一步中，我们应用*提取方法*重构快捷方式，将这个逻辑提取到一个新的函数中：`add_is_alone_column()`。我们导入这个新函数，确保所有的测试都通过，并提交我们的更改。再次成功！
+- en: Looking Back at What We’ve Achieved
+  id: totrans-197
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 回顾我们所取得的成就
+- en: 'After a few more iterations on the refactoring cycle, we got our codebase to
+    a modular, readable, tested state. What was originally a 37-page Jupyter Notebook
+    is now a fluent, well-abstracted, 30-line Python script composed of smaller, tested
+    modules and functions:'
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 经过几次重构周期，我们将代码库改造成了模块化、可读性强、经过测试的状态。最初是一个 37 页的 Jupyter 笔记本，现在是一个流畅、很好抽象化的 30
+    行 Python 脚本，由更小、经过测试的模块和函数组成：
+- en: '[PRE12]'
+  id: totrans-199
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'You can read the training pipeline almost like a piece of English text. Let’s
+    have a go: In `prepare_data_and_train_model()`, we impute NaN values, add a “derived
+    title” column, add an “is alone” column, add categorical columns, and we drop
+    six columns that we don’t need. We then split the data into a training set and
+    test set, and train a model. That’s it! Unlike the original notebook, this all
+    fits in our head—thanks abstractions!'
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以将训练流水线几乎像一篇英文文本一样阅读。让我们试试看：在`prepare_data_and_train_model()`中，我们填补 NaN 值，添加一个“派生标题”列，添加一个“独自”列，添加分类列，然后丢弃我们不需要的六列。然后我们将数据拆分为训练集和测试集，并训练模型。就是这样！与原始笔记本不同，这一切都能轻松理解—感谢抽象化！
+- en: Along the way, we’ve improved our test coverage from 0% to ~90%. For any future
+    changes or refactorings, we can run a single command and get feedback on the quality
+    of our changes within a few seconds. Any accidental errors will be caught by tests
+    during development, even before we commit our changes. By paying down our technical
+    debt and doing some refactoring and testing, we’ve enabled ourselves to move faster.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个过程中，我们将测试覆盖率从 0% 提高到约 90%。对于任何未来的更改或重构，我们可以运行一个命令，并在几秒钟内获得有关我们更改质量的反馈。在开发过程中，任何意外错误都将被测试捕获，甚至在提交更改之前。通过还清技术债务，进行一些重构和测试，我们使自己能够更快地前进。
+- en: Design principles that helped guide us
+  id: totrans-202
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 指导我们的设计原则
+- en: We’ve kept software design principles to the end of this section because they’re
+    more tangible when discussed in the context of the design improvements we’ve made
+    to the problematic codebase in this chapter.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将软件设计原则保留到本节的最后，因为在讨论本章中对问题代码库进行的设计改进时，这些原则更具体。
+- en: Perhaps unbeknownst to you, in performing the refactorings in this chapter,
+    you’ve been applying several design principles! Let’s go through each of them.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或许你并不知道，在本章的重构过程中，你已经在应用多种设计原则！让我们逐个进行说明。
+- en: Separation of concerns
+  id: totrans-205
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 分离关注点
+- en: Separation of concerns is a design principle that states that different aspects
+    of a system should be separated and handled by different modules. Instead of creating
+    a large system, we could break it down into smaller, independent modules. This
+    can help us separate data preprocessing, feature extraction, model training, and
+    inference into different modules, making it easier to understand, test, and add
+    features to parts of the system.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分离关注点是一种设计原则，它指出系统的不同方面应该被分离并由不同的模块处理。我们可以将一个大系统拆分为较小、独立的模块，而不是创建一个庞大的系统。这可以帮助我们将数据预处理、特征提取、模型训练和推断分开到不同的模块中，使得系统的各部分更容易理解、测试和添加功能。
+- en: In our refactoring, our preprocessing module is solely concerned with data transformations
+    before model training. If we needed to add another type of behavior—such as saving
+    or loading the model to disk—we could define it in another Python module concerned
+    with persistence or disk I/O.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的重构中，我们的预处理模块仅关注于在模型训练之前的数据转换。如果我们需要添加另一种行为，比如将模型保存或加载到磁盘上，我们可以在另一个关注持久化或磁盘
+    I/O 的 Python 模块中定义它。
+- en: Open-closed design
+  id: totrans-208
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 开闭原则
+- en: The [open-closed principle](https://oreil.ly/55S3c) states that software entities
+    should be open for extension but closed for modification. This means that a system’s
+    behavior can be extended without modifying its existing code.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[开闭原则](https://oreil.ly/55S3c)指出软件实体应该对扩展开放，对修改关闭。这意味着系统的行为可以扩展，而无需修改现有的代码。'
+- en: 'In our refactoring, when we created `categorize_column()` to replace the following
+    complex implementation detail of converting `Age` from a continuous variable (0
+    to 100) to a binned ordinal variable (0, 1, 2, 3, and 4), we later realized that
+    this function could be easily extended (without modification) for a similar data
+    transformation on the `Fare` column. `categorize_column()` was extensible—we can
+    specify how many bins we want using the `num_bins` argument—without the need to
+    modify the function’s implementation:'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的重构中，当我们创建`categorize_column()`来替换以下复杂的实现细节，将`Age`从连续变量（0到100）转换为分级顺序变量（0、1、2、3和4）时，我们后来意识到，可以轻松地扩展此函数（无需修改）以对`Fare`列进行类似的数据转换。`categorize_column()`是可扩展的——我们可以使用`num_bins`参数指定想要的箱数——而无需修改函数的实现：
+- en: '[PRE13]'
+  id: totrans-211
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: We extended the functionality we created for `Age` to also work with `Fare`,
+    without needing to modify the function’s implementation. That’s the beauty of
+    code that’s designed to be open for extension and closed for modification (i.e.,
+    “open-closed”).
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们扩展了我们为`Age`创建的功能，使其也能与`Fare`一起工作，而无需修改函数的实现。这就是设计为开放扩展和封闭修改的代码之美（即“开闭原则”）。
+- en: Prefer obvious over obscure code (or explicit over implicit)
+  id: totrans-213
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 更喜欢显而易见的而不是晦涩的代码（或者显式的而不是隐式的）
+- en: 'John Ousterhout puts it well in his book *A Philosophy of Software Design*
+    (Yaknyam Press): “In an obvious system, a developer can quickly understand how
+    the existing code works and what is required to make a change. [...] The second
+    cause of complexity is obscurity. Obscurity occurs when important information
+    is not obvious.”'
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 约翰·奥斯特豪特在他的书《软件设计的哲学》（Yaknyam Press）中很好地阐述了这一点：“在一个明显的系统中，开发者可以快速理解现有代码的工作方式及所需进行的更改。[...]
+    复杂性的第二个原因是晦涩性。当重要信息不显而易见时，就会出现晦涩性。”
+- en: We started this chapter with heaps of obscure code—e.g., nameless data transformations—that
+    forced us to spend cognitive resources to understand the “how” to know “what”
+    the code is doing. After refactoring, the well-named abstractions made the code’s
+    behavior much more obvious. For example, if ever we have a new requirement to
+    handle a new honorific title (e.g., Reverend), we can easily find out where to
+    implement the changes.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们从大量晦涩的代码开始这一章节，例如，无名数据转换，这迫使我们耗费认知资源来理解“如何”去知道代码在做什么。重构后，命名良好的抽象使代码的行为变得更加明显。例如，如果我们有新的需求需要处理新的尊称（例如，牧师），我们可以很容易找到需要实现这些变更的位置。
+- en: Code smells are symptoms of obscurity. Refactoring techniques (e.g., extract
+    method, extract variable, move method, type hints) are tools to help improve clarity.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码异味是晦涩的症状。重构技术（例如，提取方法、提取变量、移动方法、类型提示）是帮助提高代码清晰度的工具。
+- en: Reduce tight coupling (or couple to interfaces, not to implementation)
+  id: totrans-217
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 减少紧耦合（或将耦合到接口而非实现）
+- en: Coupling refers to the degree to which different components within a system
+    depend on each other. High coupling means that the components are tightly connected
+    and changes in one component can have a significant impact on other components.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 耦合指的是系统中不同组件彼此依赖的程度。高耦合意味着组件紧密连接，一个组件的变化可能会对其他组件产生重大影响。
+- en: In ML systems, high coupling can lead to complex dependencies between the data
+    preprocessing, feature extraction, model training, and inference modules, making
+    the system difficult to maintain and scale.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在ML系统中，高耦合可能导致数据预处理、特征提取、模型训练和推断模块之间复杂的依赖关系，使系统难以维护和扩展。
+- en: Another closely related concept is cohesion. Cohesion refers to the degree to
+    which the elements *within* a module or component are related to each other. High
+    cohesion means that the elements within a module work together toward a common
+    goal or purpose. In ML systems, high cohesion can be achieved by grouping related
+    functionality, such as feature extraction and model training, into separate modules
+    that work together toward a common goal.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个密切相关的概念是内聚性。内聚性指的是模块或组件内元素之间相关性的程度。高内聚性意味着模块内的元素共同努力实现共同的目标或目的。在ML系统中，通过将相关功能（如特征提取和模型训练）分组到单独的模块中，可以实现高内聚性，这些模块共同努力实现共同的目标。
+- en: Designing ML systems with low coupling and high cohesion can lead to a more
+    modular and maintainable system. This can be achieved by breaking down the system
+    into smaller, more manageable components, each with a well-defined purpose.
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设计低耦合和高内聚的ML系统可以导致更模块化和可维护的系统。通过将系统分解为更小、更可管理的组件，每个组件都有明确定义的目的，可以实现这一点。
+- en: For example, let’s say a column name (e.g., `Name`) was changed in our data
+    store. In a tightly coupled solution, the coupling to the `Name` column (an *implementation*
+    detail) will be littered all over our codebase and we would need to make the change
+    all over the codebase (aka [shotgun surgery](https://oreil.ly/xnuQ0)).
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设数据存储中的列名（例如，`Name`）已更改。在紧密耦合的解决方案中，对`Name`列（一个*实现*细节）的耦合将遍布我们的代码库，我们需要在整个代码库中进行更改（也称为[散弹手术](https://oreil.ly/xnuQ0)）。
+- en: A better design would be to create an abstraction (e.g., `PassengersDataFrame`)
+    around the dataset that, among other things, would encapsulate this implementation
+    detail (`["Name"]`). The rest of our code would program to `passengers_df.name`
+    (an *interface*). To handle this column name change, we would simply need to update
+    it in one place—in the definition of `PassengersDataFrame`.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更好的设计是围绕数据集创建一个抽象（例如，`PassengersDataFrame`），其中包括封装此实现细节（`["Name"]`）。我们其余的代码将编程到`passengers_df.name`（一个*接口*）。要处理此列名更改，我们只需在一个地方更新它——在`PassengersDataFrame`的定义中。
+- en: This design pattern—the [Anti-corruption Layer](https://oreil.ly/yiiAT)—helps
+    us contain all of the logic necessary to translate between the two components
+    (our model training pipeline and the data store) in one place, and reduce coupling
+    between our training pipeline and data store.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种设计模式——[反腐蚀层](https://oreil.ly/yiiAT)——帮助我们将在一个地方包含所有必要的逻辑，以在我们的模型训练管道和数据存储之间进行翻译，并减少训练管道和数据存储之间的耦合。
+- en: Simple design
+  id: totrans-225
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 简单的设计
+- en: 'In a universe (and codebase) that tends toward chaos, simple design helps us
+    keep complexity at a manageable level. When designing new logic to implement some
+    new functionality, Kent Beck’s [four rules of software design](https://oreil.ly/6rqS3)
+    can help ensure a functional and simple design:'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在趋向混乱的宇宙（和代码库）中，简单的设计帮助我们保持复杂性在可管理的水平上。当设计新的逻辑来实现一些新功能时，Kent Beck的[软件设计四原则](https://oreil.ly/6rqS3)可以帮助确保功能和简单的设计：
+- en: Passes all the tests (existing and new)
+  id: totrans-227
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过了所有测试（现有的和新的）
+- en: Reveals intention (states every intention important to the programmer)
+  id: totrans-228
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 显露意图（声明对程序员重要的每一个意图）
+- en: Has no duplicated logic
+  id: totrans-229
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 没有重复的逻辑
+- en: Has the fewest possible classes and methods (removes anything that doesn’t serve
+    the three previous rules)
+  id: totrans-230
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 具有尽可能少的类和方法（删除任何不符合前三条规则的东西）
+- en: If anything gets in the way of these rules (e.g., premature abstraction, unnecessary
+    design patterns, no design), consider whether there is a simpler and more suitable
+    design. It always helps to have a chat with a teammate, someone from your community
+    of practice, or with [the internet](https://oreil.ly/4IWbe).
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果有任何东西阻碍了这些规则的实施（例如，过早的抽象化，不必要的设计模式，缺乏设计），请考虑是否存在更简单和更合适的设计。与队友、您的实践社区中的某人或[互联网](https://oreil.ly/4IWbe)交谈总是有帮助的。
+- en: By this point in this chapter, you’ve learned to see alternate possibilities
+    for messy codebases. They don’t always have to be a “big ball of mud,” but can
+    be readable, maintainable, and even elegant solutions that are a joy to read and
+    maintain. Now, let’s turn to how you can create space in your day-to-day work
+    to continuously and iteratively improve your team’s solution design.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到了本章的这一点，你已经学会看到混乱代码库的替代可能性。它们不总是“一团糟”，而是可以是可读的、可维护的，甚至是优雅的解决方案，让人愉快地阅读和维护。现在，让我们看看如何在日常工作中创造空间，持续迭代地改进团队的解决方案设计。
+- en: Technical Debt Management in the Real World
+  id: totrans-233
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 现实世界中的技术债务管理
+- en: Work is like air—it fills up any vacuum faster than you can say “should we refactor
+    that?” Delivery “pressure” (real or manufactured) and the social pressures to
+    be a high-performing teammate that’s always “getting things done” and “shipping
+    stuff” divert time and energy from paying down technical debt.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工作就像空气一样——它填补任何空隙比你说“我们应该重构吗？”更快。交付“压力”（真实或人为制造的）以及成为高效团队成员的社会压力，始终“完成任务”和“发布东西”，会分散时间和精力，以偿还技术债务。
+- en: In projects, we’ve seen two reactions to such pressures. In one extreme, there
+    can be ML practitioners that focus on feature delivery without caring about anything
+    else. Not only do they forgo any improvement opportunity, they’ll likely take
+    on more debt to move fast. On the other extreme, we may have zealots who digress
+    too much on refactoring when working on a card, causing the scope to blow up and
+    introducing significant delays to the cards they are working on.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在项目中，我们看到了对这种压力的两种反应。在一个极端情况下，可能有ML从业者专注于功能交付而不关心其他任何事情。他们不仅放弃了任何改进的机会，还可能为了加快速度而增加更多债务。在另一个极端情况下，我们可能有狂热者，在处理卡片时过于偏离重构，导致范围扩大并且给他们正在处理的卡片引入显著延迟。
+- en: The truth is that coding and refactoring are inherently social activities, and
+    depend on sociostructural forces. ML practitioners who wish to manage technical
+    debt effectively need to establish a social contract of desirable behavior within
+    their team and create a shared understanding of problems and how to resolve them
+    together.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事实上，编码和重构本质上是社会活动，并依赖于社会结构力量。希望有效管理技术债务的ML从业者需要在团队内建立可取行为的社会契约，并共同理解问题及如何共同解决问题。
+- en: In the next section, we’ll look at techniques that we use to keep technical
+    debt in check in our projects.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一节中，我们将看看我们在项目中用来控制技术债务的技术。
+- en: Technical Debt Management Techniques
+  id: totrans-238
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 技术债务管理技术
+- en: Here are some techniques that we apply in our real-world projects to ensure
+    that we balance effective technical debt management with product delivery.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是我们在现实项目中应用的一些技术，以确保我们在产品交付中平衡有效的技术债务管理。
+- en: Make debt visible
+  id: totrans-240
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使债务可见
+- en: 'Making debt visible is a great first step for paying down the debt. A useful
+    information radiator is a technical debt “wall.” Having it all in one place allows
+    us to cluster and order each debt along two axes: value and effort. As [Figure 8-10](#a_technical_debt_wall_helps_to_make_deb)
+    illustrates, this helps us to see the zones of *low-hanging fruits* (high value,
+    low effort), *quick wins* (low value, low effort), *worthy investments* (high
+    value, high effort), and no-go (low value, high effort). Shared visibility also
+    nudges the team toward shared ownership in technical debt management.'
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使债务可见是还债的一个很好的第一步。一个有用的信息展示器是技术债务的“墙”。把所有内容放在一个地方使我们能够按照价值和努力的两个轴线聚类和排序每一个债务。正如[图 8-10](#a_technical_debt_wall_helps_to_make_deb)所示，这帮助我们看到*低悬果*区（高价值，低努力）、*快速胜利*（低价值，低努力）、*有价值的投资*（高价值，高努力）和不可行（低价值，高努力）。共享可见性还推动团队在技术债务管理中达成共享所有权。
+- en: '![](assets/emlt_0810.png)'
+  id: totrans-242
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0810.png)'
+- en: Figure 8-10\. A technical debt wall helps to make debt visible and helps the
+    team pay down the most important debt as part of ongoing delivery
+  id: totrans-243
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-10\. 技术债务墙帮助债务可见，并帮助团队作为持续交付的一部分支付最重要的债务
+- en: In our experience, you can easily bootstrap a new technical debt wall by asking
+    teammates to jot down any issues that they’ve observed in the course of their
+    work over a few days, and then collectively put them on the technical debt wall
+    in a short 20-minute team huddle. Thereafter, anyone who notices or creates new
+    technical debt can add it to the wall asynchronously for the team’s awareness.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据我们的经验，你可以通过要求队友在几天内记下他们在工作过程中观察到的任何问题，然后在一个短暂的20分钟团队聚会中集体将它们放在技术债务墙上，轻松启动一个新的技术债务墙。此后，任何注意到或创建新技术债务的人都可以异步地将其添加到团队的意识中。
+- en: In terms of execution, low-effort debt can be subsumed into an upcoming related
+    story card. High-effort debt could have its own story card, like any other feature
+    development cards, that is prioritized accordingly and added to upcoming sprints
+    (see the next point on the 80/20 rule).
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在执行方面，低努力债务可以并入即将进行的相关故事卡中。高努力债务可以像任何其他功能开发卡片一样拥有自己的故事卡，并根据优先级添加到即将进行的冲刺中（见80/20法则的下一个点）。
+- en: Over time, this practice helps the team identify waste—i.e., time wasted on
+    paying interest—and eliminate waste by paying down technical debt incrementally
+    and regularly.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着时间推移，这种做法帮助团队识别浪费——即在支付利息上浪费的时间，并通过逐步和定期支付技术债务来消除浪费。
+- en: The 80/20 rule
+  id: totrans-247
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 80/20法则
+- en: We have seen many teams squabble over whether to spend time refactoring or paying
+    down technical debt. In our experience, an approximate 80/20 rule can help. For
+    each story card, focus 80% of the time on delivering features and completing the
+    story, and spend 20% of the time paying off some technical debt, so that the team
+    can continue to deliver features at a sustainable and predictable pace.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们看到很多团队在是否花时间重构或还清技术债务上争吵不休。根据我们的经验，大约的80/20法则可以帮助。对于每个用户故事卡片，将80%的时间集中在交付功能和完成用户故事上，剩余的20%的时间用来还清一些技术债务，这样团队可以以可持续和可预测的速度继续交付功能。
+- en: If a particular technical debt task is high-effort and high-value, teams can
+    consider applying the 80/20 rule at the sprint level. Focus 80% of the sprint’s
+    allocated effort on the sprint goal and delivering new features, and 20% (typically
+    1 or 2 cards) on paying down technical debt.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果一个特定的技术债务任务投入的工作量很大，但价值很高，团队可以考虑在冲刺级别应用80/20法则。将冲刺分配的工作量的80%集中在冲刺目标和交付新功能上，20%（通常是1或2个卡片）用来还清技术债务。
+- en: Both of these are practices that have worked well for us in the past to improve
+    the quality of our solution. In our experience, frequent and iterative improvements
+    yield better results than a “big bang refactoring” over many days or weeks.
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两种做法在过去对我们改进解决方案的质量非常有效。根据我们的经验，频繁和迭代的改进产生比“大爆炸式重构”花费数天甚至数周更好的结果。
+- en: Make it cheap and safe
+  id: totrans-251
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使其廉价且安全
+- en: We often find ourselves in one of two scenarios when dealing with technical
+    debt. In the first, paying down technical debt is time-consuming (due to a lack
+    of automated tests) and overwhelming (because the solution is too convoluted).
+    In this scenario, teams want to do the right thing (they create “technical debt
+    cards”), but these cards are often relegated deep in the graveyard of low-priority
+    backlog cards never to be seen again, thereby reinforcing the vicious cycle of
+    technical debt.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们处理技术债务时，我们常常处于两种情况之一。在第一种情况下，还清技术债务非常耗时（因为缺乏自动化测试）和令人不安（因为解决方案过于复杂）。在这种情况下，团队想要做正确的事情（他们创建“技术债务卡片”），但这些卡片通常被放在低优先级积压卡片的坟墓深处，再也不会被看到，从而加强技术债务恶性循环。
+- en: In the second scenario, refactoring is quick, low-cost, and safe—high test coverage
+    tells us a refactoring worked as expected. In this scenario, it’s easy to practice
+    the scout rule and pay off debt as we go. Even if a technical debt requires a
+    card of its own, a pair can tackle it in steady steps without getting mired in
+    errors and troubleshooting.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第二种情况下，重构是快速、低成本和安全的——高测试覆盖率告诉我们重构按预期工作了。在这种情况下，很容易实践侦察规则，并随着进行支付债务。即使技术债务需要自己的卡片，一对人也可以稳步解决，而不会陷入错误和故障排除的泥沼。
+- en: For example, in a past project, we had an attribute in our codebase that was
+    TitleCased instead of a Pythonic snake_case. This attribute was referenced in
+    multiple places in our solution, including the data ingestion pipeline, feature
+    engineering, ML model training, ML model API, and in a few test cases. However,
+    we could make this seemingly drastic change *in an hour’s work* because our entire
+    ML system had high test coverage (unit tests, integration tests, model quality
+    tests) and we could use IDE shortcuts to help with renaming. When the refactoring
+    was done, all the tests passed, we committed our changes, all the tests on the
+    CI pipeline passed, and the change was deployed to production with no drama.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 举例来说，在过去的一个项目中，我们的代码库中有一个属性是TitleCased而不是Pythonic的snake_case。这个属性在我们的解决方案中多个地方被引用，包括数据摄入管道、特征工程、ML模型训练、ML模型API和几个测试案例。然而，由于我们整个ML系统有很高的测试覆盖率（单元测试、集成测试、模型质量测试），我们可以在*一个小时的工作*内做出这个看似激进的改变，并且我们可以利用IDE的快捷方式来帮助重命名。重构完成后，所有的测试都通过了，我们提交了我们的更改，CI管道上的所有测试也通过了，并且这个改变被无事故地部署到了生产环境。
+- en: Demonstrate value of paying off technical debt
+  id: totrans-255
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 展示还清技术债务的价值
+- en: In a situation where technical debt work is repeatedly deprioritized, we can
+    motivate the team or decision makers toward action by quantifying and demonstrating
+    the value of reducing technical debt. For example, say we have an API endpoint
+    that is untested. We can quantify the hours we spend on manually testing that
+    endpoint during development and testing, for each pull request before they can
+    be merged. Or we could do a daily or weekly count of the number of production
+    alerts relating to that endpoint and the corollary time spent on resolving said
+    alerts!
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在技术债务工作反复被优先级降低的情况下，我们可以通过量化和展示减少技术债务的价值来激励团队或决策者采取行动。例如，假设我们有一个未经测试的API端点。我们可以量化在开发和测试过程中每个拉取请求前手动测试该端点所花费的时间。或者我们可以每日或每周计算与该端点相关的生产警报数量及解决这些警报所花费的时间！
+- en: And when that technical debt is paid off, we can showcase what we gained as
+    a team—e.g., hours saved from manual testing, reduction in production alerts,
+    faster delivery cadence. This efficiency gain can be quantified and used to showcase
+    how spending some time reducing technical debt (recall the 80/20 rule) directly
+    contributes to more productive development cycles.
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当技术债务得到偿还时，我们可以展示团队所获得的收益 —— 例如，节省了手动测试的时间、减少了生产警报、加快了交付速度。这种效率增益可以量化，并用来展示花费时间减少技术债务（回想80/20法则）如何直接促进更高效的开发周期。
+- en: 'A Positive Lens on Debt: Systems Health Ratings'
+  id: totrans-258
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 关于债务的积极视角：系统健康评估
+- en: To scale these technical debt management practices above the level of an individual
+    team and to the level of an organization or an enterprise, we need to somewhat
+    formalize how teams regularly track their current state across key dimensions
+    and make regular progress in suboptimal areas.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将这些技术债务管理实践提升至个体团队以上，达到组织或企业层面，我们需要在团队定期跟踪当前状态并在次优领域取得定期进展方面进行某种程度的形式化。
+- en: One useful technique in this regard is a regular (e.g., quarterly) [Systems
+    Health Rating](https://oreil.ly/3qImZ) exercise that all teams do to rate the
+    health of the systems they own using simple and well-defined RAG (red, amber,
+    green) classifications. This is a practice pioneered by [REA Group](https://oreil.ly/rTwMq)
+    and has been useful in governing and steering dozens of product engineering squads
+    toward good practices.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这方面的一个有用技术是定期（例如每季度一次）[系统健康评估](https://oreil.ly/3qImZ)练习，所有团队都要使用简单和明确定义的RAG（红、黄、绿）分类来评估他们所拥有的系统的健康状况。这是由[REA
+    Group](https://oreil.ly/rTwMq)开创的一种实践，并已被证明对引导和管理数十个产品工程小组朝着良好实践方向非常有用。
+- en: 'As detailed in [REA Group’s article on Systems Health Rating](https://oreil.ly/j3P0E),
+    evaluation dimensions are grouped into three categories: development, operations,
+    and architecture. Each category contains several dimensions that can be summarized
+    into three central questions:'
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[REA Group的《系统健康评估》文章](https://oreil.ly/j3P0E)所述，评估维度分为三类：开发、运营和架构。每个类别包含数个维度，可以总结为三个核心问题：
+- en: Development
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开发
+- en: Can I set up the codebase, understand it, and confidently make changes?
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我是否能够建立代码库、理解它，并自信地进行更改？
+- en: Operations
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运营
+- en: Can I deploy the system, understand it and its dependencies, handle disaster
+    recovery, and know if it’s performing in line with established service-level agreements
+    (SLAs)?
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我是否能够部署系统、理解它及其依赖关系、处理灾难恢复并知道它是否符合已建立的服务级别协议（SLA）？
+- en: Architecture
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 架构
+- en: Does the system encapsulate a single responsibility with a clearly defined interface
+    within understood realms?
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 系统是否封装单一职责，具有清晰定义的界面在可理解的范围内？
+- en: 'Taking the development category as an example, evaluation dimensions relate
+    to the changeability of the system because easily changeable software enables
+    a rapid pace of feature delivery and quick response to defects or vulnerabilities.
+    Teams would rate each system they own along the following dimensions (RAG definitions
+    excluded here for brevity):'
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以开发类别为例，评估维度涉及系统的可变性，因为易变软件能够快速交付功能并快速响应缺陷或漏洞。团队会根据以下维度评估他们所拥有的每个系统（这里省略了RAG定义以保简洁）：
+- en: Code readability or quality score
+  id: totrans-269
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 代码可读性或质量评分
+- en: Development environment setup automation
+  id: totrans-270
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 开发环境设置自动化
+- en: Presence and coverage of automated tests
+  id: totrans-271
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 自动化测试的存在和覆盖范围
+- en: Presence and coverage of continuous integration (CI) pipelines
+  id: totrans-272
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 持续集成（CI）流水线的存在和覆盖范围
+- en: Appropriate measures to protect customers, consumers, and data
+  id: totrans-273
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 适当措施来保护客户、消费者和数据
+- en: Design documentation and decision history documents
+  id: totrans-274
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 设计文档和决策历史文档
+- en: The [“ML Test Score” paper](https://oreil.ly/hGTTh) describes a similar approach
+    at Google, where teams use the ML Test Score rubric to measure and improve their
+    systems over time. This was inspired by Google’s [Test Certified program](https://oreil.ly/nR324),
+    which provided a scoring ladder for overall test robustness, and which was highly
+    successful in incentivizing teams to adopt best practices.
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[“ML Test Score”论文](https://oreil.ly/hGTTh)描述了Google类似的方法，团队使用ML测试评分表来测量和改进其系统。这受到了Google
+    [测试认证计划](https://oreil.ly/nR324)的启发，该计划提供了一个总体测试健壮性评分阶梯，并在促进团队采纳最佳实践方面取得了巨大成功。'
+- en: As a takeaway exercise, consider creating a rubric for teams in your organization
+    that are working on ML products. You could distill the practices in this book
+    into a one-pager to cover key categories (e.g., ML, engineering, product, delivery,
+    data) and for each category (e.g., engineering) enumerate the dimensions of a
+    healthy system (e.g., automated test coverage, development environment setup automation).
+    We’ve provided an example rubric in [Table 8-1](#example_systems_health_rating_scorecard)
+    as a starting point.
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为一项课后练习，考虑为您组织中负责ML产品工作的团队创建一个评分标准。您可以将本书中的实践凝练为一页纸，覆盖关键类别（例如ML、工程、产品、交付、数据），并为每个类别（例如工程）列举健康系统的维度（例如自动化测试覆盖、开发环境设置自动化）。我们提供了一个起点示例评分表，如[表8-1](#example_systems_health_rating_scorecard)。
+- en: Define your rubric collectively with the relevant stakeholders (e.g., technical
+    leads, architects, product managers), and give teams clear targets and paths for
+    improvement. Start simple and evolve it over time.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与相关利益相关者（例如技术负责人、架构师、产品经理）共同定义您的评分标准，并为团队设定明确的改进目标和路径。从简单开始，并随时间演化。
+- en: Table 8-1\. Example Systems Health Rating scorecard for a given ML system
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表8-1\. 给定ML系统的示例系统健康评分表
+- en: '|   | Definitions |'
+  id: totrans-279
+  prefs: []
+  type: TYPE_TB
+  zh: '|   | 定义 |'
+- en: '| --- | --- |'
+  id: totrans-280
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '|   | Red *Falls significantly short of our expectations* | Amber *Partially
+    meets our expectations* | Green *Meets our expectations* |'
+  id: totrans-281
+  prefs: []
+  type: TYPE_TB
+  zh: '|   | 红色 *远远低于我们的期望* | 黄色 *部分符合我们的期望* | 绿色 *符合我们的期望* |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-282
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| *Development* |'
+  id: totrans-283
+  prefs: []
+  type: TYPE_TB
+  zh: '| *开发* |'
+- en: '| **Automated tests** | No automated tests. | Some automated tests, but gaps
+    in coverage necessitate nontrivial manual testing effort before production deployments.
+    | Comprehensive automated tests with high coverage; minimal or no manual testing
+    needed to release changes to production. |'
+  id: totrans-284
+  prefs: []
+  type: TYPE_TB
+  zh: '| **自动化测试** | 没有自动化测试。 | 存在一些自动化测试，但覆盖率存在漏洞，需要在生产部署之前进行相当多的手动测试。 | 全面的自动化测试，覆盖率高；发布更改到生产环境几乎不需要手动测试。
+    |'
+- en: '| **Dev setup automation** | Limited automation and time-consuming manual dev
+    environment setup.“Lead time to first push” on a new machine is more than one
+    week. | Partial automation; setup process still involves several manual steps.“Lead
+    time to first push” on a new machine is between one day and one week. | Automated,
+    quick, and consistent dev environment setup.“Lead time to first push” on a new
+    machine is less than one day. |'
+  id: totrans-285
+  prefs: []
+  type: TYPE_TB
+  zh: '| **开发环境设置自动化** | 有限的自动化和耗时的手动开发环境设置。“在新设备上首次推送的前导时间”超过一周。 | 部分自动化；设置过程仍涉及多个手动步骤。“在新设备上首次推送的前导时间”介于一天到一周之间。
+    | 自动化、快速且一致的开发环境设置。“在新设备上首次推送的前导时间”少于一天。 |'
+- en: '| **CI/CD pipeline** | CI/CD pipeline may exist, but lacks tests.Untested bugs
+    and errors are hidden beneath illusory green builds. | CI/CD pipeline exists with
+    some tests, but still require manual quality gates due to lack of comprehensive
+    tests before and after deployments. | CI/CD pipeline contains comprehensive automated
+    tests before and after automated deployments.Team can deploy any candidate green
+    build to production on demand. |'
+  id: totrans-286
+  prefs: []
+  type: TYPE_TB
+  zh: '| **CI/CD管道** | 可能存在CI/CD管道，但缺乏测试。未经测试的错误和问题隐藏在虚假的绿色构建下。 | 存在部分测试的CI/CD管道，但由于缺乏全面的测试，在部署前后仍需要手动质量门。
+    | 包含全面自动化测试的CI/CD管道。团队可以按需将任何候选的绿色构建部署到生产环境。 |'
+- en: '| **Code quality** | No automated code quality checks. | Automated code quality
+    checks exist, but major issues have been identified and are not resolved; code
+    quality scores are low. | Automated code quality checks exist, and major code
+    quality issues are resolved; code quality scores are high. |'
+  id: totrans-287
+  prefs: []
+  type: TYPE_TB
+  zh: '| **代码质量** | 没有自动化的代码质量检查。 | 存在自动化的代码质量检查，但存在重大问题且未解决；代码质量评分较低。 | 存在自动化的代码质量检查，并且解决了重要的代码质量问题；代码质量评分较高。
+    |'
+- en: '| *Operations* |'
+  id: totrans-288
+  prefs: []
+  type: TYPE_TB
+  zh: '| *运维* |'
+- en: '| **Documentation** | Insufficient or no documentation. | Documentation exists
+    but is incomplete or outdated. | Documentation exists and is discoverable from
+    organization’s service catalog. |'
+  id: totrans-289
+  prefs: []
+  type: TYPE_TB
+  zh: '| **文档** | 文档不足或没有。 | 存在文档但不完整或过时。 | 存在文档并且可以从组织的服务目录中找到。 |'
+- en: '| **Monitoring: Service health and alerts** | No monitoring; no visibility
+    on any potential service errors or health issues. | Service health monitoring
+    and alerts in place but alerts are frequent and dismissed without resolving root
+    cause, leading to “alert fatigue.” | Comprehensive monitoring in place; proactive
+    issue detection and resolution, resulting in minimal alerts over time. |'
+  id: totrans-290
+  prefs: []
+  type: TYPE_TB
+  zh: '| **监控：服务健康和警报** | 没有监控；无法看到任何潜在的服务错误或健康问题。 | 存在服务健康监控和警报，但警报频繁且在解决根本原因之前被忽略，导致“警报疲劳”。
+    | 实施全面的监控；积极检测并解决问题，从而随着时间推移警报减少至最低。 |'
+- en: '| **Logging** | Inadequate or no logging; difficult to troubleshoot. | Some
+    level of logging, but lacks essential details for troubleshooting issues.For distributed
+    systems, lack of a correlation ID means logs need to be manually retrieved from
+    multiple disparate sources. | Use of structured log formats and persistence in
+    organization’s centralized logging service; easy to inspect logs and troubleshoot
+    issues.For distributed systems, easy to retrieve logs with a correlation ID. |'
+  id: totrans-291
+  prefs: []
+  type: TYPE_TB
+  zh: '| **日志** | 日志不足或没有；难以进行故障排除。 | 存在一定级别的日志记录，但缺少故障排除所需的关键细节。对于分布式系统，缺乏关联ID意味着需要从多个不同源手动检索日志。
+    | 使用结构化日志格式并在组织的集中日志服务中持久化；轻松检查日志并进行故障排除。对于分布式系统，可以通过关联ID轻松检索日志。 |'
+- en: '| **Disaster recovery** | No disaster recovery plan or data replication; data
+    lost in the event of a disaster is irrecoverable. | [Recovery time objective (RTO)
+    and recovery point objective (RPO)](https://oreil.ly/DO6rg) defined.Disaster recovery
+    approach identified but not implemented. | Disaster recovery plan and backups
+    exist; team can follow steps to restore systems and data in line with RTO and
+    RPO; quick recovery assured. |'
+  id: totrans-292
+  prefs: []
+  type: TYPE_TB
+  zh: '| **灾难恢复** | 没有灾难恢复计划或数据复制；灾难发生时数据不可恢复。 | 已定义[恢复时间目标（RTO）和恢复点目标（RPO）](https://oreil.ly/DO6rg)。已确定灾难恢复方法但尚未实施。
+    | 存在灾难恢复计划和备份；团队可以按步骤恢复系统和数据，符合RTO和RPO；确保快速恢复。 |'
+- en: '| **Secure delivery** | Security not considered; vulnerabilities in delivery
+    process. | System has been assessed based on secure delivery and secure architecture
+    practices in the organization; key security issues identified but not resolved.
+    | System is in line with secure delivery and secure architecture practices in
+    the organization; key security issues are resolved. |'
+  id: totrans-293
+  prefs: []
+  type: TYPE_TB
+  zh: '| **安全交付** | 未考虑安全性；交付过程中存在漏洞。 | 系统已根据组织的安全交付和安全架构实践进行评估；确定了关键安全问题但尚未解决。 |
+    系统符合组织的安全交付和安全架构实践；已解决关键安全问题。 |'
+- en: '| **Vulnerability scanning and dependency updates** | No vulnerability scanning;
+    software dependency risk profile is unknown. | Vulnerability scanning exists but
+    significant vulnerabilities not resolved. | Regular and automated vulnerability
+    scanning; tools exist to automatically create pull requests for dependency updates.
+    |'
+  id: totrans-294
+  prefs: []
+  type: TYPE_TB
+  zh: '| **漏洞扫描和依赖更新** | 没有漏洞扫描；软件依赖风险概况未知。 | 存在漏洞扫描但未解决重大漏洞。 | 定期自动化漏洞扫描；存在工具可以自动创建依赖更新的拉取请求。
+    |'
+- en: '| **Data privacy** | Inadequate or unclear data privacy measures; sensitive
+    data at risk of exposure, noncompliance with regulations. | Clarity on relevant
+    data privacy requirements; measures are partially implemented. | Robust data privacy
+    measures in place; PII is masked in source systems so they’re not propagated and
+    persisted in other systems and environments (e.g., in logs). |'
+  id: totrans-295
+  prefs: []
+  type: TYPE_TB
+  zh: '| **数据隐私** | 数据隐私措施不足或不清楚；敏感数据面临暴露风险，不符合法规。 | 对相关数据隐私要求有清晰认识；措施部分实施。 | 实施了强大的数据隐私措施；个人身份信息在源系统中被屏蔽，因此不会在其他系统和环境中传播和持久化（例如日志中）。
+    |'
+- en: '| **FinOps** | No visibility on the total cost (including cloud hosting, headcount,
+    licensing costs) of systems or products owned by a team. | Team can manually find
+    out the total cost of building and operating their tech estate. | Team follows
+    organizational FinOps policies and tags cloud resources consistently.The total
+    cost of a team’s tech estate can be automatically attributed to the team and can
+    be analyzed. |'
+  id: totrans-296
+  prefs: []
+  type: TYPE_TB
+  zh: '| **财务运营（FinOps）** | 对团队拥有的系统或产品的总成本（包括云托管、人员成本、许可成本）没有可见性。 | 团队可以手动查找他们技术资产的总成本。
+    | 团队遵循组织的财务运营政策，并一致地标记云资源。团队的技术资产总成本可以自动归属于团队并进行分析。 |'
+- en: '| *Architecture* |'
+  id: totrans-297
+  prefs: []
+  type: TYPE_TB
+  zh: '| *架构* |'
+- en: '| **Well-encapsulated interfaces** | System violates the principle of encapsulation
+    and depends too much on internal implementation details of other systems, or reveals
+    too much about its internal implementation. | Well-defined interfaces exist, but
+    still tightly coupled to upstream and downstream systems. | System is well encapsulated
+    with a well-defined interface; system is concerned with a single responsibility
+    or business operation. |'
+  id: totrans-298
+  prefs: []
+  type: TYPE_TB
+  zh: '| **良好封装的接口** | 系统违反了封装原则，并过于依赖其他系统的内部实现细节，或者过多地暴露其内部实现。 | 存在明确定义的接口，但仍然与上游和下游系统紧密耦合。
+    | 系统具有良好封装的、明确定义的接口；系统关注单一职责或业务操作。 |'
+- en: '| **Loosely coupled architecture** | No clear view on a system’s architecture
+    and responsibilities, and how it interacts with upstream and downstream dependencies.
+    | Too many dependencies on other systems; unnecessary runtime coupling.Cannot
+    release a change to production without depending on or being blocked by one or
+    more teams. | Components are loosely coupled.A team owning a system can release
+    an interface change without depending on other teams; downstream consumers can
+    update to use new interface on their own cadence. |'
+  id: totrans-299
+  prefs: []
+  type: TYPE_TB
+  zh: '| **松散耦合的架构** | 对系统架构及其职责、以及与上游和下游依赖关系的互动没有清晰的看法。 | 过多依赖于其他系统；不必要的运行时耦合。在没有依赖于一个或多个团队或被其阻碍的情况下，无法将更改发布到生产环境中。
+    | 组件之间松散耦合。拥有系统的团队可以发布接口更改，而不依赖于其他团队；下游使用者可以根据自己的节奏更新以使用新接口。 |'
+- en: '| **Error handling** | System handles only “happy path” scenarios and fails
+    at runtime when given unexpected data or scenarios. | Some error handling exists,
+    but error messages are not clear or obvious for the intended downstream consumer.
+    | Functionality gracefully degrades in the face of failure with clear and understandable
+    messages. |'
+  id: totrans-300
+  prefs: []
+  type: TYPE_TB
+  zh: '| **错误处理** | 系统只处理“快乐路径”场景，当遇到意外数据或情况时运行失败。 | 存在一些错误处理，但错误消息对预期的下游使用者来说不明确或显而易见。
+    | 功能在面对失败时会优雅地退化，并提供清晰易懂的消息。 |'
+- en: With that, let’s wrap up this chapter!
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着此章节的结束，我们来总结一下吧！
+- en: 'Conclusion: Make Good Easy'
+  id: totrans-302
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论：让好变得简单
+- en: Many teams make the mistake of accumulating and neglecting a crushing amount
+    of technical debt and production defects that eventually slow the production line
+    to a virtual halt. Refactoring then becomes so daunting and risky that refactoring
+    tasks always end up in the backlog graveyard, reinforcing the vicious cycle of
+    pressure-haste-debt.
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多团队犯了一个错误，积累和忽视了大量的技术债务和生产缺陷，最终导致生产线几乎停滞不前。重构因此变得如此艰巨和风险，以至于重构任务总是最终成为积压的墓地，加剧了压力-匆忙-债务的恶性循环。
+- en: In response, it’s common to see teams get trapped in analysis paralysis when
+    it comes to technical debt. Add in our human propensity to [status quo bias](https://oreil.ly/KHOmh),
+    and we often end up doing nothing about technical debt. And ironically, doing
+    nothing *is* doing something—the result being the ever-growing burden of technical
+    debt.
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对此，当涉及技术债务时，团队陷入分析瘫痪是很常见的现象。再加上我们人类的[惯性思维](https://oreil.ly/KHOmh)，我们经常选择不去处理技术债务。而具有讽刺意味的是，什么都不做
+    *就是* 做了一件事——结果就是技术债务越积越多。
+- en: To break this vicious cycle, you can employ the techniques and principles that
+    we covered in this chapter in real-world projects to help to make good easy.
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要打破这种恶性循环，你可以在实际项目中应用本章讨论的技术和原则，帮助使良好变得简单。
+- en: The second law of thermodynamics states that the universe tends toward disorder.
+    Our codebases are no exception. We believe that the techniques you’ve learned
+    in this chapter will help you, just as they’ve helped us, to effectively manage
+    technical debt and continuously improve your codebases and systems. This will
+    allow you and your team to get into the rhythm and culture of developing healthy
+    systems, and to sustain your pace in delivering value.
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 热力学第二定律表明，宇宙趋向于无序。我们的代码库也不例外。我们相信本章学到的技术将帮助你们，就像它们帮助我们一样，有效地管理技术债务并持续改进你们的代码库和系统。这将使你和你的团队能够进入开发健康系统的节奏和文化，并保持你们在提供价值方面的速度。
+- en: In the next chapter, we’ll turn our attention to MLOps and continuous delivery
+    for ML (CD4ML).
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一章中，我们将关注MLOps和ML的持续交付（CD4ML）。
+- en: '^([1](ch08.html#ch01fn34-marker)) Martin Fowler, *Refactoring: Improving the
+    Design of Existing Code*, 2nd edition (Addison-Wesley Professional, 2018).'
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch08.html#ch01fn34-marker)) Martin Fowler，*重构：改善现有代码的设计*，第二版（Addison-Wesley
+    Professional，2018年）。
+- en: ^([2](ch08.html#ch01fn35-marker)) Fowler, *Refactoring.*
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch08.html#ch01fn35-marker)) Fowler，*重构*。
+- en: ^([3](ch08.html#ch01fn36-marker)) Sandi Metz, [“The Wrong Abstraction”](https://oreil.ly/8b4vT),
+    Sandi Metz’s blog, posted January 20, 2016.
+  id: totrans-310
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch08.html#ch01fn36-marker)) Sandi Metz，《错误的抽象》（[链接](https://oreil.ly/8b4vT)），Sandi
+    Metz的博客，2016年1月20日发布。

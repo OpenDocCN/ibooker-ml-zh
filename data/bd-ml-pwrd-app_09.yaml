@@ -1,0 +1,1497 @@
+- en: Chapter 6\. Debug Your ML Problems
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第6章 调试你的机器学习问题
+- en: In the previous chapter, we trained and evaluated our first model.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们训练并评估了我们的第一个模型。
+- en: Getting a pipeline to a satisfactory level of performance is hard and requires
+    multiple iterations. The goal of this chapter is to guide you through one such
+    iteration cycle. In this chapter, I will cover tools to debug modeling pipelines
+    and ways to write tests to make sure they stay working once we start changing
+    them.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将管道提升到令人满意的性能水平是困难的，并且需要多次迭代。本章的目标是引导你通过一个这样的迭代周期。在本章中，我将介绍调试建模管道的工具以及编写测试的方法，以确保一旦我们开始更改它们，它们仍然可以正常工作。
+- en: Software best practices encourage practitioners to regularly test, validate,
+    and inspect their code, especially for sensitive steps such as security or input
+    parsing. This should be no different for ML, where errors in a model can be much
+    harder to detect than in traditional software.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 软件最佳实践鼓励从业者定期测试、验证和检查他们的代码，特别是对于诸如安全性或输入解析等敏感步骤。这对于机器学习同样适用，因为模型中的错误比传统软件更难检测。
+- en: We will cover some tips that will help you make sure that your pipeline is robust
+    and that you can try it out without causing your entire system to fail, but first
+    let’s dig into software best practices!
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将介绍一些技巧，帮助你确保你的管道是稳健的，并且你可以在不导致整个系统失败的情况下进行尝试，但首先让我们深入了解软件最佳实践！
+- en: Software Best Practices
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 软件最佳实践
+- en: For most ML projects, you will repeat the process of building a model, analyzing
+    its shortcomings, and addressing them multiple times. You are also likely to change
+    each part of your infrastructure more than once, so it is crucial to find methods
+    to increase iteration speed.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于大多数机器学习项目而言，你将重复构建模型、分析其缺陷并多次解决它们的过程。你还可能多次更改基础架构的每个部分，因此找到提高迭代速度的方法至关重要。
+- en: In ML just like with any other software project, you should follow time-tested
+    software best practices. Most of them can be applied to ML projects with no modifications,
+    such as building only what you need, often referred to as the Keep It Stupid Simple
+    ([KISS](https://oreil.ly/ddzav)) principle.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在机器学习项目中，就像在任何其他软件项目中一样，你应该遵循经过时间考验的软件最佳实践。其中大部分可以直接应用于机器学习项目而无需修改，比如只构建你所需的部分，通常被称为保持简单愚蠢（[KISS](https://oreil.ly/ddzav)）原则。
+- en: 'ML projects are iterative in nature and go through many different iterations
+    of data cleaning and feature generation algorithms, as well as model choices.
+    Even when following these best practices, two areas often end up slowing down
+    iteration speed: debugging and testing. Speeding up debugging and test writing
+    can have a significant impact on any projects but is even more crucial for ML
+    projects, where the stochastic nature of models often turns a simple error into
+    a days-long investigation.'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习项目是迭代性质的，并且经历了许多不同的数据清理和特征生成算法以及模型选择的迭代过程。即使遵循了这些最佳实践，调试和测试仍然是减慢迭代速度的两个主要因素。加快调试和编写测试的速度对任何项目都会产生显著影响，但对于机器学习项目来说尤为重要，因为模型的随机性质往往会把一个简单的错误变成数天的调查。
+- en: Many resources exist to help you learn how to debug general programs, such as
+    the University of Chicago’s concise [debugging guide](https://oreil.ly/xwfYn).
+    If, like most ML practitioners, your language of choice is Python, I recommend
+    looking through the Python documentation for [pdb](https://oreil.ly/CBldR), the
+    standard library debugger.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存在许多资源可以帮助你学习如何调试通用程序，比如芝加哥大学的简明[调试指南](https://oreil.ly/xwfYn)。如果像大多数机器学习从业者一样，你的首选语言是Python，我建议查阅Python文档中有关标准库调试器[pdb](https://oreil.ly/CBldR)的内容。
+- en: 'More than most pieces of software, however, ML code can often execute seemingly
+    correctly but produce entirely absurd results. This means that while these tools
+    and tips apply as is to most ML code, they are not sufficient to diagnose common
+    problems. I illustrate this in [Figure 6-1](#run_but_error): while in most software
+    applications, having strong test coverage can give us a high level of confidence
+    that our application is functioning well, ML pipelines can pass many tests but
+    still give entirely incorrect results. An ML program doesn’t just have to run—it
+    should produce accurate predictive outputs.'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，与大多数软件不同的是，机器学习代码通常可能会表现得看似正确，但实际产生完全荒谬的结果。这意味着虽然这些工具和技巧可以直接应用于大多数机器学习代码，但它们并不足以诊断常见问题。我在[图6-1](#run_but_error)中举例说明了这一点：在大多数软件应用中，强大的测试覆盖率可以让我们对应用程序的功能性有很高的信心，而机器学习管道可以通过许多测试，但仍然产生完全不正确的结果。一个机器学习程序不仅仅要运行——它应该产生准确的预测输出。
+- en: '![An ML pipeline can execute with no errors, ands still be wrong](assets/bmla_0601.png)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![一个机器学习管道可以执行无误，但仍可能是错误的](assets/bmla_0601.png)'
+- en: Figure 6-1\. An ML pipeline can execute with no errors and still be wrong
+  id: totrans-12
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-1\. 一个机器学习管道可以执行无误，但仍可能是错误的
+- en: Because ML presents an additional set of challenges when it comes to debugging,
+    let’s cover a few specific methods that help.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为机器学习在调试时面临额外的一系列挑战，让我们讨论一些有助于解决这些问题的具体方法。
+- en: ML-Specific Best Practices
+  id: totrans-14
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 机器学习特定的最佳实践
+- en: When it comes to ML more than any type of software, merely having a program
+    execute end-to-end is not sufficient to be convinced of its correctness. An entire
+    pipeline can run with no errors and produce an entirely useless model.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于机器学习而言，仅仅让程序端到端执行是不足以确信其正确性的。一个整个的管道可以运行无误地生成一个完全无用的模型。
+- en: Let’s say your program loads data and passes it to a model. Your model takes
+    in these inputs and optimizes the model’s parameters based on a learning algorithm.
+    Finally, your trained model produces outputs from a different set of data. Your
+    program has run without any visible bugs. The problem is that just by having your
+    program run, you have no guarantee at all that your model’s predictions are correct.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你的程序加载数据并传递给模型。你的模型接受这些输入，并根据学习算法优化模型的参数。最后，你训练好的模型从另一组数据中产生输出。你的程序运行时没有显示任何
+    bug。问题在于，仅仅让程序运行，并不能保证你的模型预测是正确的。
+- en: Most models simply take a numerical input of a given shape (say a matrix representing
+    an image) and output data of a different shape (a list of coordinates of key points
+    in the input image, for example). This means that most models will still run even
+    if a data processing step corrupted the data before passing it to the model, as
+    long as the data is still numeric and of a shape the model can take as input.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数模型仅接受给定形状的数值输入（比如代表图像的矩阵），并输出不同形状的数据（例如输入图像中关键点的坐标列表）。这意味着，如果数据处理步骤在将数据传递给模型之前损坏了数据，大多数模型仍然可以运行，只要数据仍然是数值型的，并且是模型可以接受的形状。
+- en: If your modeling pipeline performs poorly, how can you know whether it is due
+    to the quality of a model or the presence of a bug earlier in the process?
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的建模管道表现不佳，你如何知道是模型质量不佳，还是在过程的早期阶段存在 bug？
+- en: The best way to tackle these problems in ML is to follow a progressive approach.
+    Start by validating the data flow, then the learning capacity, and finally generalization
+    and inference. [Figure 6-2](#debugging_order) shows an overview of the process
+    we will cover in this chapter.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在机器学习中解决这些问题的最佳方法是采用逐步的方法。首先验证数据流，然后是学习能力，最后是泛化和推断。[图 6-2](#debugging_order)展示了本章将涵盖的流程概述。
+- en: '![The order in which to debug a pipeline](assets/bmla_0602.png)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![调试管道的顺序](assets/bmla_0602.png)'
+- en: Figure 6-2\. The order in which to debug a pipeline
+  id: totrans-21
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-2\. 调试管道的顺序
+- en: This chapter will take you through each of these three steps, explaining each
+    one in depth. It can be tempting to skip steps in this plan when faced with a
+    perplexing bug, but the vast majority of times I’ve found that following this
+    principled approach is the fastest way to identify and correct errors.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一章将带领你逐步完成这三个步骤，并深入解释每一个步骤。当面对棘手的 bug 时，有时会很诱人地跳过计划中的某些步骤，但我发现，绝大多数情况下，遵循这种有原则的方法是识别和纠正错误的最快途径。
+- en: Let’s start by validating the data flow. The simplest way to do this is by taking
+    a very small subset of data and verifying that it can flow all the way through
+    your pipeline.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从验证数据流开始。最简单的方法是采用非常小的数据子集，并验证它是否可以顺利通过整个管道。
+- en: 'Debug Wiring: Visualizing and Testing'
+  id: totrans-24
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 调试布线：可视化和测试
+- en: 'This first step is simple and will make life dramatically simpler once you
+    adopt it: start by making your pipelines work for a small subset of examples in
+    your dataset. This corresponds to the wiring step in [Figure 6-2](#debugging_order).
+    Once you’ve made sure your pipeline works for a few examples, you’ll be able to
+    write tests to make sure your pipeline keeps functioning as you make changes.'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这第一步非常简单，但一旦采纳，会极大地简化生活：从让你的管道在数据集的一个小子集上工作开始。这对应于[图 6-2](#debugging_order)中的布线步骤。一旦确保你的管道适用于一些示例，你就可以编写测试，以确保在进行更改时，你的管道仍然能够正常工作。
+- en: Start with One Example
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 从一个示例开始
+- en: The goal of this initial step is to verify that you are able to ingest data,
+    transform it in the right format, pass it to a model, and have the model output
+    something correct. At this stage, you aren’t judging whether your model can learn
+    something, just whether the pipeline can let data through.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此初步步骤的目标是验证你能够接受数据，将其转换为正确的格式，传递给模型，并使模型输出正确的结果。在这个阶段，你不是在评判你的模型是否能够学到东西，而是在评估管道是否能够顺利传递数据。
+- en: 'Concretely this means:'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 具体来说，这意味着：
+- en: Selecting a few examples in your dataset
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从你的数据集中选择几个示例
+- en: Getting your model to output a prediction for these examples
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 让你的模型为这些示例输出预测结果
+- en: Getting your model to update its parameters to output the correct predictions
+    for these examples
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使你的模型更新其参数，为这些示例输出正确的预测
+- en: The first two items are focused on verifying that our model can ingest input
+    data and produce a reasonable-looking output. This initial output will most likely
+    be wrong from a modeling perspective but will allow us to check that the data
+    is flowing all the way through.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前两项集中在验证我们的模型能够接受输入数据并产生看起来合理的输出。从建模的角度来看，这初步输出很可能是错误的，但它将允许我们检查数据是否完全流动。
+- en: The last item aims to make sure our model has the ability to learn a mapping
+    from a given input to the associated output. Fitting a few data points will not
+    produce a useful model and will likely lead to overfitting. This process simply
+    allows us to validate that the model can update its parameters to fit a set of
+    inputs and outputs.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一项的目标是确保我们的模型能够从给定输入到相关输出的映射中学习。拟合几个数据点不会产生有用的模型，而且很可能会导致过拟合。这个过程只是让我们验证模型是否能够更新其参数以适应一组输入和输出。
+- en: 'Here is how this first step would look in practice: if you are training a model
+    to predict whether Kickstarter campaigns will be successful, you may be planning
+    on training it on all campaigns from the last few years. Following this tip, you
+    should start by checking whether your model can output a prediction for two campaigns.
+    Then, use the label for these campaigns (whether they were successful or not)
+    to optimize the model’s parameters until it predicts the correct outcome.'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是第一步在实践中的应用方式：如果你正在训练一个模型来预测 Kickstarter 项目是否成功，你可能计划在过去几年的所有项目上进行训练。按照这个提示，你应该从检查你的模型是否能够输出两个项目的预测开始。然后，使用这些项目的标签（它们是否成功）来优化模型的参数，直到它预测出正确的结果。
+- en: If we have chosen our model appropriately, it should have the capacity to learn
+    from our dataset. And if our model can learn from our entire dataset, it should
+    have the capacity to memorize a data point. The ability to learn from a few examples
+    is a necessary condition for a model to learn from an entire dataset. It is also
+    much easier to validate than the entire learning process, so starting with one
+    allows us to quickly narrow down any potential future problems.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们选择了合适的模型，它应该有能力从我们的数据集中学习。如果我们的模型能够从整个数据集中学习，它应该有能力记忆一个数据点。从几个示例中学习是模型从整个数据集中学习的必要条件。验证它比整个学习过程要容易得多，因此从一个示例开始允许我们迅速缩小任何潜在的未来问题。
+- en: 'The vast majority of errors that can come up at this initial stage relate to
+    data mismatch: the data you are loading and preprocessing is fed to your model
+    in a format that it cannot accept. Since most models accept only numerical values,
+    for example, they may fail when a given value is left empty and has a null value.'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个初步阶段可能出现的绝大多数错误与数据不匹配有关：你加载和预处理的数据以一种模型无法接受的格式输入。例如，由于大多数模型只接受数值，当给定值为空且具有空值时，它们可能会失败。
+- en: 'Some cases of mismatch can be more elusive and lead to silent failure. A pipeline
+    fed values that are not in the correct range or shape may still run but would
+    produce a poorly performing model. Models that require normalized data will often
+    still train on nonnormalized data: they simply will not be able to fit it in a
+    useful manner. Similarly, feeding a matrix of the wrong shape to a model can cause
+    it to misinterpret the input and produce incorrect outputs.'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些数据不匹配的情况可能更加难以察觉，并导致悄无声息的失败。如果一个管道输入的值不在正确的范围或形状内，它仍然可以运行，但会生成性能较差的模型。需要标准化数据的模型通常仍会在非标准化数据上进行训练：它们只是不能以有用的方式适应它。类似地，向模型提供错误形状的矩阵可能会导致它错误地解释输入并产生错误的输出。
+- en: Catching such errors is harder, because they will manifest later in the process
+    once we evaluate the performance of a model. The best way to proactively detect
+    them is to visualize data as you build your pipeline and build tests to encode
+    assumptions. We will see how to do this next.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 捕捉这类错误更加困难，因为它们将在评估模型性能时稍后在流程中显现。主动检测它们的最佳方法是在构建管道时将数据可视化，并构建测试来编码假设。接下来我们将看看如何做到这一点。
+- en: Visualization steps
+  id: totrans-39
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 可视化步骤
+- en: As we’ve seen in previous chapters, while metrics are a crucial part of modeling
+    work, regularly inspecting and investigating our data is equally important. Observing
+    just a few examples to start makes it easier to notice changes or inconsistencies.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在前几章中看到的那样，虽然指标是建模工作的重要组成部分，但定期检查和调查我们的数据同样重要。从几个例子开始观察，会更容易注意到变化或不一致。
+- en: The goal of this process is to inspect changes at regular intervals. If you
+    think of a data pipeline as an assembly line, you’d want to inspect the product
+    *after every meaningful change*. This means checking the value of your datapoint
+    at every line is probably too frequent, and looking only at the input and output
+    values is definitely not informative enough.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个过程的目标是定期检查变化。如果你将数据管道比作装配线，你会希望在每次*重要变更*后检查产品。这意味着在每一行检查数据点的价值可能太频繁，而仅查看输入和输出值显然不够信息丰富。
+- en: In [Figure 6-3](#modeling_as_assembly_line), I illustrate a few example inspection
+    points you could use to take a look at a data pipeline. In this example, we inspect
+    the data at multiple steps, starting with raw data all the way to model outputs.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 6-3](#modeling_as_assembly_line)中，我展示了一些可以用来检查数据管道的示例检查点。在这个例子中，我们在多个步骤检查数据，从原始数据到模型输出。
+- en: '![Potential inspection points](assets/bmla_0603.png)'
+  id: totrans-43
+  prefs: []
+  type: TYPE_IMG
+  zh: '![潜在的检查点](assets/bmla_0603.png)'
+- en: Figure 6-3\. Potential inspection points
+  id: totrans-44
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-3\. 潜在的检查点
+- en: Next, we’ll cover a few key steps that are often worth inspecting. We’ll start
+    with data loading and move on to cleaning, feature generation, formatting, and
+    model outputs.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将讨论几个通常值得检查的关键步骤。我们将从数据加载开始，然后进行清理、特征生成、格式化和模型输出。
+- en: Data loading
+  id: totrans-46
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据加载
+- en: Whether you are loading your data from disk or through an API call, you will
+    want to verify that it is formatted correctly. This process is similar to the
+    one you go through when doing EDA but is done here within the context of the pipeline
+    you have built to verify that no error has led to the data becoming corrupted.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论您是从磁盘加载数据还是通过 API 调用，都需要验证数据格式是否正确。这个过程类似于进行 EDA 时的过程，但是这里是在您构建的管道的上下文中进行，以验证没有错误导致数据损坏。
+- en: Does it contain all the fields you expect it to? Are any of these fields null
+    or of constant value? Do any of the values lie in a range that seems incorrect,
+    such as an age variable sometimes being negative? If you are working with text
+    or speech or images, do the examples match your expectations of what they would
+    look, sound, or read like?
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它是否包含您预期的所有字段？这些字段中是否有任何空值或常量值？任何值是否在看起来不正确的范围内，例如年龄变量有时为负数？如果您处理的是文本、语音或图像，示例是否符合您对其外观、声音或读取方式的预期？
+- en: Most of our processing steps rely on assumptions we make about the structure
+    of our input data, so it is crucial to validate this aspect.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们大多数处理步骤依赖于我们对输入数据结构的假设，因此验证这一方面至关重要。
+- en: Because the goal here is to identify inconsistencies between our expectation
+    of the data and reality, you may want to visualize more than one or two data points.
+    Visualizing a representative sample will assure we do not only observe a “lucky”
+    example and wrongly assume all data points are of the same quality.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为这里的目标是识别我们对数据的期望与实际情况之间的不一致，您可能希望可视化超过一两个数据点。可视化代表性样本将确保我们不仅观察到“幸运”的示例，并错误地假设所有数据点质量相同。
+- en: '[Figure 6-4](#loading_viz) shows an example for our case study from the dataset
+    exploration notebook in [this book’s GitHub repository](https://oreil.ly/ml-powered-applications).
+    Here, hundreds of posts in our archive are of an undocumented post type and thus
+    need to be filtered out. In the figure, you can see rows with a PostTypeId of
+    5, which is not referenced in the dataset documentation and that we thus remove
+    from the training data.'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 6-4](#loading_viz)显示了来自[本书的 GitHub 存储库](https://oreil.ly/ml-powered-applications)中数据集探索笔记本案例研究的示例。在这里，我们归档的数百篇帖子中有一些未记录的帖子类型，因此需要进行筛选。在图中，您可以看到带有
+    PostTypeId 为 5 的行，这在数据集文档中未被引用，因此我们将其从训练数据中移除。'
+- en: '![Visualizing a few rows of data](assets/bmla_0604.png)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_IMG
+  zh: '![数据的可视化](assets/bmla_0604.png)'
+- en: Figure 6-4\. Visualizing a few rows of data
+  id: totrans-53
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-4\. 数据的可视化
+- en: Once you’ve verified that the data conforms to expectations laid out in the
+    dataset documentation, it is time to start processing it for modeling purposes.
+    This starts with data cleaning.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦验证数据符合数据集文档中的预期，就可以开始为建模目的处理数据了。这始于数据清洗。
+- en: Cleaning and feature selection
+  id: totrans-55
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 清洗和特征选择
+- en: The next step in most pipelines is to remove any unnecessary information. This
+    can include fields or values that are not going to be used by the model but also
+    any fields that may contain information about our label that our model would not
+    have access to in production (see [“Split Your Dataset”](ch05.html#splitting_data)).
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数管道的下一步是移除任何不必要的信息。这可能包括模型不会在生产中使用的字段或值，以及可能包含有关标签信息的字段，而我们的模型在生产中将无法访问（参见[“拆分数据集”](ch05.html#splitting_data)）。
+- en: Remember that each feature you remove is a potential predictor for your model.
+    The task of deciding which features to keep and which features to remove is called
+    *feature selection* and is an integral part of iterating on models.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个移除的特征都可能成为模型的一个潜在预测器。决定保留哪些特征，移除哪些特征的任务被称为*特征选择*，是迭代模型的一个不可或缺的部分。
+- en: You should verify that no crucial information is lost, that all unneeded values
+    are removed, and that you have not left any extra information in our dataset that
+    will artificially boost our model’s performance by leaking information (see [“Data
+    leakage”](ch05.html#data_leakage)).
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你应该验证没有遗漏关键信息，所有不需要的值都已移除，并且没有额外信息留在数据集中，这些信息可能通过泄露信息来人为地提升我们模型的性能（参见[“数据泄露”](ch05.html#data_leakage)）。
+- en: Once the data is cleaned, you’ll want to generate some features for your model
+    to use.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据清洗完成后，你需要为模型生成一些特征来使用。
+- en: Feature generation
+  id: totrans-60
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 特征生成
+- en: When generating a new feature, such as adding the frequency of references to
+    a product name in the description of a kickstarter campaign, for example, it is
+    important to inspect its values. You need to check that the feature values are
+    populated and that the values seem reasonable. This is a challenging task, as
+    it requires not only identifying all features but estimating reasonable values
+    for each of these features.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当生成新的特征时，例如在描述 Kickstarter 活动中添加对产品名称引用频率的特征时，检查其值非常重要。你需要检查特征值是否填充，并且这些值看起来是否合理。这是一个具有挑战性的任务，因为它不仅需要识别所有特征，还需要为每个特征估计合理的值。
+- en: At this point, you do not need to analyze it any deeper, as this step is focusing
+    on validating assumptions about data flowing through the model, not the usefulness
+    of the data or the model yet.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此时，你不需要再深入分析它了，因为这一步是专注于验证关于数据流经模型的假设，而不是数据或模型的实用性。
+- en: Once features have been generated, you should make sure they can be passed to
+    the model in a format it can understand.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征生成完成后，你应该确保它们能够以模型能理解的格式传递给模型。
+- en: Data formatting
+  id: totrans-64
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据格式化
+- en: As we’ve discussed in earlier chapters, before passing data points to a model,
+    you will need to transform them to a format it can understand. This can include
+    normalizing input values, vectorizing text by representing it in a numerical fashion,
+    or formatting a black and white video as a 3D tensor (see [“Vectorizing”](ch04.html#vectorizing)).
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在之前的章节中讨论过的，在将数据点传递给模型之前，你需要将它们转换为模型能理解的格式。这可以包括规范化输入值，通过数值化表示将文本向量化，或将黑白视频格式化为3D张量（参见[“向量化”](ch04.html#vectorizing)）。
+- en: If you are working on a supervised problem, you’ll use a label in addition to
+    the input, such as class names in classification, or a segmentation map in image
+    segmentation. These will also need to be transformed to a model-understandable
+    format.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你在解决一个监督问题，除了输入之外，你还会使用一个标签，比如分类中的类名，或者图像分割中的分割图。这些也需要转换为模型可理解的格式。
+- en: In my experience working on multiple image segmentation problems, for example,
+    data mismatch between labels and model predictions is one of the most common causes
+    of errors. Segmentation models use segmentation masks as labels. These masks are
+    the same size as the input image, but instead of pixel values, they contain class
+    labels for each pixel. Unfortunately, different libraries use different conventions
+    to represent these masks, so the labels often end up in the wrong format, preventing
+    the model from learning.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据我在多个图像分割问题上的经验，例如，标签与模型预测之间的数据不匹配是错误的最常见原因之一。分割模型使用分割掩模作为标签。这些掩模与输入图像大小相同，但不同于像素值，它们包含每个像素的类标签。不幸的是，不同的库使用不同的约定来表示这些掩模，因此标签经常以错误的格式结束，阻止模型学习。
+- en: I’ve illustrated this common pitfall in [Figure 6-5](#misformatted_labels).
+    Let’s say a model expects segmentation masks to be passed with a value of 255
+    for pixels that are of a certain class, and 0 otherwise. If a user instead assumes
+    that pixels contained within the mask should have a value of 1 instead of 255,
+    they may pass their labeled masks in the format seen in “provided.” This would
+    lead the mask to be considered as almost entirely empty, and the model would output
+    inaccurate predictions.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我在 [图 6-5](#misformatted_labels) 中说明了这个常见的陷阱。假设一个模型期望分割掩模的像素值为255，表示某个类，其他情况下为0。如果用户错误地假设掩模内的像素应该是1而不是255，则他们可能以“提供的”格式传递他们的标记掩模。这将导致模型将掩模视为几乎为空，从而输出不准确的预测结果。
+- en: '![Validate your labels as much as you validate your data](assets/bmla_0605.png)'
+  id: totrans-69
+  prefs: []
+  type: TYPE_IMG
+  zh: '![验证您的标签与验证数据一样重要](assets/bmla_0605.png)'
+- en: Figure 6-5\. Poorly formatted labels will prevent a model from learning
+  id: totrans-70
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-5\. 标签格式不佳将阻止模型学习
+- en: Similarly, classification labels are often represented as a list of zeros with
+    a single one at the index of the true class. A simple off-by-one error can lead
+    to labels being shifted and a model learning to always predict the shifted-by-one
+    label. This kind of error can be hard to troubleshoot if you do not take the time
+    to look at your data.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，分类标签通常表示为一个以真实类索引处为单个1，其余为零的列表。简单的误差可能导致标签被移位，模型学习始终预测移位后的标签。如果您没有花时间查看数据，则很难排除此类错误。
+- en: Because ML models will manage to fit to most numerical outputs regardless of
+    whether they have an accurate structure or content, this stage is where many tricky
+    bugs occur and where this method is useful to find them.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为机器学习模型通常可以适应大多数数字输出，而不管它们是否具有准确的结构或内容，这一阶段是许多棘手错误发生的地方，也是找出这些错误的有用方法。
+- en: Here is an example of what such a formatting function looks like for our case
+    study. I generate a vectorized representation of our question text. Then, I append
+    additional features to this representation. Since the function consists of multiple
+    transformations and vector operations, visualizing the return value of this function
+    will allow me to verify that it does format data the way we intend it to.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是我们案例研究的格式化函数的示例。我生成我们问题文本的向量化表示。然后，我将附加特征附加到这个表示中。由于该函数包含多个转换和向量操作，可视化此函数的返回值将帮助我验证它确实按我们打算的方式格式化数据。
+- en: '[PRE0]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: When working with text data especially, there are usually multiple steps involved
+    before data is properly formatted for a model. Going from a string of text to
+    a tokenized list to a vectorized representation including potential additional
+    features is an error-prone process. Even inspecting the shape of the objects at
+    each step can help catch many simple mistakes.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尤其是在处理文本数据时，通常需要多个步骤才能正确格式化数据以供模型使用。从文本字符串到标记化列表，再到包括潜在附加特征的向量化表示，这是一个容易出错的过程。甚至在每个步骤检查对象的形状也有助于捕捉许多简单的错误。
+- en: Once the data is in the appropriate format, you can pass it to a model. The
+    last step is to visualize and validate the model’s outputs.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦数据格式正确，您可以将其传递给模型。最后一步是可视化和验证模型的输出。
+- en: Model output
+  id: totrans-77
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型输出
+- en: At first, looking at outputs helps us see whether our model’s predictions are
+    the right type or shape (if we are predicting house price and duration on market,
+    is our model outputting an array of two numbers?).
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，观察输出有助于我们确定模型的预测是否是正确类型或形状（如果我们预测房价和市场上市时间，我们的模型是否输出一个包含两个数字的数组？）。
+- en: In addition, when fitting a model to only a couple data points, we should see
+    its outputs start matching the true label. If the model doesn’t fit the data points,
+    this may be an indication of the data being incorrectly formatted or becoming
+    corrupted.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，当将模型拟合到仅有几个数据点时，我们应该看到其输出开始匹配真实标签。如果模型不适合数据点，则可能表明数据格式不正确或已损坏。
+- en: If the output of the model does not change at all during training, this may
+    mean that our model is actually not leveraging the input data. In such a case,
+    I recommend referring to [“Stand on the Shoulders of Giants”](ch02.html#prior_work)
+    to validate that the model is being used correctly.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果模型的输出在训练过程中根本不改变，这可能意味着我们的模型实际上没有利用输入数据。在这种情况下，我建议参考[“站在巨人的肩膀上”](ch02.html#prior_work)来验证模型是否被正确使用。
+- en: Once we’ve gone through the entire pipeline for a few examples, it is time to
+    write a few tests to automate some of this visualization work.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们为几个示例完整地通过了整个管道，现在是时候编写一些测试来自动化部分可视化工作了。
+- en: Systematizing our visual validation
+  id: totrans-82
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 系统化我们的视觉验证
+- en: Going through the visualization work described earlier helps catch a significant
+    amount of bugs and is a good time investment for every novel pipeline. Validating
+    assumptions about how data is flowing through the model helps save a significant
+    amount of time down the line, which can now be spent focusing on training and
+    generalization.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完成早期描述的可视化工作有助于捕捉大量错误，并且对每一个新的管道来说都是一个良好的时间投资。验证数据如何流经模型的假设有助于节省大量时间，现在可以用于专注于训练和泛化。
+- en: Pipelines change often, however. As you update different aspects iteratively
+    to improve your model and modify some of the processing logic, how can you guarantee
+    that everything is still working as intended? Going through the pipeline and visualizing
+    an example at all steps each time you make any change would quickly get tiring.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，管道经常发生变化。当您迭代更新不同方面以改进您的模型并修改一些处理逻辑时，如何确保一切仍按预期工作？每次进行任何更改时，通过整个管道和每个步骤的示例进行可视化将很快变得令人疲倦。
+- en: This is where the software engineering best practices we talked about earlier
+    come into play. It is time to isolate each part of this pipeline, and encode our
+    observations into tests that we will be able to run as our pipeline changes, to
+    validate it.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是我们之前讨论过的软件工程最佳实践发挥作用的地方。现在是时候隔离管道的每一部分，并将我们的观察编码为测试，随着管道的变化而运行，以验证它。
+- en: Separate your concerns
+  id: totrans-86
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 分开你的关注点
+- en: Just like regular software, ML benefits greatly from a modular organization.
+    To make current and future debugging easier, separate each function so that you
+    can check that it individually works before looking at the broader pipeline.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像常规软件一样，ML 从模块化组织中受益良多。为了使当前和未来的调试更容易，将每个函数分开，这样你可以在查看更广泛的流程之前逐个检查它们的工作情况。
+- en: Once a pipeline is broken down into individual functions, you’ll be able to
+    write tests for them.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦管道被拆分成单独的函数，您就可以为它们编写测试。
+- en: Test Your ML Code
+  id: totrans-89
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 测试您的 ML 代码
+- en: Testing a model’s behavior is hard. The majority of code in an ML pipeline is
+    not about the training pipeline or the model itself, however. If you look back
+    to our pipeline example in [“Start with a Simple Pipeline”](ch02.html#pipeline_description),
+    most functions behave in a deterministic way and can be tested.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试模型的行为很难。然而，ML 管道中的大多数代码并不涉及训练管道或模型本身。如果回顾我们在[“从一个简单的管道开始”](ch02.html#pipeline_description)中的管道示例，大多数函数表现出确定性的行为，可以进行测试。
+- en: In my experience, helping engineers and data scientists debug their models,
+    I’ve learned that the vast majority of errors come from the way data is acquired,
+    processed, or fed to the model. Testing data processing logic is thus crucial
+    in order to build a successful ML product.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据我的经验，帮助工程师和数据科学家调试其模型时，我学到了大多数错误都来自数据获取、处理或输入模型的方式。因此，测试数据处理逻辑对于构建成功的 ML 产品至关重要。
+- en: 'For even more information about potential tests of an ML system, I recommend
+    the paper by E. Breck et al., [“The ML Test Score: A Rubric for ML Production
+    Readiness and Technical Debt Reduction”](https://oreil.ly/OjYVl), which contains
+    many more examples and lessons learned from deploying such systems at Google.'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于 ML 系统潜在测试的更多信息，我建议阅读 E. Breck 等人的论文[“ML 测试分数：ML 生产准备和技术债务减少的标尺”](https://oreil.ly/OjYVl)，其中包含更多的例子和从谷歌部署这类系统中学到的经验。
+- en: In this next section, we will describe useful tests to write for three key areas.
+    In [Figure 6-6](#key_test_areas), you can see each of these areas, along with
+    a few examples of tests that we will describe next.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的部分中，我们将描述为三个关键领域编写的有用测试。在[图6-6](#key_test_areas)中，您可以看到每个领域以及我们将接下来描述的一些测试示例。
+- en: '![The three key areas to test](assets/bmla_0606.png)'
+  id: totrans-94
+  prefs: []
+  type: TYPE_IMG
+  zh: '![测试的三个关键领域](assets/bmla_0606.png)'
+- en: Figure 6-6\. The three key areas to test
+  id: totrans-95
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-6. 测试的三个关键领域
+- en: Pipelines start by ingesting data, so we’ll want to test that part first.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管道从摄入数据开始，因此我们首先要测试这部分。
+- en: Test data ingestion
+  id: totrans-97
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 测试数据摄入
+- en: Data usually lives serialized on a disk or in a database. When moving data from
+    storage to our pipeline, we should make sure to verify the integrity and correctness
+    of the data. We can start by writing tests that verify that the data points we
+    load possess every feature we’ll need.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据通常存储在磁盘或数据库中。在将数据从存储传输到我们的管道时，我们应确保验证数据的完整性和正确性。我们可以开始编写测试，验证我们加载的数据点是否具备我们将需要的每个特征。
+- en: The following are three tests validating that our parser returns the right type
+    (a dataframe), that all important columns are defined, and that features are not
+    all null. You can find the tests we’ll cover in this chapter (and additional ones)
+    in the tests folder on [this book’s GitHub repository](https://oreil.ly/ml-powered-applications).
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是验证我们解析器返回正确类型（数据帧）、所有重要列已定义以及特征不全为空的三个测试。你可以在[本书的GitHub存储库的测试文件夹](https://oreil.ly/ml-powered-applications)中找到本章涵盖的测试（以及额外的测试）。
+- en: '[PRE1]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: We can also test each feature for its type and validate that it is not null.
+    Finally, we can encode assumptions we have about the distribution and ranges of
+    these values by testing their average, minimum, and maximum values. Recently,
+    libraries such as [Great Expectations](https://oreil.ly/VG6b1) have emerged to
+    test the distributions of features directly.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以测试每个特征的类型，并验证它不是空的。最后，我们可以通过测试它们的平均、最小和最大值来编码我们对这些值分布和范围的假设。最近，像[Great
+    Expectations](https://oreil.ly/VG6b1)这样的库已经出现，直接测试特征的分布。
+- en: 'Here, you can see how you could write a simple mean test:'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，您可以看到如何编写一个简单的平均测试：
+- en: '[PRE2]'
+  id: totrans-103
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: These tests allow us to verify that no matter which changes are made on the
+    storage side or with the API of our data source, we can know that our model has
+    access to the same kind of data it was first trained on. Once we’re confident
+    as to the consistency of the data we ingest, let’s look at the next step in the
+    pipeline, data processing.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些测试使我们能够验证不管存储端或数据源API进行了哪些更改，我们都可以知道我们的模型可以访问与最初训练时相同类型的数据。一旦我们对摄入的数据的一致性感到自信，请看管道的下一步——数据处理。
+- en: Test data processing
+  id: totrans-105
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 测试数据处理
+- en: After testing that the data that makes it to the beginning of our pipeline conforms
+    to our expectations, we should test that our cleaning and feature generation steps
+    do what we expect. We can start by writing tests for the preprocessing function
+    we have, verifying that it does indeed do what we intend it to. Also, we can write
+    similar tests to the data ingestion ones and focus on guaranteeing that our assumptions
+    about the state of the data going into our model are valid.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在测试数据达到管道开始时符合我们的期望后，我们应测试我们的清理和特征生成步骤是否如预期那样操作。我们可以从我们拥有的预处理函数开始编写测试，验证它确实执行我们意图的操作。此外，我们可以编写类似于数据摄入的测试，并专注于确保我们关于输入模型数据状态的假设是有效的。
+- en: 'This means testing for the presence, type, and characteristics of the data
+    points after our processing pipeline. The following are examples of tests for
+    the presence of generated features, their type, and minimum, maximum, and mean
+    values:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着测试我们处理管道后的数据点的存在性、类型和特征。以下是测试生成特征存在性、类型以及最小、最大和平均值的示例：
+- en: '[PRE3]'
+  id: totrans-108
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: These tests allow us to notice any changes to our pipelines that impact the
+    input to our model without having to write any additional tests. We will only
+    need to write new tests when we add new features or change the input to our model.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些测试可以让我们注意到对我们的管道产生影响的任何变化，这些变化会影响到我们模型的输入，而无需编写任何额外的测试。只有在添加新功能或更改模型输入时，我们才需要编写新的测试。
+- en: We can now feel confident both in the data we ingest and in the transformations
+    we apply to it, so it is time to test the next part of the pipeline, the model.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们可以对我们摄入的数据以及我们应用的转换感到自信，因此是时候测试管道的下一部分——模型了。
+- en: Test model outputs
+  id: totrans-111
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 测试模型输出
+- en: Similarly to the two previous categories, we will write tests to validate that
+    the values the model outputs have the correct dimensions and ranges. We will also
+    test predictions for specific inputs. This helps proactively detect regressions
+    in prediction quality in new models and guarantee that any model we use always
+    produces the expected output on these example inputs. When a new model shows better
+    aggregate performance, it can be hard to notice whether its performance worsened
+    on specific types of inputs. Writing such tests helps detect such issues more
+    easily.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似于前两类，我们将编写测试来验证模型输出的值是否具有正确的尺寸和范围。我们还将测试特定输入的预测。这有助于及早检测新模型预测质量的退化，并保证我们使用的任何模型始终在这些示例输入上产生预期的输出。当一个新模型显示出更好的综合性能时，很难注意到它在特定类型的输入上的性能是否恶化。编写这些测试有助于更轻松地检测这些问题。
+- en: In the following examples, I start by testing the shape of the predictions of
+    our model, as well as their values. The third test aims to prevent regressions
+    by guaranteeing that the model classifies a specific poorly worded input question
+    as low quality.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下面的例子中，我首先测试我们模型预测的形状，以及它们的值。第三个测试旨在通过保证模型将特定的语句不佳的输入问题分类为低质量，从而防止回归。
+- en: '[PRE4]'
+  id: totrans-114
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: We first visually inspected the data to verify it remained useful and usable
+    throughout our pipeline. Then, we wrote tests to guarantee these assumptions remain
+    correct as our processing strategy evolves. It is now time to tackle the second
+    part of [Figure 6-2](#debugging_order), debugging the training procedure.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先通过视觉检查数据来验证其在整个管道中保持有用和可用。然后，我们编写测试来保证这些假设在我们的处理策略发展过程中仍然正确。现在是时候解决[图 6-2](#debugging_order)的第二部分，调试训练过程。
+- en: 'Debug Training: Make Your Model Learn'
+  id: totrans-116
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 调试训练：使您的模型学习
+- en: Once you’ve tested your pipeline and validated that it works for one example,
+    you know a few things. Your pipeline takes in data and successfully transforms
+    it. It then passes this data to a model in the right format. Finally, the model
+    can take a few data points and learn from them, outputting the correct results.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您测试了您的管道并验证了它对一个示例的工作方式，您就会知道一些事情。您的管道接收数据并成功转换它。然后，它将这些数据传递给一个正确格式的模型。最后，模型可以取几个数据点并从中学习，输出正确的结果。
+- en: It is now time to see whether your model can work on more than a few data points
+    and learn from your training set. The focus of this next section is on being able
+    to train your model on many examples and have it *fit to all of your training
+    data*.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在是时候看看你的模型是否可以处理更多的数据点，并从你的训练集中学习。这一节的重点是能够在许多示例上训练你的模型，并且*适应所有的训练数据*。
+- en: To do so, you can now pass your entire training set to your model and measure
+    its performance. Alternatively, if you have a large amount of data, you can instead
+    gradually increase the quantity of data you feed to your model while keeping an
+    eye on aggregate performance.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为此，您现在可以将整个训练集传递给您的模型，并测量其性能。或者，如果您有大量数据，您可以逐渐增加您向模型提供的数据量，同时注意综合性能。
+- en: One advantage of progressively increasing the size of your training dataset
+    is that you’ll be able to measure the effect of additional data on the performance
+    of your model. Start with a few hundred examples, and then move to a few thousand,
+    before passing in your whole dataset (if your dataset is smaller than a thousand
+    examples, feel free to skip straight to using it in its entirety).
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 逐步增加您的训练数据集大小的一个优点是，您将能够测量额外数据对您模型性能的影响。从几百个示例开始，然后转向几千个，在传递整个数据集之前（如果您的数据集小于一千个示例，可以直接跳过）。
+- en: At each step, fit your model on the data and evaluate its performance *on the
+    same data*. If your model has the capacity to learn from the data you are using,
+    its performance on the training data should stay relatively stable.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在每一步，将你的模型拟合到数据上，并评估其*在同一数据上的表现*。如果你的模型有能力从你使用的数据中学习，它在训练数据上的表现应该保持相对稳定。
+- en: To contextualize model performance, I recommend generating an estimate of what
+    an acceptable error level for your task is by labeling a few examples yourself,
+    for example, and comparing your predictions to the true label. Most tasks also
+    come with an irreducible error, representing the best performance given the complexity
+    of the task. See [Figure 6-7](#training_accuracy_dataset_size) for an illustration
+    of usual training performance compared to such metrics.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了将模型的表现置于背景之中，我建议通过自行标记一些示例来生成一个关于任务的可接受错误水平的估计，并将您的预测与真实标签进行比较。大多数任务也伴随着一个不可减少的错误，代表了在任务复杂性下的最佳表现。参见
+    [图 6-7](#training_accuracy_dataset_size) 来说明通常的训练表现与这些指标的比较。
+- en: A model’s performance on the whole dataset should be worse than when using only
+    one example, since memorizing an entire training set is harder than a single example,
+    but should still remain within the boundaries defined earlier.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个模型在整个数据集上的表现应该比仅使用一个示例时更差，因为记忆整个训练集比单个示例更难，但应该仍然保持在之前定义的界限内。
+- en: If you are able to feed your entire training set and the performance of your
+    model reaches the requirement you defined when looking at your product goal, feel
+    free to move on to the next section! If not, I’ve outlined a couple common reasons
+    a model can struggle on a training set in the next section.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你能够提供整个训练集并且你的模型的表现达到了你在查看产品目标时定义的要求，那么可以放心地进入下一节！如果没有，我在下一节中概述了一些模型在训练集上可能遇到困难的常见原因。
+- en: '![Examples of how training accuracy changes with more data](assets/bmla_0607.png)'
+  id: totrans-125
+  prefs: []
+  type: TYPE_IMG
+  zh: '![示例：随着数据增加而变化的训练准确度](assets/bmla_0607.png)'
+- en: Figure 6-7\. Training accuracy as a function of dataset size
+  id: totrans-126
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-7\. 随数据集大小变化的训练准确度
+- en: Task Difficulty
+  id: totrans-127
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 任务难度
+- en: 'If a model’s performance is drastically lower than expected, the task may be
+    too difficult. To evaluate how hard a task is, consider:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果一个模型的表现显著低于预期，可能是任务太难了。要评估任务的难度，考虑以下几点：
+- en: The quantity and diversity of data you have
+  id: totrans-129
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你拥有的数据的数量和多样性
+- en: How predictive the features you have generated are
+  id: totrans-130
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你生成的特征有多预测性
+- en: The complexity of your model
+  id: totrans-131
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你的模型的复杂性
+- en: Let’s look at each of those in a little more detail.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们稍微详细看看每一个。
+- en: Data quality, quantity, and diversity
+  id: totrans-133
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据的质量、数量和多样性
+- en: The more diverse and complex your problem is, the more data you will need for
+    a model to learn from it. For your model to learn patterns, you should aim to
+    have many examples of each type of data you have. If you are classifying pictures
+    of cats as one of a hundred possible breeds, for example, you’d need many more
+    pictures than if you were simply trying to tell cats apart from dogs. In fact,
+    the quantity of data you need often scales exponentially with the number of classes,
+    as having more classes means more opportunities for misclassification.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你的问题越多样化和复杂，你的模型就需要更多的数据来学习它。为了让你的模型学习模式，你应该尽量拥有每种数据类型的许多示例。例如，如果你要将猫的图片分类为一百种可能的品种之一，你就需要比仅仅试图区分猫和狗要多得多的图片。事实上，你需要的数据量通常会随着类别数量的增加呈指数增长，因为更多的类别意味着更多的误分类机会。
+- en: In addition, the less data you have, the more impact any errors in your labels
+    or any missing values have. This is why it is worth spending the time to inspect
+    and verify features and labels of your dataset.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，你拥有的数据越少，标签中的任何错误或缺失值对其影响就越大。这就是为什么值得花时间检查和验证数据集的特征和标签。
+- en: 'Finally, most datasets contain *outliers*, data points that are radically different
+    from others and very hard for a model to handle. Removing outliers from your training
+    set can often improve the performance of a model by simplifying the task at hand,
+    but it is not always the right approach: if you believe that your model may encounter
+    similar data points in production, you should keep outliers and *focus on improving
+    your data and model* so that the model can successfully fit to them.'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，大多数数据集包含*异常值*，即与其他数据点明显不同且对模型非常难以处理的数据点。从训练集中删除异常值通常可以通过简化任务来改善模型的性能，但这并不总是正确的方法：如果你认为你的模型可能在生产中遇到类似的数据点，你应该保留异常值并*专注于改进你的数据和模型*，使模型能够成功地适应它们。
+- en: The more complex a dataset is, the more helpful it can be to work on ways to
+    represent your data that will make it easier for a model to learn from it. Let’s
+    look at what this means.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据集越复杂，找到使模型学习变得更容易的数据表示方式就越有帮助。让我们看看这意味着什么。
+- en: Data representation
+  id: totrans-138
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据表示
+- en: How easy is it to detect the patterns you care about using only the representation
+    you give your model? If a model is struggling to perform well on training data,
+    you should add features that make the data more expressive and thus help the model
+    learn better.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仅使用您给出的表示形式就能轻松检测到您关心的模式吗？如果模型在训练数据上表现不佳，您应该添加使数据更具表现力的特征，从而帮助模型更好地学习。
+- en: This can consist of novel features we had previously decided to ignore but that
+    may be predictive. In our ML Editor example, a first iteration of the model only
+    took into account the text in the body of a question. After exploring the dataset
+    further, I noticed that question titles are often very informative as to whether
+    a question is good or not. Incorporating that feature back into the dataset allowed
+    the model to perform better.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可能包括我们之前决定忽略但可能具有预测能力的新特征。在我们的ML编辑器示例中，模型的第一次迭代只考虑了问题正文中的文本。在进一步探索数据集后，我注意到问题标题通常能够很好地表明一个问题是否好。将该特征重新加入数据集中使得模型表现更好。
+- en: New features can often be generated by iterating on existing ones or combining
+    them in a creative manner. We saw an example of this in [“Let Data Inform Features
+    and Models”](ch04.html#feature_models), when we looked at ways to combine the
+    day of the week and day of the month to generate a feature that was relevant to
+    a particular business case.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 新特征通常可以通过迭代现有特征或以创造性的方式组合它们来生成。我们在[“让数据指导特征和模型”](ch04.html#feature_models)中看到了一个例子，当我们研究如何结合星期几和月份的特征来生成与特定业务案例相关的特征时。
+- en: In some cases, the problem lies with your model. Let’s look at these cases next.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，问题出在您的模型上。接下来我们来看看这些情况。
+- en: Model capacity
+  id: totrans-143
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型容量
+- en: Increasing data quality and improving features often provides the largest benefits.
+    When a model is the cause for poor performance, it can often mean that it is not
+    adequate to the task at hand. As we saw in [“From Patterns to Models”](ch05.html#feat_to_mod),
+    specific datasets and problems call for specific models. A model that is not appropriate
+    for a task will struggle to perform on it, even if it was able to overfit a few
+    examples.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提高数据质量和改进特征通常能够带来最大的好处。当模型导致性能不佳时，往往意味着它不适合当前任务。正如我们在[“从模式到模型”](ch05.html#feat_to_mod)中看到的那样，特定的数据集和问题需要特定的模型。一个不适合特定任务的模型将难以在其上表现良好，即使它能够对少数样本过拟合。
+- en: If a model struggles on a dataset that seems to have many predictive features,
+    start by asking yourself whether you are using the right type of model. If possible,
+    use a simpler version of the given model to more easily inspect it. For example,
+    if a random forest model isn’t performing at all, try a decision tree on the same
+    task and visualize its splits to examine whether they use the features you thought
+    would be predictive.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果一个模型在似乎具有许多预测特征的数据集上表现不佳，请首先询问自己是否使用了正确类型的模型。如果可能的话，使用给定任务的简化版本更容易检查模型。例如，如果随机森林模型根本不起作用，可以尝试在同一任务上使用决策树，并可视化其分割，以检查它们是否使用了您认为会具有预测能力的特征。
+- en: On the other hand, the model you are using may be too simple. Starting with
+    the simplest model is good to quickly iterate, but some tasks are entirely out
+    of reach of some models. To tackle them, you may need to add complexity to your
+    model. To verify that a model is indeed adapted to a task, I recommend looking
+    at prior art as we described in [“Stand on the Shoulders of Giants”](ch02.html#prior_work).
+    Find examples of similar tasks, and examine which models were used to tackle them.
+    Using one of those models should be a good starting point.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，您使用的模型可能过于简单。从最简单的模型开始是快速迭代的好方法，但某些任务可能完全超出了某些模型的能力范围。为了解决这些问题，您可能需要向模型添加复杂性。要验证模型确实适合任务，我建议查看我们在[“站在巨人的肩膀上”](ch02.html#prior_work)中描述的先前工作。找到类似任务的示例，并检查用于解决它们的模型。使用这些模型之一应该是一个很好的起点。
+- en: If the model seems appropriate for the task, its lackluster performance could
+    be due to the training procedure.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果模型看似适合当前任务，但表现平平，可能是由于训练过程的问题。
+- en: Optimization Problems
+  id: totrans-148
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 优化问题
+- en: Starting by validating that a model can fit a small set of examples makes us
+    confident that data can flow back and forth. We do not know, however, whether
+    our training procedure can adequately fit a model to the entire dataset. The method
+    that our model is using to update its weights may be inadequate for our current
+    dataset. Such problems often occur in more complex models such as neural networks,
+    where hyperparameter choice can have a significant impact on training performance.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过验证模型能否拟合少量示例，我们可以确信数据可以来回流动。然而，我们不知道我们的训练过程是否能够充分拟合整个数据集的模型。我们模型用于更新权重的方法可能不适合当前数据集。这类问题经常发生在更复杂的模型（如神经网络）中，其中超参数的选择对训练性能有重大影响。
+- en: When dealing with models that are fit using gradient descent techniques such
+    as neural networks, using visualization tools such as [TensorBoard](https://oreil.ly/xn2tY)
+    can help surface training problems. When plotting the loss during your optimization
+    process, you should see it decline steeply initially and then gradually. In [Figure 6-8](#tensorboard_picture),
+    you can see an example of a TensorBoard dashboard depicting a loss function (cross-entropy
+    in this case) as training progresses.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理使用梯度下降技术（如神经网络）拟合的模型时，使用诸如[TensorBoard](https://oreil.ly/xn2tY)之类的可视化工具可以帮助发现训练中的问题。在优化过程中绘制损失曲线时，您应该看到其最初急剧下降，然后逐渐平缓。在[图6-8](#tensorboard_picture)中，您可以看到TensorBoard仪表板的示例，显示了训练过程中的损失函数（在本例中为交叉熵）。
+- en: Such a curve can show that the loss is decreasing very slowly, indicating that
+    a model may be learning too slowly. In such a case, you could increase the learning
+    rate and plot the same curve to see whether the loss decreases faster. If a loss
+    curve looks very unstable, on the other hand, it may be due to the learning rate
+    being too large.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样的曲线显示损失下降非常缓慢，表明模型可能学习得太慢。在这种情况下，您可以增加学习率并绘制相同的曲线，以查看损失是否下降得更快。另一方面，如果损失曲线看起来非常不稳定，这可能是由于学习率过大造成的。
+- en: '![.Tensorboard dashboard screenshot from the Tensorboard documentation](assets/bmla_0608.png)'
+  id: totrans-152
+  prefs: []
+  type: TYPE_IMG
+  zh: '![.Tensorboard dashboard screenshot from the Tensorboard documentation](assets/bmla_0608.png)'
+- en: Figure 6-8\. TensorBoard dashboard screenshot from the TensorBoard documentation
+  id: totrans-153
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-8。来自TensorBoard文档的TensorBoard仪表板截图
+- en: In addition to the loss, visualizing weight values and activations can help
+    you identify if a network is not learning properly. In [Figure 6-9](#tensorboard_weights),
+    you can see a change in the distribution of the weights as training progresses.
+    If you see the distributions remain stable for a few epochs, it may be a sign
+    that you should increase the learning rate. If they vary too much, lower it instead.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了损失之外，可视化权重值和激活还可以帮助您确定网络是否学习得不好。在[图6-9](#tensorboard_weights)中，您可以看到权重分布随训练进展而发生变化的例子。如果您看到分布在几个周期内保持稳定，这可能表明您应该增加学习率。如果它们变化太大，则应该降低学习率。
+- en: '![Weight histograms changing as training progresses](assets/bmla_0609.png)'
+  id: totrans-155
+  prefs: []
+  type: TYPE_IMG
+  zh: '![随着训练进展而变化的权重直方图](assets/bmla_0609.png)'
+- en: Figure 6-9\. Weight histograms changing as training progresses
+  id: totrans-156
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-9。随着训练进展而变化的权重直方图
+- en: Successfully fitting a model to the training data is an important milestone
+    in an ML project, but it is not the last step. The end goal of building an ML
+    product is to build a model that can perform well on examples it has never seen
+    before. To do this, we need a model that can generalize well to unseen examples,
+    so I’ll cover generalization next.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 成功将模型拟合到训练数据是机器学习项目中的重要里程碑，但并非最后一步。构建机器学习产品的最终目标是构建一个在以前从未见过的示例上表现良好的模型。为此，我们需要一个能够很好地泛化到未见示例的模型，因此接下来我将介绍泛化。
+- en: 'Debug Generalization: Make Your Model Useful'
+  id: totrans-158
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 调试泛化能力：使您的模型更有用
+- en: 'Generalization is the third and final part of [Figure 6-2](#debugging_order)
+    and focuses on getting an ML model to work well on data it has not seen before.
+    In [“Split Your Dataset”](ch05.html#splitting_data), we saw the importance of
+    creating separate training, validation, and test splits to evaluate a model’s
+    ability to generalize to unseen examples. In [“Evaluate Your Model: Look Beyond
+    Accuracy”](ch05.html#beyond_accuracy), we covered methods to analyze the performance
+    of a model and identify potential additional features to help improve it. Here,
+    we’ll cover some recommendations when a model still fails to perform on the validation
+    set after multiple iterations.'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 泛化是[图6-2](#debugging_order)的第三部分，也是最后一部分，重点是使ML模型在未曾见过的数据上表现良好。在[“分割数据集”](ch05.html#splitting_data)中，我们看到了创建单独的训练、验证和测试拆分的重要性，以评估模型对未见示例的泛化能力。在[“评估您的模型：超越准确性”](ch05.html#beyond_accuracy)中，我们涵盖了分析模型性能并识别潜在额外特征以帮助改进的方法。在这里，我们将介绍在多次迭代后模型仍无法在验证集上表现的建议。
+- en: Data Leakage
+  id: totrans-160
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据泄露
+- en: We covered data leakage in more detail in [“Data leakage”](ch05.html#data_leakage),
+    but I want to mention it here within the context of generalization. A model will
+    often initially perform worse on the validation set than the training set. This
+    is to be expected since it is harder to make predictions on data that a model
+    has not been exposed to before than on data it was trained to fit.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在[“数据泄露”](ch05.html#data_leakage)一节中更详细地讨论了数据泄露问题，但在泛化的背景下，我想在这里提一下。一个模型在验证集上的表现通常会比在训练集上差。这是可以预期的，因为模型在之前未接触过的数据上进行预测要比在其训练时使用的数据上更困难。
+- en: Note
+  id: totrans-162
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: When looking at validation loss and training loss during training before it
+    is complete, validation performance may appear better than training performance.
+    This is because the training loss accumulates over the epoch as the model is trained,
+    while the validation loss is calculated after the epoch has completed, using the
+    latest version of the model.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练尚未完成时查看训练损失和验证损失时，验证性能可能会比训练性能更好。这是因为随着模型训练的进行，训练损失会随着时期累积，而验证损失是在时期完成后计算的，使用的是模型的最新版本。
+- en: If validation performance is better than training performance, it can sometimes
+    be due to data leakage. If examples in the training data contain information about
+    others in the validation data, a model will be able to leverage this information
+    and perform well on the validation set. If you are surprised by validation performance,
+    inspect the features a model uses and see if they show data leakage. Fixing such
+    a leakage issue will lead to a lower validation performance, but a better model.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果验证性能优于训练性能，有时可能是由于数据泄露。如果训练数据中的示例包含验证数据中的其他信息，模型将能够利用这些信息，并在验证集上表现良好。如果您对验证性能感到惊讶，请检查模型使用的特征，看看它们是否显示出数据泄露。修复此类泄露问题将导致更低的验证性能，但模型将更好。
+- en: Data leakage can lead us to believe that a model is generalizing when it really
+    isn’t. In other cases, it is clear from looking at performance on a held-out validation
+    set that the model performs well only on training. In those kinds of cases, the
+    model may be overfitting.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据泄露可能会导致我们误认为模型具有泛化能力，而实际上并非如此。在其他情况下，通过观察模型在留置验证集上的表现，我们可以清楚地看到模型只在训练集上表现良好。在这种情况下，模型可能存在过拟合问题。
+- en: Overfitting
+  id: totrans-166
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 过拟合
+- en: In [“Bias variance trade-off”](ch05.html#b_v_trade_off), we saw that when a
+    model is struggling to fit the training data, we say the model is underfitting.
+    We also saw that the opposite of *underfitting* is *overfitting*, and this is
+    when our model fits our training data *too well*.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[“偏差方差权衡”](ch05.html#b_v_trade_off)中，我们看到当模型难以拟合训练数据时，我们称其为欠拟合。我们也看到欠拟合的反义词是过拟合，这意味着我们的模型对训练数据拟合得*过于*好。
+- en: What does fitting data too well mean? It means that instead of learning generalizable
+    trends that correlate with good or poor writing, for example, a model may pick
+    up on specific patterns present in individual examples in a training set that
+    are not present in different data. Those patterns help it get a high score on
+    the training set but aren’t useful to classify other examples.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “过于好地拟合数据”是什么意思？这意味着，与学习与优秀或糟糕写作相关的可泛化趋势不同，例如，模型可能会捕捉到训练集中个别示例中存在但在其他数据中不存在的特定模式。这些模式有助于其在训练集上获得高分，但对于分类其他示例则无用。
+- en: '[Figure 6-10](#over_underfitting) shows a practical example of overfitting
+    and underfitting for a toy dataset. The overfit model fits the training data perfectly
+    but doesn’t accurately approximate the underlying trend; thus, it fails to accurately
+    predict unseen points. The underfit model does not capture the trend of the data
+    at all. The model labeled reasonable fit performs worse on the training data than
+    the overfit model but better on unseen data.'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 6-10](#over_underfitting)展示了一个玩具数据集的过拟合和欠拟合的实际例子。过拟合模型完美拟合训练数据，但无法准确近似潜在趋势，因此在预测未见数据点时表现不佳。欠拟合模型则完全未能捕捉数据的趋势。标记为合理拟合的模型在训练数据上表现比过拟合模型差，但在未见数据上表现更好。'
+- en: '![Overfitting versus underfitting](assets/bmla_0610.png)'
+  id: totrans-170
+  prefs: []
+  type: TYPE_IMG
+  zh: '![过拟合与欠拟合](assets/bmla_0610.png)'
+- en: Figure 6-10\. Overfitting versus underfitting
+  id: totrans-171
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-10\. 过拟合与欠拟合
+- en: When a model performs drastically better on the training set than on the test
+    set, that usually means that it is overfit. It has learned the specific details
+    of the training data but is not able to perform on unseen data.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当模型在训练集上的表现远远优于测试集时，通常意味着它过拟合了。它已经学习了训练数据的具体细节，但不能在未见数据上表现良好。
+- en: Since overfitting is due to a model learning too much about training data, we
+    can prevent it by reducing the ability of a model to learn from a dataset. There
+    are a few ways to do that, which we’ll cover here.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于过拟合是由模型过度学习训练数据引起的，我们可以通过降低模型从数据集中学习的能力来防止过拟合。有几种方法可以做到这一点，我们将在这里介绍。
+- en: Regularization
+  id: totrans-174
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 正则化
+- en: '*Regularization* adds a penalty on a model’s capacity to represent information.
+    Regularizing aims to limit the ability of a model to focus on many irrelevant
+    patterns and encourages it to pick fewer, more predictive features.'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*正则化*会对模型表示信息的能力施加惩罚。正则化旨在限制模型集中于许多无关模式的能力，并鼓励其选择更少但更具预测性的特征。'
+- en: A common way to regularize a model is to impose a penalty on the absolute value
+    of its weights. For models such as linear and logistic regression, for example,
+    L1 and L2 regularization add an additional term to the loss function that penalizes
+    large weights. In the case of L1, this term is the sum of the absolute value of
+    weights. For L2, it is the sum of the squared values of weight.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正则化模型的一种常见方法是对其权重的绝对值施加惩罚。例如，对于线性和逻辑回归等模型，L1和L2正则化会在损失函数中增加一个额外项，惩罚大权重。在L1的情况下，该项是权重的绝对值之和。对于L2，它是权重平方值的和。
+- en: Different regularization methods have different effects. L1 regularization can
+    help select informative features by setting uninformative ones to zero (read more
+    on the [“Lasso (statistics)” Wikipedia page](https://oreil.ly/Su9Bf)). L1 regularization
+    is also useful when some features are correlated by encouraging the model to leverage
+    only one of them.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不同的正则化方法有不同的效果。L1正则化可以通过将无信息的特征设为零来帮助选择信息量大的特征（更多内容请参阅[“套索回归”维基百科页面](https://oreil.ly/Su9Bf)）。当一些特征相关时，L1正则化也很有用，因为它鼓励模型仅利用其中的一个特征。
+- en: Regularization methods can also be model specific. Neural networks often use
+    dropout as a regularization method. Dropout randomly ignores some proportion of
+    neurons in a network during training. This prevents a single neuron from becoming
+    excessively influential, which could enable the network to memorize aspects of
+    training data.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正则化方法也可以是特定于模型的。神经网络通常使用dropout作为正则化方法。在训练过程中，dropout会随机忽略网络中一定比例的神经元。这可以防止单个神经元过于影响网络，从而避免网络记忆训练数据的各个方面。
+- en: For tree-based models such as random forests, reducing the maximum depth of
+    trees reduces the ability of each tree to overfit to the data and thus helps regularize
+    the forest. Increasing the number of trees used in a forest also regularizes it.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于基于树的模型，如随机森林，减少树的最大深度可以降低每棵树对数据的过拟合能力，从而有助于正则化森林。增加森林中使用的树的数量也能实现正则化。
+- en: Another way to prevent a model from overfitting to training data is to make
+    the data itself harder to overfit to. We can do this through a process called
+    *data augmentation*.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种防止模型过拟合训练数据的方法是使数据本身更难过拟合。我们可以通过称为*数据增强*的过程来实现这一点。
+- en: Data augmentation
+  id: totrans-181
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据增强
+- en: Data augmentation is the process of creating new training data by slightly altering
+    existing data points. The goal is to artificially produce data points that are
+    different from existing ones in order to expose a model to a more varied type
+    of input. Augmentation strategies depend on the type of data. In [Figure 6-11](#data_aug),
+    you can see a few potential augmentations for images.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据增强是通过轻微改变现有数据点来创建新的训练数据的过程。其目标是人为产生与现有数据点不同的数据点，以使模型接触到更多种类的输入。增强策略取决于数据类型。在[图
+    6-11](#data_aug)中，您可以看到图像的几种潜在增强方法。
+- en: '![A few examples of data augmentation for images](assets/bmla_0611.png)'
+  id: totrans-183
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图像数据增强的几个示例](assets/bmla_0611.png)'
+- en: Figure 6-11\. A few examples of data augmentation for images
+  id: totrans-184
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-11\. 图像数据增强的几个示例
+- en: Data augmentation makes a training set less homogeneous and thus more complex.
+    This makes fitting the training data harder but exposes a model to a wider range
+    of inputs during training. Data augmentation often leads to lower performance
+    on the training set but higher performance on unseen data such as a validation
+    set and examples in production. This strategy is especially effective if we can
+    use augmentation to make our training set more similar to examples in the wild.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据增强使得训练集变得不那么同质化，从而更加复杂。这使得拟合训练数据更加困难，但在训练期间使模型接触到更广泛的输入。数据增强通常会导致训练集上的性能降低，但在未见数据（如验证集和生产中的示例）上的性能更高。如果我们能够利用增强使训练集更加接近实际场景中的示例，这种策略尤其有效。
+- en: I once helped an engineer use satellite imagery to detect flooded roads after
+    a hurricane. The project was challenging, since he only had access to labeled
+    data for non-flooded cities. To help improve his model’s performance on hurricane
+    imagery, which is significantly darker and lower quality, they built augmentation
+    pipelines that made training images look darker and blurrier. This lowered training
+    performance since the roads were now harder to detect. On the other hand, it increased
+    the model’s performance on the validation set because the augmentation process
+    exposed the model to images that were more similar to the ones it would encounter
+    in the validation set. Data augmentation helped make the training set more representative
+    and thus made the model more robust.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我曾经帮助一位工程师使用卫星图像来检测飓风后的被淹没道路。这个项目很具挑战性，因为他只能访问非受灾城市的标记数据。为了帮助改善他的模型在飓风图像上的表现，这些图像通常更暗、质量更低，他们建立了增强流水线，使训练图像看起来更暗、更模糊。这降低了训练性能，因为道路现在更难检测到。另一方面，它提高了模型在验证集上的表现，因为增强过程使模型接触到更接近验证集中所遇到的图像。数据增强帮助使训练集更具代表性，从而使模型更加健壮。
+- en: If after using the methods described earlier a model still performs poorly on
+    a validation set, you should iterate on the dataset itself.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果在之前描述的方法使用后，模型在验证集上表现仍然不佳，你应该对数据集本身进行迭代。
+- en: Dataset redesign
+  id: totrans-188
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据集重新设计
+- en: In some cases, a difficult training/validation split can lead to a model underfitting
+    and struggling on the validation set. If a model is exposed to only easy examples
+    in its training set and only challenging ones in its validation set, it will be
+    unable to learn from difficult data points. Similarly, some categories of examples
+    may be underrepresented in the training set, preventing a model ever from learning
+    from them. If a model is trained to minimize an aggregate metric, it risks fitting
+    mostly the majority of classes, ignoring minority ones.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，困难的训练/验证分割可能导致模型欠拟合并在验证集上表现困难。如果模型只接触到训练集中的简单示例，并且只接触到验证集中的挑战性示例，它将无法从困难的数据点中学习。同样，某些类别的示例在训练集中可能表现不足，从而阻止模型学习这些示例。如果模型训练以最小化聚合指标，则有可能主要适应大多数类别，而忽略少数类别。
+- en: While augmentation strategies can help, redesigning a training split to make
+    it more representative is often the best path forward. When doing this, we should
+    carefully control for data leakage and make the splits as balanced as possible
+    in terms of difficulty. If the new data split allocates all the easy examples
+    to the validation set, the model’s performance on the validation set will be artificially
+    high, but it will not translate to results in production. To alleviate concerns
+    that data splits may be of unequal quality, we can use [k-fold cross-validation](https://oreil.ly/NkhZa),
+    where we perform k successive different splits, and measure the performance of
+    the model on each split.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然增强策略可以帮助，但重新设计训练集以使其更具代表性通常是最佳路径。在这样做时，我们应该小心控制数据泄露，并尽可能使难度在分割时平衡。如果新的数据分割将所有简单示例分配到验证集，模型在验证集上的性能将人为地提高，但这不会转化为生产结果。为了减轻数据分割可能存在的不均质问题，我们可以使用[k折交叉验证](https://oreil.ly/NkhZa)，在其中进行k个连续不同的分割，并在每个分割上评估模型的性能。
+- en: Once we’ve balanced our training and validation set to make sure that they are
+    of similar complexity, our model’s performance should improve. If the performance
+    is still not satisfactory, we may be simply tackling a really hard problem.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们平衡了训练和验证集，确保它们的复杂性相似，我们的模型性能应该会提高。如果性能仍然不令人满意，我们可能只是在处理一个非常困难的问题。
+- en: Consider the Task at Hand
+  id: totrans-192
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 考虑手头的任务
+- en: A model can struggle to generalize because the task is too complex. The input
+    we are using may not be predictive of the target, for example. To make sure the
+    task you are tackling is of appropriate difficulty for the current state of ML,
+    I suggest referring once more to [“Stand on the Shoulders of Giants”](ch02.html#prior_work),
+    where I described how to explore and evaluate the current state of the art.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型可能难以泛化，因为任务过于复杂。例如，我们使用的输入可能无法预测目标。为了确保你正在处理的任务对当前机器学习的状态来说具有适当的难度，我建议再次参考[“站在巨人的肩膀上”](ch02.html#prior_work)，在那里我描述了如何探索和评估当前技术水平。
+- en: In addition, having a dataset does not mean that a task is solvable. Consider
+    the impossible task of accurately predicting random outputs from random inputs.
+    You could build a model that performs well on a training set by memorizing it,
+    but this model would not be able to accurately predict other random outputs from
+    random inputs.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，拥有数据集并不意味着任务可以解决。考虑一个不可能的任务，即准确预测随机输入的随机输出。你可以通过记忆来构建一个在训练集上表现良好的模型，但这种模型将无法准确预测其他随机输入的随机输出。
+- en: If your models aren’t generalizing, your task may be too hard. There may not
+    be enough information in your training examples to learn *meaningful features*
+    that will be informative for future data points. If that is the case, then the
+    problem you have is not well suited for ML, and I would invite you to revisit
+    [Chapter 1](ch01.html#validating_idea) to find a better framing.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的模型没有泛化能力，你的任务可能太难了。你的训练样本中可能没有足够的信息来学习*有意义的特征*，这些特征将为未来的数据点提供信息。如果是这种情况，那么你面临的问题并不适合使用机器学习，我建议你重新阅读[第1章](ch01.html#validating_idea)，找到更合适的框架。
+- en: Conclusion
+  id: totrans-196
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: In this chapter, we covered the three successive steps you should follow to
+    get a model to work. First, debug the wiring of your pipeline by inspecting the
+    data and writing tests. Then, get a model to perform well on a training test to
+    validate that it has the capacity to learn. Finally, verify that it is able to
+    generalize and produce useful outputs on unseen data.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们介绍了三个连续的步骤，你应该遵循这些步骤来使模型工作。首先，通过检查数据和编写测试来调试你的流水线。然后，在训练测试上让模型表现良好，以验证它有学习能力。最后，验证它是否能泛化，并在未见数据上产生有用的输出。
+- en: This process will help you debug models, build them faster, and make them more
+    robust. Once you have built, trained, and debugged your first model, the next
+    step is to judge its performance and either iterate on it or deploy it.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个过程将帮助你调试模型，更快地构建它们，并使它们更加稳健。一旦你建立、训练和调试好你的第一个模型，下一步就是评估其性能，然后要么进行迭代，要么部署它。
+- en: In [Chapter 7](ch07.html#using_clas_recom), we will cover how to use a trained
+    classifier to provide actionable recommendations for users. We will then compare
+    candidate models for the ML Editor and decide which one should be used to power
+    these recommendations.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第7章](ch07.html#using_clas_recom)，我们将讨论如何使用训练过的分类器为用户提供可操作的建议。然后，我们将比较ML编辑器的候选模型，并决定应该使用哪个来支持这些建议。

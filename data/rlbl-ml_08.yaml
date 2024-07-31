@@ -1,0 +1,1858 @@
+- en: Chapter 7\. Training Systems
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第7章。训练系统
+- en: '*ML training* is the process by which we transform input data into models.
+    We take a set of input data, almost always preprocessed and stored in an efficient
+    way, and process it through a set of ML algorithms. The output is a representation
+    of that data, called a *model*, that we can integrate into other applications.
+    For more details on what a model is, see [Chapter 3](ch03.xhtml#basic_introduction_to_models).'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*ML训练*是我们将输入数据转换为模型的过程。我们获取一组输入数据，几乎总是经过预处理并以高效方式存储，然后通过一系列ML算法处理它。输出是该数据的表示，称为*模型*，我们可以集成到其他应用程序中。有关模型的更多详细信息，请参阅[第3章](ch03.xhtml#basic_introduction_to_models)。'
+- en: A *training algorithm* describes the specific steps by which software reads
+    data and updates a model to try to represent that data. A *training system*, on
+    the other hand, describes the entire set of software surrounding that algorithm.
+    The simplest implementation of an ML training system is on a single computer running
+    in a single process that reads data, performs some cleaning and imposes some consistency
+    on that data, applies an ML algorithm to it, and creates a representation of the
+    data in a model with new values as a result of what it learns from the data. Training
+    on a single computer is by far the simplest way to build a model, and the large
+    cloud providers do rent powerful configurations of individual machines. Note,
+    though, that many interesting uses of ML in production process a significant amount
+    of data and as a result might benefit from significantly more than one computer.
+    Distributing processing brings scale but also complexity.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*训练算法*描述了软件如何读取数据并更新模型以尝试表示这些数据的具体步骤。而*训练系统*则描述了围绕该算法的整套软件。最简单的ML训练系统的实现是在单台计算机上运行的单个进程上读取数据，对数据进行一些清理并对数据进行一致性处理，然后应用ML算法，并通过从数据中学到的内容创建具有新值的数据模型表示。在单台计算机上进行训练是构建模型的最简单方法，而大型云服务提供商确实提供强大的单机配置的租赁服务。但请注意，许多在生产中使用ML的有趣应用处理大量数据，因此可能受益于不止一台计算机的处理能力。分布式处理带来了规模，但也带来了复杂性。'
+- en: 'In part, because of our broad conception of what an ML training system is,
+    ML training systems may have less in common with one another across different
+    organizations and model builders than any other part of the end-to-end ML system.
+    In [Chapter 8](ch08.xhtml#serving-id0000021), you will see that even across different
+    use cases, many of the basic requirements of a serving system are broadly similar:
+    they take a representation of the model, load it into RAM, and answer queries
+    about the contents of that model sent from an application. In serving systems,
+    sometimes that serving is for very small models (on phones, for example). Sometimes
+    it is for huge models that don’t even all fit on a single computer. But the structure
+    of the problem is similar.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部分原因是由于我们对ML训练系统的广泛概念，跨不同组织和模型构建者，ML训练系统在各自的最终ML系统的不同部分之间可能没有太多共同之处。在[第8章](ch08.xhtml#serving-id0000021)中，您将看到即使在不同的用例中，服务系统的许多基本要求也是广泛相似的：它们将模型的表示加载到RAM中，并回答从应用程序发送的关于该模型内容的查询。在服务系统中，有时该服务是针对非常小的模型（例如手机上的模型）。有时它是针对无法全部安装在单台计算机上的巨大模型。但问题的结构是相似的。
+- en: In contrast, training systems do not even necessarily live in the same part
+    of our ML lifecycle (see [Figure 1-1](ch01.xhtml#ml_lifecycle)). Some training
+    systems are closest to the input data, performing their function almost completely
+    offline from the serving system. Other training systems are embedded in the serving
+    platform and are tightly integrated with the serving function. Additional differences
+    appear when we look at the way that training systems maintain and represent the
+    state of the model. Because of this significant variety of differences across
+    legitimate and well-structured ML training systems, it is not reasonable to cover
+    all of the ways that organizations train models.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相比之下，训练系统甚至不一定生存在我们ML生命周期的同一部分（见[图 1-1](ch01.xhtml#ml_lifecycle)）。有些训练系统最接近输入数据，几乎完全离线于服务系统。其他训练系统嵌入在服务平台中，并与服务功能紧密集成。当我们观察训练系统维护和表示模型状态的方式时，会出现额外的差异。由于合法且结构良好的ML训练系统之间存在显著的差异，因此不合理涵盖所有组织训练模型的方式。
+- en: Instead, this chapter covers a somewhat idealized version of a simple, distributed
+    ML training system. We’ll describe a system that lives in a distinct part of the
+    ML loop, next to the data and producing artifacts bound for the model quality
+    evaluation system and serving system. Although most ML training systems that you
+    will encounter in the real world will have significant differences from this architecture,
+    separating it out will allow us to focus on the particularities of training itself.
+    We will describe the required elements for a functional and maintainable training
+    system and will also describe how to evaluate the costs and benefits of additional
+    desirable characteristics.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，本章涵盖了一个稍微理想化的简单分布式ML训练系统的版本。我们将描述一个存在于ML循环中的特定部分的系统，该系统与数据并行，并生成供模型质量评估系统和服务系统使用的工件。尽管你在现实世界中遇到的大多数ML训练系统与此架构有很大的不同，但将其分离出来将使我们能够专注于训练本身的特点。我们将描述一个功能齐全且易于维护的训练系统所需的元素，并描述如何评估额外理想特性的成本和收益。
+- en: Requirements
+  id: totrans-6
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 要求
+- en: 'A training system requires the following elements, although they might appear
+    in a different order or combined with one another:'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个训练系统需要以下元素，尽管它们可能以不同的顺序或与其他元素组合出现：
+- en: Data to train on
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练用数据
+- en: This includes human labels and annotations if we have them. This data should
+    be preprocessed and standardized by the time we use it. It will usually be stored
+    in a format that is optimized for efficient access during training. Note that
+    “efficient access during training” might mean different things depending on our
+    model. The data should also be stored in an access-protected and policy-enforcing
+    environment.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果有人类标签和注释，这包括它们。这些数据在使用时应预处理并标准化。通常，它们将以一种在训练期间进行高效访问优化的格式存储。请注意，“在训练期间进行高效访问”可能因我们的模型而异。数据还应存储在一个受访问保护且执行政策的环境中。
+- en: Model configuration system
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型配置系统
+- en: Many training systems have a means of representing the configuration of an individual
+    model separate from the configuration of the training system as a whole.^([1](ch07.xhtml#ch01fn70))
+    These should store model configurations in a versioned system with some metadata
+    about the teams creating the models and the data used by the models. This will
+    come in extremely handy later.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多训练系统都有一种方式来表示单个模型的配置，将其与整个训练系统的配置分开。^([1](ch07.xhtml#ch01fn70)) 这些配置应该在具有有关创建模型团队和模型使用数据的元数据的版本化系统中存储。稍后这将非常方便。
+- en: Model-training framework
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型训练框架
+- en: 'Most model creators will not be writing model-training frameworks by hand.
+    It seems likely that most ML engineers and modelers will eventually be exclusively
+    using a training systems framework and customizing it as necessary. These frameworks
+    generally come with the following:'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数模型创建者不会手动编写模型训练框架。最可能的情况是，大多数机器学习工程师和建模者最终将专门使用训练系统框架，并根据需要进行定制。这些框架通常具有以下功能：
+- en: Orchestration
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管理
+- en: Different parts of the system need to run at different times and need to be
+    informed about one another. We call this *orchestration*. Some of the systems
+    that do this include the following two elements as well, but these functions can
+    be assembled separately, so they are broken out here.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 系统的不同部分需要在不同的时间运行，并且需要彼此通知。我们称之为*编排*。有些系统还包括以下两个元素，但这些功能可以分开组装，因此在这里将它们分开。
+- en: Job/work scheduling
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作业/工作调度
+- en: Sometimes part of orchestration, job scheduling refers to actually starting
+    the binaries on the computers and keeping track of them.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时候，作业调度的一部分，指的是实际在计算机上启动二进制文件并跟踪它们。
+- en: Training or model development software
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练或模型开发软件
+- en: This software handles the ordinary boilerplate tasks usually associated with
+    building an ML model. Common examples right now include TensorFlow, PyTorch, and
+    many others. Disagreements rivaling religious wars start over which of these is
+    best, but all of them accomplish the same job of helping model developers build
+    models more quickly and more consistently.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些软件处理通常与构建ML模型相关的常规样板任务。当前的常见示例包括 TensorFlow、PyTorch 和许多其他框架。关于哪个框架最好的争论有时甚至会引发类似宗教战争的辩论，但它们都能完成帮助模型开发者更快速、更一致地构建模型的工作。
+- en: Model quality evaluation system
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型质量评估系统
+- en: Some engineers don’t think of this as part of the training system, but it has
+    to be. The process of model building is iterative and exploratory. Model builders
+    try out ideas and discard most of them. The model quality evaluation system provides
+    rapid and consistent feedback on the performance of models and allows model builders
+    to make decisions quickly.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有些工程师认为这不是训练系统的一部分，但它必须是。模型构建的过程是迭代的和探索性的。模型构建者尝试各种想法并且舍弃了其中的大部分。模型质量评估系统提供了对模型性能的快速和一致的反馈，并允许模型构建者快速做出决策。
+- en: Warning
+  id: totrans-22
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: This is the most commonly skipped portion of a training system but really is
+    mandatory.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是训练系统中最常被忽略的部分，但确实是强制性的。
+- en: If we do not have a model quality evaluation system, each of our model developers
+    will build a more ad hoc and less reliable one for themselves and will do so at
+    a higher cost to the organization. This topic is covered much more extensively
+    in [Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality).
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们没有一个模型质量评估系统，那么我们每个模型开发者都将为自己构建更加临时和不可靠的系统，并且这样做会给组织带来更高的成本。这个主题在[第 5 章](ch05.xhtml#evaluating_model_validity_and_quality)中有更详尽的覆盖。
+- en: Syncing models to serving
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将模型同步到服务中
+- en: The last thing we do with a model is send it to the next stage, usually the
+    serving system but possibly another kind of analysis system.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们对模型的最后一步通常是将其发送到下一个阶段，通常是服务系统，但也可能是另一种分析系统。
+- en: If we have a system that provides for these basic requirements, we will be able
+    to offer a minimally productive technical environment to model developers. In
+    addition to these basic elements, though, we will want to add infrastructure specifically
+    geared toward reliability and manageability. Among these elements, we should include
+    some careful thoughts about monitoring this multistage pipeline, metadata about
+    team ownership of features and models, and a full-fledged feature storage system.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有一个系统来满足这些基本需求，我们将能够为模型开发者提供一个最低限度的生产技术环境。除了这些基本元素外，我们还希望增加专门用于可靠性和可管理性的基础设施。在这些元素中，我们应该包括对监控这个多阶段管道的仔细思考，团队对特性和模型的所有权的元数据，以及一个完整的特性存储系统。
+- en: Basic Training System Implementation
+  id: totrans-28
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 基本训练系统实现
+- en: '[Figure 7-1](#basic_ml_training_system_architecture) depicts a proposed architecture
+    for a simple but relatively complete and manageable ML training system.^([2](ch07.xhtml#ch01fn71))'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 7-1](#basic_ml_training_system_architecture) 描述了一个简单但相对完整和可管理的机器学习训练系统的建议架构。^([2](ch07.xhtml#ch01fn71))'
+- en: '![Basic ML training system architecture](Images/reml_0701.png)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_IMG
+  zh: '![基本机器学习训练系统架构](Images/reml_0701.png)'
+- en: Figure 7-1\. Basic ML training system architecture
+  id: totrans-31
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-1\. 基本机器学习训练系统架构
+- en: In this simplified training system, the data flows in from the left, and models
+    emerge on the right. In between we clean up, transform, and read the data. We
+    use an ML framework that applies a training algorithm to turn the data into a
+    model. We evaluate the model that we just produced. Is it well formed? Is it useful?
+    Finally, we copy a servable version of that model into our serving system so we
+    can integrate it into our application. All the while, we keep track of our models
+    and data in a metadata system, we make sure the pipeline continues to work, and
+    we monitor the whole thing. Next, we’ll go into detail about the roles of each
+    of these components.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个简化的训练系统中，数据从左侧流入，模型从右侧出现。在此过程中，我们清理、转换和读取数据。我们使用一个机器学习框架，该框架应用训练算法将数据转化为模型。我们评估刚刚生成的模型。它是否格式良好？它是否有用？最后，我们将这个模型的可服务版本复制到我们的服务系统中，这样我们就可以将其集成到我们的应用程序中。在此期间，我们在一个元数据系统中跟踪我们的模型和数据，确保管道持续工作，并监控整个过程。接下来，我们将详细讨论每个组成部分的角色。
+- en: Features
+  id: totrans-33
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特性
+- en: '*Training data* is data about events or facts in the world that we think will
+    be relevant to our model. A *feature* is a specific, measurable aspect of that
+    data. Specifically, features are those aspects of the data that we believe are
+    most likely to be useful in modeling, categorizing, and predicting future events
+    given similar circumstances. To be useful, features need a consistent definition,
+    consistent normalization, and consistent semantics across the whole ML system,
+    including the feature store, training, quality evaluation, and serving. For significantly
+    more detail, see [Chapter 4](ch04.xhtml#feature_and_training_data).'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*训练数据* 是关于我们认为对我们的模型有关联的世界事件或事实的数据。*特征* 是这些数据的具体可度量的方面。具体来说，特征是我们认为在建模、分类和预测未来事件时，在类似情况下最有用的数据方面。为了有用，特征需要在整个机器学习系统中，包括特征存储、训练、质量评估和服务中，具有一致的定义、一致的归一化和一致的语义。详细信息，请参阅[第四章](ch04.xhtml#feature_and_training_data)。'
+- en: If we think of a feature for YarnIt purchase data like “purchase price,” we
+    can easily understand how this can go badly if we’re not careful. First of all,
+    we probably need to standardize purchases in currency, or at least not mix currencies
+    in our model. So let’s say we convert everything to US dollars. We need to guarantee
+    that we do that conversion based on the exchange rate at a particular point in
+    time—say, the closing rate at the end of the trading day in London for the day
+    that we are viewing data. We then have to store the conversion values used in
+    case we ever need to reconvert the raw data. We probably should normalize the
+    data, or put it into larger buckets or categories. We might have everything under
+    $1 in the 0th bucket, and $1–$5 in the next bucket, and so on in $5 increments.
+    This makes certain kinds of training more efficient. It also means that we need
+    to ensure we have standard normalization between training and serving and that
+    if we ever change normalization, we update it everywhere carefully in sync.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们考虑像“购买价格”这样的YarnIt购买数据特征，我们很容易理解如果我们不小心会出现问题。首先，我们可能需要将购买行为标准化为同一货币，或者至少在我们的模型中不混合使用不同货币。所以让我们假设我们将所有金额转换为美元。我们需要确保我们根据特定时间点的汇率进行转换——比如我们查看数据的那一天伦敦交易日结束时的收盘汇率。然后，我们必须存储用于可能需要重新转换原始数据的转换值。我们可能应该对数据进行归一化，或者将其放入更大的桶或类别中。我们可以将所有小于1美元的金额放入第一个桶中，1至5美元放入下一个桶中，依此类推，每5美元递增一个桶。这样做可以使某些类型的训练更加高效。这还意味着我们需要确保在训练和服务之间有标准的归一化，并且如果我们改变归一化方式，我们需要仔细同步更新所有地方。
+- en: Features and feature development are a critical part of how we experiment when
+    we are making a model. We are trying to figure out which aspects of the data matter
+    to our task and which are not relevant. In other words, we want to know which
+    features make our model better. As we develop the model, we need easy ways to
+    add new features, produce new features on old data when we get a new idea for
+    what to look for in existing logs, and remove features that turned out to not
+    be important. Features can be complicated.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征和特征开发是我们在制作模型时进行实验的关键部分。我们试图弄清楚数据的哪些方面对我们的任务很重要，哪些不相关。换句话说，我们想知道哪些特征能够让我们的模型更好。随着模型的开发，我们需要简便的方法来添加新特征，在我们对现有日志中要查找的新想法时，对旧数据生成新特征，并删除证明不重要的特征。特征可能会很复杂。
+- en: Feature Store
+  id: totrans-37
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征存储
+- en: We need to store the features and, not surprisingly, the most common name for
+    the system where we do that is the *feature store*. The characteristics of a feature
+    store will exist, even if our model training system reads raw data and extracts
+    features each time. Most people will find it convenient, and an especially important
+    reliability bonus, to store extracted features in a dedicated system of some kind.
+    This topic is covered extensively in [Chapter 4](ch04.xhtml#feature_and_training_data).
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要存储这些特征，毫不奇怪，我们用来存储这些特征的系统最常见的名称就是*特征存储*。即使我们的模型训练系统每次都会读取原始数据并提取特征，特征存储的特性仍然存在。大多数人会发现，将提取的特征存储在某种专门的系统中是方便的，尤其是作为重要的可靠性奖励。这个主题在[第四章](ch04.xhtml#feature_and_training_data)中有详细介绍。
+- en: One common data architecture for this is a bunch of files in a directory (or
+    a bunch of buckets in an object storage system). This is obviously not the most
+    sophisticated data storage environment but has a huge advantage, giving us a fast
+    way to start training, and it appears to facilitate experimentation with new features.
+    Longer term, though, this unstructured approach has two huge disadvantages.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种情况下常见的数据架构是目录中的一堆文件（或对象存储系统中的一堆桶）。这显然不是最复杂的数据存储环境，但有一个巨大的优势，能够快速启动训练，并似乎促进对新特征的实验。长期来看，这种非结构化的方法却有两个巨大的缺点。
+- en: First, it is extremely difficult to ensure that the system as a whole is consistently
+    functioning correctly. Systems like this with unstructured feature-engineering
+    environments frequently suffer from training-serving feature skew (whereby features
+    are defined differently in the training and serving environments) as well as problems
+    related to inconsistent feature semantics over time, even in the training system
+    alone.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，确保整个系统始终正确运行是极其困难的。像这样具有非结构化特征工程环境的系统经常遭受训练-服务特征偏差（即在训练和服务环境中定义特征不同的情况），以及即使在训练系统中也存在随时间不一致的特征语义问题。
+- en: The second problem is that unstructured feature-engineering environments can
+    actually hinder collaboration and innovation. They make it more difficult to understand
+    the provenance of features in a model and more difficult to understand who added
+    them, when, and why.^([3](ch07.xhtml#ch01fn72)) In a collaborative environment,
+    most new model engineers will benefit enormously from understanding the work of
+    their predecessors. This is made easier by being able to trace backward from a
+    model that works well, to the model definition, and ultimately to the features
+    that are used. A feature store gives a consistent place to understand the definition
+    and authorship of features and can significantly improve innovation in model development.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个问题是，非结构化的特征工程环境实际上会妨碍协作和创新。这使得更难理解模型中特征的来源，以及添加它们的人员、时间和原因。^([3](ch07.xhtml#ch01fn72))
+    在协作环境中，大多数新的模型工程师将极大受益于理解前人的工作。通过能够从效果良好的模型向后追溯，直至模型定义，最终到使用的特征，这一点变得更加容易。特征存储提供了一个一致的位置，用于理解特征的定义和作者，并且可以显著提升模型开发中的创新能力。
+- en: Model Management System
+  id: totrans-42
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型管理系统
+- en: 'A *model management system* can provide at least three sets of functionality:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*模型管理系统* 至少可以提供三组功能：'
+- en: Metadata about models
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型的元数据
+- en: Configuration, hyperparameters, and developer authorship
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置、超参数和开发者的作者身份
+- en: Snapshots of trained models
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练模型的快照
+- en: Useful for bootstrapping new variants of the same model more efficiently by
+    using transfer learning, and tremendously useful for disaster recovery when we
+    accidentally delete a model
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过使用迁移学习更高效地引导相同模型的新变体，以及在意外删除模型时用于灾难恢复的非常有用。
+- en: Metadata about features
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征的元数据
+- en: Authorship and usage of each feature by specific models
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个模型具体使用的特征的作者和用途
+- en: While these functions are theoretically separable, and are often separate in
+    the software offerings, together they form the system that allows engineers to
+    understand the models in production, how they are built, who built them, and what
+    features they are built upon.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这些功能在理论上可以分开，而且软件产品中通常是分开的，但它们一起构成了一个系统，允许工程师理解正在生产中的模型，它们是如何构建的，由谁构建的，以及它们所依赖的特征是什么。
+- en: Just as with feature stores, everyone has a rudimentary form of a model management
+    system, but if it amounts to “whatever configuration files and scripts are in
+    the lead model developer’s home directory,” it may be appropriate to check whether
+    that level of flexibility is still appropriate for the needs of the organization.
+    There are reasonable ways to get started with model management systems so that
+    the burden is low. It does not need to be complicated but can be a key source
+    of information, tying serving all the way back through training to storage. Without
+    this data, it’s not always possible to figure out what is going wrong in production.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像特征存储一样，每个人都有一个基本的模型管理系统，但如果它仅仅是“领导模型开发者家目录中的配置文件和脚本”，可能需要检查这种灵活性是否仍然适合组织的需求。有合理的方法可以启动模型管理系统，以降低负担。它并不需要复杂，但可以成为信息的重要来源，从服务端一直到存储端进行关联。如果没有这些数据，就不总是可能找出生产环境中出现问题的原因。
+- en: Orchestration
+  id: totrans-52
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 编排
+- en: '*Orchestration* is the process by which we coordinate and keep track of all
+    the other parts of the training system. This typically includes scheduling and
+    configuring the various jobs associated with training the model as well and tracking
+    when training is complete. Orchestration is often provided by a system that is
+    tightly coupled with our ML framework and job/process scheduling system, but does
+    not have to be.'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*编排* 是协调和跟踪培训系统所有其他部分的过程。这通常包括安排和配置与训练模型相关的各种作业，以及跟踪培训何时完成。编排通常由与我们的机器学习框架和作业/进程调度系统紧密耦合的系统提供，但不一定如此。'
+- en: 'For orchestration here, think of Apache Airflow as an example. Many systems
+    are technically workflow orchestration systems but are focused on building data
+    analytics pipelines (such as Apache Beam or Spark, or Google Cloud Dataflow).
+    These typically come with significant assumptions about the structure of your
+    tasks, have additional integrations, and have many restrictions built in. Note
+    that Kubernetes is not a pipeline orchestration system: Kubernetes has a means
+    of orchestrating containers and tasks that run in them, but generally does not
+    by itself provide the kinds of semantics that help us specify how data moves through
+    a pipeline.'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里的编排中，请把 Apache Airflow 当作一个例子。许多系统在技术上是工作流编排系统，但专注于构建数据分析流水线（例如 Apache Beam
+    或 Spark，或 Google Cloud Dataflow）。这些系统通常对你的任务结构有很多假设，并且具有额外的集成和许多内置的限制。请注意，Kubernetes
+    不是一个流水线编排系统：Kubernetes 有一种编排容器和在其中运行的任务的方式，但通常本身不提供帮助我们指定数据如何通过流水线移动的语义。
+- en: Job/process/resource scheduling system
+  id: totrans-55
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 作业/进程/资源调度系统
+- en: Everyone who runs ML training pipelines in a distributed environment will have
+    a way of starting processes, keeping track of them, and noticing when they finish
+    or stop. Some people are fortunate enough to work at an organization that provides
+    centralized services, either locally or on a cloud provider, for scheduling jobs
+    and tasks. Otherwise, it is best to use one of the popular compute resource management
+    systems, either open source or commercial.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在分布式环境中运行机器学习训练流水线的每个人都有一种启动进程、跟踪它们并在其完成或停止时注意到的方式。有些人很幸运能够在提供调度作业和任务的本地或云端集中服务的组织中工作。否则，最好使用其中一个流行的计算资源管理系统，无论是开源还是商业的。
+- en: Examples of resource scheduling and management systems include software such
+    as the previously mentioned Kubernetes, although it also includes many other features
+    such as setting up networking among containers and handling requests to and from
+    containers. More generally and more traditionally, Docker could be regarded as
+    a resource scheduling system by providing a means of configuring and distributing
+    virtual machine (VM) images to VMs.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 资源调度和管理系统的例子包括先前提到的软件，如 Kubernetes，尽管它还包括许多其他功能，如设置容器之间的网络并处理对容器的请求。更普遍且传统的是，Docker
+    可以通过提供一种配置和分发虚拟机（VM）映像到 VM 的方式被视为资源调度系统。
+- en: ML framework
+  id: totrans-58
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 机器学习框架
+- en: The *ML framework* is where the algorithmic action is. The point of ML training
+    is to transform the input data into a representation of that data, called a *model*.
+    The ML framework we use will provide an API to build the model that we need and
+    will take care of all of the boilerplate code to read the features and convert
+    them into the data structures appropriate for the model. ML frameworks are typically
+    fairly low level and, although they are much discussed and debated, are ultimately
+    quite a small part of the overall ML loop in an organization.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*机器学习框架* 是算法操作的地方。机器学习训练的目的是将输入数据转换为该数据的表示，称为 *模型*。我们使用的机器学习框架将提供一个 API 来构建我们需要的模型，并处理读取特征并将其转换为适合模型的数据结构的所有样板代码。机器学习框架通常是相当低级的，虽然它们讨论和辩论很多，但最终在组织的整体机器学习循环中占据相当小的部分。'
+- en: Quality Evaluation
+  id: totrans-60
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 质量评估
+- en: The ML model development process can be thought of as continuous partial failure
+    followed by modest success. It is essentially unheard of for the first model that
+    anyone tries to be the best, or even a reasonably adequate, solution to a particular
+    ML problem. It necessarily follows, therefore, that one of the essential elements
+    of a model-training environment is a systematic way to evaluate the model that
+    we just trained.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML模型开发过程可以被看作是持续的部分失败后紧随的适度成功。很少有人的第一个尝试的模型能成为最好的，甚至是对特定ML问题合理的解决方案。因此，模型训练环境的一个基本要素是一种系统化的评估刚刚训练的模型的方法。
+- en: At some level, model quality evaluation has to be extremely specific to the
+    purposes of a particular model. Vision models correctly categorize pictures. Language
+    models interpret and predict text. At the most basic level, a model quality evaluation
+    system offers a means of performing a quality evaluation, usually authored by
+    the model developer, and storing the results in a way that they can be compared
+    to previous versions of the same model. The operational role of such a system
+    is ultimately to be sufficiently reliable that it can be an automatic gate to
+    prevent “bad” models from being sent to our production serving environment.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某   模型质量评估在某种程度上必须与特定模型的目的密切相关。视觉模型能正确分类图片，语言模型则解释和预测文本。在最基本的层面上，模型质量评估系统提供了一种执行质量评估的方法，通常由模型开发者编写，并以一种可以与同一模型的先前版本进行比较的方式存储结果。这种系统的运作角色最终是足够可靠，能够作为自动门，防止“糟糕”的模型被发送到我们的生产环境中。
+- en: Evaluation starts with factors as simple as verifying that we are loading the
+    right version of the right model and ensuring that the model loads in our model
+    server. Evaluation also must include performance aspects to make sure that the
+    model can be served in the memory and computational resources that we have available.
+    But also, we have to care about how the model performs on requests that we believe
+    to be representative of the requests we will get. For significantly more detail
+    on this topic, see [Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality).
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 评估始于诸如验证我们是否加载了正确版本的正确模型，并确保模型在我们的模型服务器中加载。评估还必须包括性能方面，以确保模型可以在我们可用的内存和计算资源中提供服务。但是，我们还必须关心模型在我们认为代表我们将获得的请求上的性能。有关此主题的更详细信息，请参见[第5章](ch05.xhtml#evaluating_model_validity_and_quality)。
+- en: Monitoring
+  id: totrans-64
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 监控分布式数据处理管道是困难的。生产工程师可能关心的那些简单的事情，例如管道是否足够快速地处理数据，对于分布式系统来说很难准确而有意义地产生。查看最老的未处理数据可能没有意义，因为可能会有一个单独的旧数据块卡在一个其余已经完成处理的系统中。同样地，仅仅看数据处理速率本身可能不太有用，如果某些类型的数据比其他数据显著更昂贵，那么这种评估就更加复杂。
+- en: Monitoring distributed data processing pipelines is difficult. The kinds of
+    straightforward things that a production engineer might care about, such as whether
+    the pipeline is making sufficiently fast progress working through the data, are
+    quite difficult to produce accurately and meaningfully in a distributed system.
+    Looking at the oldest unprocessed data might not be meaningful because there could
+    be a single old bit of data that’s stuck in a system that is otherwise done processing
+    everything. Likewise, looking at the data processing rate might not be useful
+    by itself if some kinds of data are markedly more expensive to process than others.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 果某些类型的数据比其他类型显著更昂贵，则不一定是有效的。
+- en: This book has an entire monitoring chapter ([Chapter 9](ch09.xhtml#monitoring_and_observability_for_models)).
+    Harder questions will be tackled there. For this section, the single most important
+    metric to track and alert on is training system throughput. If we have a meaningful
+    long-term trend of how quickly our training system is able to process training
+    data under a variety of conditions, we should be able to set thresholds to alert
+    us when things are not going well.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本书有一个完整的监控章节（[第9章](ch09.xhtml#monitoring_and_observability_for_models)）。更难的问题将在那里解决。对于本节而言，跟踪和警报的最重要的指标是训练系统的吞吐量。如果我们有一个有意义的长期趋势，能够快速处理各种条件下的训练数据，我们应该能够设置阈值，以在出现问题时提醒我们。
+- en: General Reliability Principles
+  id: totrans-67
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 一般可靠性原则
+- en: Given this simple, but workable, overall architecture, let’s look at how this
+    training system should work. If we keep several general principles in mind during
+    the construction and operationalization of the system, things will generally go
+    much better.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在制定和操作系统的构建过程中，如果我们记住几个一般原则，事情通常会更顺利。
+- en: Most Failures Will Not Be ML Failures
+  id: totrans-69
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 大多数故障不是机器学习的故障。
+- en: ML training systems are complex data processing pipelines that happen to be
+    tremendously sensitive to the data that they are processing. They are also most
+    commonly distributed across many computers, although in the simplest case they
+    might be on a single computer. This is not a base state likely to lead to long-term
+    reliability, and production engineers generally look at this data sensitivity
+    for the most common failures. However, when experienced practitioners look at
+    the experienced failures in ML systems over time, they find that most of the failures
+    are not ML specific.^([4](ch07.xhtml#ch01fn73)) They are software and systems
+    failures that occur commonly in this kind of distributed system. These failures
+    often have impact and detection challenges that are ML specific, but the underlying
+    causes are most commonly not ML specific.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML训练系统是复杂的数据处理管道，对它们处理的数据非常敏感。它们通常分布在许多计算机上，尽管在最简单的情况下可能只在一台计算机上。这并不是一个能够长期保持可靠性的基本状态，生产工程师通常会关注这些数据敏感性引发的最常见故障。然而，有经验的从业者在长期观察机器学习系统的故障时发现，大多数故障并非机器学习特有的[^4]。它们通常是在这种分布式系统中普遍发生的软件和系统故障。这些故障通常具有机器学习特有的影响和检测挑战，但其根本原因通常并非机器学习特有。
+- en: Amusing examples of these failures include such straightforward things as “the
+    training system lost permission to read the data so the model trained on nothing,”
+    and “the version that we copied to serving wasn’t the version we thought it was.”
+    Most of them are of the form of incorrectly monitored and managed data pipelines.
+    For many more examples, see Chapters [11](ch11.xhtml#incident_response) and [15](ch15.xhtml#case_studies_mlops_in_practice).
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些故障的有趣例子包括一些非常直接的事情，比如“训练系统失去读取数据的权限，因此模型在没有数据的情况下训练”，以及“我们复制到服务中的版本并非我们所认为的那个版本”。大多数情况下，这些故障是由于错误监控和管理数据管道引起的。更多例子详见第[11章](ch11.xhtml#incident_response)和第[15章](ch15.xhtml#case_studies_mlops_in_practice)。
+- en: To make ML training systems reliable, look to systems and software errors and
+    mitigate those first. Look at software versioning and deployment, permissions
+    and data access requirements, data updating policies and data organization, replication
+    systems, and verification. Essentially, do all of the work to make a general distributed
+    system reliable before beginning any ML-specific work.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使机器学习训练系统可靠，首先要解决系统和软件错误，并对其进行缓解。关注软件版本管理和部署、权限和数据访问要求、数据更新策略和数据组织、复制系统以及验证。基本上，在开始任何机器学习特定工作之前，要做好使一般分布式系统可靠的所有工作。
+- en: Models Will Be Retrained
+  id: totrans-73
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型将被重新训练。
+- en: 'Perhaps this section should be titled something even stronger: models must
+    be *retrained*. Some model developers will train a model from a dataset once,
+    check the results, deploy the model into production, and claim to be done. They
+    will note that if the dataset isn’t changing and the purpose of the model is achieved,
+    the model is good enough and there is no good reason to ever train it again.'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或许这一部分应该更加强调：模型必须*重新训练*。一些模型开发者会从数据集中训练一个模型，检查结果，将模型部署到生产环境，并声称完成了工作。他们会指出，如果数据集没有变化并且模型达到了目的，那么该模型已经足够好，没有必要再次进行训练。
+- en: Do not believe this. Eventually, whether in a day or a year, that model developer
+    or their successor will get a new idea and want to train a different version of
+    the same model. Perhaps a better dataset covering similar cases will be identified
+    or created, and then the model developers will want to train on that one. Perhaps
+    just for disaster-recovery reasons you’d like to prove that if you delete every
+    copy of the model by mistake, you can re-create it. You might simply want to verify
+    that the toolchain for training and validation is intact.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要相信这一点。最终，无论是在一天还是一年之后，该模型开发者或其继任者都会有新想法，想要训练同一模型的不同版本。也许会发现或创建一个涵盖类似案例的更好数据集，然后模型开发者会希望在其上进行训练。或许只是出于灾难恢复的原因，您希望证明如果错误删除了模型的每一个副本，您可以重新创建它。您可能只是想验证训练和验证工具链是否完整。
+- en: 'For all of these reasons, assume every model will be retrained and plan accordingly—store
+    configs and version them, store snapshots, and keep versioned data and metadata.
+    This approach has tremendous value: most of the debates about so-called “offline”
+    and “online” models are actually debates about retraining models in the presence
+    of new data. By creating a hard production requirement that models can be retrained,
+    the technical environment is much of the way to facilitating periodic retraining
+    of all models (including rapid retraining).^([5](ch07.xhtml#ch01fn74))'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 出于所有这些原因，假设每个模型都会重新训练，并据此制定计划——存储配置并进行版本控制，存储快照，并保留有版本的数据和元数据。这种方法具有巨大的价值：关于所谓的“离线”和“在线”模型的大部分争论实际上是关于在有新数据存在的情况下重新训练模型的争论。通过创建一个严格的生产要求，即模型可以重新训练，技术环境在很大程度上有助于定期重新训练所有模型（包括快速重新训练）^([5](ch07.xhtml#ch01fn74))。
+- en: Tip
+  id: totrans-77
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Assume every model will be retrained.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设每个模型都会重新训练。
+- en: Models Will Have Multiple Versions (at the Same Time!)
+  id: totrans-79
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型将会有多个版本（同时存在！）
+- en: Models are almost always developed in cohorts, most obviously because we will
+    want to train different versions with different hyperparameters. One common approach
+    is to have a named model with multiple minor changes to it. Sometimes those changes
+    arrive in a rapid cluster at the beginning, and other times they arrive over time.
+    But just as models will be retrained, it is true that they will be changed and
+    developed over time. In many environments, we will want to serve two or more versions
+    of the same model at the same time in order to determine how the different versions
+    of the model work for different conditions (for those familiar with traditional
+    web development for user experience, this is essentially A/B testing for models).
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型几乎总是以队列方式开发，这显而易见是因为我们希望使用不同的超参数训练不同版本。一种常见的方法是给一个命名模型添加多个小的变化。有时这些变化会在开始时迅速集中出现，而其他时候则会随时间逐渐到来。但正如模型将会重新训练一样，它们也将会随时间的推移而发生变化和发展。在许多环境中，我们希望同时提供同一模型的两个或更多个版本，以确定不同条件下模型的不同版本如何工作（对于熟悉传统网页开发用户体验的人来说，这本质上是模型的A/B测试）。
+- en: Hosting simultaneous versions of the same model requires specific infrastructure.
+    We need to use our model management infrastructure to keep track of model metadata
+    (including things like the model family, model name, model version, and model
+    creation date). We also need to have a system to route a subset of lookups to
+    one version of the model versus another version.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同时托管同一模型的多个版本需要特定的基础设施。我们需要使用我们的模型管理基础设施来跟踪模型元数据（包括模型系列、模型名称、模型版本和模型创建日期等内容）。我们还需要有一个系统，将部分查询路由到一个版本的模型而不是另一个版本。
+- en: Good Models Will Become Bad
+  id: totrans-82
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 好的模型会变坏
+- en: We should assume that the models we produce will be hard to reproduce and will
+    have subtle and large reliability problems in the future. Even when a model works
+    well when we launch it, we have to assume that either the model or the world might
+    change in some difficult-to-predict way that causes us enormous trouble in future
+    years. Make backup plans.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应该假设我们生产的模型将很难复制，并且将来可能会出现微妙和严重的可靠性问题。即使一个模型在启动时表现良好，我们也必须假设模型或者世界可能以某种难以预测的方式发生变化，从而在未来几年给我们带来巨大的麻烦。制定备份计划。
+- en: The very first backup plan is to make a non-ML (or at least “simpler-ML”) fallback
+    path or “fail-safe” implementation for our model. This is going to be a heuristic
+    or algorithm or default that ensures that at least some basic functionality is
+    provided by our application when the ML model is unable to provide sophisticated
+    predictions, categorizations, and insights. Common algorithms that accomplish
+    this goal are simplistic and extremely general but at least slightly better than
+    nothing. One example we’ve mentioned earlier is that for recommendations on the
+    *yarnit.ai* storefront, we might simply default to showing popular items when
+    we don’t have a customized recommendation model available.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个备份计划是为我们的模型制定一个非ML（或至少是“更简单的ML”）回退路径或“故障安全”实现。这将是一个确保我们的应用程序在ML模型无法提供复杂预测、分类和洞见时至少提供一些基本功能的启发式算法或默认设置。实现这一目标的常见算法是简单而极为普遍的，但至少比没有稍微好一点。我们之前提到的一个例子是，在*yarnit.ai*商店的推荐系统中，当我们没有定制的推荐模型可用时，我们可能简单地默认显示流行商品。
+- en: 'This approach has a tremendous problem, however: it limits how good you can
+    let your ML models be. If the models become so much better than the heuristics
+    or defaults, you will come to depend upon them so thoroughly that no backup will
+    be sufficient to accomplish the same goals. Depending on defaults and heuristics
+    is a completely appropriate path for most organizations that are early in the
+    ML adoption lifecycle. But it is a dependency that you should wean yourself off
+    of if you’d like to actually take advantage of ML in your organization.'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这种方法存在一个巨大的问题：它限制了您能够让您的机器学习模型有多好。如果模型比启发式或默认设置要好得多，您将会对它们依赖如此之深，以至于没有任何备份足以实现相同的目标。依赖于默认设置和启发式是大多数在机器学习采用生命周期早期的组织所选择的一条完全适当的道路。但这是一个依赖关系，如果您真的想在组织中实际利用机器学习，您应该摆脱它。
+- en: The other backup plan is to keep multiple versions of the same model and plan
+    to revert to an older one if you need to. This will cover cases where a newer
+    version of the model is significantly worse for some reason, but it will not help
+    when the world as a whole has changed and therefore all versions of this model
+    are not very good.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个备份计划是保留同一模型的多个版本，并计划在需要时回退到旧版本。这将涵盖一些由于某种原因新版本模型显著较差的情况，但当整个世界已经改变，因此所有版本的这个模型都不是很好时，它将无济于事。
+- en: Ultimately, the second backup plan, combined with the ability to serve multiple
+    models at the same time and quickly develop new variations of existing models,
+    provides a path to understanding and resolving future model quality problems when
+    the world has changed in a way that makes the model perform poorly. It is important
+    for production traditionalists to note that no fixed or defensible barrier exists
+    between model development and production in this case. Model quality is both a
+    production engineering problem and a model development problem (which might occur
+    urgently in production).
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，第二个备份计划结合能够同时提供多个模型并快速开发现有模型的新变体的能力，为理解和解决未来模型质量问题提供了一条路径，当世界以一种使模型表现不佳的方式改变时。对于传统的生产人员来说，重要的是注意，在这种情况下，模型开发和生产之间不存在固定或可辩护的障碍。模型质量既是生产工程问题，也是模型开发问题（可能紧急发生在生产中）。
+- en: Data Will Be Unavailable
+  id: totrans-88
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据将不可用
+- en: Some of the data used to train new models will not be available when we try
+    to read it. Data storage systems, especially distributed data storage systems,
+    have failure modes that include small amounts of actual data loss, but much higher
+    amounts of data unavailability. This is a problem worth thinking through in advance
+    of its occurrence because it will definitely occur.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在尝试读取时，用于训练新模型的部分数据将不可用。数据存储系统，特别是分布式数据存储系统，有包括少量实际数据丢失和更高量的数据不可用在内的故障模式。这是一个值得提前考虑的问题，因为它肯定会发生。
+- en: Most ML training datasets are already sampled from another, larger dataset,
+    or simply a subset of all possible data by virtue of when or how we started collecting
+    the data in the first place. For example, if we train on a dataset of customer
+    purchase behavior at *yarnit.ai*, this dataset is already incomplete from the
+    start, in at least two obvious ways.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数机器学习训练数据集已经从另一个更大的数据集中抽样，或者仅仅是从我们开始收集数据的时间或方式的全部可能数据的一个子集。例如，如果我们在*yarnit.ai*的客户购买行为数据集上进行训练，这个数据集从一开始就是不完整的，至少有两个明显的方面。
+- en: First, there was some date before which we were not collecting this data (or
+    some date before which we choose not to use the data for whatever reason). Second,
+    this is really only customer purchase behavior on our site and does not include
+    any customer purchase behavior of similar products on any other sites. This is
+    unsurprising because our competitors don’t share data with us, but it does mean
+    that we’re already seeing only a subset of what is almost certainly relevant training
+    data. For very high-volume systems (web-browsing logs, for example), many organizations
+    subsample this data before training automatically as well, simply to reduce the
+    cost of data processing and model training.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，有一些日期是我们没有收集这些数据的日期（或者在某些日期之前我们选择不使用数据，无论出于什么原因）。其次，这实际上只是我们网站上的客户购买行为，不包括其他网站上类似产品的客户购买行为。这并不奇怪，因为我们的竞争对手不与我们共享数据，但这意味着我们已经看到的几乎肯定是相关训练数据的一个子集。对于非常高容量的系统（例如Web浏览日志），许多组织在训练之前也会自动对这些数据进行子采样，以减少数据处理和模型训练的成本。
+- en: 'Given that our training data is already subsampled, probably in several ways,
+    when we lose data, we should answer this question: is the loss of data biased
+    in some way? If we were to drop one out of every 1,000 training records in a completely
+    random way, this is almost certainly safe to ignore for the model. On the other
+    hand, losing all of the data from people in Spain, or from people who shop in
+    the mornings, or from the day before a large knitting conference—these are not
+    ignorable. They are likely to create new biases in the data that we train on versus
+    the data that we do not.^([6](ch07.xhtml#ch01fn75))'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴于我们的训练数据已经进行了子抽样，可能以多种方式进行，当我们丢失数据时，我们应该回答这个问题：数据的丢失是否存在某种偏差？如果我们以完全随机的方式删除每一千个训练记录中的一个，这几乎可以肯定可以忽略对模型的影响。另一方面，失去所有来自西班牙人或者上午购物的人的数据，或者大型针织会议前一天的数据，这些都是不能忽略的。它们很可能会在我们训练的数据与我们不训练的数据之间造成新的偏差。
+- en: Some training systems will try to pre-solve the problem of missing data for
+    the entire system in advance of it occurring. This will work only if all of your
+    models have a similar set of constraints and goals. This is because the impact
+    of missing data is something that matters to each model and can be understood
+    only in the context of its impact on each model.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些培训系统会在问题出现之前尝试预先解决整个系统的缺失数据问题。只有在所有模型具有类似的约束和目标时，这种方法才会奏效。这是因为缺失数据的影响对每个模型都很重要，只有在其对每个模型影响的背景下才能理解。
+- en: Missing data can also have security properties that are worth considering. Some
+    systems, especially those designed to prevent fraud and abuse, will be under constant
+    observation and attack from outside malicious parties. Attacks on these systems
+    consist of trying different kinds of behaviors to determine the response of the
+    system and taking advantage of gaps or weaknesses that appear. In these cases,
+    training system reliability teams need to be certain that there is no way for
+    an outside party to systematically bias which particular time periods are skipped
+    during training. It is not at all unheard of for attackers to find ways to, for
+    example, create very large volumes of duplicate transactions for short periods
+    of time in order to overwhelm data processing systems and try to hit a high-rate
+    discard heuristic in the system. This is the kind of scenario that everyone working
+    on data loss scenarios needs to consider in advance.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缺失数据还可能具有值得考虑的安全属性。一些系统，特别是那些旨在防止欺诈和滥用的系统，将受到外部恶意方的持续观察和攻击。对这些系统的攻击包括尝试不同类型的行为来确定系统的响应，并利用出现的漏洞或弱点。在这些情况下，训练系统可靠性团队需要确保没有外部方面可以系统性地偏置哪些特定时间段在训练过程中被跳过。攻击者找到的方式，例如在短时间内创建大量重复交易，以淹没数据处理系统并尝试命中系统中的高丢弃启发式策略，这是每个处理数据丢失场景的人都需要事先考虑的一种情景。
+- en: Models Should Be Improvable
+  id: totrans-95
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型应该可以改进
+- en: Models will change over time, not just by adding new data. They will also see
+    larger, structural changes. The requirements to change come from several directions.
+    Sometimes we will add a feature to the application or implementation that provides
+    new data but also requires new features of the model. Sometimes our user behavior
+    will change substantially enough that we need to alter the model to accommodate.
+    Procedurally, the most challenging change to model training in the training system
+    we’re describing here is adding a completely new feature.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型会随着时间变化，不仅仅是通过添加新数据。它们还会经历更大的结构性变化。改变的要求来自多个方向。有时我们会向应用程序或实现添加一个新特性，该特性不仅提供新数据，还需要模型的新特性。有时候我们的用户行为会发生足够大的变化，以至于我们需要修改模型来适应。在描述的训练系统中，程序上对模型训练最具挑战性的变化是添加一个全新的特性。
+- en: Features Will Be Added and Changed
+  id: totrans-97
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征将被添加和更改
+- en: Most production ML training systems will have some form of a feature store to
+    organize the ML training data. (Feature stores offer many advantages and are discussed
+    in more detail in [Chapter 4](ch04.xhtml#feature_and_training_data).) From the
+    perspective of a training system, what we need to note is that a significant part
+    of model development over time is often adding new features to the model. This
+    happens when a model developer has a new idea about some data that might, in combination
+    with our existing data, usefully improve the model.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数生产 ML 训练系统都会有某种形式的特征存储来组织 ML 训练数据。（特征存储提供了许多优势，并在[第四章](ch04.xhtml#feature_and_training_data)中详细讨论。）从训练系统的角度来看，我们需要注意的是，随着时间推移，模型开发的重要部分通常是向模型添加新特征。这种情况发生在模型开发人员对可能与现有数据结合使用以有用地改进模型的某些数据有新想法时。
+- en: Adding features will require a change to the feature store schema that is implementation
+    specific, but it might also benefit from a process to “backfill” the feature store
+    by reprocessing raw logs or data from the past to add the new feature for prior
+    examples. For instance, if we decide that the local weather in the city that we
+    believe our customers to be shopping from is a salient way to predict what they
+    might buy, we’ll have to add `customer_temperature` and `customer_precipitation`
+    columns to the feature store.^([7](ch07.xhtml#ch01fn76)) We might also reprocess
+    browsing and purchasing data for the last year to add these two columns in the
+    past so that we can validate our assumption that this is an important signal.
+    Adding new columns to the feature store and changing to schema and content of
+    data in the past are both activities that can significantly impact reliability
+    of all our models in the training system if the changes are not managed and coordinated
+    carefully.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 添加特征将需要更改特征存储模式，这是特定于实施的，但也可能受益于“回填”特征存储的过程，通过重新处理过去的原始日志或数据为以前的示例添加新特征。例如，如果我们决定我们认为顾客正在购物的城市的当地天气是预测他们可能购买的一种显著方式，我们将不得不向特征存储添加`customer_temperature`和`customer_precipitation`列。[^7]
+    我们可能还会重新处理过去一年的浏览和购买数据，以在过去添加这两列，以便验证我们的假设这是一个重要的信号。向特征存储添加新列以及更改过去数据的模式和内容是两项活动，如果变更未经精心管理和协调，可能会显著影响训练系统中所有模型的可靠性。
+- en: Models Can Train Too Fast
+  id: totrans-100
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型可能训练得太快。
+- en: ML production engineers are sometimes surprised to learn that in some learning
+    systems, models can train too fast.^([8](ch07.xhtml#ch01fn77)) This can depend
+    a bit on the exact ML algorithm, model structure, and parallelism of the system
+    in which it’s being implemented. But it is entirely possible to have a model that,
+    when trained too quickly, produces garbage results, but when trained more slowly,
+    produces much more accurate results.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时，ML 生产工程师会惊讶地发现，在某些学习系统中，模型可能训练得太快。[^8] 这可能有点取决于确切的 ML 算法、模型结构以及实施系统的并行性。但完全有可能出现这样一种模型：当训练得太快时，产生垃圾结果；但当训练得更慢时，产生的结果则更准确。
+- en: 'Here is one way this can happen: there is a distributed representation of the
+    state of the model used by a distributed set of learning processes. The learning
+    processes read new data, consult the state of the model, and then update the state
+    of part of the model to reflect the piece of data they just read.^([9](ch07.xhtml#ch01fn78))
+    As long as there are either locks (slow!) or no updates to the particular key
+    we are updating (unlikely at scale) in the middle of that process, everything
+    is fine.'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是可能发生的一种方式：模型状态有一个分布式表示，由分布式的学习过程集合使用。学习过程读取新数据，查询模型的状态，然后更新模型的部分状态以反映它们刚刚读取的数据。[^9]
+    只要在这个过程中有锁定（慢！）或没有更新正在更新的特定键（在规模上不太可能），一切都很好。
+- en: The problem is that multiple race conditions can exist, where two or more learner
+    tasks consult the model, read some data, and queue and update to the model at
+    the same time. One really common occurrence then is that the updates can stack
+    on top of each other, and that portion of the model can move too far in a certain
+    direction. The next time a bunch of learner tasks consult the model, they find
+    it skewed in one direction by a lot, compared to the data that they are reading,
+    so they queue up changes to move it substantially in the other direction. Over
+    time, this part of the model (and other parts of the model) can diverge from the
+    correct value rather than converge.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 问题在于可能存在多个竞争条件，其中两个或多个学习任务同时查询模型，读取某些数据，并将更新排队到模型。一个非常普遍的情况是更新可以堆叠在一起，导致模型的某个部分在某个方向上移动得太远。下次一群学习任务查询模型时，它们发现它在某个方向上的偏差很大，与它们正在读取的数据相比，因此它们排队更新以使其大幅朝另一个方向移动。随着时间的推移，这部分模型（以及其他部分模型）可能会偏离正确的值而不是收敛。
+- en: Warning
+  id: totrans-104
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: For distributed training setups, multiple race conditions is an extremely common
+    source of failure.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于分布式训练设置来说，多个竞争条件是一个极为常见的失败来源。
+- en: 'Unfortunately for the discipline of ML production engineering, there is no
+    simple way to determine when a model is being trained “too fast.” There’s a real-world
+    test that is inconvenient and frustrating: if you train the same model faster
+    and slower (typically, with more and fewer learner tasks), and the slower model
+    is “better” in some set of quality metrics, then you might be training too fast.'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于机器学习生产工程学科来说，确定模型是否训练得“太快”并没有简单的方法。有一个现实世界的测试是不方便和令人沮丧的：如果你以更快和更慢的速度训练同一个模型（通常是用更多和更少的学习任务），并且慢速模型在某些质量指标上“更好”，那么你可能是在训练得太快了。
+- en: The main approaches to mitigating this problem are to structurally limit the
+    number of updates “in flight” by making the state of the model as seen by any
+    learning processes closely synchronized with the state of the model as stored.
+    This can be done by storing the current state of the model in very fast storage
+    (RAM) and by limiting the rate at which multiple processes update the model. It
+    is possible, of course, to use locking data structures for each key or each part
+    of the model, but the performance penalties imposed by these are usually too high
+    to seriously consider.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缓解这个问题的主要方法是通过在任何学习过程中将模型状态与存储状态密切同步，从而结构性地限制“正在进行中”的更新次数。这可以通过在非常快速的存储（RAM）中存储当前模型状态以及限制多个进程更新模型的速率来实现。当然，也可以为每个关键字或模型的每个部分使用锁定数据结构，但这些通常会施加太高的性能惩罚，难以认真考虑。
+- en: Resource Utilization Matters
+  id: totrans-108
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 资源利用至关重要
+- en: 'This should be stated simply and clearly: ML training and serving is computationally
+    expensive. One basic reason that we care about resource efficiency for ML training
+    is that without an efficient implementation, ML may not make business sense. Consider
+    that an ML model offers some business or organizational value proportional to
+    the value that it provides, divided by the cost to create the model. While the
+    biggest costs at the beginning are people and opportunity costs, as we collect
+    more data, train more models, and use them more, computer infrastructure costs
+    will grow to an increasingly large share of our expenditure. So it makes sense
+    to pay attention to it early.'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这应该简单明了地说明：机器学习的训练和服务是计算昂贵的。我们关注机器学习训练资源效率的一个基本原因是，如果没有有效的实施，机器学习可能没有商业意义。考虑到机器学习模型提供的某些业务或组织价值与其提供的价值成比例，除以创建模型的成本。尽管最初的成本主要是人力和机会成本，但随着我们收集更多数据，训练更多模型并更多地使用它们，计算基础设施成本将占据越来越大的开支份额。因此，早期关注这一点是有意义的。
+- en: 'Specifically and concretely, utilization describes the following:'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 具体而明确地说，利用率描述如下：
+- en: <math><mrow><mrow><mfrac><mrow><mi>portion of compute resources used</mi></mrow><mrow><mi>total
+    compute resources paid for</mi></mrow></mfrac></mrow></mrow></math>
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math><mrow><mrow><mfrac><mrow><mi>计算资源使用的部分</mi></mrow><mrow><mi>支付的总计算资源</mi></mrow></mfrac></mrow></mrow></math>
+- en: This is the converse of wastefulness and measures how well we’re using the resources
+    we pay for. In an increasingly cloud world, this is an important metric to track
+    early.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是浪费的反义词，衡量我们如何有效使用我们付费的资源。在一个日益云化的世界中，这是一个早期跟踪的重要指标。
+- en: Resource utilization is also a reliability issue. The more headroom we have
+    to retrain models compared to the resources we have available, the more resilient
+    the overall system will be. This is because we will be able to recover from outages
+    more quickly. This is true if we’re training the model on a single computer or
+    on a huge cluster. Furthermore, utilization is also an innovation issue. The cheaper
+    models are to train, the more ideas we will be able to explore in a given amount
+    of time and budget. This markedly increases the likelihood that we will find a
+    good idea among all of the bad ones. It is easy to lose track of this down here
+    in the details, but we are not really here to train models—we’re here to make
+    some kind of difference in our organization and for our customers.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 资源利用也是可靠性问题。与我们可用的资源相比，我们有更多余地来重新训练模型，整个系统的韧性就越强。因为我们能够更快地从停机中恢复过来。这一点不论是在单台计算机上还是在大型集群上训练模型都成立。此外，利用率也是创新问题。模型训练得越便宜，我们在给定的时间和预算内能够探索的想法就越多。这显著增加了我们在所有糟糕的想法中找到好想法的可能性。在细节层面很容易忽视这一点，但我们实际上不是在这里训练模型
+    —— 我们是为了在我们的组织和客户中产生某种不同。
+- en: 'So it’s clear we care about efficient use of our resources. Here are some simple
+    ways we can make ML training systems work well in this respect:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，我们关心资源的有效使用。以下是一些简单的方法，可以使机器学习训练系统在这方面表现良好：
+- en: Process data in batches
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批处理处理数据
+- en: When possible (algorithm-dependent), train on chunks of data at the same time.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在可能的情况下（依赖于算法），同时对数据块进行训练。
+- en: Rebuild existing models
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重建现有模型
+- en: 'Early-stage ML training systems often rebuild models from scratch on all of
+    the data when new data arrives. This is simpler from a configuration and software
+    perspective but ultimately can become enormously inefficient. This idea of incrementally
+    updating models has a few other variants:'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 早期阶段的机器学习训练系统通常会在新数据到达时从头开始重建模型。这从配置和软件角度来看更简单，但最终可能效率极低。增量更新模型的这种想法还有几个其他变体：
+- en: Use transfer learning to build a model by starting with an existing model.^([10](ch07.xhtml#ch01fn79))
+  id: totrans-119
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用迁移学习通过利用现有模型构建一个模型。^([10](ch07.xhtml#ch01fn79))
+- en: Use a multimodel architecture with a long-term model that is large but seldom
+    retrained, and a smaller, short-term model that is cheaply updated frequently.
+  id: totrans-120
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用多模型架构，其中包括一个长期模型，大且不经常重新训练，以及一个较小的短期模型，便宜且频繁更新。
+- en: Use online learning, whereby the model is incrementally updated as each new
+    data point arrives.
+  id: totrans-121
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用在线学习，即每个新数据点到达时增量更新模型。
+- en: Simple steps such as these can significantly impact an organization’s computational
+    costs for training and retraining models.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 诸如此类简单步骤可以显著影响组织的计算成本，用于训练和重新训练模型。
+- en: Utilization != Efficiency
+  id: totrans-123
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 利用率 != 效率
+- en: 'To know whether our ML efforts are useful, we have to measure the value of
+    the process rather than the CPU cycles spent to deliver it. Efficiency measures
+    the following:'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要知道我们的机器学习工作是否有用，我们必须衡量过程的价值，而不是提供它所花费的CPU周期。效率度量包括以下几点：
+- en: <math><mrow><mrow><mfrac><mrow><mi>value produced</mi></mrow><mrow><mi>cost</mi></mrow></mfrac></mrow></mrow></math>
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math><mrow><mrow><mfrac><mrow><mi>生成价值</mi></mrow><mrow><mi>成本</mi></mrow></mfrac></mrow></mrow></math>
+- en: Cost can be calculated two ways, each of which provides a different view of
+    our efforts. *Money-indexed cost* is the dollars we spend on resources. Here we
+    just calculate the total amount of money spent on training models. This has the
+    advantage of being a very real figure for most organizations. It has the disadvantage
+    that changes in pricing of resources can make it hard to see changes that are
+    due to modeling and system work versus exogenous changes from our resource providers.
+    For example, if our cloud provider starts charging much more for a GPU that we
+    currently use, our efficiency will go down through no change we made. This is
+    important to know, of course, but it doesn’t help us build a more efficient training
+    system. In other words, money cost is the most important, long-term measure of
+    efficiency but is ironically not always the best way to identify projects to improve
+    efficiency.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 成本可以通过两种方式计算，每种方式都提供了我们努力的不同视角。*以金钱为索引的成本*是我们在资源上花费的美元数。在这里，我们只计算用于训练模型的总金额。这样做的优点是对大多数组织来说，这是一个非常实际的数字。但它的缺点是资源定价的变化可能会使我们难以区分由建模和系统工作引起的变化与来自我们资源提供者的外生变化。例如，如果我们的云服务提供商开始对我们目前使用的GPU收费更多，我们的效率会因为我们没有做出任何改变而下降。当然，了解这一点很重要，但它并不能帮助我们建立一个更高效的训练系统。换句话说，金钱成本是衡量效率最重要的长期指标，但具有讽刺意味的是，并不总是识别项目以提高效率的最佳方式。
+- en: Conversely, *resource-indexed cost* is measured in dollar-constant terms. One
+    way to do this is to identify the most expensive and most constrained resource
+    and use that as the sole element of the resource-indexed cost. For example, we
+    might measure cost as *CPU seconds* or *GPU seconds*. This has the advantage that
+    when we make our training system more efficient, we will be able to see it immediately,
+    regardless of current pricing details.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，*以资源为索引的成本*是以恒定美元的术语衡量的。做到这一点的一种方法是识别最昂贵和最受限制的资源，并将其用作资源索引成本的唯一元素。例如，我们可以将成本测量为*CPU秒*或*GPU秒*。这样做的优点是，当我们使我们的训练系统更加高效时，我们将能够立即看到它，而不受当前定价细节的影响。
+- en: 'This raises the difficult question of what, exactly, is the value of our ML
+    efforts. Again, there are two kinds of value we might measure: *per model* and
+    *overall*. At the per model level of granularity, *value* is less grandiose than
+    we might expect. We don’t need to measure the actual business impact of every
+    single trained model. Instead, for simplicity, let’s assume that our training
+    system is worthwhile. In that case, we need a metric that helps us compare the
+    value being created across different implementations training the same model.
+    One that works well is something like'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这引发了一个困难的问题，那就是我们的机器学习工作的价值究竟是多少。同样，我们可能要衡量的价值有两种：*每个模型*和*整体*。在每个模型的粒度水平上，*价值*可能不如我们预期那样宏伟。我们不需要衡量每个训练模型的实际业务影响。相反，为了简单起见，让我们假设我们的训练系统是值得的。在这种情况下，我们需要一个指标来帮助我们比较在训练相同模型的不同实现之间创建的价值。一个运作良好的指标可能是
+- en: number of features trained
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练的特征数量
+- en: or even
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者甚至
+- en: number of examples processed
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理的示例数量
+- en: or possibly
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者
+- en: number of experimental models trained
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练的实验模型数量
+- en: 'So for a per model, resource-indexed, cost-efficiency metric, we might have
+    this:'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，对于每个模型、以资源为索引的、成本效率的指标，我们可能有这样一个：
+- en: <math><mrow><mrow><mfrac><mrow><mi>millions of examples</mi></mrow><mrow><mi>GPU
+    second</mi></mrow></mfrac></mrow></mrow></math>
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math><mrow><mrow><mfrac><mrow><mi>数百万例</mi></mrow><mrow><mi>GPU秒</mi></mrow></mfrac></mrow></mrow></math>
+- en: This will help us easily see efforts to make reading and training more efficient
+    without requiring us to know anything at all about what the model actually does.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将帮助我们轻松地看到使阅读和训练更加高效的努力，而无需我们了解模型实际上做了什么。
+- en: Conversely, *overall* value attempts to measure value across the entire program
+    of ML model training, considering how much it costs us to add value to the organization
+    as a whole. This will include the cost of the staff, the test models, and the
+    production model training and serving. It should also attempt to measure the overall
+    value of the model to our organization. Are our customers happier? Are we making
+    more money? Overall efficiency of the ML training system is measured at a whole-program
+    or whole-group basis and is measured over months rather than seconds.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，*整体*价值试图衡量在整个机器学习模型培训计划中的价值，考虑到我们为将价值增加到整个组织中所付出的成本。这将包括员工成本、测试模型以及生产模型的培训和服务成本。它还应试图衡量模型对我们组织的整体价值。我们的客户是否更满意？我们是否赚更多的钱？机器学习训练系统的整体效率是以整个计划或整个组的基础上衡量的，并且是以月为单位而不是秒为单位衡量的。
+- en: Organizations that do not have a notion of efficiency will ultimately misallocate
+    time and effort. It is far better to have a somewhat inaccurate measure that can
+    be improved than to not measure efficiency at all.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有效率概念的组织最终会错误地分配时间和精力。有一个略微不准确但可以改进的测量指标远比根本不测量效率要好得多。
+- en: Outages Include Recovery
+  id: totrans-139
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 故障包括恢复
+- en: 'This is somewhat obvious but still worth stating clearly: ML outages include
+    the time it takes to recover from the outage. This has a huge and direct implication
+    for monitoring, service levels, and incident response. For example, if a system
+    can tolerate a 24-hour outage of your training system, but it takes you 18 hours
+    to detect any problems and 12 hours to train a new model after the problems are
+    detected, we cannot reliably stay within the 24 hours. Many people modeling production-engineering
+    response to training-system outages utterly neglect to include model recovery
+    time.'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这显然是一个显而易见的事实，但还是值得清楚地指出：ML（机器学习）的故障包括从故障中恢复所需的时间。这对监控、服务水平和事故响应有着巨大和直接的影响。例如，如果一个系统能够容忍培训系统的
+    24 小时故障，但是在发现任何问题需要 18 小时，并且在发现问题后需要 12 小时来训练新模型，我们就不能可靠地在 24 小时内完成。很多人在建模生产工程响应培训系统故障时完全忽视了包括模型恢复时间。
+- en: Common Training Reliability Problems
+  id: totrans-141
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 常见的训练可靠性问题
+- en: 'Now that you understand the basic architecture of a training system and have
+    looked at general reliability principles about training systems, let’s look at
+    some specific scenarios where training systems fail. This section covers three
+    of the most common reliability problems for ML training systems: data sensitivity,
+    reproducibility, and capacity shortfalls. For each, we will describe the failure
+    and then give a concrete example of how that might occur in the context of YarnIt,
+    our fictional online knitting and crochet supply store.'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经了解了培训系统的基本架构，并查看了关于培训系统的一般可靠性原则，让我们看看一些特定的培训系统失败场景。本节涵盖了 ML 训练系统三个最常见的可靠性问题：数据敏感性、可重复性和容量不足。对于每个问题，我们将描述失败情况，然后在
+    YarnIt 的情景中给出一个具体的例子。
+- en: Data Sensitivity
+  id: totrans-143
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据敏感性
+- en: As has been repeatedly mentioned, ML training systems can be extremely sensitive
+    to small changes in the input data and to changes in the distribution of that
+    data. Specifically, we can have the same volume of training data but have significant
+    gaps in the way that the data covers various subsets of the data. Think about
+    a model that is trying to predict things about worldwide purchases but has data
+    from only US and Canadian transactions. Or consider an image-categorization algorithm
+    that has no pictures of cats but many pictures of dogs. In each of these scenarios,
+    the model will have a biased view of reality by virtue of training on only a biased
+    set of data. These gaps in training data coverage can be present from the very
+    beginning or can occur over time as we experience gaps or shifts in the training
+    data.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如反复提到的，ML 训练系统对输入数据的小变化和数据分布的变化非常敏感。具体来说，我们可能有相同数量的训练数据，但在数据覆盖不同子集的方式上存在显著差异。想象一个试图预测全球购买行为的模型，但只有美国和加拿大的交易数据。或者考虑一个图像分类算法，其中没有猫的图片，但有许多狗的图片。在每种情况下，由于仅在有偏见的数据集上进行训练，模型对现实的看法都会存在偏差。这些训练数据覆盖的空白可能从一开始就存在，也可能随着时间推移而出现，因为我们在训练数据中经历了空白或变化。
+- en: Lack of representativeness in the input data is one common source of bias in
+    ML models; here, we are using *bias* in both the technical sense of the difference
+    between the predicted value and the correct value in a model, but also in the
+    social sense of being prejudiced against or damaging for a population in society.
+    Strange distributions in the data can also cause a wide variety of other much
+    more mundane problems. For some subtle and interesting cases, see [Chapter 11](ch11.xhtml#incident_response),
+    but for now let’s consider a straightforward data sensitivity problem at YarnIt.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输入数据缺乏代表性是 ML 模型中偏见的常见源头；这里我们使用 *偏见* 一词既是在技术上指模型预测值与正确值之间的差异，也是在社会上指对某一人群有偏见或有损害的含义。数据中的奇怪分布也可能引起许多其他更为普通的问题。有关一些微妙且有趣的案例，请参阅
+    [第 11 章](ch11.xhtml#incident_response)，但现在让我们考虑 YarnIt 的一个明显的数据敏感性问题。
+- en: Example Data Problem at YarnIt
+  id: totrans-146
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在 YarnIt 的示例数据问题
+- en: YarnIt uses an ML model to rank the results of end-user searches. Customers
+    come to the website and type some words for a product they are looking for. We
+    generate a simple and broad list of candidate products that might match that search
+    and then rank them with an ML model designed to predict how likely each product
+    is to be useful to the user who is doing this query right now.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: YarnIt 使用 ML 模型来对最终用户搜索结果进行排名。客户访问网站并输入一些产品名称的关键词。我们生成一个简单而广泛的候选产品列表，这些产品可能与搜索匹配，并使用设计用于预测每个产品对正在进行此查询的用户有用程度的
+    ML 模型对它们进行排名。
+- en: The model will have features like “words in the product name,” “product type,”
+    “price,” “country of origin of the query,” and “price sensitivity of the user.”
+    These will help us rank a set of candidate products for this user. And we retrain
+    this model every day in order to ensure that we’re correctly ranking new products
+    and adapting to changes in purchase patterns.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型将具有“产品名称中的单词”，“产品类型”，“价格”，“查询的原产地”，以及“用户的价格敏感性”等特征。这些特征将帮助我们为用户排名一组候选产品。我们每天重新训练这个模型，以确保我们正确地排名新产品，并适应购买模式的变化。
+- en: In one case, our pricing team at YarnIt creates a series of promotions to sell
+    off overstocked products. The modeling team wants to capture the pre-discount
+    price and the sale price separately, as these might be different signals to user
+    purchase behavior. But because of the change in data formatting, they mistakenly
+    exclude all discounted purchases from the training set after they add the discounted
+    price to the dataset. Until they notice this, the model will train entirely on
+    full-price purchases. From the perspective of the ML system, discounted items
+    are simply no longer ever purchased by anyone, ever. As a result, the model will
+    eventually stop recommending the discounted products, since there is no longer
+    any evidence from our logging, data, and training system that anyone is ever purchasing
+    them! This kind of very small error in data handling during training can lead
+    to significant errors in the model.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个案例中，我们在 YarnIt 的定价团队创建了一系列促销活动，以清理库存产品。建模团队希望分别捕获折扣前价格和销售价格，因为这些可能是不同的用户购买行为信号。但由于数据格式的变化，他们在将折扣价格添加到数据集后错误地排除了所有折扣购买记录，直到他们注意到这一点，模型将完全基于全价购买进行训练。从
+    ML 系统的角度来看，折扣商品似乎永远不再被任何人购买。因此，模型最终将停止推荐折扣产品，因为我们的日志、数据和训练系统中再也找不到任何人购买它们的证据！在训练期间数据处理中的这种非常小的错误可能会导致模型中的重大错误。
+- en: Reproducibility
+  id: totrans-150
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 可复制性
+- en: 'ML training is often not strictly reproducible; it is almost impossible to
+    use exactly the same binaries on exactly the same training data and produce exactly
+    the same model, given the way most modern ML training frameworks work. Even more
+    disconcerting, it may not even be possible to get approximately the same model.
+    Note that while *reproducibility* in academic ML refers to reproducing the results
+    in a published paper, here we are referring to something more straightforward
+    and more concerning: reproducing our own results from this same model on this
+    same dataset.'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML 训练通常不是严格可复制的；在现代大多数 ML 训练框架工作方式下，几乎不可能在完全相同的训练数据和二进制文件上生成完全相同的模型，甚至可能无法得到大致相同的模型。请注意，虽然学术上的
+    ML 中的“可复制性”是指在已发布论文中重现结果，但这里我们指的是更为简单和更为关键的问题：在相同的数据集和模型上重现我们自己的结果。
+- en: 'ML reproducibility challenges come from several sources, some of them fixable
+    and others not. It is important to address the solvable problems first. Here are
+    some of the most common causes of model irreproducibility:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML 可复制性的挑战来自几个来源，其中一些可解决，另一些则不行。重要的是先解决可解决的问题。以下是一些导致模型不可复制的最常见原因：
+- en: Model configuration, including hyperparameters
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型配置，包括超参数
+- en: 'Small changes in the precise configuration of the model, especially in the
+    hyperparameters chosen, can have big effects on the resulting model. The solution
+    here is clear: use versioning for the model configurations, including the hyperparameters,
+    and ensure that you’re using exactly the same values.'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型精确配置的微小变化，特别是选择的超参数，可能会对生成的模型产生重大影响。解决方案很明确：对模型配置进行版本控制，包括超参数，并确保使用完全相同的数值。
+- en: Data differences
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据差异
+- en: As obvious as it may sound, most ML training feature storage systems are frequently
+    updated, and it is difficult to guarantee that there are no changes at all to
+    data between two runs of the same model. If you’re having reproducibility challenges,
+    eliminating the possibility of differences in the training data is a critical
+    step.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管听起来显而易见，但大多数机器学习训练特征存储系统经常更新，很难保证在同一模型的两次运行之间数据完全没有任何变化。如果遇到可重现性挑战，消除训练数据差异的可能性是至关重要的一步。
+- en: Binary changes
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 二进制更改
+- en: Even minor version updates to your ML training framework, learning binaries,
+    or orchestration or scheduling system can result in changes to the resulting models.
+    Hold these constant across training runs while you’re debugging reproducibility
+    problems.^([11](ch07.xhtml#ch01fn80))
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使是对机器学习训练框架、学习二进制文件或编排或调度系统的微小版本更新，也可能导致生成的模型发生变化。在调试可重现性问题时，保持这些内容在训练运行期间保持不变。^([11](ch07.xhtml#ch01fn80))
+- en: 'Aside from those fixable causes for irreproducibility, at least three causes
+    are not easily fixed:'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了那些可修复的无法重现的原因外，至少还有三个原因不容易修复：
+- en: Random initializations
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机初始化
+- en: Many ML algorithms and most ML systems use random initializations, random shuffling,
+    or random starting-point selection as a core part of the way they work. This can
+    contribute to differences across training runs. In some cases, this difference
+    can be mitigated by using the same random seed across runs.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多机器学习算法和大多数机器学习系统使用随机初始化、随机洗牌或随机起点选择作为它们工作的核心部分。这可能导致训练运行中的差异。在某些情况下，可以通过在多次运行中使用相同的随机种子来减少这种差异。
+- en: System parallelism
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 系统并行性
+- en: In a distributed system (or even a single-computer training system with multiple
+    threads), jobs will be scheduled on lots of processors, and they will learn in
+    a somewhat different order each time. There will be ordering effects depending
+    on which keys are updated in what order. Without sacrificing the throughput and
+    speed advantages of distributed computing, there’s no obvious way to avoid this.
+    Note that some modern hardware accelerator architectures offer custom, high-speed
+    interconnections among chips much faster than other networking technologies. NVIDIA’s
+    NVLink or the interconnections among Google’s Cloud TPUs are examples of this.
+    These interconnections reduce, but do not eliminate, the lag in propagating state
+    among compute nodes.^([12](ch07.xhtml#ch01fn81))
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在分布式系统（甚至是具有多个线程的单机训练系统）中，作业将被安排在大量处理器上，并且它们每次学习的顺序都会有所不同。根据以何种顺序更新哪些键，会产生顺序效应。在不牺牲分布计算的吞吐量和速度优势的情况下，没有明显的方法可以避免这一点。请注意，一些现代硬件加速器架构提供了比其他网络技术快得多的定制高速芯片之间的互连。例如，NVIDIA
+    的 NVLink 或 Google 的 Cloud TPU 之间的互连就是其中的例子。这些互连减少了但并未消除在计算节点之间传播状态时的延迟。^([12](ch07.xhtml#ch01fn81))
+- en: Data parallelism
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据并行
+- en: Just as the learning jobs are distributed, so is the data, assuming we have
+    a lot of it. Most distributed data systems do not have strong ordering guarantees
+    without imposing significant performance constraints. We have to assume that we
+    will end up reading the training data in somewhat different order even if we do
+    so from a limited number of training jobs.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如学习任务被分布式处理一样，数据也是如此，假设我们有大量数据。大多数分布式数据系统在不加入显著性能约束条件下，不具备强有序性保证。我们必须假设，即使是从有限数量的训练任务中读取训练数据，也会以略有不同的顺序进行阅读。
+- en: Addressing these three causes is costly and challenging to the point of being
+    almost impossible. Some level of inability to reproduce precisely the same model
+    is a necessary feature of the ML training process.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理这三个原因是昂贵且具有挑战性的，几乎是不可能的。在机器学习训练过程中，某种程度上无法精确复现完全相同的模型是一个必要的特征。
+- en: Example Reproducibility Problem at YarnIt
+  id: totrans-167
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: YarnIt 的可重现性问题示例
+- en: At YarnIt, we retrain our search and recommendations models nightly to ensure
+    that we regularly adjust them for changes in products and customer behavior. Typically,
+    we take a snapshot of the previous day’s model and then train the new events since
+    then on top of that model. This is cheaper to do but ultimately does mean that
+    each model is really dozens or hundreds of incremental training runs on top of
+    a model trained quite some time ago.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 YarnIt，我们每晚重新训练我们的搜索和推荐模型，以确保我们定期调整它们以适应产品和客户行为的变化。通常，我们会对前一天的模型拍摄快照，然后在此之后训练新的事件。这样做更加经济，但最终意味着每个模型实际上是在相当长时间之前训练的模型的数十或数百次增量训练运行之上。
+- en: Periodically, we have small changes to the training dataset over time. The most
+    common changes are charges that are due to fraud. Detecting that a transaction
+    is fraudulent may take up to several days, and by that point we may have already
+    trained a new model with that transaction included as an authorized purchase.
+    The most thorough way to fix that would be to recategorize the original transaction
+    as fraud and then retrain every model that had ever included that transaction
+    from an older snapshot. That would be extremely expensive to do every time we
+    have a fraudulent transaction. We could conceivably end up retraining the last
+    couple of weeks’ models constantly. The other approach is to attempt to reverse
+    the fraud from the model. This is complicated because there is no foolproof or
+    exact way to revert a transaction in most ML models.^([13](ch07.xhtml#ch01fn82))
+    We can approximate the change by treating the fraud detected as a new negative
+    event, but the resulting model won’t be quite the same.^([14](ch07.xhtml#ch01fn83))
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定期地，我们的训练数据集会随着时间而发生小的变化。最常见的变化是由于欺诈而产生的费用。发现一笔交易是欺诈可能需要多达几天的时间，到那时我们可能已经用包含该交易的新模型进行了训练。最彻底的修复方式将是将原始交易重新分类为欺诈，并重新训练每个曾经包含该交易的模型，从一个旧的快照中。每次发生欺诈交易时这样做的成本将非常昂贵。我们可能最终会不断重新训练最近几周的模型。另一种方法是试图从模型中撤销欺诈交易。这很复杂，因为在大多数机器学习模型中没有绝对可靠或精确的方法来撤销交易。^([13](ch07.xhtml#ch01fn82))
+    我们可以通过将检测到的欺诈视为新的负面事件来近似这种变化，但得到的模型将不会完全相同。^([14](ch07.xhtml#ch01fn83))
+- en: 'This is all for the models that are currently in production. At the same time,
+    model developers at YarnIt are constantly developing new models to try to improve
+    their ability to predict and rank. When they develop a new model, they train it
+    from scratch on all the data with the new model structure and then compare it
+    to the existing model to see if it is materially better or worse. It may be obvious
+    where this is going: the problem is that if we retrain the *current* production
+    model from scratch on the current data, that model may well be significantly different
+    from the current production model that is in production (which was trained iteratively
+    on the same data over time). The fraudulent transactions listed previously will
+    just never be trained on rather than be trained on, left for a while, and then
+    deleted later. The situation is actually even less deterministic than that: even
+    if we train the exact same model on the exact same data with no changes, we might
+    have nontrivial differences, with one model trained all at once and another trained
+    incrementally over several updates.^([15](ch07.xhtml#ch01fn84))'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些都是针对当前正在生产中的模型。同时，YarnIt的模型开发人员不断开发新模型，试图提高它们预测和排名的能力。当他们开发新模型时，他们会从头开始用所有新模型结构的数据进行训练，然后将其与现有模型进行比较，看看它是否在实质上更好或更差。可能显而易见的是，问题在于如果我们从头开始对当前数据重新训练*当前*的生产模型，那么该模型很可能与当前正在生产的生产模型显著不同（后者是随时间迭代地在相同数据上训练的）。先前列出的欺诈交易将永远不会被训练，而是在一段时间后被删除。事实上，情况甚至比这更不确定：即使我们对完全相同的数据使用完全相同的模型进行训练而没有任何变化，我们也可能会有非常显著的差异，一个模型一次性训练，另一个则在数次更新中逐步训练。^([15](ch07.xhtml#ch01fn84))
+- en: This kind of really unnerving problem is why model quality must be jointly owned
+    by model, infrastructure, and production engineers together. The only real reliability
+    solution to this problem is to treat each model as it is trained as a slightly
+    different variant of the Platonic ideal of that model and fully renounce the idea
+    of equality between trained models, even when they are the same model configuration
+    trained by the same computers on the same data twice in a row. This, of course,
+    may tend to massively increase the cost and complexity of regression testing.
+    If we absolutely need them to be more stable (note that this is not “the same”
+    since we cannot achieve that in most cases), then we may have to start thinking
+    about ensembles of copies of the same model so that we minimize the change over
+    time.^([16](ch07.xhtml#ch01fn85))
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种真正令人不安的问题正是为什么模型质量必须由模型、基础设施和生产工程师共同负责。面对这个问题的唯一真正的可靠解决方案是将每个训练的模型视为该模型的柏拉图理想的略有不同的变体，并彻底放弃训练过的模型之间相等的观念，即使它们是由相同的计算机在相同数据上连续两次训练的相同模型配置。当然，这可能会大幅增加回归测试的成本和复杂性。如果我们绝对需要它们更加稳定（注意这并不是“相同”，因为在大多数情况下我们无法做到这一点），那么我们可能不得不开始考虑使用同一模型的复数副本集合，以便我们在时间上尽量减少变化。^([16](ch07.xhtml#ch01fn85))
+- en: Compute Resource Capacity
+  id: totrans-172
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 计算资源能力
+- en: 'Just as it is a common cause of outages in non-ML systems, lack of sufficient
+    capacity to train is a common cause of outages for ML systems. The basic capacity
+    that we need to train a new model includes the following:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像它是非ML系统中停机的常见原因一样，缺乏足够的训练能力也是ML系统停机的常见原因。我们需要训练新模型的基本能力包括以下内容：
+- en: I/O capacity
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: I/O能力
+- en: This is capacity at the feature store so that we can read the input data quickly.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是特征存储的能力，以便我们能够快速读取输入数据。
+- en: Compute capacity
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 计算能力
+- en: This is the CPU or accelerator of the training jobs so that we can learn from
+    the input data. This requires a pretty significant number of compute operations.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是训练作业的CPU或加速器，以便我们能够从输入数据中学习。这需要相当数量的计算操作。
+- en: Memory read/write capacity
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 内存读写能力
+- en: The state of the model at any given time is stored somewhere, but most commonly
+    in RAM, so when the training system updates the state, the system requires memory
+    bandwidth to do so.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在任何给定时间点，模型的状态存储在某个地方，但通常是在RAM中，因此当训练系统更新状态时，系统需要内存带宽来执行此操作。
+- en: One of the tricky and troubling aspects of ML training system capacity problems
+    is that changes in the distribution of input data, and not just its size, can
+    create compute and storage capacity problems. Planning for capacity problems in
+    ML training systems requires thoughtful architectures as well as careful and consistent
+    monitoring.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML训练系统能力问题的一个棘手和令人困扰的方面之一是输入数据分布的变化，而不仅仅是其大小，可以导致计算和存储能力问题。为ML训练系统的能力问题进行规划需要周密的架构设计以及细致和一致的监控。
+- en: Example Capacity Problem at YarnIt
+  id: totrans-181
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: YarnIt的容量问题示例
+- en: YarnIt updates many models each day. These are typically trained during the
+    lowest usage period for the website, which is whatever is nighttime for the largest
+    number of users, and are expected to be updated before the start of the busy period
+    the following day. Timing the training in this way gives us the possibility to
+    reuse some resources between the online serving and the ML training system. At
+    the very least, we will need to read the logs produced by the serving system,
+    since the models that YarnIt trains daily read the searches, purchases, and browsing
+    history from the website the day before.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: YarnIt每天更新多个模型。这些模型通常是在网站使用最低的时间段训练的，这个时间段是大多数用户的夜间，并且预计在第二天忙碌期开始前更新。按照这种方式进行训练使得我们可以在在线服务和ML训练系统之间重复利用一些资源。至少，我们需要读取由服务系统产生的日志，因为YarnIt每天训练的模型读取前一天网站的搜索、购买和浏览历史。
+- en: As with most ML models, some types of events are less computationally complicated
+    to process than others. Some of the input data in our feature store requires connections
+    to other data sources in order to complete the input for some training operations.
+    For example, when we show purchases for products listed by our partners rather
+    than by YarnIt directly, we need to look up details about that partner in order
+    to continue to build models that accurately predict customer preferences about
+    those products from that partner. If, for whatever reason, the portion of our
+    purchases from partners increases over time, we might see a significant capacity
+    shortfall in the ability to read from the partner information datasets. Furthermore,
+    this might appear as if we have run out of compute capacity, when actually the
+    CPUs are all waiting on responses from the partner data storage system.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 和大多数ML模型一样，某些类型的事件在计算上比其他事件更简单。我们特征存储中的一些输入数据需要连接到其他数据源，以便完成一些训练操作的输入。例如，当我们展示由我们合作伙伴而不是YarnIt直接列出的产品购买时，我们需要查找有关该合作伙伴的详细信息，以便继续构建准确预测客户对该合作伙伴产品偏好的模型。如果由于某种原因，我们从合作伙伴那里的购买比例随时间增加，我们可能会在从合作伙伴信息数据集读取方面看到显著的能力不足。此外，这可能会导致我们似乎已经耗尽了计算能力，而实际上CPU正等待来自合作伙伴数据存储系统的响应。
+- en: Additionally, some models might be more important than others, and we probably
+    want a system for prioritization of training jobs in those cases where we are
+    resource constrained and need to focus more resources on those important models.
+    This commonly occurs after an outage. Imagine we have a 48-hour outage of some
+    part of the training system. At that point, we have stale models representing
+    our best view of the world over two days ago. Since we were down for so long,
+    it is reasonable to expect that we will take time to catch up, even using all
+    of the machine resources that we have available. In this case, knowing which models
+    are most important to refresh quickly is extremely useful.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，一些模型可能比其他模型更为重要，我们可能需要一个系统来优先处理那些资源受限、需要更多资源集中的重要模型训练任务。这种情况通常发生在故障后。假设我们在训练系统的某个部分经历了48小时的故障。那时，我们拥有的模型已经过时，代表着我们两天前对世界的最佳视角。由于停机时间如此之长，合理地预期我们需要时间来赶上进度，即使我们使用了所有可用的机器资源。在这种情况下，了解哪些模型需要快速更新是极其有用的。
+- en: Structural Reliability
+  id: totrans-185
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结构可靠性
+- en: Some of the reliability problems for an ML training system come not from the
+    code or the implementation of the training system, but instead from the broader
+    context in which these are implemented. These challenges are sometimes invisible
+    to systems and reliability engineers because they do not show up in the models
+    or the systems. These challenges show up in the organization and the people.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些ML训练系统的可靠性问题并不是来自代码或训练系统的实现，而是来自其实施的更广泛背景。这些挑战有时对系统和可靠性工程师来说是不可见的，因为它们不会在模型或系统中显示出来，而是显示在组织和人员中。
+- en: Organizational Challenges
+  id: totrans-187
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 组织挑战
+- en: Many organizations adding ML capabilities start by hiring someone to develop
+    a model. Only later do they add ML systems and reliability engineers. This is
+    reasonable to a point, but to be fully productive, model developers need a stable,
+    efficient, reliable, and well-instrumented environment to run in. While the industry
+    has relatively few people who have experience as production engineers or SREs
+    on ML systems, it turns out that almost all the problems with ML systems are distributed
+    systems problems. Anyone who has built and cared for a distributed system of similar
+    scale should be able to be an effective production engineer on our ML system with
+    some time and experience.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多添加机器学习能力的组织首先雇佣某人来开发模型。仅在此后才加入机器学习系统和可靠性工程师。这在某种程度上是合理的，但为了完全提高生产力，模型开发者需要在一个稳定、高效、可靠且良好工具化的环境中运行。虽然在行业中有相对较少有生产工程师或ML系统SRE经验的人员，但事实证明，几乎所有与ML系统相关的问题都是分布式系统问题。任何曾经构建和维护过类似规模的分布式系统的人，经过一段时间和经验积累后，应该能够成为我们ML系统上有效的生产工程师。
+- en: That will be enough for us to get started adding ML to our organization. But
+    if we learned anything from the preceding failure examples, it is that some are
+    extremely straightforward but others really do involve understanding the basics
+    of how the models are structured and how the learning algorithms work. To be successful
+    over the long term, we do not need ML production engineers who are experts in
+    ML, but we do need people who are actively interested in it and are committed
+    to learning more details about how it works. We will not be able to simply delegate
+    all model quality problems to the modeling team.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将足够让我们开始将机器学习应用于我们的组织。但是，如果我们从前面的失败案例中学到了什么，那就是有些案例非常简单，但其他案例确实涉及理解模型结构和学习算法的基础知识。为了长期成功，我们不需要成为机器学习生产工程师的专家，但我们需要那些对机器学习感兴趣并致力于了解其工作细节的人。我们不能简单地把所有模型质量问题都委托给建模团队。
+- en: 'Finally, we will also have a seniority and visibility problem. ML teams are
+    more likely to get more senior attention than many other similarly sized or scoped
+    teams. This is at least in part because when ML works, it is applied to some of
+    the most valuable parts of our business: making money, making customers happy,
+    and so on. When we fail at those things, senior leaders notice. ML engineers across
+    the whole ecosystem need to learn to be comfortable communicating at a more senior
+    level of the organization and with nontechnical leaders who have an interest in
+    their work, which can have serious reputational and legal consequences when it
+    goes wrong. This is uncomfortable for some of these engineers, but managers building
+    ML teams should prepare them for this eventuality.'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们还将面临资历和可见性问题。机器学习团队更有可能得到比许多其他同样规模或范围的团队更多的高级关注。这至少部分原因是因为当机器学习成功时，它被应用于我们业务中最有价值的部分：赚钱、使客户满意等。当我们在这些方面失败时，高级领导会注意到。整个生态系统中的机器学习工程师需要学会在组织中更高级别地进行沟通，并与对他们工作有兴趣的非技术领导人合作，当出现问题时可能会带来严重的声誉和法律后果。对于一些工程师来说，这是不舒服的，但是建立机器学习团队的经理应该为这种可能性做好准备。
+- en: For a more in-depth discussion about organizational considerations beyond just
+    the training system, see Chapters [13](ch13.xhtml#integrating_ml_into_your_organization)
+    and [14](ch14.xhtml#practical_ml_org_implementation_example).
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于除了训练系统之外的组织考虑的更深入讨论，请参阅第[13](ch13.xhtml#integrating_ml_into_your_organization)章和第[14](ch14.xhtml#practical_ml_org_implementation_example)章。
+- en: Ethics and Fairness Considerations
+  id: totrans-192
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 道德和公平考量
+- en: ML can be powerful but also can cause powerful damage. If no one in our organization
+    is responsible for ensuring that we’re using ML properly, we are likely to eventually
+    run into trouble. The ML training system is one place where we can have visibility
+    into problems (model quality monitoring) and can enforce governance standards.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习可以很强大，但也可能造成巨大的损害。如果我们组织中没有人负责确保我们正确使用机器学习，我们很可能最终会遇到麻烦。机器学习训练系统是我们可以看到问题（模型质量监控）并实施治理标准的地方之一。
+- en: For organizations that are newer to implementing ML, the model developers and
+    ML training system engineers may be jointly responsible for implementing minimal
+    privacy, fairness, and ethics checks. At a minimum, these must ensure that we
+    are compliant with local laws regarding data privacy and use in every jurisdiction
+    in which we operate. They must also ensure that datasets are fairly created and
+    curated and that models are checked for the most common kinds of bias.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于刚开始实施机器学习的组织来说，模型开发者和机器学习训练系统工程师可能需要共同负责实施最基本的隐私、公平和道德检查。至少，这些检查必须确保我们在每个运营司法管辖区内使用数据隐私和使用方面符合当地法律要求。他们还必须确保数据集的创建和管理是公平的，并且模型经过了最常见的偏见检查。
+- en: One common and effective approach is for an organization to adopt a set of Responsible
+    AI principles and then, over time, build the systems and organizational capacity
+    to ensure that those principles are consistently and successfully applied to all
+    uses of ML at the organization. Think about how to be consistent at the model
+    level ([Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality)), policy
+    level ([Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)), but also
+    apply principles to data ([Chapter 4](ch04.xhtml#feature_and_training_data)),
+    monitoring ([Chapter 9](ch09.xhtml#monitoring_and_observability_for_models)),
+    and incident response ([Chapter 11](ch11.xhtml#incident_response)).
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个常见且有效的方法是，组织采用一套负责任的 AI 原则，随后逐步建立系统和组织能力，确保这些原则在组织内所有 ML 使用中得到一致和成功的应用。考虑如何在模型层面（[第5章](ch05.xhtml#evaluating_model_validity_and_quality)）、政策层面（[第6章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)）保持一致，同时将原则应用到数据（[第4章](ch04.xhtml#feature_and_training_data)）、监控（[第9章](ch09.xhtml#monitoring_and_observability_for_models)）和事故响应（[第11章](ch11.xhtml#incident_response)）。
+- en: Conclusion
+  id: totrans-196
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: Although ML training system implementers will still need to make many choices,
+    this chapter should provide a clear sense of the context, structure, and consequences
+    of those choices. We have outlined the major components of a training system as
+    well as many of the practical reliability principles that affect our use of those
+    systems. With this perspective on how trained models are created, we can now turn
+    our attention to the following steps in the ML lifecycle.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然 ML 训练系统的实施者仍然需要做出许多选择，但本章应该能清晰地说明这些选择的背景、结构和后果。我们已经概述了训练系统的主要组成部分以及影响我们对这些系统使用的许多实际可靠性原则。有了对训练模型创建过程的这种视角，我们现在可以把注意力转向
+    ML 生命周期中的以下步骤。
+- en: ^([1](ch07.xhtml#ch01fn70-marker)) In many modern frameworks (notably, TensorFlow,
+    PyTorch, and JAX), the configuration language used is most commonly actual code,
+    usually Python. This is a significant source of headaches for newcomers to the
+    ML training system world, but does offer advantages of flexibility and familiarity
+    (for some).
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch07.xhtml#ch01fn70-marker)) 在许多现代框架中（特别是 TensorFlow、PyTorch 和 JAX），通常使用的配置语言是实际的代码，通常是
+    Python。这对于 ML 训练系统世界的新手来说是一个重要的头疼来源，但确实提供了灵活性和熟悉度的优势（对于某些人来说）。
+- en: ^([2](ch07.xhtml#ch01fn71-marker)) Several types of ML systems (notably, reinforcement
+    learning systems) are quite different from this architecture. They often have
+    additional components, like an agent and simulation, and also put prediction in
+    what we call “training” here. We’re not ignorant of these differences, but chose
+    the most common components to simplify this discussion. Your system may have these
+    components in a different order or might have additional ones.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch07.xhtml#ch01fn71-marker)) 几种类型的 ML 系统（尤其是强化学习系统）与本文框架有很大不同。它们通常具有额外的组件，如代理和模拟，并且把预测放在我们这里称为“训练”的环节。我们并不忽视这些差异，但选择了最常见的组件来简化这次讨论。你的系统可能会以不同的顺序拥有这些组件，或者可能有额外的组件。
+- en: ^([3](ch07.xhtml#ch01fn72-marker)) Worse, still, when provenance cannot be tracked,
+    we will have governance problems (compliance, ethics, legal). For example, if
+    we cannot prove that the data that we trained on is owned by us or licensed for
+    this use, we are open to claims that we misused it. If we cannot demonstrate the
+    chain of connection that created a dataset, we cannot show compliance with privacy
+    rules and laws.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch07.xhtml#ch01fn72-marker)) 更糟糕的是，当无法追踪数据来源时，我们将面临治理问题（合规性、伦理、法律）。例如，如果我们无法证明我们训练的数据是我们拥有或已获许可用于此用途，我们可能会面临误用数据的指控。如果我们无法展示创建数据集的连接链条，我们无法证明遵守隐私规则和法律。
+- en: '^([4](ch07.xhtml#ch01fn73-marker)) For example, see [“How ML Breaks: A Decade
+    of Breaks for One Large ML Pipeline”](https://oreil.ly/Y1tk8) by Daniel Papasian
+    and Todd Underwood.'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch07.xhtml#ch01fn73-marker)) 例如，请参阅[“ML 如何失败：十年来一个大型 ML 管道的失败”](https://oreil.ly/Y1tk8)
+    by Daniel Papasian and Todd Underwood。
+- en: '^([5](ch07.xhtml#ch01fn74-marker)) This recommendation has one interesting
+    exception, but one that will not apply to the vast majority of practitioners:
+    huge language models. Multiple very large language models are being trained by
+    large ML-centric organizations in order to provide answers to complex queries
+    across a variety of languages and data types. These models are so expensive to
+    train that the production model for them is explicitly to train them once and
+    use them (either directly or via transfer learning) “forever.” Of course, if the
+    cost of training these models is significantly reduced or other algorithmic advances
+    arise, these organizations may find themselves training new versions of these
+    models anyway.'
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch07.xhtml#ch01fn74-marker)) 这个建议有一个有趣的例外，但不适用于绝大多数从业者：大型语言模型。大型ML中心组织正在训练多个非常大的语言模型，以便跨多种语言和数据类型提供复杂查询的答案。这些模型的训练成本如此之高，以至于它们的生产模型明确是一次性训练，然后“永久”使用（直接或通过迁移学习）。当然，如果降低这些模型的训练成本或出现其他算法进步，这些组织可能会发现自己仍需训练新版本的这些模型。
+- en: ^([6](ch07.xhtml#ch01fn75-marker)) Statisticians refer to these various properties
+    of the data as *missing completely at random* (the propensity for the data point
+    to be missing is completely random); *missing at random*, or *MAR* (the propensity
+    of the data to be missing is not related to the data but is related to another
+    variable—a truly unfortunate name for a statistical term); and *not missing at
+    random* (the likelihood of the data to be missing is correlated with something
+    in the data). In this case, we’re describing MAR data because the propensity for
+    any given data point to be missing is correlated with another variable (in this
+    case, geography or time of day, for example).
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch07.xhtml#ch01fn75-marker)) 统计学家将数据的这些不同属性称为*完全随机缺失*（数据点缺失的倾向完全随机）；*随机缺失*或*MAR*（数据缺失的倾向不与数据相关，但与另一变量相关—这真是一个统计术语的不幸命名）；以及*非随机缺失*（数据缺失的倾向与数据中的某些因素相关）。在这种情况下，我们描述的是MAR数据，因为任何给定数据点缺失的倾向都与另一个变量相关（例如地理位置或时间）。
+- en: ^([7](ch07.xhtml#ch01fn76-marker)) Adding these features might have significant
+    privacy implications. These are discussed briefly in [Chapter 4](ch04.xhtml#feature_and_training_data)
+    and much more extensively in [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical).
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch07.xhtml#ch01fn76-marker)) 添加这些功能可能会对隐私造成重大影响。这些问题在[第四章](ch04.xhtml#feature_and_training_data)中简要讨论，而在[第六章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)中则更加详尽。
+- en: ^([8](ch07.xhtml#ch01fn77-marker)) This is most common in model architectures
+    that use gradient descent with significant amounts of parallelism in learning.
+    But this is an extremely common setup for large ML training systems. One example
+    of a model architecture that does not suffer from this problem is random forests.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch07.xhtml#ch01fn77-marker)) 这在使用梯度下降并具有显著并行学习的模型架构中最为常见。但这对于大型ML训练系统来说是一种极为常见的设置。一个不会遇到这个问题的模型架构示例是随机森林。
+- en: ^([9](ch07.xhtml#ch01fn78-marker)) An architecture in which the parameters of
+    the model are stored is described well in [“Scaling Distributed Learning with
+    the Parameter Server”](https://oreil.ly/dSXst) by Mu Li et al. and in [Chapter 12](ch12.xhtml#how_product_and_ml_interact)
+    of *Dive Into Deep Learning* by Joanne Quinn et al. (Corwin, 2019). Variants of
+    this architecture have become the most common way that large-scale ML training
+    stacks distribute their learning.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch07.xhtml#ch01fn78-marker)) 一个模型参数存储的架构被Mu Li等人在《“Scaling Distributed
+    Learning with the Parameter Server”》中描述得很好，并在《深入深度学习》（Joanne Quinn等人著，Corwin，2019）的[第十二章](ch12.xhtml#how_product_and_ml_interact)中详细讨论。这种架构的变体已成为大规模ML训练系统分布式学习的最常见方式。
+- en: ^([10](ch07.xhtml#ch01fn79-marker)) Transfer learning most generally involves
+    taking learning from one task and applying it to a different, but related task.
+    Most commonly in production ML environments, transfer learning involves starting
+    learning with the snapshot of an already trained, earlier version of our model.
+    We will either train only on new features, not included in the snapshot, or train
+    only on new data that has appeared since the training of the snapshot. This can
+    speed up learning significantly and thereby reduces costs significantly as well.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([10](ch07.xhtml#ch01fn79-marker)) 迁移学习通常涉及将一个任务的学习应用到另一个相关的任务上。在生产环境中，迁移学习通常涉及从已经训练好的早期版本模型的快照开始学习。我们要么只训练新特征，这些特征未包含在快照中，要么只训练自快照训练后出现的新数据。这可以显著加快学习速度，从而显著降低成本。
+- en: ^([11](ch07.xhtml#ch01fn80-marker)) The astute reader might note how terrifying
+    this is. Another way to read this is “my models could change any time I happen
+    to update TensorFlow or PyTorch, even for a new minor version.” This is essentially
+    true but not common, and the differences often aren’t pronounced.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([11](ch07.xhtml#ch01fn80-marker)) 敏锐的读者可能会注意到这是多么令人恐惧。另一种解读是“我的模型可能会在我随时更新
+    TensorFlow 或 PyTorch，即使是一个新的小版本时改变。” 这基本上是真的，但并不常见，而且差异通常并不显著。
+- en: ^([12](ch07.xhtml#ch01fn81-marker)) As long as the speed at which processors
+    (whether CPUs or GPUs/accelerators) and their local memory operate is significantly
+    higher than the speed at which we can access that state from across a network
+    connection, there will always be lag in propagating that state. When processors
+    update a portion of the model based on input data that they have learned from,
+    there can always be other processors using an older version of those keys in the
+    model.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([12](ch07.xhtml#ch01fn81-marker)) 只要处理器（无论是 CPU 还是 GPU/加速器）及其本地内存的操作速度显著高于我们从网络连接中访问该状态的速度，传播该状态总会有延迟。当处理器根据他们学到的输入数据更新模型的部分时，始终会有其他处理器在使用模型中这些键的较旧版本。
+- en: '^([13](ch07.xhtml#ch01fn82-marker)) A large and growing set of work exists
+    on the topic of deleting data from ML models. Readers should consult some of this
+    research to understand more about the various approaches and consequences of deleting
+    previously learned data from a model. One paper summarizing some recent work on
+    this topic is [“Making AI Forget You: Data Deletion in Machine Learning”](https://oreil.ly/GWShn)
+    by Antonio A. Ginart et al., but be aware that this is an active area of work.'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([13](ch07.xhtml#ch01fn82-marker)) 有关从机器学习模型中删除数据的大量研究工作正在进行中。读者应该参考一些这方面的研究，以更好地了解不同方法及其删除先前学习数据的后果。一篇总结这一主题上一些最新工作的论文是
+    [“Making AI Forget You: Data Deletion in Machine Learning”](https://oreil.ly/GWShn)，但请注意这是一个活跃的研究领域。'
+- en: ^([14](ch07.xhtml#ch01fn83-marker)) [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)
+    covers some cases where we want to delete private data from an existing model
+    trained on that data. The short version is that if the data is truly private and
+    is included in our model, unless we used differential privacy during model construction
+    and provide careful guarantees on how the model can be queried, we probably have
+    to retrain the model from scratch. Indeed, we have to do this every single time
+    someone requests that their data be removed. This, alone, is a powerful argument
+    for ensuring that our models do not include private data.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([14](ch07.xhtml#ch01fn83-marker)) [第六章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)
+    讨论了一些我们希望从已经训练过的模型中删除私有数据的案例。简而言之，如果数据是真正私密的，并且包含在我们的模型中，除非在模型构建过程中使用了差分隐私并提供了关于如何查询模型的谨慎保证，否则我们可能需要从头开始重新训练模型。事实上，每当有人请求删除其数据时，我们都必须这样做。这一点单独就是确保我们的模型不包含私人数据的一个强有力的论点。
+- en: ^([15](ch07.xhtml#ch01fn84-marker)) Details of why this is the case are really
+    specific to the model and ML framework, and beyond the scope of this book. But
+    it often boils down to nondeterminism in the ML framework exacerbated by nondeterminism
+    in the parallel processing of data. Reproducing this nondeterminism in your own
+    environment is tremendously educational and more than a tiny bit terrifying. And
+    yes, this footnote did just encourage readers to reproduce irreproducibility.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([15](ch07.xhtml#ch01fn84-marker)) 为什么会出现这种情况的详细内容与模型和机器学习框架有关，并且超出了本书的范围。但通常归结为机器学习框架中的非确定性加上数据并行处理中的非确定性。在您自己的环境中复现这种非确定性能带来巨大的教育意义，但也会有些许恐惧。是的，这个脚注确实鼓励读者复现不可重现性。
+- en: ^([16](ch07.xhtml#ch01fn85-marker)) *Ensemble models* are just models that are
+    collections of other models. Their most common use is to combine multiple very
+    different models for a single purpose. In this case, we would combine multiple
+    copies of the same model.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([16](ch07.xhtml#ch01fn85-marker)) *集成模型* 就是由多个其他模型组成的模型集合。它们最常见的用途是将多个非常不同的模型结合到一个单一目的中。在这种情况下，我们会将多个相同模型的副本组合起来。

@@ -1,0 +1,1596 @@
+- en: Chapter 8\. Architectures for Streaming
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第八章\. 流式架构
+- en: In this chapter, you will learn why the industry trend is inexorably away from
+    batch and into streaming. We will discuss different streaming architectures and
+    how to choose between them. We will also do a deeper dive into two of these architectures—micro-batching
+    and streaming pipelines—and discuss how to support real-time, ad hoc querying
+    in both these architectures. Finally, sometimes the reason to do streaming is
+    to autonomously take some action when certain events happen, and we will discuss
+    how to architect such automated systems.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您将了解到为什么行业趋势不可逆转地从批处理向流处理发展。我们将讨论不同的流式架构及其选择方式。我们还将深入探讨两种架构——微批处理和流水线——以及如何在这两种架构中支持实时的即席查询。最后，有时进行流处理的原因是在特定事件发生时自动采取某些行动，我们将讨论如何设计这样的自动化系统。
+- en: The Value of Streaming
+  id: totrans-2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 流处理的价值
+- en: Businesses along the entire technology maturity spectrum, from digital natives
+    to more traditional companies, across many industries are recognizing the increasing
+    value of making faster decisions. For example, consider business A, which takes
+    three days to approve a vehicle loan. Business B, on the other hand, will approve
+    or deny a loan in minutes. That increased convenience will lead business B to
+    have a competitive advantage.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从数字原住民到传统公司，涵盖多个行业的企业意识到做出更快决策的价值日益增加。例如，考虑企业A，需要三天才能批准车辆贷款。另一方面，企业B可以在几分钟内批准或拒绝贷款。这种增加的便利性将使企业B具有竞争优势。
+- en: Even better than faster decisions is being able to make decisions *in context*.
+    Being able to make decisions while the event is proceeding (see [Figure 8-1](#the_value_of_a_decision_typically_drops))
+    is significantly more valuable than making the decision even a few minutes later.
+    For example, if you can detect a fraudulent credit card when it is presented for
+    payment and reject the transaction, you can avoid a costly process of getting
+    reimbursed.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 比更快的决策更好的是能够在*上下文中*做出决策。能够在事件进行时做出决策（见[图 8-1](#the_value_of_a_decision_typically_drops)）比稍后几分钟做出决策更有价值。例如，如果您能够在持卡人使用欺诈信用卡进行支付时检测到并拒绝该交易，您就可以避免昂贵的追索流程。
+- en: '![The value of a decision typically drops with time. Stream processing allows
+    an organization to make decisions in near real time.](assets/adml_0801.png)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![决策的价值随时间的推移而下降。流处理使得组织能够实时做出决策。](assets/adml_0801.png)'
+- en: Figure 8-1\. The value of a decision typically drops with time; stream processing
+    allows an organization to make decisions in near real time
+  id: totrans-6
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-1\. 决策的价值随时间的推移而下降；流处理允许组织实时做出决策。
+- en: Industry Use Cases
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 行业应用案例
+- en: Whether it is fraud detection, transaction settlement, smart devices, or online
+    gaming, industry after industry has started to adopt streaming.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论是欺诈检测、交易结算、智能设备还是在线游戏，一个接一个的行业已经开始采用流处理。
+- en: In healthcare, we see streaming being used for real-time patient monitoring,
+    alerting on falls or self-harm, providing personalized care with IoT medical devices,
+    and optimizing drugs and supply and inventory in hospitals.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在医疗保健领域，我们看到流处理被用于实时患者监测，在摔倒或自伤时发出警报，利用物联网医疗设备提供个性化护理，以及优化医院的药品和供应品库存。
+- en: In financial services, we see streaming being used to detect and prevent fraud,
+    predict and analyze risk, identify transactions that run afoul of compliance regulations,
+    and deliver personalized offers to customers.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在金融服务领域，我们看到流处理被用于检测和防止欺诈、预测和分析风险、识别违反合规法规的交易，并向客户提供个性化的优惠。
+- en: In retail, we see streaming being used for personalized marketing in websites,
+    providing real-time inventory across multiple channels (website, mobile, physical
+    stores), alerting on fulfillment issues, dynamic pricing, product recommendations,
+    and omnichannel customer visibility.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在零售领域，我们看到流处理被用于个性化营销网站，提供跨多个渠道（网站、移动应用、实体店）的实时库存信息，处理订单履行问题，动态定价，产品推荐以及全渠道客户可见性。
+- en: In media and entertainment, we see streaming being used to generate personalized
+    content, deliver targeted ads, minimize customer churn, and prevent subscriber
+    fraud. In telecommunications, we see similar use cases around customer churn and
+    subscriber fraud. In addition, streaming is used to improve network reliability
+    and optimize network capacity planning.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在媒体和娱乐业中，我们看到流媒体被用于生成个性化内容，传递定向广告，减少客户流失，以及防止订阅者欺诈行为。在电信行业中，我们看到类似的用例围绕客户流失和订阅者欺诈。此外，流媒体还用于提高网络可靠性和优化网络容量规划。
+- en: Streaming Use Cases
+  id: totrans-13
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 流使用案例
+- en: 'Think of streaming as data processing on unbounded datasets. Technologically,
+    the challenge with streaming is twofold. One is that the dataset is infinite and
+    never complete. Because of this, all aggregates (such as maxima) can be defined
+    only within time windows. The other is that the data is in motion and held in
+    temporary storage. This makes it difficult to apply conventional programming techniques
+    and concepts such as file handles to read and process the data. Because of this
+    complexity, there is a huge benefit to dividing streaming use cases into four
+    categories in increasing order of complexity and value:'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将流视为对无界数据集进行数据处理。技术上，流处理的挑战是双重的。一是数据集是无限的，永远不会完成。因此，所有聚合（例如极值）只能在时间窗口内定义。另一个挑战是数据在运动中并且存储在临时存储中。这使得应用传统编程技术和概念（如文件句柄）来读取和处理数据变得困难。由于这种复杂性，将流使用案例分为四种复杂度和价值递增的类别有巨大好处：
+- en: 1\. Streaming ingest
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 1\. 流摄入
+- en: When you care only about keeping up with the stream of data and landing it in
+    a persistent store.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您只关心跟上数据流并将其落入持久存储时。
+- en: 2\. Real-time dashboards
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 2\. 实时仪表板
+- en: Useful when you wish to visualize data as it comes in. You may also be interested
+    in statistics and charts of time-windowed aggregates of the data.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您希望在数据到达时可视化数据时非常有用。您可能还对数据的时间窗口聚合的统计数据和图表感兴趣。
+- en: 3\. Stream analytics
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 3\. 流分析
+- en: When you wish to carry out computations on the data as it arrives. Usually,
+    this is to alert human operators about threshold exceedance or abnormal patterns.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您希望在数据到达时对数据进行计算时。通常情况下，这是为了向人工操作员报警超过阈值或异常模式。
+- en: 4\. Continuous intelligence
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 4\. 持续智能
+- en: The automation of stream analytics so that actions can be taken without any
+    human intervention.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自动化流分析，以便无需任何人工干预即可采取行动。
+- en: In the sections that follow, we will look at the architecture for each of these.
+    You will see that the architecture is quite modular, and you can get away with
+    architecting simple systems and adding complexity as and when additional needs
+    arise. It is not necessary to build the final, most complex, autonomous system
+    to get value from streaming. However, this does assume that you carry out your
+    data processing in frameworks like Apache Beam that will allow you to seamlessly
+    move from batch to stream. While Beam was created by Google as the API for its
+    managed Cloud Dataflow service, Apache Flink and Apache Spark both support Beam.
+    Therefore, you can use managed Flink and Spark implementations on other hyperscalers
+    to run Beam pipelines.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将查看每个使用案例的架构。您将看到架构非常模块化，您可以建立简单的系统，并在需要时添加复杂性。不必建立最终、最复杂的自主系统来从流处理中获得价值。但是，这假设您在像Apache
+    Beam这样的框架中进行数据处理，这将允许您无缝地从批处理转换为流处理。尽管Beam由Google创建为其托管的Cloud Dataflow服务的API，但Apache
+    Flink和Apache Spark都支持Beam。因此，您可以在其他超级托管商上使用托管的Flink和Spark实现来运行Beam管道。
+- en: These categories build on one another, so the first one is fundamental to all
+    four types of use cases. To make faster decisions, you need to ingest data in
+    near real time, as the event happens. This is called *streaming ingest*, which
+    we will cover next.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些类别相互构建，因此第一个类别对所有四种用例都至关重要。为了更快地做出决策，您需要几乎实时地摄入数据，即事件发生时。这称为*流摄入*，我们将在下面详细介绍。
+- en: Streaming Ingest
+  id: totrans-25
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 流摄入
+- en: 'Streaming ingest can be done in two ways:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流摄入可以通过两种方式进行：
+- en: You could aggregate events and write only the aggregates (such as hourly averages)
+    to the persistent store. This is called *streaming ETL* because the aggregation
+    is a transformation (the *T* in ETL) and comes between extraction and loading
+    into the persistent store.
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您可以聚合事件并仅将聚合数据（例如小时平均值）写入持久存储。这称为*流式 ETL*，因为聚合是转换（ETL中的*T*），位于抽取和加载到持久存储之间。
+- en: Alternatively, you could ingest (load) the data directly into a data lake or
+    DWH and expect clients to transform the data at the time of analysis. This is
+    called *streaming ELT*.
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 或者，您可以直接将数据摄入（加载）到数据湖或数据仓库，并期望客户在分析时转换数据。这称为*流式 ELT*。
+- en: Let’s take a more detailed look at these two approaches in the following subsections.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们在以下小节中详细看看这两种方法。
+- en: Streaming ETL
+  id: totrans-30
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 流式 ETL
+- en: Streaming ingest is sufficient if your goal is to provide the business with
+    more timely data. First of all, you need to focus on *where* the data is ingested
+    in the cloud, because it matters a lot. You need to store the data in a location
+    where you can access it for processing or querying. For queries, it is important
+    to ensure that the results reflect the latest data.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的目标是向业务提供更及时的数据，则流式摄入就足够了。首先，您需要关注数据在云中摄入的位置，因为这非常重要。您需要将数据存储在可以访问以进行处理或查询的位置。对于查询，确保结果反映最新数据非常重要。
+- en: To achieve the goal of real-time insights, therefore, the ingest has to happen
+    into a system that allows real-time ingest and querying. Modern DWHs such as Google
+    BigQuery, AWS Redshift, and Snowflake have this capability. Therefore, commonly,
+    you will carry out streaming ETL into such a DWH, as described in [Figure 8-2](#two_options_for_streaming_etl_of_logs_d).
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，要实现实时洞察的目标，数据摄入必须发生在允许实时摄入和查询的系统中。现代数据仓库（例如 Google BigQuery、AWS Redshift
+    和 Snowflake）具有此功能。因此，通常情况下，您会进行流式 ETL 进入这样的数据仓库，如 [图 8-2](#two_options_for_streaming_etl_of_logs_d)
+    中所述。
+- en: '![](assets/adml_0802.png)'
+  id: totrans-33
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/adml_0802.png)'
+- en: 'Figure 8-2\. Two options for streaming ETL of logs data: micro-batching (shown
+    with dashed lines) or streaming pipeline (shown with solid lines)'
+  id: totrans-34
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-2\. 日志数据的流式 ETL 有两种选项：微批处理（用虚线表示）或流水线（用实线表示）
+- en: The goal of streaming ETL, therefore, is usually to land the data into a DWH.
+    Log data written from multiple applications is read by a local agent that is responsible
+    for making the log’s data available for real-time monitoring and querying. You
+    can adapt this same architecture for other types of real-time data, whether from
+    IoT devices or from online games, by recasting what the data is and by using an
+    appropriate local agent.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，流式 ETL 的目标通常是将数据落入数据仓库。多个应用程序写入的日志数据由本地代理读取，负责使日志数据在实时监控和查询中可用。您可以通过重新定义数据类型和使用适当的本地代理，将相同的架构应用于其他类型的实时数据，无论是来自物联网设备还是在线游戏。
+- en: 'The local agent can make the data available for real-time querying in one of
+    two ways (see [Figure 8-2](#two_options_for_streaming_etl_of_logs_d)):'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本地代理可以通过以下两种方式之一实现实时查询数据的可用性（见 [图 8-2](#two_options_for_streaming_etl_of_logs_d)）：
+- en: Micro-batching
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 微批处理
+- en: Data corresponding to, say, the last five minutes is written to a file on cloud
+    blob storage. The arrival of a new file in the cloud blob storage triggers a loading
+    function (such as Google Cloud Functions, Google Cloud Run, AWS Lambda, Azure
+    Functions, etc.). The function can process the data and then load the file into
+    the final destination. Micro-batching involves some latency.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，过去五分钟的数据被写入到云存储的文件中。云存储中出现新文件会触发加载功能（如 Google Cloud Functions、Google Cloud
+    Run、AWS Lambda、Azure Functions 等）。该功能可以处理数据，然后将文件加载到最终目标中。微批处理涉及一些延迟。
+- en: Streaming pipeline
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流水线
+- en: The local agent can publish an event corresponding to each log event to a message
+    queue (such as Kafka) or a topic (such as Cloud Pub/Sub). These events are pushed
+    to a streaming pipeline (such as AWS Glue or Google Cloud Dataflow) that processes
+    the events and inserts them into the final destination. This makes the event immediately
+    available for querying.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本地代理可以针对每个日志事件发布一个事件到消息队列（例如 Kafka）或主题（例如 Cloud Pub/Sub）。这些事件被推送到流水线（例如 AWS
+    Glue 或 Google Cloud Dataflow），处理这些事件并将其插入到最终目标中。这使得事件可以立即用于查询。
+- en: 'The role of the loading function or streaming pipeline is to process the data
+    to make it much more usable by downstream users and applications. Typically, you
+    would leverage data processing to:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加载函数或流水线的角色是处理数据，使其对下游用户和应用程序更加可用。通常，您会利用数据处理来：
+- en: Convert event data into the schema required by the DWH table
+  id: totrans-42
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将事件数据转换为数据仓库表格所需的模式
+- en: Filter event records to keep only the data specific to the business unit that
+    operates the DWH
+  id: totrans-43
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 过滤事件记录，仅保留业务部门操作数据仓库的特定数据
+- en: Interpolate or otherwise fill in missing values in events (e.g., you would use
+    the most recently valid value)
+  id: totrans-44
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 插值或以其他方式填充事件中的缺失值（例如，您将使用最近有效的值）
+- en: Connect events across time (e.g., you would leverage identity resolution methods
+    to connect events into user sessions, and even across sessions)
+  id: totrans-45
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 连接跨时间的事件（例如，您将利用身份解析方法将事件连接成用户会话，甚至跨会话连接）
+- en: Aggregate events into more consumable chunks—for example, writing out time averages
+    (e.g., total page visits over the past minute rather than every page visit) or
+    per session values (e.g., one record noting which buttons were clicked in a session
+    rather than separate events for every button click)
+  id: totrans-46
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将事件聚合成更易消费的块，例如，编写时间平均值（例如，过去一分钟的总页面访问次数，而不是每次页面访问）或每个会话值（例如，一个记录指出会话中单击的按钮，而不是单独的按钮单击事件）
+- en: Enrich the data with additional sources (e.g., currency conversion)
+  id: totrans-47
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用其他来源丰富数据（例如，货币转换）
+- en: Mask, encrypt, or otherwise protect sensitive fields
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 掩码、加密或以其他方式保护敏感字段
+- en: If you do not need to perform any of the aforementioned activities and the loading
+    function is simply a pass-through, consider whether you can use the streaming
+    ELT approach in the next section.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果不需要执行上述任何活动，并且加载功能只是一个简单的穿越，请考虑在下一节中是否可以使用流式 ELT 方法。
+- en: When leveraging the micro-batching approach, it is helpful to understand where
+    the latency comes from. The obvious culprit is that data loaded into the DWH could
+    be five minutes old in our example. But that is usually not the big problem. If
+    a 5-minute latency is unacceptable, you can go down to 30 seconds. The real problem
+    is that the DWH load jobs are queued, so they may not happen immediately. Check
+    the SLA of your DWH for what this delay could be. Usually, this loading delay
+    is what makes micro-batching in stream ingest unacceptable for many use cases.
+    It is, however, a valid architecture if the batches consist of, say, daily data
+    and an hour’s latency in loading is acceptable.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在利用微批处理方法时，了解延迟来源是很有帮助的。在我们的例子中，加载到 DWH 的数据可能会有五分钟的延迟。但这通常不是大问题。如果 5 分钟的延迟是不可接受的，您可以降低到
+    30 秒。真正的问题是 DWH 加载作业排队，因此它们可能不会立即发生。检查您的 DWH 的 SLA，了解可能的延迟是什么。通常，这种加载延迟是使微批处理在许多用例中不可接受的原因。但是，如果批次包含例如每日数据，并且加载的小时延迟是可接受的，则这是一个有效的架构。
+- en: The micro-batching approach is usually less expensive than the streaming pipelines
+    one. Some DWHs (notably Google BigQuery) have a pricing tier where loading data
+    is free. Even in DWHs like Snowflake that charge for both loading and inserts,
+    inserts are more expensive and require a higher tier. Additionally, you only pay
+    the computational cost of loading while the function is running. Especially if
+    you are loading data once a day, the computational cost of micro-batching can
+    be quite minimal. Autoscaling in AWS Glue and Cloud Dataflow do close the gap
+    as the frequency of micro-batching increases.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 微批处理方法通常比流水线方法便宜。一些 DWH（特别是 Google BigQuery）具有加载数据免费的定价层。即使在像 Snowflake 这样既收费加载又收费插入的
+    DWH 中，插入的费用更高且需要更高的层级。此外，只有在函数运行时才需支付加载的计算成本。特别是如果您每天只加载一次数据，则微批处理的计算成本可能非常低。AWS
+    Glue 和 Cloud Dataflow 的自动缩放在微批处理频率增加时也能够缩小差距。
+- en: 'We’ve covered the first of the two approaches mentioned earlier. Now let’s
+    move on to the second: streaming ELT.'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经介绍了前面提到的两种方法中的第一种。现在让我们继续讨论第二种：流式 ELT。
+- en: Streaming ELT
+  id: totrans-53
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 流式 ELT
+- en: The streaming ETL approach you have learned before assumes that you can anticipate
+    the kind of cleanup, aggregation, or enrichment that the consumer of the data
+    will need. After all, you are transforming the raw data before writing it to the
+    DWH. This could be a lossy operation. As the number of consumers of the data grows
+    and it becomes impossible to anticipate the kinds of transformation different
+    consumers need, many organizations switch their data pipelines from streaming
+    ETL to streaming ELT. Streaming ELT is also a better fit than streaming ETL if
+    the transformations require business-specific knowledge and are better carried
+    out by business users rather than programmers.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以前学习的流式 ETL 方法假设你可以预测数据消费者需要进行哪种清理、聚合或增强操作。毕竟，在将原始数据写入 DWH 之前，你正在转换原始数据。这可能是一个有损的操作。随着数据消费者数量的增加，以及不可能预测不同消费者需要的转换类型，许多组织将他们的数据流水线从流式
+    ETL 转换为流式 ELT。如果转换需要业务特定的知识，并且最好由业务用户而不是程序员执行，流式 ELT 也比流式 ETL 更合适。
+- en: In streaming ELT (see [Figure 8-3](#streaming_elt_can_also_be_done_in_micro)),
+    the local agent directly loads or inserts the raw data into the DWH. Consumers
+    of the data can apply whatever transformations they require. In some cases, you
+    can provide logical or materialized views of the data to make it convenient to
+    data consumers.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在流式 ELT 中（见[图 8-3](#streaming_elt_can_also_be_done_in_micro)），本地代理直接加载或插入原始数据到
+    DWH 中。数据的消费者可以应用他们需要的任何转换。在某些情况下，你可以提供数据的逻辑或实现视图，以便于数据消费者使用。
+- en: '![](assets/adml_0803.png)'
+  id: totrans-56
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/adml_0803.png)'
+- en: Figure 8-3\. Streaming ELT can also be done in micro-batches (dashed lines)
+    or as events happen (solid lines)
+  id: totrans-57
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-3。流式 ELT 也可以作为微批次（虚线）或事件发生时（实线）来执行。
+- en: The big drawback of streaming ELT is that the amount of data being written to
+    the DWH can be large—the transformation step in many ELT pipelines significantly
+    thins the data and writes only aggregate data to the DWH. Therefore, streaming
+    ETL versus ELT is very much a decision that you make based on business value and
+    cloud costs.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流式 ELT 的一个显著缺点是写入 DWH 的数据量可能很大——在许多 ELT 流水线中，转换步骤显著减少数据量，并仅向 DWH 写入聚合数据。因此，流式
+    ETL 与 ELT 的选择非常依赖于基于业务价值和云成本的决策。
+- en: Counterintuitively, the more data you have, the more cost-competitive streaming
+    ELT becomes. As the data volume gets larger, it makes more sense to process the
+    data *more* frequently. To see why, imagine that a business is creating a daily
+    report based on its website traffic and this report takes two hours to create.
+    Now suppose that the website traffic grows by 4x. The report will now take eight
+    hours to create. How do you get back to two hours? Well, fortunately, these are
+    embarrassingly parallel problems. So autoscale the job to 4x the number of machines.
+    What if, instead, we consider an approach that makes the reports more timely?
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 令人费解的是，数据量越大，流式 ELT 的成本竞争优势越明显。随着数据量的增加，更频繁地处理数据变得更有意义。要了解原因，想象一下，一个企业根据其网站流量创建每日报告，需要两小时。现在假设网站流量增长了四倍。现在报告需要八小时才能创建完毕。如何回到两小时？幸运的是，这些问题都是可并行化的。因此，将作业扩展到四倍的机器数量。如果考虑一种使报告更及时的方法呢？
+- en: Compute statistics on six hours of data four times a day.
+  id: totrans-60
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每天四次计算六小时数据的统计信息。
+- en: Aggregate these six hourly reports to create daily reports.
+  id: totrans-61
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将这六个小时报告汇总成每日报告。
+- en: You can now update your “daily” report four times a day.
+  id: totrans-62
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 现在你可以每天四次更新你的“每日”报告了。
+- en: The data in the report is now only six hours old.
+  id: totrans-63
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 报告中的数据现在只有六小时的历史了。
+- en: This is, of course, the micro-batching idea. The computational cost of both
+    these approaches is nearly the same. Yet the second approach reduces latency,
+    increases frequency, spreads out the load, and handles spikes better. Plus, the
+    organization gets more timely, less stale reports, which can provide huge business
+    benefits for almost no extra cost. The more data you have, the more sense it makes
+    to go from six-hour reports to hourly updates, to minute-by-minute updates, to
+    real-time updates. Once you need near-real-time updates to multiple consumers,
+    streaming ELT becomes a very attractive option.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，这就是微批处理的概念。这两种方法的计算成本几乎相同。然而，第二种方法降低了延迟，增加了频率，分散了负载，并更好地处理了突发情况。此外，组织得到了更及时、不陈旧的报告，这几乎没有额外成本，但能为业务带来巨大的好处。数据量越大，从每六小时报告到每小时更新，再到分钟级更新，甚至实时更新，就越合理。一旦需要向多个消费者提供几乎实时的更新，流式
+    ELT 就成为一个非常有吸引力的选择。
+- en: Streaming Insert
+  id: totrans-65
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 流式插入
+- en: In Figures [8-2](#two_options_for_streaming_etl_of_logs_d) and [8-3](#streaming_elt_can_also_be_done_in_micro),
+    we assumed that we needed a local agent that would look at available data and
+    load or insert the data into the persistent store. It is not necessary to have
+    this intermediary—if the DWH provides a streaming API, a cloud native application
+    may disintermediate the local agent and use a cloud client library to do the insert
+    itself (see [Figure 8-4](#streaming_elt_in_a_cloud_native_applica)).
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图[8-2](#two_options_for_streaming_etl_of_logs_d)和[8-3](#streaming_elt_can_also_be_done_in_micro)中，我们假设需要一个本地代理来查看可用数据，并将数据加载或插入到持久存储中。其实，并不一定需要这个中介——如果
+    DWH 提供了流式 API，云原生应用可以绕过本地代理，使用云客户端库自行进行插入操作（见[图 8-4](#streaming_elt_in_a_cloud_native_applica)）。
+- en: '![Streaming ELT in a cloud native application can take advantage of client
+    libraries to directly insert the data](assets/adml_0804.png)'
+  id: totrans-67
+  prefs: []
+  type: TYPE_IMG
+  zh: '![云原生应用中的流式 ELT 可以利用客户端库直接插入数据](assets/adml_0804.png)'
+- en: Figure 8-4\. Streaming ELT in a cloud native application can take advantage
+    of client libraries to directly insert the data
+  id: totrans-68
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-4\. 在云原生应用中进行流式 ELT 可利用客户端库直接插入数据。
+- en: For example, in BigQuery, a streaming insert involves a REST API call and can
+    be accomplished in Python. Snowpipe Streaming provides this capability in Snowflake,
+    but in Redshift, you have to use a pass-through transformation step in Kinesis.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，在 BigQuery 中，流式插入涉及使用 REST API 调用，并可以在 Python 中完成。Snowpipe Streaming 在 Snowflake
+    中提供了这种功能，但在 Redshift 中，您必须使用 Kinesis 中的传递转换步骤。
+- en: Some messaging systems (e.g., Google Pub/Sub) also offer specific subscription
+    types that load events into the DWH as they happen, so applications can simply
+    publish events to the messaging topic or queue and have the events show up in
+    the DWH in real time.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些消息系统（例如 Google Pub/Sub）还提供特定的订阅类型，可以将事件加载到数据仓库中，以便应用程序可以简单地将事件发布到消息主题或队列，并使事件实时显示在数据仓库中。
+- en: Streaming from Edge Devices (IoT)
+  id: totrans-71
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 边缘设备（IoT）的流式传输
+- en: In [Figure 8-2](#two_options_for_streaming_etl_of_logs_d), we assumed that events
+    in streaming ETL would be published to a general-purpose message queue such as
+    Kafka from a custom local agent.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 8-2](#two_options_for_streaming_etl_of_logs_d) 中，我们假设流式 ETL 中的事件将从自定义本地代理发布到诸如
+    Kafka 等通用消息队列。
+- en: In the case of Internet of Things (IoT), cloud providers usually have a more
+    targeted solution (see [Figure 8-5](#for_streaming_data_from_iot_devices_on)).
+    Azure provides IoT Devkit for edge software and IoT Hub for the remote cloud component.
+    On AWS, the local agent will use software that has prebuilt AWS IoT Greengrass
+    components, and the remote queues will be managed by AWS IoT Core. On Google Cloud
+    Platform, the edge components might consist of Coral devices and TensorFlow Lite
+    software, while the remote cloud component might be Clearblade IoT Core.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在物联网（IoT）的情况下，云服务提供商通常有更具针对性的解决方案（见 [图 8-5](#for_streaming_data_from_iot_devices_on)）。Azure
+    提供了 IoT Devkit 用于边缘软件和 IoT Hub 用于远程云组件。在 AWS 上，本地代理将使用预构建的 AWS IoT Greengrass
+    组件，远程队列将由 AWS IoT Core 管理。在 Google 云平台上，边缘组件可能包括 Coral 设备和 TensorFlow Lite 软件，而远程云组件可能是
+    Clearblade IoT Core。
+- en: '![For streaming data from IoT devices on the edge, make use of IoT-specific
+    functionality](assets/adml_0805.png)'
+  id: totrans-74
+  prefs: []
+  type: TYPE_IMG
+  zh: '![用于从 IoT 设备边缘流式传输数据时，利用 IoT 特定功能](assets/adml_0805.png)'
+- en: Figure 8-5\. For streaming data from IoT devices on the edge, make use of IoT-specific
+    functionality
+  id: totrans-75
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-5\. 用于从 IoT 设备边缘流式传输数据时，利用 IoT 特定功能。
+- en: You can use the provided edge software development kit (SDK) and devices to
+    do local processing, data management, ML inference, etc. Leveraging the provided
+    remote cloud component, you can activate bespoke functionalities such as device
+    management, and you can transparently handle situations such as unreliable networks,
+    device restarts, etc.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用提供的边缘软件开发工具包（SDK）和设备进行本地处理、数据管理、ML 推理等。利用提供的远程云组件，您可以激活定制功能，如设备管理，并且可以透明地处理网络不稳定、设备重新启动等情况。
+- en: Regardless of the cloud provider, the edge SDKs will support standard protocols
+    such as MQTT in addition to proprietary ones. Choose a standard protocol to retain
+    for yourself the ability to deploy software to different clouds—especially in
+    the case of edge devices, it is quite common to end up having to support devices
+    from other clouds or processing software on different clouds due to partnerships
+    and acquisitions. If using Greengrass on AWS, for example, you might want to consider
+    using the MQTT broker Moquette to ensure portability.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论云服务提供商如何，边缘 SDK 都将支持标准协议，如 MQTT，以及专有协议。选择标准协议可确保您能够在不同云上部署软件，尤其是在边缘设备的情况下，通常需要支持其他云的设备或处理软件，因为涉及合作和收购。例如，在
+    AWS 上使用 Greengrass 时，可能考虑使用 MQTT 代理 Moquette 以确保可移植性。
+- en: Streaming Sinks
+  id: totrans-78
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 流式汇聚
+- en: 'In Figures [8-2](#two_options_for_streaming_etl_of_logs_d) and [8-3](#streaming_elt_can_also_be_done_in_micro),
+    we assumed that we needed to land the streaming data into a DWH to support interactive
+    querying. This is not necessarily the case. There are two exceptions: unstructured
+    data and high-throughput streams.'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [8-2](#two_options_for_streaming_etl_of_logs_d) 和 [8-3](#streaming_elt_can_also_be_done_in_micro)
+    图中，我们假设需要将流数据导入数据仓库以支持交互式查询。但并非总是如此。有两个例外情况：非结构化数据和高吞吐流。
+- en: If you are streaming video, then disregard all the above and use a framework
+    meant for video. On the edge, your video camera will support a live streaming
+    protocol such as Real-Time Streaming Protocol or WebRTC. Use this to send the
+    live video feed to the cloud. On Google Cloud, Cloud Video Intelligence will convert
+    from the live streaming protocol to a decodable video stream and write the stream
+    to files on cloud storage. On AWS, Kinesis Video Streams provides a similar integration
+    with AWS SageMaker and publishes ML inference results to Kinesis Data Streams.
+    Similarly, Azure Video Indexer allows you to extract insights from video.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您正在流式传输视频，则可以忽略上述所有内容并使用专为视频设计的框架。在边缘上，您的视频摄像机将支持实时流传输协议，如实时流传输协议（RTSP）或WebRTC。使用这些协议将实时视频传送到云端。在Google
+    Cloud上，Cloud Video Intelligence将从实时流传输协议转换为可解码的视频流，并将流写入云存储文件中。在AWS上，Kinesis Video
+    Streams与AWS SageMaker提供类似的集成，并将ML推断结果发布到Kinesis Data Streams。类似地，Azure Video Indexer允许您从视频中提取洞察信息。
+- en: 'DWHs are a general-purpose answer for persistent storage and interactive, ad
+    hoc querying. However, DWHs are not a good solution for high-throughput and/or
+    low-latency situations. Typical throughput supported by DWH streaming inserts
+    is on the order of a gigabyte per second, and typical latencies are on the order
+    of seconds. If you want to stream terabytes of data per second or want millisecond
+    latencies, then DWHs are not a good choice. Use Cloud Bigtable on Google Cloud
+    or DynamoDB on AWS instead. Of course, these are NoSQL databases, so you are trading
+    off the convenience of SQL for the real-time ingest and querying. Conversely,
+    do not choose Bigtable or DynamoDB if your scale or performance needs do not reach
+    these levels: a SQL solution will be less expensive in terms of both infrastructure
+    and required skills.'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DWH是持久存储和交互式即席查询的通用解决方案。但是，DWH对于高吞吐量和/或低延迟的情况并不是一个好的选择。DWH支持的典型吞吐量约为每秒1GB，并且典型的延迟约为几秒钟。如果您希望每秒流传输数TB数据或希望毫秒级延迟，则DWH不是一个好的选择。而是使用Google
+    Cloud上的Cloud Bigtable或AWS上的DynamoDB。当然，这些都是NoSQL数据库，因此您正在权衡SQL的便利性与实时摄取和查询的权衡。相反，如果您的规模或性能需求未达到这些水平，则不要选择Bigtable或DynamoDB：SQL解决方案将在基础设施和所需技能方面更加经济实惠。
+- en: It is also possible to stream to files on cloud blob storage if immediate querying
+    is not a concern or if your architecture consists purely of a data lake rather
+    than being a data lakehouse (see [Chapter 7](ch07.html#converging_to_a_lakehouse)).
+    Apache Beam, for example, can be used to store unstructured or semistructured
+    data on Google Cloud Storage. When doing so, it is important to decide how to
+    shard the files—stream processing frameworks will automatically shard the files
+    once the files reach a certain size, but these will be essentially based on timestamp
+    (since records are getting streamed out), and this may not be suitable for your
+    needs.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果立即查询不是问题，或者您的架构纯粹是数据湖而不是数据湖仓（参见[第7章](ch07.html#converging_to_a_lakehouse)），则也可以将流式数据流式传输到云Blob存储文件中。例如，Apache
+    Beam可用于将非结构化或半结构化数据存储在Google Cloud Storage上。在这样做时，重要的是决定如何分片文件——流处理框架将在文件达到一定大小后自动分片文件，但这些基本上是基于时间戳的（因为记录正在流出），这可能不适合您的需求。
+- en: Real-Time Dashboards
+  id: totrans-83
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实时仪表盘
+- en: Regardless of whether you are storing aggregate data or landing real-time data
+    into the DWH, you may want to provide decision makers with the ability to visualize
+    the data as it is coming in. You can do this through *real-time dashboards*.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论您是存储聚合数据还是将实时数据着陆到数据仓库（DWH），您可能希望为决策者提供在数据进入时可视化数据的能力。您可以通过*实时仪表盘*来实现这一点。
+- en: Live Querying
+  id: totrans-85
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 实时查询
+- en: The dashboard tools periodically query the DWH as to which events are landed
+    and update their graphics. This architecture requires that the dashboard push
+    down the query to the cloud DWH (see [Figure 8-6](#dashboards_periodically_query_the_dwh_u)).
+    In other words, all queries are “live” and reflect the latest data in the DWH.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仪表板工具定期查询DWH以确定着陆的事件，并更新其图形。此架构要求仪表板将查询推送到云DWH（参见[图8-6](#dashboards_periodically_query_the_dwh_u)）。换句话说，所有查询都是“实时的”，并反映DWH中的最新数据。
+- en: '![Dashboards periodically query the DWH using SQL](assets/adml_0806.png)'
+  id: totrans-87
+  prefs: []
+  type: TYPE_IMG
+  zh: '![仪表板定期使用SQL查询DWH](assets/adml_0806.png)'
+- en: Figure 8-6\. Dashboards periodically query the DWH using SQL
+  id: totrans-88
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-6. 仪表板定期使用SQL查询DWH
+- en: Earlier approaches such as data cubes and data marts—which involve materializing
+    the subset or aggregate of DWH data used by the graphics—are no longer necessary.
+    Even though dashboard tools like Tableau have the capability to create and maintain
+    extracts, it is preferable to query the DWH live—modern cloud DWHs can handle
+    it.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 早期的方法如数据立方体和数据集市——它们涉及将用于图形的DWH数据的子集或聚合物化——已不再必要。尽管像Tableau这样的仪表板工具具有创建和维护提取的功能，但最好直接查询DWH
+    live——现代云DWH可以处理。
+- en: If your DWH offers convenience or performance features tailored for dashboards
+    (such as caching of datasets in memory, time-bound caching of queries, optimizations
+    to return previous query results if the data has not changed, etc.), you should
+    turn them on. For example, in Google BigQuery, turn on BI Engine. In AWS Redshift,
+    use dense compute nodes because these are tailored for the heavier compute that
+    dashboards will impose.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的数据仓库提供了面向仪表板的便利或性能特性（例如将数据集缓存在内存中、查询的时间限定缓存、优化以在数据未更改时返回先前的查询结果等），您应该启用它们。例如，在Google
+    BigQuery中，启用BI引擎。在AWS Redshift中，使用密集计算节点，因为这些节点专为仪表板所需的较重计算而设计。
+- en: Materialize Some Views
+  id: totrans-91
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 物化一些视图
+- en: It is preferable that you do not have complex SQL querying code in the dashboard
+    tool. Create views that retrieve the required data and have the dashboard tool
+    query the view. Reuse query logic among views through user-defined SQL functions.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最好不在仪表板工具中使用复杂的SQL查询代码。创建检索所需数据的视图，并通过用户定义的SQL函数在视图之间重用查询逻辑。
+- en: If you discover that some views are accessed very often, convert the view to
+    be a materialized view (see [Figure 8-7](#use_materialized_views_for_frequently_r)).
+    This provides the performance benefit of dashboard-maintained database extracts
+    without the extra governance burden posed by datasets floating around the organization.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您发现某些视图经常被访问，请将视图转换为物化视图（参见[图 8-7](#use_materialized_views_for_frequently_r)）。这样做可以在不增加额外治理负担的情况下提供仪表板维护的数据库提取的性能优势。
+- en: '![Use materialized views for frequently requested extracts](assets/adml_0807.png)'
+  id: totrans-94
+  prefs: []
+  type: TYPE_IMG
+  zh: '![为频繁请求的提取使用物化视图](assets/adml_0807.png)'
+- en: Figure 8-7\. Use materialized views for frequently requested extracts
+  id: totrans-95
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-7\. 为频繁请求的提取使用物化视图
+- en: 'Do not go overboard, however: paraphrasing Knuth, premature optimization remains
+    the cause of much evil. Minimize the use of materialized views and allow most
+    queries to happen live. Materialized views add storage costs, and they add a lot
+    of unnecessary expense if the particular extract is rarely displayed.'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是不要过火：引用Knuth的话，过早优化仍然是许多问题的根源。最小化使用物化视图，并允许大多数查询实时进行。物化视图会增加存储成本，如果特定提取很少显示，则会增加许多不必要的开支。
+- en: Stream Analytics
+  id: totrans-97
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 流分析
+- en: When implementing a dashboard, you may need to go beyond just displaying data.
+    You may need to display alerts, useful to the decision makers, that are based
+    on automatically extracted insights and predictions. This is called *stream analytics*.
+    You can determine if an alert is warranted via the computation of analytics on
+    an event-by-event basis or on a time-based schedule. Doing it as the event arrives
+    is better, and to do this, you will need a streaming pipeline. If you choose to
+    do it on a time-based schedule, micro-batching is sufficient.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实施仪表板时，您可能需要超越仅仅显示数据。您可能需要显示基于自动提取的见解和预测的对决策者有用的警报。这被称为*流分析*。您可以通过事件基础或基于时间的时间表计算分析来确定是否需要警报。实时处理事件比较好，为此，您需要一个流水线。如果选择基于时间表进行处理，微批处理就足够了。
+- en: 'Streaming analytics is useful in these situations:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流分析在以下情况下很有用：
+- en: Time-series analytics
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 时间序列分析
+- en: To track assets, predict impact of events, and do predictive maintenance
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于跟踪资产、预测事件影响和进行预测性维护
+- en: Clickstream analysis
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 点击流分析
+- en: To make real-time offers, create dynamic websites, and optimize a customer journey
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于实时提供优惠、创建动态网站和优化客户旅程
+- en: Anomaly detection
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 异常检测
+- en: To predict equipment failure, prevent fraud, and monitor system health
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于预测设备故障、防止欺诈和监控系统健康
+- en: We’ll look at each of these respectively as we progress through this section.
+    The architecture for these situations can serve as a template for other streaming
+    analytics use cases that you may have—you will end up writing to both topics and
+    dashboards as in time-series analytics, using a backfill pipeline as in clickstream
+    analytics, or using multiple time windows as in anomaly detection.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在本节中分别讨论这些情况。这些情况的架构可以作为其他流式分析用例的模板，你可以像时间序列分析那样写入两个主题和仪表板，使用点击流分析中的回填管道，或使用异常检测中的多个时间窗口。
+- en: Time-Series Analytics
+  id: totrans-107
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 时间序列分析
+- en: The most common application of stream analytics is to validate data values periodically
+    or to compute time-based averages.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流式分析最常见的应用是周期性验证数据值或计算基于时间的平均值。
+- en: 'For example, suppose a physical asset (such as a delivery vehicle) streams
+    its location to the cloud and we would like to analyze the location of the asset
+    and alert if:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设一个物理资产（如交付车辆）将其位置流式传输到云端，我们希望分析资产的位置，并在以下情况下发出警报：
+- en: The asset moves out of some predetermined geographic area
+  id: totrans-110
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 该资产移动出某个预定的地理区域。
+- en: The asset’s speed is above some predetermined limit for the location that it
+    is in
+  id: totrans-111
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 该资产的速度超过了它所在位置的某个预定限值。
+- en: The architecture of this use case is shown in [Figure 8-8](#architecture_for_time_series_analytic).
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此用例的架构如[图 8-8](#architecture_for_time_series_analytic)所示。
+- en: '![Architecture for time-series analytics](assets/adml_0808.png)'
+  id: totrans-113
+  prefs: []
+  type: TYPE_IMG
+  zh: '![时间序列分析架构](assets/adml_0808.png)'
+- en: Figure 8-8\. Architecture for time-series analytics
+  id: totrans-114
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-8. 时间序列分析架构
+- en: You can land the location data in real time into the DWH through an ETL pipeline
+    that is pushed new location information from an event stream (Kafka, Pub/Sub,
+    etc.). The streaming pipeline (implemented in technology such as AWS Glue, Google
+    Cloud Dataflow, Apache Flink, etc.) processes the real-time stream, validates
+    the location, and writes alerts to a special topic. An activation function then
+    is triggered on new events to this topic and takes care of sending the alerts
+    via email, text, etc., to interested parties.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以通过ETL管道实时将位置数据加载到DWH中，该管道从事件流（Kafka，Pub/Sub等）中推送新的位置信息。流式处理管道（使用AWS Glue、Google
+    Cloud Dataflow、Apache Flink等技术实现）处理实时流，验证位置，并将警报写入一个特殊主题。然后，当有新的事件到达此主题时，会触发一个激活函数，负责通过电子邮件、短信等方式将警报发送给相关方。
+- en: The stream processor is capable of applying time windows to the incoming event
+    stream to compute statistics like the average speed. It is also capable of obtaining
+    static values from a database (such as the speed limit in any specific location).
+    Therefore, it is also capable of carrying out the second computation and alerting
+    on it as well.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流处理器能够对传入的事件流应用时间窗口，计算平均速度等统计数据。它还能够从数据库中获取静态值（如特定位置的限速）。因此，它还能够进行第二次计算并对其发出警报。
+- en: It is a best practice to write alert messages not only to the alert topic but
+    also to the EDW. In order to provide users control over what alerts they receive,
+    it is better to not have the streaming pipeline directly send emails or text messages.
+    This separation of responsibility also allows you to build dashboards that can
+    show the frequency of such alerts and permit users to explore the alerts and hopefully
+    recognize a pattern.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 编写   编写警报消息时，最佳实践是将其写入警报主题和EDW。为了让用户控制他们收到的警报，最好不要让流式处理管道直接发送电子邮件或短信。这样的职责分离还允许你建立仪表板，展示这些警报的频率，并允许用户探索这些警报，进而识别模式。
+- en: Clickstream Analytics
+  id: totrans-118
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 点击流分析
+- en: A clickstream consists of the sequence of events (such as button clicks, page
+    views, etc.) carried out by visitors within an application or website. To collect
+    this data, organizations instrument their websites so that user activities invoke
+    a web action that, in turn, ends up in a DWH. As a lot of business has moved online,
+    it has become possible for organizations to gain insights into customer behavior
+    based on the clickstream.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 点击流由访问者在应用或网站内执行的事件序列（如按钮点击、页面浏览等）组成。为了收集这些数据，组织在其网站上安装了仪器，以便用户活动触发Web动作，进而最终进入DWH。随着大量业务转移到在线，组织能够基于点击流洞察客户行为。
+- en: While it is possible to write custom JavaScript code for such instrumentation
+    and collect and process the data in a custom streaming pipeline, it is much more
+    common to use prebuilt tooling such as Google Marketing Platform or Salesforce
+    Marketing Cloud. Google Marketing Platform consists of Google Tag Manager, which
+    is how you instrument your website, and Google Analytics, which collects this
+    information and provides a way to export clickstream data into Google BigQuery,
+    from where you can transfer it to any other DWH. You can use connectors from companies
+    such as Fivetran to similarly export data from Salesforce Marketing Cloud to the
+    desired DWH. Also check whether your SaaS software provides the capability to
+    synchronize its internal data with a DWH. Salesforce, for example, offers this
+    capability for Snowflake and BigQuery.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然可以为此类工具编写自定义 JavaScript 代码进行仪表化，并在自定义流式处理管道中收集和处理数据，但更常见的是使用预构建工具，如 Google
+    Marketing Platform 或 Salesforce Marketing Cloud。Google Marketing Platform 包括 Google
+    Tag Manager（用于仪表化您的网站）和 Google Analytics（收集此信息并提供一种将点击流数据导出到 Google BigQuery 的方式，从那里可以将其转移到任何其他
+    DWH）。您可以使用像 Fivetran 这样的公司的连接器，类似地将数据从 Salesforce Marketing Cloud 导出到所需的 DWH。还需检查您的
+    SaaS 软件是否提供将其内部数据与 DWH 同步的功能。例如，Salesforce 为 Snowflake 和 BigQuery 提供了这样的功能。
+- en: 'Once the data is in a DWH, you can analyze it using SQL. Clickstream data is
+    used for A/B testing, tracking changes in item popularity, and identifying sales
+    friction. You can do all these through appropriately crafted SQL. However, the
+    processing code will handle situations such as:'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦数据位于 DWH 中，您可以使用 SQL 进行分析。点击流数据用于 A/B 测试、跟踪商品流行度变化和识别销售摩擦。您可以通过适当编写的 SQL 完成所有这些任务。但是，处理代码将处理以下情况：
+- en: Customers who start on one device and finish the transaction on another. The
+    automatic session tracking may not capture this unless the customer is logged
+    in on both devices. In general, user identification is a challenge, since only
+    a small subset of users will be logged in. Every other mechanism (cookies, device
+    IDs, IP addresses, etc.) fails quite frequently and can be improved upon if you
+    have more data. The combined use of all the data available across all channels
+    to tie together what is likely the same user is called *identity stitching*. The
+    lakehouse where the resulting set of unique user IDs and corresponding attributes
+    is stored is called a *Customer Data Platform* (CDP).
+  id: totrans-122
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户从一个设备开始，然后在另一个设备上完成交易。自动会话跟踪可能不会捕获这种情况，除非客户在两台设备上都登录。总体而言，用户识别是一个挑战，因为只有少数用户会登录。其他机制（如
+    Cookie、设备 ID、IP 地址等）经常失败，并且如果有更多数据，可以进行改进。通过跨所有渠道使用所有可用数据将可能是同一用户的数据集合起来，称为*身份拼接*。存储包含一组唯一用户
+    ID 和相应属性的湖畔被称为*客户数据平台*（CDP）。
+- en: Privacy compliance, which will often require that collected data is appropriately
+    anonymized and user data aggregated in such a way that individual actions cannot
+    be identified. It is quite common that you will have to redact information from
+    text fields filled out by users.
+  id: totrans-123
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 隐私合规性通常要求适当对收集的数据进行匿名化处理，并以不能识别个体行动的方式聚合用户数据。经常需要从用户填写的文本字段中删除信息。
+- en: Activity by automated agents such as spiders (search bots) and bad actors looking
+    for security vulnerabilities.
+  id: totrans-124
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 自动代理（如蜘蛛搜索机器人）和寻找安全漏洞的恶意行为的活动。
+- en: This kind of processing is hard to do in SQL. Because of these situations, even
+    when prebuilt CDPs such as Segment or Bloomreach are used, it is common to build
+    a postprocessing “backfill” pipeline to handle cases that are unique to your organization
+    (see [Figure 8-9](#use_a_backfill_pipeline_to_enrich_click)). This streaming pipeline
+    might be able to do a better job of identity stitching, privacy aggregation, and
+    bot detection than the more general-purpose code provided by the prebuilt tools.
+    At the same time, the pipe­line might be able to enrich the clickstream feed based
+    on other data sources within the organization (such as information about customers,
+    products, prices, inventory levels, etc.). It is this backfilled, postprocessed
+    data that you can use for further analysis.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种处理在 SQL 中很难完成。因此，即使使用像 Segment 或 Bloomreach 这样的预构建 CDP，也通常需要构建后处理的“补充”管道来处理组织内特有的情况（见[图 8-9](#use_a_backfill_pipeline_to_enrich_click)）。这种流式处理管道可能能更好地完成身份拼接、隐私聚合和机器人检测等任务，超过预构建工具提供的更为通用的代码。同时，该管道可能会根据组织内的其他数据源（如关于客户、产品、价格、库存水平等的信息）来丰富点击流。正是这些补充后处理的数据，可以用于进一步的分析。
+- en: If you use the clickstream data to build personalization or recommendation sys­tems, it
+    is necessary to also take actions while the customer is on the website. This will
+    fall under the continuous intelligence use case, which we cover later in this
+    chapter.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您使用点击流数据来构建个性化或推荐系统，则在客户访问网站时也必须采取行动。这将属于我们稍后在本章中讨论的连续智能用例。
+- en: '![Use a backfill pipeline to enrich clickstream data and improve identity stitching,
+    privacy redaction, and bot detection](assets/adml_0809.png)'
+  id: totrans-127
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用回填管道来丰富点击流数据，改进身份拼接、隐私削减和机器人检测](assets/adml_0809.png)'
+- en: Figure 8-9\. Use a backfill pipeline to enrich clickstream data and improve
+    identity stitching, privacy redaction, and bot detection
+  id: totrans-128
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-9\. 使用回填管道来丰富点击流数据，改进身份拼接、隐私削减和机器人检测
+- en: Anomaly Detection
+  id: totrans-129
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 异常检测
+- en: Anomaly detection involves identifying unusual patterns as the data is arriving.
+    In any situation where you have a lot of data on what “usual” behavior looks like,
+    but it is hard to write specific rules on what abnormal activity looks like (because
+    bad actors keep changing their attack mechanism or because the environment is
+    subject to change), anomaly detection can be very useful. Anomaly detection is
+    used to detect mispriced items (all of a sudden, the popularity of an item shoots
+    up), overloaded equipment, bot activity in online games, security threats, etc.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 异常检测涉及在数据到达时识别异常模式。在任何“正常”行为的数据丰富的情况下，但很难编写关于异常活动具体规则的情况下（因为恶意行为者不断改变攻击机制或环境易受变化），异常检测非常有用。异常检测用于检测定价错误的商品（某种商品的人气突然上升），过载设备，在线游戏中的机器人活动，安全威胁等。
+- en: A signature-based pattern is the primary technique used by many organizations
+    to identify viruses and other cybersecurity threats. In a signature-based pattern,
+    the system leverages repositories of viruses detected in the past against new
+    menaces. However, it is difficult to detect new attacks using this technique because
+    no pattern or signature is available. When using anomaly detection, you usually
+    cluster incoming data over, say, the past three days (see [Figure 8-10](#anomaly_detection_involves_two_streamin)).
+    Any events that are far from existing clusters are assumed to be suspect. This
+    allows for the environment to adapt (since clustering is done only on the most
+    recent three days of data), and it allows you to identify abnormal patterns as
+    long as they are not already too widespread.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多组织使用基于签名的模式作为识别病毒和其他网络安全威胁的主要技术。在基于签名的模式中，系统利用过去检测到的病毒的存储库来对抗新的威胁。然而，使用这种技术很难检测到新的攻击，因为没有可用的模式或签名。当使用异常检测时，通常会对过去三天内的传入数据进行聚类（见[图 8-10](#anomaly_detection_involves_two_streamin)）。任何远离现有聚类的事件都被认为是可疑的。这允许环境进行适应（因为聚类仅在最近三天的数据上进行），并且允许您识别异常模式，只要它们不是已经过于普遍。
+- en: '![Anomaly detection involves two streaming pipelines: one to compute clusters
+    within a sliding window and a second to compare incoming events against the clusters](assets/adml_0810.png)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![异常检测涉及两个流式管道：一个用于计算滑动窗口内的聚类，另一个用于将传入事件与这些聚类进行比较](assets/adml_0810.png)'
+- en: 'Figure 8-10\. Anomaly detection involves two streaming pipelines: one to compute
+    clusters within a sliding window and a second to compare incoming events against
+    the clusters'
+  id: totrans-133
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-10\. 异常检测涉及两个流式管道：一个用于计算滑动窗口内的聚类，另一个用于将传入事件与这些聚类进行比较
+- en: Resilient Streaming
+  id: totrans-134
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 弹性流式处理
+- en: When ingesting and processing streaming data, there will be malformed data that
+    you receive or unexpected data values that you do not know how to process.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当摄取和处理流数据时，您会收到格式不正确的数据或者您不知道如何处理的意外数据值。
+- en: In batch processing, it is common to simply throw an exception and expect the
+    programmer to find the logic error, fix it, and rerun the batch job. However,
+    in stream processing, the pipeline needs to continue running. You also don’t want
+    to just ignore errors.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在批处理中，通常会简单地抛出异常，然后期望程序员找到逻辑错误，修复它，并重新运行批处理作业。然而，在流处理中，管道需要继续运行。同时，您也不希望简单地忽略错误。
+- en: Therefore, it is crucial that every streaming analytics job sets up a dead-letter
+    queue to store any events that were unable to be processed. You can periodically
+    inspect these dead-letter queues and (as with batch jobs) fix the logic errors.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，每个流式分析作业设置一个死信队列来存储无法处理的事件非常关键。您可以定期检查这些死信队列并（与批处理作业一样）修复逻辑错误。
+- en: Once you have fixed the logic error, you have to update the currently running
+    streaming pipeline without any data drops. Tools like Cloud Dataflow provide the
+    ability to *update* a running pipeline in place or to *drain* the event queue
+    and seamlessly transfer processing to a new pipeline.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦修复了逻辑错误，就必须在当前运行的流式处理流水线上更新，而不会丢失任何数据。像 Cloud Dataflow 这样的工具提供了在原地*更新*运行中的流水线或*排空*事件队列并无缝转移处理到新流水线的能力。
+- en: Updating a running pipeline keeps in-flight data and resumes processing within
+    the new pipeline. To do this, it reuses the persistent store from the old pipeline
+    for the updated pipeline. As a result, the two streaming pipelines must meet certain
+    compatibility requirements. If you are in a situation where compatibility is maintained,
+    you should follow this approach because you can achieve exactly-once semantics.
+    Events will be processed exactly once (i.e., either the old one or the new one),
+    and aggregates will be accurate.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更新正在运行的流水线会保留正在进行的数据，并在新流水线内恢复处理。为此，它重用旧流水线的持久存储来更新流水线。因此，两个流式处理流水线必须满足某些兼容性要求。如果处于保持兼容性的情况下，应该遵循这种方法，因为可以实现一次精确处理语义。事件将被精确处理一次（即旧的或新的），并且聚合将是准确的。
+- en: If the pipelines are not compatible (perhaps because the bug fix changed the
+    data transmitted between steps), the next best approach is to drain the existing
+    pipeline before starting the new pipeline. The existing job stops pulling from
+    its input sources and completes processing of all in-flight and buffered data,
+    causes triggers to emit the contents of open windows, and sends new events to
+    the new pipeline. Draining pipelines is essential to ensure at-least-once processing
+    semantics—this is not as good as exactly-once, but it is better than simply canceling
+    a running pipeline and throwing away data.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果流水线不兼容（也许是因为修复了 bug 改变了步骤之间传输的数据），下一个最佳方法是在启动新流水线之前排空现有流水线。现有作业停止从其输入源拉取数据，并完成所有正在进行和缓冲数据的处理，导致触发器发射开放窗口的内容，并将新事件发送到新的流水线。排空流水线对于确保至少一次处理语义至关重要——虽然不及一次精确处理好，但比简单取消运行中的流水线和丢弃数据要好。
+- en: Continuous Intelligence Through ML
+  id: totrans-141
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 通过 ML 实现持续智能
+- en: It is not necessary to have a human in the loop to make decisions. As the amount
+    of data grows, it is very common to move to a system of *human over the loop*.
+    In this situation, actions are automatically carried out in response to real-time
+    insights, alerts, and predictions. A human supervisor can override an action that
+    would otherwise be automatically applied, but a system is designed to operate
+    autonomously without any human intervention. This is known as *continuous intelligence*.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不需要有人在环路中进行决策。随着数据量的增长，通常会转向*人类在环上*的系统。在这种情况下，根据实时洞察、警报和预测自动执行操作。人类监督员可以覆盖否则会自动应用的操作，但系统设计为在没有任何人类干预的情况下自动运行。这被称为*持续智能*。
+- en: 'To enable the system to operate autonomously, you will need to automate the
+    following:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使系统能够自动运行，您需要自动化以下操作：
+- en: Train an ML model on historical data, and retrain the model on subsequent data
+    if necessary.
+  id: totrans-144
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在历史数据上训练 ML 模型，并根据需要在随后的数据上重新训练模型。
+- en: Invoke the trained ML model as events come in. This is called *inference*.
+  id: totrans-145
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在事件到来时调用经过训练的 ML 模型。这称为*推断*。
+- en: Take actions based on the prediction of the ML model.
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 根据 ML 模型的预测采取行动。
+- en: Let’s look at some considerations for each of these steps.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看每个步骤的一些考虑事项。
+- en: Training Model on Streaming Data
+  id: totrans-148
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在流数据上训练模型
+- en: ML models are trained on historical data. How much data should you train the
+    model on? This depends on the problem at hand. The general guidance is that you
+    should only train the model on data that is similar to what it will encounter
+    once it is put into production. Moreover, data from several years ago is often
+    from a completely different context and may capture trends and relationships that
+    are not relevant today.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML 模型是根据历史数据训练的。应该在多少数据上训练模型？这取决于手头的问题。一般的建议是，只在与投入生产后可能遇到的数据类似的数据上训练模型。此外，几年前的数据通常来自完全不同的背景，可能捕捉到今天不相关的趋势和关系。
+- en: Therefore, when training an ML model on streaming data, you are unlikely to
+    train the model on the entire historical archive. Instead, you are interested
+    in training on recent data, where “recent” refers to data that has the same characteristics
+    as data that you are about to receive. “Recent” in this context could be the past
+    three days (as in our anomaly detection example, shown in [Figure 8-10](#anomaly_detection_involves_two_streamin))
+    or the past three years in unchanging environments.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，在对流数据进行ML模型训练时，您不太可能对整个历史存档进行训练。相反，您感兴趣的是在最近的数据上进行训练，“最近”是指具有与即将接收到的数据相同特征的数据。在这种情况下，“最近”可以是过去三天（如我们异常检测示例中显示的情况，见[图8-10](#anomaly_detection_involves_two_streamin)）或在稳定环境中过去三年的数据。
+- en: Windowed training
+  id: totrans-151
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 窗口化训练
+- en: If you are training very frequently and the training data consists of relatively
+    small time periods, you can use a sliding window streaming pipeline as in [Figure 8-11](#training_on_events_within_a_sliding_tim).
+    This is extremely common when you are extrapolating time series (such as doing
+    demand prediction solely on the historical demand cycle).
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您经常进行训练，并且训练数据包含相对较小的时间段，您可以像在[图8-11](#training_on_events_within_a_sliding_tim)中一样使用滑动窗口流水线。在仅基于历史需求周期进行需求预测等时间序列外推时，这是非常常见的。
+- en: '![Training on events within a sliding time window](assets/adml_0811.png)'
+  id: totrans-153
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在滑动时间窗口内训练事件](assets/adml_0811.png)'
+- en: Figure 8-11\. Training on events within a sliding time window
+  id: totrans-154
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-11\. 在滑动时间窗口内训练事件
+- en: 'What you need for this is:'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您需要的是：
+- en: A streaming pipeline to create a dataset consisting of data within the time
+    window.
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用流水线创建在时间窗口内的数据集。
+- en: An automated training pipeline in Google Cloud Vertex AI, AWS SageMaker, Azure
+    Machine Learning, etc., that is parameterized in terms of where it obtains the
+    training data. (The training pipeline also deploys the model to an endpoint, as
+    we will discuss in [“Streaming ML Inference”](#streaming_ml_inference).)
+  id: totrans-157
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在Google Cloud Vertex AI、AWS SageMaker、Azure Machine Learning等平台上的自动化训练流水线，以从何处获取训练数据为参数化。（训练流水线还将模型部署到端点，正如我们将在[“流式ML推断”](#streaming_ml_inference)中讨论的那样。）
+- en: Note that the word “pipeline” here refers to different things. The streaming
+    pipeline involves processing of data in motion, whereas the training pipeline
+    consists of ML operations (preprocessing data, training model, evaluating model,
+    deploying model, etc.). We will discuss ML pipelines in greater detail in [Chapter 11](ch11.html#architecting_an_ml_platform).
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，“流水线”一词在这里指的是不同的内容。流式处理管道涉及处理动态数据，而训练管道包括ML操作（数据预处理、模型训练、模型评估、模型部署等）。我们将在[第11章](ch11.html#architecting_an_ml_platform)详细讨论ML流水线。
+- en: Scheduled training
+  id: totrans-159
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 定时训练
+- en: For situations where a trained model will be valid for a moderately long time
+    period (on the order of days to weeks), you can use a scheduled job to initiate
+    training, as described in [Figure 8-12](#scheduled_training). The training job
+    will retrieve data from the DWH or other persistent store corresponding to the
+    past month, for example.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于模型将有效一段较长时间（大约几天到几周）的情况，您可以使用定时作业启动训练，如[图8-12](#scheduled_training)中所述。训练作业将从DWH或其他持久存储中检索过去一个月的数据，例如。
+- en: '![Scheduled training](assets/adml_0812.png)'
+  id: totrans-161
+  prefs: []
+  type: TYPE_IMG
+  zh: '![定时训练](assets/adml_0812.png)'
+- en: Figure 8-12\. Scheduled training
+  id: totrans-162
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-12\. 定时训练
+- en: You can schedule a Vertex AI ML training pipeline on Google Cloud using Google
+    Cloud Scheduler. On AWS, scheduling a SageMaker pipeline is a supported target
+    in AWS EventBridge. On Azure, Azure Machine Learning pipelines support sched­uled
+    triggers (as a pipeline setting) and so don’t need an external scheduler to invoke
+    them.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用Google Cloud Scheduler在Google Cloud上安排Vertex AI ML训练流水线。在AWS上，调度SageMaker流水线是AWS
+    EventBridge支持的目标之一。在Azure上，Azure Machine Learning流水线支持调度触发器（作为流水线设置），因此不需要外部调度程序来调用它们。
+- en: We strongly discourage leaving models going more than a few weeks without changing
+    the model in a streaming pipeline. If you believe the model will continue to remain
+    valid, validate your intuition by continuously evaluating the model and retraining
+    it if necessary. We will discuss this in the next section.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们强烈建议不要让模型在流水线中保持超过几周而不更改。如果您相信模型将继续有效，请通过持续评估模型并在必要时重新训练来验证您的直觉。我们将在下一节讨论这个问题。
+- en: Continuous evaluation and retraining
+  id: totrans-165
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 持续评估和重新训练
+- en: The most complex situation is using a model until you determine it is no longer
+    fit for purpose. To determine that the model has *drifted* in performance, you
+    will need to employ *continuous evaluation*. For example, if you have a model
+    to predict whether a user will buy an item, you could verify a few days later
+    if the user has bought the item in question. You can then carry out a weekly evaluation
+    of the model based on predictions made two weeks ago and for which the true answer
+    is now available. When the evaluation metric drops below some preset threshold,
+    the model can be retrained (see [Figure 8-13](#continuous_evaluation_to_automatically)).
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最复杂的情况是在确定模型不再适合目的之前使用模型。要确定模型在性能上是否*漂移*，你需要使用*持续评估*。例如，如果你有一个用于预测用户是否购买物品的模型，你可以在几天后验证用户是否购买了相关物品。然后，基于两周前的预测进行每周一次的模型评估，并且现在可以获取真实答案。当评估指标低于预设阈值时，可以重新训练模型（参见[图8-13](#continuous_evaluation_to_automatically)）。
+- en: '![Continuous evaluation to automatically initiate retraining](assets/adml_0813.png)'
+  id: totrans-167
+  prefs: []
+  type: TYPE_IMG
+  zh: '![自动启动重新训练的持续评估](assets/adml_0813.png)'
+- en: Figure 8-13\. Continuous evaluation to automatically initiate retraining
+  id: totrans-168
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-13\. 自动启动重新训练的持续评估
+- en: You can also extend the continuous evaluation approach to detect *feature drift*—if
+    the distribution of any of the inputs to the ML model changes (for example, if
+    the number of repeat purchases was 10% of all purchases but has now increased
+    to 20% of purchases), you might want to retrain the model.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你还可以扩展持续评估方法来检测*特征漂移*——如果任何输入到机器学习模型的分布发生变化（例如，如果重复购买次数占所有购买的10%，现在增加到20%），你可能希望重新训练模型。
+- en: At the time of writing, only Vertex AI supported setting up continuous evaluation
+    queries and detection of feature drift on deployed models. To set this up in Vertex
+    AI, you will need to define an evaluation query and turn on the capability of
+    deployed models to write out a sample of features and corresponding predictions
+    to the DWH. Periodically run the evaluation query and use the resulting metric
+    to determine whether the pipeline needs to be invoked.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 截至目前，仅有Vertex AI支持设置持续评估查询和在部署模型上检测特征漂移。要在Vertex AI中设置这一功能，你需要定义一个评估查询，并启用部署模型将特征样本及相应预测写入数据仓库的能力。定期运行评估查询，并使用得到的指标来决定是否需要触发流水线。
+- en: Consult your cloud provider documentation on whether this scenario is now supported.
+    If it is, the mechanism is likely to be somewhat similar. If not, you will have
+    to build the corresponding pipelines and capabilities in a bespoke way.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请查阅你的云服务提供商文档，确认当前是否支持这一场景。如果支持，其机制可能会有些类似。如果不支持，你将需要按照自定义方式构建相应的流水线和能力。
+- en: Streaming ML Inference
+  id: totrans-172
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 流式机器学习推断
+- en: Normally, you invoke the trained ML model as events come in and obtain ML predictions
+    for those events.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，当事件发生时，你会调用训练过的机器学习模型，并获取这些事件的机器学习预测结果。
+- en: It is possible to load the model object into the streaming pipeline and call
+    the prediction signature of the model. This is usually the most efficient way
+    to invoke ML predictions. However, it doesn’t scale beyond small models and projects.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以将模型对象加载到流式处理流水线中，并调用模型的预测签名。这通常是调用机器学习预测的最高效方式。但是，它在小型模型和项目之外并不具备可扩展性。
+- en: For example, the ML prediction may be required by non-Python code and by programs
+    that are running on hardware that doesn’t have GPUs (e.g., think about an industrial
+    machine that has to automatically identify whether the item in the assembly line
+    has defects or a web server that needs to reject toxic reviews). To handle these
+    situations, the model is usually deployed to an endpoint so that it can be invoked
+    as a microservice. The model will then be invoked by sending an HTTP request to
+    it, with the input to the ML model being the payload.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，机器学习预测可能需要非Python代码和在没有GPU的硬件上运行的程序（例如，考虑一个工业机器，需要自动识别装配线上物品是否有缺陷，或者一个需要拒绝有毒评论的Web服务器）。为处理这些情况，通常会将模型部署到一个端点，以便作为微服务调用。然后通过向其发送HTTP请求来调用模型，并将输入传递给机器学习模型。
+- en: ML inference is not efficient if it is invoked one event at a time. Because
+    modern ML frameworks are based on matrix operations, they are much more efficient
+    if you pass in a small batch of events for inference. This is what is shown in
+    [Figure 8-14](#streaming_inference_typically_involves).
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML 推断如果一次调用一个事件是不高效的。因为现代 ML 框架基于矩阵运算，如果你传入一小批事件进行推断，效率会高得多。这就是在[图 8-14](#streaming_inference_typically_involves)中所示的内容。
+- en: '![Streaming inference typically involves accumulating a batch of events and
+    sending them to a deployed model for inference](assets/adml_0814.png)'
+  id: totrans-177
+  prefs: []
+  type: TYPE_IMG
+  zh: '![流推断通常涉及积累一批事件并将它们发送到部署的模型进行推断](assets/adml_0814.png)'
+- en: Figure 8-14\. Streaming inference typically involves accumulating a batch of
+    events and sending them to a deployed model for inference
+  id: totrans-178
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-14\. 流推断通常涉及积累一批事件并将它们发送到部署的模型进行推断
+- en: Automated Actions
+  id: totrans-179
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 自动化操作
+- en: If all that is required is that human users be able to view the predictions
+    of the ML model and make decisions, it is sufficient to land the predictions in
+    a DWH, as shown in [Figure 8-15](#supporting_automated_actionsem_dashthis). However,
+    what if you need the system to autonomously take some action based on the prediction
+    of the ML model? You could use an ML model for a task that requires automation,
+    such as to automatically issue a coupon to the person who’s likely to abandon
+    the shopping cart or to create a ticket to change an about-to-fail part on a machine.
+    You can invoke these actions in a serverless way through cloud functions like
+    Lambda, Fargate, Google Cloud Functions, Google Cloud Run, or Azure Functions.
+    To support this, you will need to write out a subset of the enriched events meeting
+    alerting criteria to a place from which you can trigger the cloud function (see
+    [Figure 8-15](#supporting_automated_actionsem_dashthis)).
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果只需要人类用户查看 ML 模型的预测并做出决策，将预测落到 DWH 中就足够了，如[图 8-15](#supporting_automated_actionsem_dashthis)所示。但是，如果需要系统根据
+    ML 模型的预测自动执行某些操作怎么办？你可以使用 ML 模型来执行需要自动化的任务，比如自动向可能放弃购物车的人发放优惠券，或者创建一个更换即将损坏零件的工单。你可以通过
+    Lambda、Fargate、Google Cloud Functions、Google Cloud Run 或 Azure Functions 以无服务器方式调用这些操作。为了支持这一点，你需要将满足告警条件的一部分增强事件写入一个地方，从中触发云函数（参见[图 8-15](#supporting_automated_actionsem_dashthis)）。
+- en: '![Supporting automated actions—this diagram is a continuation](assets/adml_0815.png)'
+  id: totrans-181
+  prefs: []
+  type: TYPE_IMG
+  zh: '![支持自动化操作—这张图是延续](assets/adml_0815.png)'
+- en: Figure 8-15\. Supporting automated actions—this diagram is a continuation of
+    [Figure 8-14](#streaming_inference_typically_involves)
+  id: totrans-182
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-15\. 支持自动化操作—这张图是[图 8-14](#streaming_inference_typically_involves)的延续
+- en: We have looked at a number of streaming use cases and scenarios and how they
+    can be architected and implemented using cloud native technologies. Compose the
+    architecture for your own streaming solution based on what your needs are. For
+    example, if you will be doing ML on streaming data, you will choose one of the
+    training architectures in Figures [8-11](#training_on_events_within_a_sliding_tim),
+    [8-12](#scheduled_training), and [8-13](#continuous_evaluation_to_automatically)
+    and combine it with the inference architecture of either Figure [8-14](#streaming_inference_typically_involves)
+    or [8-15](#supporting_automated_actionsem_dashthis). If you will be doing only
+    analytics, do not complicate the architecture—see if you can get away with [Figure 8-8](#architecture_for_time_series_analytic),
+    and add a backfill architecture ([Figure 8-9](#use_a_backfill_pipeline_to_enrich_click))
+    only if necessary.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看过许多流式使用案例和场景，以及如何使用云原生技术进行架构设计和实施。根据你的需求，为自己的流式解决方案构建架构。例如，如果你将在流数据上进行
+    ML，可以选择图 8-11、图 8-12 和图 8-13 中的训练架构之一，并将其与图 8-14 或图 8-15 的推断架构结合起来。如果仅进行分析，不要复杂化架构—看看是否可以通过[图 8-8](#architecture_for_time_series_analytic)解决，并仅在必要时添加后填充架构（[图 8-9](#use_a_backfill_pipeline_to_enrich_click)）。
+- en: Summary
+  id: totrans-184
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: 'This chapter focused on cloud native streaming architectures, where you understood
+    that they are highly modular and allow you to start small and add capabilities
+    only when necessary. The key takeaways are as follows:'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章重点介绍了云原生流式架构，你了解到它们高度模块化，可以从小处开始，仅在必要时添加功能。主要要点如下：
+- en: In many industries, being able to make decisions while the event is proceeding
+    is significantly more valuable than making the decision even a few minutes later.
+  id: totrans-186
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在许多行业中，能够在事件进行时做出决策比稍后几分钟做出决策更有价值。
+- en: Streaming architectures are quite modular, and you can get away with architecting
+    simple systems and adding complexity as and when additional needs arise.
+  id: totrans-187
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 流媒体架构非常模块化，您可以设计简单的系统，并在需要时逐步增加复杂性。
+- en: Streaming ingest is sufficient if the goal is to provide the business with more
+    timely data.
+  id: totrans-188
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果目标是为业务提供更及时的数据，流式数据摄取已经足够了。
+- en: Micro-batching is usually less expensive than streaming pipelines, but streaming
+    pipelines make the event immediately available for querying whereas there is latency
+    (greater than the chunking frequency) involved in micro-batching.
+  id: totrans-189
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 微批处理通常比流水线成本更低，但是流水线可以使事件立即可用于查询，而微批处理则会存在延迟（大于分块频率）。
+- en: As the number of consumers of the data grows and it becomes impossible to anticipate
+    the kinds of transformation different consumers need, many organizations switch
+    their data pipelines from streaming ETL to streaming ELT.
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 随着数据消费者数量的增加，以及不可能预测不同消费者所需转换类型的情况，许多组织将数据管道从流式 ETL 切换到流式 ELT。
+- en: If the DWH provides a streaming API, a cloud native application may disintermediate
+    the local agent and use a cloud client library to do the insert itself.
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果数据仓库提供流媒体 API，云原生应用程序可以去除本地代理，并使用云客户端库来进行插入。
+- en: For streaming data from IoT devices on the edge, make use of IoT-specific functionality
+    such as edge SDKs and edge hardware devices.
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于从物联网设备边缘流式传输数据，利用物联网特定功能，如边缘 SDK 和边缘硬件设备。
+- en: DWHs are not a good solution for high-throughput and/or low-latency situations.
+    In such situations, use NoSQL analytics stores such as Cloud Bigtable or DynamoDB.
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据仓库在高吞吐量和/或低延迟情况下并不是一个好的解决方案。在这种情况下，应使用诸如Cloud Bigtable或DynamoDB等NoSQL分析存储。
+- en: Have your dashboard tool push down the query to the cloud DWH, create views
+    for reuse, and materialize some views to optimize performance/cost.
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使您的仪表板工具将查询推送到云数据仓库，创建可重用视图，并将一些视图实体化以优化性能/成本。
+- en: In time-series analytics, write alerts to an alert topic and to the DWH to support
+    both autonomous actions and human exploration.
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在时间序列分析中，将警报写入警报主题和数据仓库，以支持自主操作和人工探索。
+- en: Use a prebuilt tool for clickstream analytics, but supplement it with a backfill
+    pipeline to enrich clickstream data and improve identify stitching, privacy redaction,
+    and bot detection.
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用预建工具进行点击流分析，但补充一个回填管道来丰富点击流数据，并改进身份拼接、隐私保护和机器人检测。
+- en: 'Anomaly detection involves two streaming pipelines: one to compute clusters
+    over long time periods and the other to compare incoming events to the most recent
+    clusters and raise an alert.'
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 异常检测涉及两个流媒体管道：一个用于长时间段内的计算聚类，另一个用于比较传入事件与最近的聚类并触发警报。
+- en: For resilient streaming, make sure that you update running pipelines. If updating
+    is not possible, drain them. Do not simply cancel a running production pipeline.
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为了保证流媒体的弹性，确保更新正在运行的管道。如果无法更新，要排空它们。不要简单地取消正在运行的生产管道。
+- en: If you are training very frequently and the training data consists of relatively
+    small time periods, use a sliding window streaming pipeline to supply training
+    data to the ML training pipeline.
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您正在进行频繁的训练，并且训练数据由相对较小的时间段组成，请使用滑动窗口流水线向机器学习训练管道提供训练数据。
+- en: For situations where a trained model will be valid for days to weeks, a scheduled
+    job can be used to initiate training.
+  id: totrans-200
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于模型将有效数天到数周的情况，可以使用定时作业来启动训练。
+- en: To determine whether a deployed model has drifted in performance, you will need
+    to employ continuous evaluation.
+  id: totrans-201
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要确定部署的模型在性能上是否出现漂移，您需要进行持续评估。
+- en: Because modern ML frameworks are based on matrix operations, they are much more
+    efficient if you pass in a small batch of events for inference.
+  id: totrans-202
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 因为现代机器学习框架基于矩阵运算，如果向推断传入小批量事件，则效率更高。
+- en: To support autonomous actions, you will need to write out a subset of the enriched
+    events (events + predictions) meeting alerting criteria to a topic on which a
+    cloud function is triggered.
+  id: totrans-203
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要支持自主操作，您需要将满足警报条件的增强事件子集（事件 + 预测）写入一个主题，触发云函数。
+- en: In the following chapter, you will see an overview of approaches and techniques
+    for distributed architectures focusing on edge computing, a pattern that can reduce
+    latency, increase security, and lower costs.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的章节中，您将看到关于分布式架构方法和技术的概述，重点是边缘计算，这是一种可以减少延迟、增强安全性并降低成本的模式。

@@ -1,0 +1,639 @@
+- en: Appendix C. Tips for Operating Kubeflow Pipelines
+  id: totrans-0
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 附录C. 操作Kubeflow Pipelines的提示
+- en: When you operate your TFX pipelines with Kubeflow Pipelines, you might want
+    to customize the underlying container images of your TFX components. Custom TFX
+    images are required if your components rely on additional Python dependencies
+    outside of the TensorFlow and TFX packages. In the case of our demo pipeline,
+    we have an additional Python dependency, the TensorFlow Hub library, for accessing
+    our language model.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您使用Kubeflow Pipelines操作您的TFX管道时，您可能希望自定义TFX组件的底层容器映像。如果您的组件依赖于TensorFlow和TFX软件包之外的其他Python依赖项，则需要自定义TFX映像。在我们的演示管道中，我们有一个额外的Python依赖项，即TensorFlow
+    Hub库，用于访问我们的语言模型。
+- en: In the second half of this appendix, we want to show you how to transfer data
+    to and from your local computer and your persistent volume. The persistent volume
+    setup is beneficial if you can access your data via a cloud storage provider (e.g.,
+    with an on-premise Kubernetes cluster). The presented steps will guide you through
+    the process of copying data to and from your cluster.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本附录的后半部分，我们希望向您展示如何在本地计算机和持久卷之间传输数据。如果可以通过云存储提供程序访问数据（例如使用本地Kubernetes集群），持久卷设置非常有用。提供的步骤将指导您完成在集群中复制数据的过程。
+- en: Custom TFX Images
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自定义TFX映像
+- en: In our example project, we use a language model provided by TensorFlow Hub.
+    We use the `tensorflow_hub` library to load the language model efficiently. This
+    particular library isn’t part of the original TFX image; therefore, we need to
+    build a custom TFX image with the required library. This is also the case if you
+    plan to use custom components like the ones we discussed in [Chapter 10](index_split_017.html#filepos1073133).
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例项目中，我们使用TensorFlow Hub提供的语言模型。我们使用`tensorflow_hub`库来高效加载语言模型。这个特定的库不包含在原始的TFX映像中，因此我们需要构建一个带有所需库的自定义TFX映像。如果您计划使用自定义组件，比如我们在[第10章](index_split_017.html#filepos1073133)讨论的组件，情况也是如此。
+- en: 'Fortunately, as we discussed in [Appendix A](index_split_023.html#filepos1605424),
+    Docker images can be built without much trouble. The following Dockerfile shows
+    our custom image setup:'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，正如我们在[附录A](index_split_023.html#filepos1605424)中讨论的那样，Docker映像可以轻松构建。以下Dockerfile显示了我们的自定义映像设置：
+- en: '`FROM` `tensorflow/tfx:0.22.0``RUN` `python3.6 -m pip install` `"tensorflow-hub"`![](images/00002.jpg)`RUN`
+    `...` ![](images/00075.jpg)`ENTRYPOINT` `["python3.6", "/tfx-src/tfx/scripts/run_executor.py"]`
+    ![](images/00064.jpg)'
+  id: totrans-6
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`FROM` `tensorflow/tfx:0.22.0``RUN` `python3.6 -m pip install` `"tensorflow-hub"`![](images/00002.jpg)`RUN`
+    `...` ![](images/00075.jpg)`ENTRYPOINT` `["python3.6", "/tfx-src/tfx/scripts/run_executor.py"]`
+    ![](images/00064.jpg)'
+- en: '![](images/00002.jpg)'
+  id: totrans-7
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Install required packages.
+  id: totrans-8
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 安装所需的软件包。
+- en: '![](images/00075.jpg)'
+  id: totrans-9
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Install additional packages if needed.
+  id: totrans-10
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如有需要，请安装额外的包。
+- en: '![](images/00064.jpg)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00064.jpg)'
+- en: Don’t change the container entry point.
+  id: totrans-12
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 不要更改容器的入口点。
+- en: We can easily inherit the standard TFX image as a base for our custom image.
+    To avoid any sudden changes in the TFX API, we highly recommend pinning the version
+    of the base image to a specific build (e.g., tensorflow/tfx:0.22.0) instead of
+    the common `latest` tag. The TFX images are built on the Ubuntu Linux distribution
+    and come with Python installed. In our case, we can simply install the additional
+    Python package for the Tensorflow Hub models.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以轻松地将标准TFX映像作为自定义映像的基础。为了避免TFX API的突然更改，我们强烈建议将基础映像的版本固定到特定的构建版本（例如tensorflow/tfx:0.22.0），而不是常见的`latest`标签。TFX映像基于Ubuntu
+    Linux分发，并预装有Python。在我们的情况下，我们可以简单地为TensorFlow Hub模型安装额外的Python包。
+- en: It is very important to provide the same entry point as configured in the base
+    image. Kubeflow Pipelines expects that the entry point will trigger the component’s
+    executor.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提供与基础映像配置的相同入口点非常重要。Kubeflow Pipelines期望入口点将触发组件的执行程序。
+- en: 'Once we have defined our Docker image, we can build and push the image to a
+    container registry. This can be AWS Elastic, GCP or Azure Container Registry.
+    It’s important to ensure that the running Kubernetes cluster can pull images from
+    the container registry and has permission to do so for private containers. In
+    the following code, we demonstrate those steps for the GCP Container Registry:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义了Docker映像之后，我们可以构建并推送映像到容器注册表。可以是AWS Elastic、GCP或Azure容器注册表。确保运行的Kubernetes集群可以从容器注册表中拉取映像并具有对私有容器的权限非常重要。在下面的代码中，我们展示了GCP容器注册表的这些步骤：
+- en: '`$` `export` `TFX_VERSION``=``0.22.0` `$` `export` `PROJECT_ID``=``<``your
+    gcp project id``>` `$` `export` `IMAGE_NAME``=``ml-pipelines-tfx-custom` `$` `gcloud
+    auth configure-docker` `$` `docker build pipelines/kubeflow_pipelines/tfx-docker-image/.`
+    `\` `    -t gcr.io/``$PROJECT_ID``/``$IMAGE_NAME``:``$TFX_VERSION``$` `docker
+    push gcr.io/``$PROJECT_ID``/``$IMAGE_NAME``:``$TFX_VERSION`'
+  id: totrans-16
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `export` `TFX_VERSION``=``0.22.0` `$` `export` `PROJECT_ID``=``<``your
+    gcp project id``>` `$` `export` `IMAGE_NAME``=``ml-pipelines-tfx-custom` `$` `gcloud
+    auth configure-docker` `$` `docker build pipelines/kubeflow_pipelines/tfx-docker-image/.`
+    `\` `    -t gcr.io/``$PROJECT_ID``/``$IMAGE_NAME``:``$TFX_VERSION``$` `docker
+    push gcr.io/``$PROJECT_ID``/``$IMAGE_NAME``:``$TFX_VERSION`'
+- en: Once the built image is uploaded, you can see the image available in the cloud
+    provider’s container registry, as shown in [Figure C-1](#filepos1692122).
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦构建的镜像上传完成，您可以在云提供商的容器注册表中看到可用的镜像，如 [图 C-1](#filepos1692122) 所示。
+- en: COMPONENT-SPECIFIC IMAGES
+  id: totrans-18
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 特定组件图像
+- en: At the time of writing, it isn’t possible to define custom images for specific
+    component containers. At the moment, the requirements for all components need
+    to be included in the image. However, there are currently proposals being discussed
+    to allow component-specific images in the future.
+  id: totrans-19
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在撰写本文时，还不能为特定组件容器定义自定义图像。目前，所有组件的要求都需要包含在图像中。不过，目前正在讨论允许将来使用特定组件图像的提案。
+- en: '![](images/00028.jpg)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00028.jpg)'
+- en: Figure C-1\. Google Cloud’s Container Registry
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 C-1\. 谷歌云的容器注册表
+- en: We can now use this container image for all of our TFX components in our Kubeflow
+    Pipelines setup.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以在 Kubeflow Pipelines 设置中的所有 TFX 组件中使用这个容器镜像。
+- en: Exchange Data Through Persistent Volumes
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过持久卷交换数据
+- en: As we discussed earlier, we need to provide containers to mount a filesystem
+    to read from and write data to locations outside of the container filesystem.
+    In the Kubernetes world, we can mount filesystems through persistent volumes (PVs)
+    and persistent volume claims (PVCs). In simple terms, we can provision a drive
+    to be available inside of a Kubernetes cluster and then claim that filesystem
+    in its entirety or a portion of its space.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前讨论的，我们需要提供容器以挂载文件系统，以便在容器文件系统之外的位置读取和写入数据。在 Kubernetes 世界中，我们可以通过持久卷（PV）和持久卷声明（PVC）来挂载文件系统。简单来说，我们可以为
+    Kubernetes 集群内提供一个驱动器，并在其内部索取该文件系统的全部或部分空间。
+- en: 'You can set up such PVs through the Kubernetes configurations that we provide
+    in [“Persistent Volume Setups for Kubeflow Pipelines”](index_split_024.html#filepos1673347).
+    If you would like to use this setup, you will need to create a disk with your
+    cloud provider (e.g., AWS Elastic Block Storage or GCP Block Storage). In the
+    following example, we create a disk drive with a size of 20 GB named tfx-pv-disk:'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过我们在 [“Kubeflow Pipelines 的持久卷设置”](index_split_024.html#filepos1673347)
+    中提供的 Kubernetes 配置来设置这些 PV。如果您希望使用此设置，您需要在云提供商（例如 AWS 弹性块存储或 GCP 块存储）中创建一个磁盘。在下面的示例中，我们创建了一个名为
+    tfx-pv-disk 的大小为 20 GB 的磁盘驱动器：
+- en: '`$` `export` `GCP_REGION``=``us-central1-c` `$` `gcloud compute disks create
+    tfx-pv-disk --size``=``20Gi --zone``=``$GCP_REGION`'
+  id: totrans-26
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `export` `GCP_REGION``=``us-central1-c` `$` `gcloud compute disks create
+    tfx-pv-disk --size``=``20Gi --zone``=``$GCP_REGION`'
+- en: 'We can now provision the disk to be used as a PV in our Kubernetes cluster.
+    The following `kubectl` command will facilitate the provisioning:'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以为 Kubernetes 集群中的 PV 提供磁盘。以下 `kubectl` 命令将帮助进行提供：
+- en: '`$` `kubectl apply -f` `"https://github.com/Building-ML-Pipelines/"``\``"building-machine-learning-pipelines/blob/master/pipelines/"``\``"kubeflow_pipelines/kubeflow-config/storage.yaml"``$`
+    `kubectl apply -f` `"https://github.com/Building-ML-Pipelines/"``\``"building-machine-learning-pipelines/blob/master/pipelines/"``\``"kubeflow_pipelines/kubeflow-config/storage-claim.yaml"`'
+  id: totrans-28
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl apply -f` `"https://github.com/Building-ML-Pipelines/"``\``"building-machine-learning-pipelines/blob/master/pipelines/"``\``"kubeflow_pipelines/kubeflow-config/storage.yaml"``$`
+    `kubectl apply -f` `"https://github.com/Building-ML-Pipelines/"``\``"building-machine-learning-pipelines/blob/master/pipelines/"``\``"kubeflow_pipelines/kubeflow-config/storage-claim.yaml"`'
+- en: 'After the provisioning is completed, we can check if the execution worked by
+    calling `kubectl get pvc`, as shown in the following example:'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完成提供后，您可以通过调用 `kubectl get pvc` 来检查执行是否成功，如下例所示：
+- en: '`$` `kubectl -n kubeflow get pvc NAME             STATUS   VOLUME    CAPACITY  
+    ACCESS MODES   STORAGECLASS   AGE tfx-pvc          Bound    tfx-pvc   20Gi      
+    RWO            manual         2m`'
+  id: totrans-30
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl -n kubeflow get pvc NAME             STATUS   VOLUME    CAPACITY  
+    ACCESS MODES   STORAGECLASS   AGE tfx-pvc          Bound    tfx-pvc   20Gi      
+    RWO            manual         2m`'
+- en: 'Kubernetes’ `kubectl` provides a handy `cp` command to copy data from our local
+    machines to the remote PV. In order to copy the pipeline data (e.g., the Python
+    module for the transform and training steps, as well as the training data), we
+    need to mount the volume to a Kubernetes pod. For the copy operations, we created
+    a simple app that basically just idles and allows us to access the PV. You can
+    create the pod with the following kubectl command:'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 的 `kubectl` 提供了一个便捷的 `cp` 命令，用于将数据从我们的本地机器复制到远程 PV。为了复制流水线数据（例如，用于转换和训练步骤的
+    Python 模块以及训练数据），我们需要将卷挂载到 Kubernetes pod。对于复制操作，我们创建了一个简单的应用程序，基本上只是空闲状态，并允许我们访问
+    PV。您可以使用以下 kubectl 命令创建 pod：
+- en: '`$` `kubectl apply -f` `"https://github.com/Building-ML-Pipelines/"``\``"building-machine-learning-pipelines/blob/master/pipelines/"``\``"kubeflow_pipelines/kubeflow-config/storage-access-pod.yaml"`'
+  id: totrans-32
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl apply -f` `"https://github.com/Building-ML-Pipelines/"``\``"building-machine-learning-pipelines/blob/master/pipelines/"``\``"kubeflow_pipelines/kubeflow-config/storage-access-pod.yaml"`'
+- en: 'The pod `data-access` will mount the PV, and then we can create the necessary
+    folders and copy the required data to the volume:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: pod `data-access` 将挂载 PV，然后我们可以创建必要的文件夹并将所需数据复制到卷中：
+- en: '`$` `export` `DATA_POD``=[PRE0]kubectl -n kubeflow get pods -o name` `|` `grep
+    data-access[PRE1]$` `kubectl -n kubeflow` `exec``$DATA_POD` `-- mkdir /tfx-data/data`
+    `$` `kubectl -n kubeflow` `exec``$DATA_POD` `-- mkdir /tfx-data/components` `$`
+    `kubectl -n kubeflow` `exec``$DATA_POD` `-- mkdir /tfx-data/output`'
+  id: totrans-34
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `export` `DATA_POD``=[PRE0]kubectl -n kubeflow get pods -o name` `|` `grep
+    data-access[PRE1]$` `kubectl -n kubeflow` `exec``$DATA_POD` `-- mkdir /tfx-data/data`
+    `$` `kubectl -n kubeflow` `exec``$DATA_POD` `-- mkdir /tfx-data/components` `$`
+    `kubectl -n kubeflow` `exec``$DATA_POD` `-- mkdir /tfx-data/output`'
+- en: '`$` `kubectl -n kubeflow cp` `\` `../building-machine-learning-pipelines/components/module.py`
+    `\``${``DATA_POD``#*/``}``:/tfx-data/components/module.py` `$` `kubectl -n kubeflow
+    cp` `\` `../building-machine-learning-pipelines/data/consumer_complaints.csv`
+    `${``DATA_POD``#*/``}``:/tfx-data/data/consumer_complaints.csv`'
+  id: totrans-35
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl -n kubeflow cp` `\` `../building-machine-learning-pipelines/components/module.py`
+    `\``${``DATA_POD``#*/``}``:/tfx-data/components/module.py` `$` `kubectl -n kubeflow
+    cp` `\` `../building-machine-learning-pipelines/data/consumer_complaints.csv`
+    `${``DATA_POD``#*/``}``:/tfx-data/data/consumer_complaints.csv`'
+- en: 'After all the data is transferred to the PV, you can delete the `data-access`
+    pod by running the following command:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在所有数据传输到 PV 后，您可以通过运行以下命令删除 `data-access` pod：
+- en: '`$` `kubectl delete -f` `\` `pipelines/kubeflow_pipelines/kubeflow-config/storage-access-pod.yaml`'
+  id: totrans-37
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl delete -f` `\` `pipelines/kubeflow_pipelines/kubeflow-config/storage-access-pod.yaml`'
+- en: The `cp` command also works in the other direction, in case you want to copy
+    the exported model from your Kubernetes cluster to a different location outside
+    of your cluster.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`cp` 命令也适用于反向操作，如果您想将从 Kubernetes 集群导出的模型复制到集群外的其他位置。'
+- en: TFX Command-Line Interface
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX 命令行界面
+- en: TFX provides a CLI to manage your TFX projects and their orchestration runs.
+    The CLI tool provides you TFX Templates, a predefined folder and file structure.
+    Projects that use the provided folder structure can then be managed through the
+    CLI tool instead of a web UI (in the case of Kubeflow and Airflow). It also incorporated
+    the Skaffold library to automate the creation and publication of custom TFX images.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX 提供了一个 CLI 来管理您的 TFX 项目及其编排运行。该 CLI 工具为您提供了 TFX 模板，预定义的文件夹和文件结构。使用提供的文件夹结构的项目可以通过
+    CLI 工具管理，而不是通过 Web UI（在 Kubeflow 和 Airflow 的情况下）。它还集成了 Skaffold 库来自动创建和发布自定义 TFX
+    映像。
+- en: TFX CLI UNDER ACTIVE DEVELOPMENT
+  id: totrans-41
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: TFX CLI 正在积极开发中
+- en: The TFX CLI is under active development at the time of writing this section.
+    The commands might change or more functionality might be added. Also, more TFX
+    templates might become available in the future.
+  id: totrans-42
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在撰写本节时，TFX CLI 正在积极开发中。命令可能会更改或添加更多功能。此外，未来可能会提供更多的 TFX 模板。
+- en: TFX and Its Dependencies
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX 和其依赖项
+- en: TFX CLI requires the Kubeflow Pipelines SDK and the [Skaffold](https://skaffold.dev),
+    a Python tool for continuously building and deploying Kubernetes applications.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX CLI 需要 Kubeflow Pipelines SDK 和 [Skaffold](https://skaffold.dev)，这是一个用于持续构建和部署
+    Kubernetes 应用程序的 Python 工具。
+- en: 'If you haven’t installed or updated TFX and the Python SDK from Kubeflow Pipelines,
+    run the two `pip install` commands:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您尚未安装或更新来自 Kubeflow Pipelines 的 TFX 和 Python SDK，请运行以下两个 `pip install` 命令：
+- en: '`$` `pip install -U tfx` `$` `pip install -U kfp`'
+  id: totrans-46
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `pip install -U tfx` `$` `pip install -U kfp`'
+- en: 'The installation of Skaffold depends on your operating system:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Skaffold 的安装取决于您的操作系统：
+- en: Linux
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Linux
+- en: '`$` `curl -Lo skaffold` `\` `https://storage.googleapis.com/``\` `skaffold/releases/latest/skaffold-linux-amd64`
+    `$` `sudo install skaffold /usr/local/bin/`'
+  id: totrans-49
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `curl -Lo skaffold` `\` `https://storage.googleapis.com/``\` `skaffold/releases/latest/skaffold-linux-amd64`
+    `$` `sudo install skaffold /usr/local/bin/`'
+- en: MacOS
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MacOS
+- en: '`$` `brew install skaffold`'
+  id: totrans-51
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `brew install skaffold`'
+- en: Windows
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Windows
+- en: '`$` `choco install -y skaffold`'
+  id: totrans-53
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `choco install -y skaffold`'
+- en: 'After the installation of Skaffold, make sure the execution path of the tool
+    is added to the `PATH` of the terminal environment where you are executing the
+    TFX CLI tool. The following bash example shows how Linux users can add the Skaffold
+    path to their `PATH` bash variable:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装 Skaffold 后，请确保将工具的执行路径添加到执行 TFX CLI 工具的终端环境的 `PATH` 中。以下是 Linux 用户如何将 Skaffold
+    路径添加到其 `PATH` bash 变量的示例：
+- en: '`$` `export` `PATH``=``$PATH``:/usr/local/bin/`'
+  id: totrans-55
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `export` `PATH``=``$PATH``:/usr/local/bin/`'
+- en: Before we discuss how to use the TFX CLI tool, let’s discuss TFX templates briefly.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在讨论如何使用 TFX CLI 工具之前，让我们简要讨论一下 TFX 模板。
+- en: TFX Templates
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX 模板
+- en: 'TFX provides project templates to organize machine learning pipeline projects.
+    The templates provide a predefined folder structure and a blueprint for your feature,
+    model, and preprocessing definitions. The following `tfx template copy` command
+    will download the taxi cab example project of the TFX project:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX 提供了项目模板，用于组织机器学习流水线项目。这些模板提供了预定义的文件夹结构，以及特征、模型和预处理定义的蓝图。以下 `tfx template
+    copy` 命令将下载 TFX 项目的出租车示例项目：
+- en: '`$` `export` `PIPELINE_NAME``=``"customer_complaint"``$` `export` `PROJECT_DIR``=``$PWD``/``$PIPELINE_NAME``$`
+    `tfx template copy --pipeline-name``=``$PIPELINE_NAME``\` `--destination-path``=``$PROJECT_DIR``\`
+    `--model``=``taxi`'
+  id: totrans-59
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `export` `PIPELINE_NAME``=``"customer_complaint"``$` `export` `PROJECT_DIR``=``$PWD``/``$PIPELINE_NAME``$`
+    `tfx template copy --pipeline-name``=``$PIPELINE_NAME``\` `--destination-path``=``$PROJECT_DIR``\`
+    `--model``=``taxi`'
+- en: 'When the copy command completes its execution, you can find a folder structure,
+    as seen in the following bash output:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当复制命令完成执行后，您可以找到如下所示的文件夹结构：
+- en: '`$` `tree . . ├── __init__.py ├── beam_dag_runner.py ├── data │   └── data.csv
+    ├── data_validation.ipynb ├── kubeflow_dag_runner.py ├── model_analysis.ipynb
+    ├── models │   ├── __init__.py │   ├── features.py │   ├── features_test.py │  
+    ├── keras │   │   ├── __init__.py │   │   ├── constants.py │   │   ├── model.py
+    │   │   └── model_test.py │   ├── preprocessing.py │   └── preprocessing_test.py
+    ├── pipeline │   ├── __init__.py │   ├── configs.py │   └── pipeline.py └── template_pipeline_test.tar.gz`'
+  id: totrans-61
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `tree . . ├── __init__.py ├── beam_dag_runner.py ├── data │   └── data.csv
+    ├── data_validation.ipynb ├── kubeflow_dag_runner.py ├── model_analysis.ipynb
+    ├── models │   ├── __init__.py │   ├── features.py │   ├── features_test.py │  
+    ├── keras │   │   ├── __init__.py │   │   ├── constants.py │   │   ├── model.py
+    │   │   └── model_test.py │   ├── preprocessing.py │   └── preprocessing_test.py
+    ├── pipeline │   ├── __init__.py │   ├── configs.py │   └── pipeline.py └── template_pipeline_test.tar.gz`'
+- en: 'We have taken the taxi cab template[1](#filepos1724818) and tuned our book
+    example project to match the template. The results can be found in the [book’s
+    GitHub repository](https://oreil.ly/bmlp-git). If you want to follow along with
+    this example, please copy the CSV file consumer_complaints.csv into the folder:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们采用了出租车模板[1](#filepos1724818)，并调整了我们的书籍示例项目以匹配该模板。结果可以在 [书籍的 GitHub 仓库](https://oreil.ly/bmlp-git)
+    中找到。如果您想跟随这个示例，请将 CSV 文件 consumer_complaints.csv 复制到文件夹中：
+- en: '`$pwd``/``$PIPELINE_NAME``/data`'
+  id: totrans-63
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$pwd``/``$PIPELINE_NAME``/data`'
+- en: 'Also, double check the file pipelines/config.py, which defines the GCS bucket
+    and other pipeline details. Update the GCS bucket path with a bucket you created
+    or use the GCS buckets that were created when you created the Kubeflow Pipelines
+    installation through GCP’s AI Platform. You can find the path with the following
+    command:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还要双重检查定义了 GCS 桶和其他流水线细节的 pipelines/config.py 文件。使用您创建的或通过 GCP 的 AI 平台创建 Kubeflow
+    Pipelines 安装时创建的 GCS 桶路径更新。您可以使用以下命令找到路径：
+- en: '`$ gsutil -l`'
+  id: totrans-65
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$ gsutil -l`'
+- en: Publishing Your Pipeline with TFX CLI
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 TFX CLI 发布您的流水线
+- en: 'We can publish the TFX pipeline, which we created based on the TFX template,
+    to our Kubeflow Pipelines application. To access our Kubeflow Pipelines setup,
+    we need to define our GCP Project, a path for our TFX container image and the
+    URL of our Kubeflow Pipelines endpoint. In [“Accessing Your Kubeflow Pipelines
+    Installation”](index_split_019.html#filepos1395426), we discussed how to obtain
+    the endpoint URL. Before publishing our pipeline with TFX CLI, let’s set up the
+    required environment variables for our example:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将基于TFX模板创建的TFX管道发布到我们的Kubeflow Pipelines应用程序。要访问我们的Kubeflow Pipelines设置，我们需要定义我们的GCP项目、TFX容器镜像的路径以及我们的Kubeflow
+    Pipelines端点的URL。在[“访问您的Kubeflow Pipelines安装”](index_split_019.html#filepos1395426)中，我们讨论了如何获取端点URL。在使用TFX
+    CLI发布我们的管道之前，让我们为我们的示例设置所需的环境变量：
+- en: '`$` `export` `PIPELINE_NAME``=``"<``pipeline name``>"``$` `export` `PROJECT_ID``=``"<``your
+    gcp project id``>"``$` `export` `CUSTOM_TFX_IMAGE``=``gcr.io/``$PROJECT_ID``/tfx-pipeline`
+    `$` `export` `ENDPOINT``=``"``<id>-dot-<region>``.pipelines.googleusercontent.com"`'
+  id: totrans-68
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `export` `PIPELINE_NAME``=``"<``pipeline name``>"``$` `export` `PROJECT_ID``=``"<``your
+    gcp project id``>"``$` `export` `CUSTOM_TFX_IMAGE``=``gcr.io/``$PROJECT_ID``/tfx-pipeline`
+    `$` `export` `ENDPOINT``=``"``<id>-dot-<region>``.pipelines.googleusercontent.com"`'
+- en: 'With the details defined, we can now create the pipeline through the TFX CLI
+    with the following command:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义好详细信息后，我们现在可以通过TFX CLI创建管道，命令如下：
+- en: '`$` `tfx pipeline create --pipeline-path``=``kubeflow_dag_runner.py` `\` `--endpoint``=``$ENDPOINT``\`
+    `--build-target-image``=``$CUSTOM_TFX_IMAGE`'
+  id: totrans-70
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `tfx pipeline create --pipeline-path``=``kubeflow_dag_runner.py` `\` `--endpoint``=``$ENDPOINT``\`
+    `--build-target-image``=``$CUSTOM_TFX_IMAGE`'
+- en: 'The `tfx pipeline create` command performs a variety of things. With the assistance
+    of Skaffold, it creates a default docker image and publishes the container image
+    via the Google Cloud Registry. It also runs the Kubeflow Runner, as we discussed
+    in [Chapter 12](index_split_019.html#filepos1378763), and uploads the Argo configuration
+    to the pipeline endpoint. After the command completes the execution, you will
+    find two new files in the template folder structure: Dockerfile and build.yaml.'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tfx pipeline create` 命令会执行各种操作。通过Skaffold的帮助，它创建一个默认的Docker镜像，并通过Google Cloud
+    Registry发布容器镜像。正如我们在[第12章](index_split_019.html#filepos1378763)中讨论的那样，它还运行Kubeflow
+    Runner，并上传Argo配置到管道端点。命令执行完成后，在模板文件夹结构中会找到两个新文件：Dockerfile和build.yaml。'
+- en: The Dockerfile contains an image definition similar to the Dockerfile we discussed
+    in [“Custom TFX Images”](#filepos1685182). The build.yaml file configures Skaffold
+    and sets the docker images registry details and tag policy.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dockerfile包含一个与我们在[“自定义TFX镜像”](#filepos1685182)中讨论过的Dockerfile类似的镜像定义。build.yaml文件配置Skaffold，并设置了docker镜像注册表的详细信息和标签策略。
+- en: 'You will be able to see the pipeline now registered in your Kubeflow Pipelines
+    UI. You can start a pipeline run with the following command:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您现在可以在您的Kubeflow Pipelines UI中看到注册的管道。您可以使用以下命令启动管道运行：
+- en: '`$` `tfx run create --pipeline-name``=``$PIPELINE_NAME``\` `--endpoint``=``$ENDPOINT`
+    `Creating a run` `for` `pipeline: customer_complaint_tfx Detected Kubeflow. Use
+    --engine flag` `if` `you intend to use a different orchestrator. Run created`
+    `for` `pipeline: customer_complaint_tfx +------------------------+----------+----------+---------------------------+`
+    `|` `pipeline_name` `|` `run_id` `|` `status` `|` `created_at` `|` `+``========================``+``==========``+``==========``+``===========================``+`
+    `|` `customer_complaint_tfx` `|` `<run-id>` `|``|` `2020-05-31T21:30:03+00:00`
+    `|` `+------------------------+----------+----------+---------------------------+`'
+  id: totrans-74
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `tfx run create --pipeline-name``=``$PIPELINE_NAME``\` `--endpoint``=``$ENDPOINT`
+    `创建管道运行：customer_complaint_tfx 检测到Kubeflow。如果您打算使用不同的编排器，请使用--engine标志。为pipeline:
+    customer_complaint_tfx 创建运行：customer_complaint_tfx +------------------------+----------+----------+---------------------------+`
+    `|` `pipeline_name` `|` `run_id` `|` `status` `|` `created_at` `|` `+``========================``+``==========``+``==========``+``===========================``+`
+    `|` `customer_complaint_tfx` `|` `<run-id>` `|``|` `2020-05-31T21:30:03+00:00`
+    `|` `+------------------------+----------+----------+---------------------------+`'
+- en: 'You can check on the status of the pipeline run with the following command:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以使用以下命令检查管道运行的状态：
+- en: '`$` `tfx run status --pipeline-name``=``$PIPELINE_NAME``\` `--endpoint``=``$ENDPOINT``\`
+    `--run_id <run_id>  Listing all runs of pipeline: customer_complaint_tfx +------------------------+----------+------------+---------------------------+`
+    `|` `pipeline_name` `|` `run_id` `|` `status` `|` `created_at` `|` `+``========================``+``==========``+``============``+``===========================``+`
+    `|` `customer_complaint_tfx` `|` `<run-id>` `|` `Running` `|` `2020-05-31T21:30:03+00:00`
+    `|` `+------------------------+----------+------------+---------------------------+`'
+  id: totrans-76
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `tfx run status --pipeline-name``=``$PIPELINE_NAME``\` `--endpoint``=``$ENDPOINT``\`
+    `--run_id <run_id>  列出管道运行的所有运行：customer_complaint_tfx +------------------------+----------+------------+---------------------------+`'
+- en: 'A list of all runs for a given pipeline can be obtained with the following
+    command:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以使用以下命令获取给定管道的所有运行列表：
+- en: '`$` `tfx run list --pipeline-name``=``$PIPELINE_NAME``\` `--endpoint``=``$ENDPOINT`
+    `Listing all runs of pipeline: customer_complaint_tfx +------------------------+----------+------------+---------------------------+`
+    `|` `pipeline_name` `|` `run_id` `|` `status` `|` `created_at` `|` `+``========================``+``==========``+``============``+``===========================``+`
+    `|` `customer_complaint_tfx` `|` `<run-id>` `|` `Running` `|` `2020-05-31T21:30:03+00:00`
+    `|` `+------------------------+----------+------------+---------------------------+`'
+  id: totrans-78
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `tfx run list --pipeline-name``=``$PIPELINE_NAME``\` `--endpoint``=``$ENDPOINT`
+    `列出管道运行的所有运行：customer_complaint_tfx +------------------------+----------+------------+---------------------------+`'
+- en: STOP AND DELETE PIPELINE RUNS
+  id: totrans-79
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 停止和删除管道运行
+- en: You can stop a pipeline run with `tfx run terminate`. Pipeline runs can be deleted
+    with `tfx run delete`.
+  id: totrans-80
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 您可以使用 `tfx run terminate` 命令停止管道运行。可以使用 `tfx run delete` 删除管道运行。
+- en: TFX CLI is a very useful tool in the TFX toolchain. It supports not only Kubeflow
+    Pipelines but also Apache Airflow and Apache Beam orchestrators.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX CLI 是 TFX 工具链中非常有用的工具。它不仅支持 Kubeflow Pipelines，还支持 Apache Airflow 和 Apache
+    Beam 编排器。
+- en: '[1  ](#filepos1709729) At the time of writing, this was the only template available.'
+  id: totrans-82
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[1  ](#filepos1709729) 在撰写本文时，这是唯一可用的模板。'

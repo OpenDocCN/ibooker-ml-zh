@@ -1,0 +1,1523 @@
+- en: Chapter 10\. Continuous ML
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第十章. 连续机器学习
+- en: Up until now, our discussions of ML systems have sometimes centered on the idea
+    that a model is something we train and then deploy, almost as though this is something
+    that happens once and only once. A slightly deeper view is to draw a distinction
+    between models that are trained once and deployed versus those that are trained
+    in a more continuous fashion, which we will refer to as *continuous ML systems*.
+    Typical continuous ML systems receive new data in a streaming or periodic batch
+    fashion and use this to trigger training an updated model version that is pushed
+    to serving.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们对机器学习系统的讨论有时集中在这样一个观点上，即模型是我们训练然后部署的东西，几乎像这是一次性的事情。稍微深入一点的看法是要区分那些训练一次然后部署的模型与那些以更连续的方式训练的模型，我们将其称为*连续机器学习系统*。典型的连续机器学习系统以流式或周期性批处理的方式接收新数据，并使用这些数据触发训练更新的模型版本，然后将其推送到服务环境中。
+- en: Clearly, there are major differences from an MLOps perspective between a model
+    that is trained once versus a model that is updated in a continuous manner. Moving
+    to continuous ML raises the stakes for automated verification. It introduces the
+    potential for headaches around feedback loops and model reactions to changes in
+    the external world. Managing continuous data streams, responding to model failures
+    and corruptions, and even seemingly trivial tasks like introducing new features
+    for the model to train on all increase system complexity.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 显然，从MLOps的角度来看，训练一次与连续更新模型之间存在重大差异。转向连续机器学习增加了自动验证的风险。它引入了围绕反馈环路和模型对外部世界变化的反应可能导致的头痛。管理连续数据流、响应模型失败和数据损坏，甚至看似琐碎的任务，如引入新特性以供模型训练，都增加了系统的复杂性。
+- en: Indeed, on the surface, it may seem like creating a continuous ML system might
+    be a terrible idea. After all, in doing so, we expose our system to a set of changes
+    that is inherently unknowable in advance because of potential changes in the real
+    external world, and thus may cause unexpected or undesired system behavior. If
+    we remember that in ML, data is code, the idea of continuous ML is to accept the
+    equivalent of a steady stream of new code that can change the behavior of our
+    production system. The only reason to do this is when the benefits of a continuously
+    updating system outweigh the costs. In many cases, the benefits are indeed considerable,
+    because having a system that can learn and adapt to new emerging trends in the
+    world can enable a level of overall system quality that could help us achieve
+    complex business and product goals.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事实上，从表面上看，创建一个连续机器学习系统可能是个糟糕的主意。毕竟，在这样做的过程中，我们将系统暴露给一组因为真实外部世界潜在变化而无法预先知晓的变化，从而可能导致意外或不希望的系统行为。如果我们记得在机器学习中，数据就是代码，那么连续机器学习的理念就是接受相当于不断涌入的新代码，这些代码可以改变我们生产系统的行为。唯一做出这种改变的理由是当不断更新的系统的好处超过成本时。在许多情况下，好处确实是相当可观的，因为拥有一个能够学习并适应世界新趋势的系统可以实现复杂的业务和产品目标。
+- en: 'The goal of this chapter is to examine the areas where costs can accrue and
+    problems may arise, with the aim of keeping the overall cost of continuous ML
+    systems as low as possible while retaining the benefits. These include the following
+    observations:'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的目标是审视成本可能累积和问题可能出现的领域，以期在保留好处的同时尽可能降低连续机器学习系统的总体成本。这些观察包括以下几点：
+- en: External world events may influence our systems.
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 外部世界事件可能影响我们的系统。
+- en: Models may influence their own future training data through feedback loops.
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型可能通过反馈环路影响其未来的训练数据。
+- en: Temporal effects can arise at several timescales.
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 时间效应可以出现在几个时间尺度上。
+- en: Crisis response must be done in real time.
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 危机响应必须实时进行。
+- en: New launches require staged ramp-ups and stable baselines.
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 新的启动需要分阶段的逐步推进和稳定的基线。
+- en: Models must be managed rather than shipped.
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型必须进行管理，而不是仅仅交付。
+- en: Each of these points summarizes a range of underlying complexities, which we
+    will dive into in the bulk of this chapter. The technical challenges are not the
+    end of the story, of course. In addition to the practical and technical challenges
+    that continuous ML introduces into our ML development and deployment processes,
+    it also creates organizational opportunities and complexities.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些观点每一个都总结了一系列潜在的复杂性，我们将在本章的大部分内容中深入探讨。当然，技术挑战并不是故事的终点。除了连续机器学习在我们的机器学习开发和部署过程中引入的实际和技术挑战之外，它还创造了组织上的机会和复杂性。
+- en: Tip
+  id: totrans-12
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: Models that are continuously improved need organizations capable of managing
+    that continuous improvement.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续改进的模型需要能够管理这种持续改进的组织。
+- en: We need frameworks for generating and tracking ideas for improvements to the
+    model. We need a way to evaluate the performance of various versions of our models
+    over long periods of time rather than focusing sharply on the point of time when
+    we launch one model to replace another. We need to think of modeling as a long-lived,
+    value-generating program that has costs and risks but also huge potential benefits,
+    and discuss the organizational implications of these needs at the end of this
+    chapter.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要框架来生成和追踪对模型改进的想法。我们需要一种评估我们模型各个版本在长时间内表现的方法，而不是仅仅关注我们推出一个模型以替代另一个模型的时间点。我们需要将建模视为一个长期持续的、产生价值的程序，它具有成本和风险，但也有巨大的潜在好处，并在本章末讨论这些需求对组织的影响。
+- en: Anatomy of a Continuous ML System
+  id: totrans-15
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 持续 ML 系统的解剖学
+- en: Before we look in detail at the implications of continuous ML systems, let’s
+    take some time to take a pass through the typical ML production stack and see
+    how things change in the continuous setting compared to the noncontinuous setting.
+    At a high level, a continuous ML system regularly takes data in from the world
+    in a steady stream, uses it to update the model, and then after appropriate validation,
+    pushes out an updated version of the model to serve new data.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们详细探讨持续 ML 系统的影响之前，让我们花一些时间浏览典型的 ML 生产堆栈，并看看与非持续设置相比，事物如何变化。在高层次上，持续 ML 系统定期从世界中获取数据流，用于更新模型，然后经过适当验证，推出更新版本的模型以服务新数据。
+- en: Training Examples
+  id: totrans-17
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 训练示例
+- en: Rather than existing as a fixed set of immutable data, training data in a continuous
+    ML system comes in a steady stream. This might include things like sets of recommended
+    products from a set of possible yarn products, along with the query that generated
+    these recommendations. In high-volume applications, the stream of training examples
+    may resemble a firehose, with significant amounts of data being collected every
+    second from all regions of the globe. Significant data engineering can be required
+    to ensure that this stream of data is processed effectively and reliably.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在持续 ML 系统中，训练数据不再是一组固定的不可变数据，而是以稳定的数据流形式存在。这可能包括来自一组可能的纱线产品的推荐产品集合，以及生成这些推荐的查询。在高容量应用中，训练示例的数据流可能类似于消防栓，每秒从全球各地收集大量数据。需要进行重要的数据工程工作，以确保这些数据流被有效和可靠地处理。
+- en: Training Labels
+  id: totrans-19
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 训练标签
+- en: The training labels for our examples also come from the world in a stream. Interestingly,
+    the source of this stream may well be distinct from the stream of training examples
+    itself. For example, say we wish to use whether the user purchased a given yarn
+    product as the training label. We know which products a user is shown at query
+    time, and can log those as they are sent to the user. However, purchase behavior
+    cannot be known at query time—we have to wait for some time to see if they choose
+    to buy—and this information may come from a purchase-handling system that resides
+    in a completely different part of the overall service infrastructure. In other
+    settings, we may see delays in training labels when those are provided by human
+    experts.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们示例的训练标签也是以数据流形式来自世界。有趣的是，这个数据流的来源很可能与训练示例本身的数据流不同。例如，假设我们希望使用用户是否购买了某种纱线产品作为训练标签。我们知道在查询时用户展示了哪些产品，并且可以记录它们发送给用户的情况。然而，购买行为不能在查询时知晓——我们必须等待一段时间来看他们是否选择购买——这些信息可能来自完全不同于整体服务基础设施的购买处理系统。在其他情况下，当这些标签由人类专家提供时，我们可能会看到训练标签的延迟。
+- en: Joining together the examples with their correct labels thus requires unavoidable
+    delay, and likely involves some relatively sophisticated infrastructure to process
+    efficiently and reliably. Indeed, this joining is production critical. Just imagine
+    the headache that would be caused if the label information was unavailable because
+    of an outage, and unlabeled examples were sent to the model for training^([1](ch10.xhtml#idm46106044805568)).
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将示例与其正确标签结合起来需要不可避免的延迟，并且可能涉及一些相对复杂的基础设施，以便高效可靠地进行处理。实际上，这种结合是生产关键的。试想一下，如果由于故障而导致标签信息不可用，并且未标记的示例被发送到模型进行训练，会带来多大的麻烦^([1](ch10.xhtml#idm46106044805568))。
+- en: Filtering Out Bad Data
+  id: totrans-22
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 过滤坏数据
+- en: Whenever we allow our models to learn directly from behavior in the world, we
+    run the risk that the world will send along behaviors that we wish our model did
+    not have to learn from. For example, spammers or scammers may try to interfere
+    with our yarn product prediction model by issuing many fake queries without purchasing
+    in an attempt to make it appear that some products are desired less by users than
+    they actually are. Or some bad actors may try to make our helpful *yarnit.ai*
+    chatbot learn rude behavior by entering offensive text repeatedly into the chat
+    window. These attacks must be detected and dealt with. Less malicious but equally
+    damaging forms of bad data may be caused by pipeline outages or bugs. In all cases,
+    it is important to remove such forms of bad data from the pipeline before training,
+    so that the model training is not impacted.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当我们允许我们的模型直接从世界上的行为中学习时，我们就面临着这样的风险：世界会发送一些我们希望我们的模型不必从中学习的行为。例如，垃圾邮件发送者或欺诈者可能会试图通过发出许多虚假查询而不购买，试图使我们的羊毛产品预测模型看起来比实际上受用户欢迎度低。或者一些不良行为者可能会试图通过反复输入侮辱性文本到聊天窗口来使我们有用的*yarnit.ai*聊天机器人学习粗鲁的行为。必须检测并处理这些攻击。不那么恶意但同样具有破坏力的坏数据形式可能由管道中断或错误引起。在所有情况下，重要的是在训练之前从管道中去除这些坏数据形式，以确保模型训练不受影响。
+- en: Effective removal of spammy or corrupted data is a difficult task. It requires
+    automated methods for anomaly detection, and models whose primary purpose is to
+    detect bad data. Often an arms race of sorts arises between the bad actors trying
+    to inappropriately influence the model and ops teams trying to detect these attempts
+    and filter them out. Effective organizations often have fully dedicated teams
+    devoted just to the problem of filtering out bad data from a continuous ML pipeline.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有效地删除垃圾或损坏数据是一项困难的任务。这需要自动化异常检测方法以及主要目的是检测坏数据的模型。通常会出现一种类似于坏行为者试图不适当影响模型和运维团队试图检测这些尝试并过滤它们的竞争。有效的组织通常专门设有全职团队来解决从连续ML管道中过滤坏数据的问题。
+- en: Feature Stores and Data Management
+  id: totrans-25
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征存储和数据管理
+- en: In typical production ML systems, raw data is converted into features, which
+    in addition to being useful for learning are also more compact for storage. Many
+    production systems use a *feature store* for storing data in this way, which is
+    essentially an augmented database that manages input streams, knows how to convert
+    raw data into features, stores them efficiently, allows for sharing among projects,
+    and supports both model training and serving.^([2](ch10.xhtml#idm46106044752032))
+    For high-volume applications, it is often necessary to do some amount of sampling
+    from the overall stream of data to reduce storage and processing costs. In many
+    cases, this sampling will not be uniform. For example, we might wish to keep all
+    of the (rare) positives but only a fraction of the (very common) negatives, which
+    means we will need to track these sampling biases and incorporate them with appropriate
+    weighting into training.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在典型的生产ML系统中，原始数据被转换为特征，除了对学习有用外，还更紧凑以便存储。许多生产系统使用*特征存储*来以这种方式存储数据，它本质上是一个增强型数据库，管理输入流，知道如何将原始数据转换为特征，高效存储它们，允许在项目之间共享，并支持模型训练和服务。^([2](ch10.xhtml#idm46106044752032))
+    对于高容量应用程序，通常需要从整体数据流中进行一定数量的抽样，以减少存储和处理成本。在许多情况下，这种抽样不会是均匀的。例如，我们可能希望保留所有（罕见的）正例，但仅保留（非常普遍的）负例的一部分，这意味着我们需要跟踪这些抽样偏差，并将其与适当的加权合并到训练中。
+- en: Even though the featurized data is more compact and generally more useful, it
+    will almost always be necessary to also keep some amount of logged raw data as
+    well. This is important to have, both for developing new features and for testing
+    and verifying correctness of the feature extraction and transformation code paths.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管特征化数据更紧凑且通常更有用，但几乎总是需要保留一定数量的日志原始数据。这对于开发新特征以及测试和验证特征提取和转换代码路径的正确性非常重要。
+- en: Updating the Model
+  id: totrans-28
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 更新模型
+- en: In continuous ML systems, it is often preferable to use a training methodology
+    that allows for incremental updates. Training methods based on stochastic gradient
+    descent (SGD) can be used without any modifications in continuous settings. (Recall
+    that SGD forms the basis of most deep learning training platforms.) To use SGD
+    in a continuous setting, we essentially just close our eyes and pretend that the
+    stream of data shown to the model comes in a stochastic (random) order. If our
+    data stream is actually in a relatively shuffled order, this would be totally
+    fine.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在持续的机器学习系统中，通常更倾向于使用允许增量更新的训练方法。基于随机梯度下降（SGD）的训练方法可以在持续环境中无需任何修改地使用。（回想一下，SGD构成了大多数深度学习训练平台的基础。）要在持续环境中使用SGD，我们基本上只需闭上眼睛假装模型展示的数据流是随机顺序的。如果我们的数据流实际上是相对混乱的顺序，这完全没问题。
+- en: In reality, a stream of data often has time-based correlations that are not
+    really random, and then we have to worry about how much breaking this assumption
+    hurts us in practice. The absolute worst way that our data could be nonrandom
+    is if we had an upstream batch-processing job that ordered, say, all the positives
+    to come in one batch, and then all the negatives to come in another. SGD approaches
+    would fail miserably on data like this, and we would need to create intermediate
+    shuffling of the data to help put SGD on safer, more randomized ground.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，数据流通常具有基于时间的相关性，这并不真的是随机的。因此，我们需要担心这种假设破坏我们实际应用中的影响。如果我们的数据绝对最坏的非随机方式是，我们有一个上游的批处理作业，例如，所有的正例在一个批次中出现，然后所有的负例在另一个批次中出现。在这种数据上，SGD方法会遭遇到严重问题，我们需要对数据进行中间混洗，以帮助使SGD在更安全、更随机的基础上进行。
+- en: Some pipelines enforce a strict policy of training on a given example only once,
+    in the order that it appeared temporally in the stream. This policy simplifies
+    many things, both from an infrastructure standpoint and from a model analysis
+    and repeatability standpoint, and when data is plentiful has no real drawbacks.
+    However, more data-starved applications may need to visit individual examples
+    many times to converge to a good model, so this strategy of visiting each example
+    exactly once in order cannot always be followed.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些流水线强制执行严格的策略，只对给定示例进行一次训练，按照它在数据流中时间上的顺序。这种策略从基础设施、模型分析和可重复性的角度来看，简化了许多事情，在数据充足时并没有真正的缺点。然而，在数据匮乏的应用程序中，可能需要多次访问单个示例才能收敛到一个好的模型，因此不总是能够按顺序仅访问每个示例一次。
+- en: Pushing Updated Models to Serving
+  id: totrans-32
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 推送更新的模型到服务端
+- en: In most continuous ML settings, we refer to major changes to a model as a *launch*.
+    Major changes might include changes to a model architecture, the addition or removal
+    of certain features, a change in hyperparameter settings like learning rates,
+    or other changes that would motivate us to fully reevaluate the performance of
+    a model before launching it as our production model. Minor changes such as small
+    modifications to internal model weights based on new incoming data are referred
+    to as *updates*.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大多数持续的机器学习环境中，我们将模型的重大变更称为*启动*。重大变更可能包括模型架构的更改、某些特征的添加或移除、超参数设置（如学习率）的更改，或其他需要在将其作为生产模型启动之前完全重新评估模型性能的变更。小的变更，例如基于新进数据的内部模型权重的微小修改，则被称为*更新*。
+- en: As the model is updated, we will periodically write out checkpoints saving the
+    current state of the model. These checkpoints are then pushed out to serving,
+    but they are also important for disaster recovery. One way to think about pushing
+    a new model checkpoint out to serving is that it is actually a small, automated
+    model launch, and if we push a new checkpoint four times an hour, then we are
+    doing almost a hundred small, automated model launches a day.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着模型的更新，我们会定期保存当前模型状态的检查点。这些检查点会被推送到服务端，但它们在灾难恢复中也非常重要。可以将将新的模型检查点推送到服务端看作是一个小型的自动化模型启动过程。如果我们每小时推送新的检查点四次，那么我们每天几乎会进行一百次小型的自动化模型启动。
+- en: All of the things that can go wrong with a major model launch can also go wrong
+    when we push a new checkpoint to serving. The model may be corrupted somehow—perhaps
+    by bugs, perhaps by having been trained on bad data. The model file itself may
+    be flawed, perhaps corrupted by write errors, hardware bugs, or even (yes, really)
+    cosmic rays. If the model is a deep learning model, there is a chance that in
+    the most recent training step it has “exploded” and the internal model parameters
+    contain `NaN`s, or that we run into the vanishing gradients problem, effectively
+    halting further learning. If our checkpointing and pushing process is automated,
+    there may be bugs in that system. If our checkpointing and pushing process is
+    not automated, and relies instead on manual effort, then the system is probably
+    not ready to be run in a continuous mode.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在主要模型发布时可能出现的所有问题，在推送新检查点到服务时也可能出现。模型可能某种方式被损坏——也许是由于错误，也许是由于训练在坏数据上。模型文件本身可能有缺陷，也许是由于写入错误、硬件故障，甚至（是的，真的）宇宙射线。如果模型是深度学习模型，在最近的训练步骤中可能会“爆炸”，内部模型参数包含
+    `NaN`，或者我们可能遇到消失梯度问题，有效地停止进一步学习。如果我们的检查点和推送过程是自动化的，可能会存在系统中的错误。如果我们的检查点和推送过程不是自动化的，而是依赖于手动操作，那么这个系统可能还没有准备好以连续模式运行。
+- en: Of course, lots of things can go wrong with our system if we do *not* regularly
+    push model updates based on new data, so the point is not to avoid updating models,
+    but rather to point out that validation of model checkpoints is a critical step
+    before they are pushed to serving. Typical strategies use staged validation. First
+    we use tests that can be performed offline without impacting the production system,
+    such as loading the checkpoint and scoring a set of golden set data in a sandbox
+    environment. All of the offline evaluation methods discussed in [Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality)
+    apply here. Then we load the new checkpoint into a *canary*—a single instance
+    that we observe carefully to see if it fails—and allow it to serve a tiny amount
+    of traffic, and then as long as monitoring holds, we slowly ramp up the amount
+    of traffic served by the updated version until it is finally serving 100% of the
+    data.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，如果我们不定期根据新数据推送模型更新，我们的系统可能会出现很多问题，因此重点并不是避免更新模型，而是指出在将模型检查点推送到服务之前进行模型检查的重要性。典型的策略使用分阶段验证。首先，我们使用可以在离线状态下执行而不影响生产系统的测试，例如在沙盒环境中加载检查点并对一组黄金集数据进行评分。[第
+    5 章](ch05.xhtml#evaluating_model_validity_and_quality) 中讨论的所有离线评估方法都适用于这里。然后，我们将新的检查点加载到一个
+    *canary*——一个我们仔细观察以查看其是否出现故障的单个实例中，并允许其提供少量流量，只要监控保持稳定，我们就会逐步增加更新版本提供的流量量，直到最终提供
+    100% 的数据为止。
+- en: Observations About Continuous ML Systems
+  id: totrans-37
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 连续 ML 系统的观察
+- en: Now that you’ve gotten a bit familiar with the ways that continuous ML pipelines
+    can differ from their noncontinuous cousins, we can dive into some of their unique
+    characteristics and challenges.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您对连续 ML 管道与非连续兄弟的不同之处有了一些了解，我们可以深入探讨它们的独特特征和挑战。
+- en: External World Events May Influence Our Systems
+  id: totrans-39
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 外部世界的事件可能会影响我们的系统
+- en: 'When we look at the API for a widely used class or object, like a `vector`
+    from the C++ standard template library or a Python `dictionary`, they typically
+    do not include a stark line of documentation that reads, “WARNING: behavior undefined
+    during the World Cup.” Thank goodness they don’t, and don’t have to.'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们查看广泛使用的类或对象的 API，比如来自 C++ 标准模板库的 `vector` 或 Python 的 `dictionary`，它们通常不包括一条醒目的文档行，例如：“警告：在世界杯期间行为未定义。”
+    谢天谢地它们没有，也不必有。
+- en: 'In contrast, continuous ML systems have—or should have—exactly this form of
+    warning. It could read something like this:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相比之下，连续 ML 系统有——或者应该有——确切的警告形式。它可能会写成这样：
+- en: Warning
+  id: totrans-42
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Any change in input distributions to the model in production may cause erratic
+    or unpredictable system behavior, because the theoretical guarantees for most
+    ML models really hold for only the IID setting.^([3](ch10.xhtml#ch01fn119))
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产中模型输入分布的任何变化可能会导致系统行为异常或不可预测，因为大多数 ML 模型的理论保证实际上仅适用于 IID 设置。^([3](ch10.xhtml#ch01fn119))
+- en: The sources of such changes may be incredibly varied and unexpected. Sporting
+    events, election nights, natural disasters, daylight savings, bad weather, good
+    weather, traffic accidents, network outages, pandemics, new product releases—all
+    of these are potential sources of changes to our data streams, and thus to our
+    system behavior. In all cases, we are likely to have little or no warning about
+    the events themselves, although monitoring strategies described in [Chapter 9](ch09.xhtml#monitoring_and_observability_for_models)
+    might help you to think about what’s required for prompt alerts.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些变化的来源可能非常多样化和意外。体育赛事、选举夜、自然灾害、夏令时调整、恶劣天气、良好天气、交通事故、网络故障、大流行病、新产品发布——所有这些都是我们数据流变化的潜在来源，因此也会影响我们的系统行为。在所有情况下，我们可能几乎没有关于事件本身的警告，尽管[第9章](ch09.xhtml#monitoring_and_observability_for_models)中描述的监控策略可能帮助您考虑及时警报所需的内容。
+- en: What sorts of things can happen from an external event? Here’s an example. For
+    our yarn store, let’s imagine the impact of having a major political figure appear
+    on national television on a frigid day wearing hand-knit brown woolen mittens.
+    Searches and purchases for “brown wool” spike suddenly. After a short delay, the
+    model is updated on this new influx of search and purchase data, and learns to
+    predict much higher values for brown wool products. Our model is trained with
+    a form of SGD, which ends up overconfident and making scores extremely high for
+    these products. Because of the sudden high scores, these products are shown to
+    nearly all users, and the available stock is rapidly sold out. Once all stock
+    is sold out, no more purchases are made, but nearly all searches are still showing
+    brown wool products because of their high score from our model.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 外部事件可能引发哪些情况？以下是一个例子。对于我们的毛线店来说，让我们想象一下，一位重要政治人物在寒冷的天气里穿着手工编织的棕色羊毛手套出现在全国电视上的影响。突然间，“棕色羊毛”搜索和购买量激增。稍作延迟后，模型根据这些新的搜索和购买数据进行更新，并学会为棕色羊毛产品预测更高的价值。我们的模型使用一种SGD形式进行训练，导致它变得过于自信，并为这些产品制定极高的评分。由于突然的高评分，这些产品几乎展示给了所有用户，现有库存迅速售罄。一旦所有库存售罄，就不再进行购买，但几乎所有搜索仍显示棕色羊毛产品，因为它们在我们的模型中获得了高分。
+- en: The next influx of data shows that no users are purchasing any products, and
+    the model overcompensates, but because the `brown_wool` products have been shown
+    on such a broad range of queries to such a broad range of users, the model now
+    learns to give lower scores for nearly all products, resulting in no results or
+    junk results for all user queries. This reinforces the trend that no users are
+    purchasing anything, and the system spirals down, until our MLOps team identifies
+    the issue, rolls the model back to a previous well-behaved version, and filters
+    the abnormal data from our store of training data before re-enabling training.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一批数据显示，没有用户购买任何产品，而模型过度补偿，但由于“棕色羊毛”产品已经在如此广泛的查询和用户中展示，模型现在学会为几乎所有产品给出较低的评分，导致所有用户查询的结果为空或垃圾结果。这加强了没有用户购买任何东西的趋势，系统陷入螺旋下降状态，直到我们的MLOps团队识别出问题，将模型回滚到之前良好运行的版本，并在重新启用训练之前从我们的训练数据存储中过滤异常数据。
+- en: Clearly, this example can be addressed with potential fixes and monitoring at
+    multiple levels, but it illustrates the way that system dynamics can have consequences
+    that are difficult to anticipate in advance.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 显然，这个例子可以通过多个层次的潜在修复和监控来解决，但它说明了系统动态可能产生的难以预料的后果。
+- en: One subtle danger of knowing that a wide variety of world events can cause unexpected
+    system behavior is that we can end up explaining away changes in observed metrics
+    or monitoring too quickly. Knowing that Argentina and Brazil are playing an important
+    soccer (football) match today may cause us to assume that this is the root cause
+    for an observed system instability, and miss rooting out a pipeline error or other
+    system bug.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 知道各种世界事件可能导致意外系统行为的一个微妙危险是，我们可能会过快地解释观察到的指标变化或监控。知道今天阿根廷和巴西要进行一场重要的足球比赛可能会让我们假设这是观察到的系统不稳定的根本原因，并错过排除管道错误或其他系统错误的可能性。
+- en: What would it look like to have a continuous ML system that was completely robust
+    to distribution shifts? Basically, we would need to have a way to adaptively weight
+    the training data so that its distribution did not depend on changes in the world.
+    One way to do this would be to create a model to do *propensity scoring*, which
+    shows how likely a given example is to occur in our training data at a given time.
+    We would then need to weigh our training data by the inverse of this propensity
+    score, so that rare examples are given greater weight. The propensity scores would
+    need to be updated quickly enough that when a world event caused some examples
+    to suddenly be much more likely than in the past, they were down-weighted accordingly.
+    Most importantly, we would need to make sure that all examples had nonzero propensity
+    scores to avoid divide-by-zero issues when doing inverse propensity scoring.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 什么样的持续机器学习系统能够完全抵御分布变化的影响？基本上，我们需要一种方法来自适应地加权训练数据，使其分布不会随着世界变化而改变。一种做法是创建一个模型来进行*倾向评分*，显示在给定时间内某个示例在我们的训练数据中出现的可能性。然后，我们需要按照这些倾向评分的倒数来加权我们的训练数据，以便罕见的示例被赋予更大的权重。当世界事件导致某些示例突然比过去更可能发生时，倾向评分需要被迅速更新以相应地减小其权重。最重要的是，我们需要确保所有示例的倾向评分非零，以避免在进行倒数倾向评分时出现除以零的问题。
+- en: We need to avoid propensity scores that are too small, so that the inverse propensity
+    weighting does not get blown up by a small number of examples with huge weights.
+    This could be done by capping the weights, except that we would also need these
+    scores to be statistically unbiased, and capping weights would cause bias. Instead,
+    we could use extensive randomization to ensure that no example has too low a probability
+    of being included, but this may well mean exposing users to random or irrelevant
+    data or having our models suggest random actions that may be undesirable. All
+    in, achieving a setup like this is possible in theory but extremely difficult
+    in practice.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要避免倾向评分过小，以免倒数倾向加权由于少数拥有巨大权重的示例而被放大。这可以通过限制权重来实现，但我们还需要这些评分在统计上是无偏的，而限制权重会引起偏差。相反，我们可以使用广泛的随机化来确保没有示例的被包括概率太低，但这可能会意味着向用户暴露随机或无关的数据，或者使我们的模型建议可能不希望的随机行动。总之，在理论上实现这样的设置是可能的，但在实践中极其困难。
+- en: Tip
+  id: totrans-51
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: The reality is that we are likely to have to find ways to manage instability
+    due to distribution shifts, rather than completely solve them.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现实情况是，我们可能需要找到管理由于分布变化而导致的不稳定性的方法，而不是完全解决这些问题。
+- en: Models Can Influence Their Own Training Data
+  id: totrans-53
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型可以影响它们自己的训练数据
+- en: One of the most important questions to answer for our continuous ML system is
+    whether a *feedback loop* exists between a model and its training data. Clearly,
+    all trained models are influenced by the stream of data that comes in for training,
+    but some models also, in turn, influence the data that is collected.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的持续机器学习系统，最重要的问题之一是模型和其训练数据之间是否存在*反馈循环*。显然，所有训练过的模型都受到用于训练的数据流的影响，但某些模型也反过来影响收集到的数据。
+- en: To help understand the issues, consider that some model systems have no influence
+    over the stream of data that is collected for retraining. Weather prediction models
+    are a good example. No matter what the weather station might like us to believe,
+    a prediction that tomorrow will be a nice sunny day has no actual influence on
+    atmospheric conditions. Such systems are clean in the sense that they do not have
+    feedback loops, and we can make changes to models without fearing that we might
+    impact tomorrow’s actual chance of rain.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要帮助理解这些问题，考虑一下一些模型系统对重新训练收集的数据流没有影响。天气预测模型就是一个很好的例子。无论气象站想让我们相信什么，预测明天将是个晴天并不会真正影响大气条件。这类系统在这种意义上是干净的，因为它们没有反馈循环，我们可以对模型进行更改而不必担心我们可能会影响到明天的实际降雨概率。
+- en: Other models do influence the collection of their training data, especially
+    when those models make recommendations to users or decide on actions that impact
+    what they can learn about next. These create implicit feedback loops, and as anyone
+    who has heard screeching feedback from a microphone knows, feedback loops can
+    create unexpected and detrimental effects.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他模型确实会影响它们的训练数据的收集，特别是当这些模型向用户提供建议或决定影响它们可以学习的内容时。这些创建了隐式反馈循环，就像任何听过麦克风尖叫反馈的人知道的那样，反馈循环可能会产生意想不到的有害效果。
+- en: As an easy case, some systems that rely on feedback loops to learn about new
+    trends might miss them entirely if they never have a mechanism that allows them
+    to try a new thing in the first place. We might reflect on the experience of trying
+    to get a child to try a new food for the first time as a way to think about this
+    effect. As a more concrete example, consider a model that helps recommend wool
+    products to show to users; the model may then be trained on the user response
+    to those selected products, such as clicks, page views, or purchases. The model
+    will receive feedback about the products that were selected to be shown to the
+    user, but will *not* get feedback about products that were not selected.^([4](ch10.xhtml#ch01fn120))
+    It is easy to imagine that a new wool product, such as a new color of organic
+    alpaca yarn, might be something that users would love to purchase, but for which
+    the model has no previous data. In this case, the model might continue recommending
+    previous nonorganic products and be oblivious to its omission.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为一个简单的例子，一些依赖于反馈循环来了解新趋势的系统，如果从未有机制允许它们首先尝试新事物，可能会完全错过它们。我们可以通过尝试让孩子第一次尝试新食物的经验来思考这种效应。作为一个更具体的例子，考虑一个模型，帮助推荐给用户展示羊毛产品；该模型可能会根据用户对这些选择产品的反应进行训练，例如点击、页面浏览或购买。模型将收到关于展示给用户的产品的反馈，但*不会*收到关于未被选择的产品的反馈。^([4](ch10.xhtml#ch01fn120))
+    很容易想象，例如有一种新的羊毛产品，如有机羊驼毛的新颜色，可能是用户非常喜欢购买的东西，但模型没有之前的数据。在这种情况下，模型可能会继续推荐以前的非有机产品，并对其遗漏视而不见。
+- en: Not discovering new things is bad, but even worse behaviors can happen. Imagine
+    a stock market prediction model that is in charge of picking stocks to buy and
+    sell based on market data. If an external entity mistakenly makes a large sale,
+    a model might observe this and predict that the market is about to go down and
+    most holdings should also be sold. If this sale is large enough, this will drive
+    down the market, which may make the model even more aggressive about wanting to
+    sell. Interestingly, other models—potentially from completely disjointed organizations—may
+    see this signal in the market and also decide to sell, creating a reinforcing
+    feedback loop that creates an overall market crash.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不是发现新事物是坏事，但更糟糕的行为可能会发生。想象一下，有一个股市预测模型负责根据市场数据选择买入和卖出股票。如果一个外部实体错误地进行了大规模的卖出，模型可能会观察到这一点，并预测市场即将下跌，建议大多数持有也应该卖出。如果这次卖出足够大，将会导致市场下跌，这可能会使模型更加积极地想要卖出。有趣的是，其他模型——可能来自完全不同的组织——也可能在市场上看到这个信号，并决定进行卖出操作，从而形成一个反馈循环，导致整体市场崩盘。
+- en: While the stock prediction scenario is an extreme case, it did, in fact, happen.^([5](ch10.xhtml#ch01fn121))
+    However, we don’t need to exist in a broad market of competing models to experience
+    these effects. For example, imagine that in our *yarnit.ai* store, we have one
+    model that is in charge of recommending products to users, and one model that
+    is in charge of determining when the user should be given discounts or coupons.
+    If the product recommendation relies on purchase behavior as a signal in training,
+    and the presence of discounts influences purchase behavior, then there is a feedback
+    loop that links these two models, and changes or updates to one model can influence
+    the other.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 股票预测场景虽然是一个极端案例，但事实上确实发生过。^([5](ch10.xhtml#ch01fn121)) 然而，我们并不需要存在在竞争模型的广泛市场中才能体验到这些影响。例如，想象一下，在我们的*yarnit.ai*商店中，有一个模型负责向用户推荐产品，另一个模型负责确定何时给用户提供折扣或优惠券。如果产品推荐依赖于购买行为作为训练的信号，而折扣的存在影响购买行为，那么就存在一个反馈循环将这两个模型联系起来，而且对一个模型的更改或更新可能会影响另一个模型。
+- en: Feedback loops are another form of distribution shift, and the propensity-weighting
+    approaches we’ve described can be helpful, although they are difficult to get
+    completely right. The effect of feedback loops can be lessened to some degree
+    by logging model version information along with other training data, and using
+    this information as a feature in the model. This at least gives our model the
+    opportunity to disambiguate whether a sudden change in observed data is due to
+    a change in the real world—such as the holidays are over, and nobody wants to
+    buy wool (or indeed much of anything) in early January—or a change in the model’s
+    learned state.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反馈回路是另一种分布变化形式，我们描述的倾向加权方法可能会有所帮助，尽管要完全正确地实现它们并不容易。通过记录模型版本信息以及其他训练数据，将这些信息作为模型的特征之一，可以在一定程度上减少反馈回路的影响。这至少让我们的模型有机会区分观察到的数据突然变化是由于现实世界的变化——比如假期结束，而在一月初没有人想购买羊毛（或者基本上任何东西）——还是模型学习状态的变化。
+- en: Temporal Effects Can Arise at Several Timescales
+  id: totrans-61
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 时间效应可以在多个时间尺度上出现
+- en: We create continuous ML systems when we care about the ways that data changes
+    over time. Some of these changes are deeply meaningful to the underlying product
+    needs, like the introduction of a new form of synthetic wool or the creation of
+    automated knitting machines suitable for home use. Incorporating data about these
+    emergent trends as soon as possible would be important for our *yarnit.ai* store.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们关心数据随时间变化的方式时，我们创建连续的机器学习系统。其中一些变化对基础产品需求至关重要，比如引入新型合成羊毛或创建适用于家庭使用的自动编织机。尽快整合关于这些新趋势的数据对我们
+    *yarnit.ai* 商店非常重要。
+- en: 'Other temporal effects are cyclical, with cycles occurring over at least three
+    major timescales:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他时间效应是周期性的，周期至少会发生在三个主要时间尺度上：
+- en: Seasonal
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 季节性
+- en: Many continuous ML systems experience profound seasonal effects. For online
+    commerce sites like *yarnit.ai*, dramatic changes and increases in purchasing
+    behavior can occur as the winter holidays approach, followed by a sudden drop
+    in early January. Warm weather months and cool weather months may have very different
+    trends—and may also vary significantly by geographic region or even by Northern
+    versus Southern Hemisphere. The most effective way to deal with seasonality effects
+    is to make sure that our model has trained on data from more than one full year
+    in the past—if we are fortunate enough to have it—and that time-of-year information
+    is included as a feature signal in the training data.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多连续的机器学习系统会经历深刻的季节性影响。对于像 *yarnit.ai* 这样的在线商务网站，随着冬季假期的临近，购买行为可能会出现显著的变化和增加，随后在一月初会突然下降。温暖的天气月份和凉爽的天气月份可能会有非常不同的趋势——甚至可能因地理区域或南半球与北半球的差异而显著变化。处理季节性影响的最有效方式是确保我们的模型训练了过去一整年的数据（如果我们有幸拥有），并且时间信息作为训练数据的特征信号包含在内。
+- en: Weekly
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每周
+- en: Just as data can vary by season, it can also cycle on a weekly basis, based
+    on day of week. Weekend days may have significantly more usage for some cases,
+    like the portion of our *yarnit.ai* store targeted to hobbyists—or significantly
+    less for others, like the portion of the yarn store that targets business-to-business
+    sales. Locality is strongly tied in here, as weekend days may differ by country,
+    and time-zone effects also matter strongly, as it may be Monday in Tokyo while
+    it is still Sunday in San Francisco.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据不仅会随季节变化，还会根据周周期循环，基于每周的具体日期。对某些情况来说，周末的使用量可能显著增加，比如我们 *yarnit.ai* 商店中面向爱好者的部分，或者在面向企业间销售的部分则可能显著减少。地域因素在这里起着重要作用，因为周末的情况可能因国家而异，而时区影响也很重要，例如在东京可能是星期一，而在旧金山仍然是星期天。
+- en: Daily
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每天
+- en: Things start to get nontrivial when we look at the daily effects, based on time
+    of day. At first glance, it is obvious that many systems will experience different
+    data at different times of day—midnight behavior is likely different than early
+    morning, or during the work day. It is also likely clear that locality is crucial
+    here, because of time-zone effects.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们看到基于一天中不同时间的日常效应时，事情就开始变得复杂了。乍一看，显而易见的是，许多系统在一天中的不同时间可能会体验到不同的数据——午夜的行为可能与清晨或工作日的行为不同。显然地，地域因素在这里至关重要，因为时区效应。
+- en: The subtlety for daily cycles comes in when we consider that most continuous
+    ML systems actually run continuously behind reality, because of the inherent need
+    for delays in pipelines and data streams waiting for training labels—such as click
+    or purchase behavior that may take some time for a user to decide on—as well as
+    filtering out bad data, updating models, validating checkpoints, and pushing checkpoints
+    to serving and ramping them up fully. Indeed, such delays could add up to 6 or
+    even 12 hours. Therefore, our models may be operating very much out of phase with
+    reality, serving a version of the model that thinks it is the middle of the night
+    when, in fact, it is in the heart of the workday.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 日常周期的微妙之处在于，当我们考虑到大多数连续机器学习系统实际上是在现实之后持续运行时，就会出现问题，这是因为管道和数据流等待训练标签（如点击或购买行为可能需要一些时间才能确定）的固有延迟，以及过滤坏数据、更新模型、验证检查点，并将检查点推送到服务端并完全升级。事实上，这些延迟可能累计达到6甚至12小时。因此，我们的模型可能与现实相差甚远，服务的模型版本认为现在是午夜，实际上却是工作日的中心。
+- en: Fortunately, fixing such issues is relatively easy, by logging time-of-day information
+    along with other training signals and using these as inputs to our models. But
+    it highlights the importance of thinking through ways that the version of the
+    model we happen to have loaded in serving may be stale or otherwise misinformed
+    about the actual reality it is asked to work with at that moment.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，通过记录每天的时间信息以及其他训练信号，并将它们用作我们模型的输入，可以相对容易地修复这些问题。但这也突显了一个重要问题，即我们在服务中加载的模型版本可能已经过时，或者在实际情况下得到了错误信息。
+- en: Emergency Response Must Be Done in Real Time
+  id: totrans-72
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 紧急响应必须实时完成
+- en: By this point, it should be clear that while continuous ML systems can provide
+    great value, they also have a broad range of system-level vulnerabilities. It
+    can be argued that a continuous ML system inherits all of the production vulnerabilities
+    of large, complex software systems—which carry plenty of reliability issues on
+    their own—and adds in a whole set of additional issues that can produce undefined
+    or unreliable behavior. In most settings, we cannot rely on theoretical guarantees
+    or proofs of correctness.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到了这一点，应该清楚了，虽然连续机器学习系统可以提供巨大的价值，但它们也具有广泛的系统级脆弱性。可以说，连续机器学习系统继承了所有大型复杂软件系统的生产脆弱性，这些系统本身就存在大量的可靠性问题，并且还添加了一整套可能导致未定义或不可靠行为的额外问题。在大多数情况下，我们无法依赖于理论保证或正确性证明。
+- en: When such issues arise in continuous ML systems, they not only need to be fixed,
+    but also need to be fixed (or mitigated) in real time. There are several reasons
+    for this. First, our models are likely mission critical, and having a production
+    fire that impacts our ability to serve useful predictions from our models may
+    impact our organization minute to minute. Second, our model may have a feedback
+    loop with itself, meaning that if we do not address issues quickly, the stream
+    of input data may also be corrupted and require care to fix as well. Third, our
+    model may be part of a larger ecosystem that is difficult to reset to a known
+    state. This can occur when our model is in a feedback loop with other models,
+    or when poor predictions from a model create lasting harm and are difficult to
+    undo, such as an otherwise helpful *yarnit.ai* chatbot suddenly issuing rude curses
+    at users.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当连续机器学习系统出现此类问题时，不仅需要修复，而且需要实时修复（或减轻）。这其中有几个原因。首先，我们的模型可能是使命关键的，如果生产中出现问题，可能会影响我们组织的分钟到分钟的服务能力。其次，我们的模型可能与自身存在反馈循环，这意味着如果我们不及时解决问题，输入数据流也可能被破坏，需要小心修复。第三，我们的模型可能是更大生态系统的一部分，很难重置到已知状态。当我们的模型与其他模型存在反馈循环，或者模型的糟糕预测造成长期伤害并且难以撤销时，这种情况就会发生，比如原本有帮助的*yarnit.ai*聊天机器人突然对用户发出粗鲁的咒骂。
+- en: Real-time crisis response requires first detecting issues quickly, which means
+    that from an organizational standpoint, a good litmus test for determining whether
+    we are ready for continuous ML is to examine the thoroughness and timeliness of
+    our monitoring and alerting strategies. It can take time for the full effect of
+    data imperfections to create downstream detrimental effects, because of pipeline
+    delays and slow changes in systems that learn gradually on new data. This makes
+    it especially important to have simple canary metrics that alert on changes to
+    input distributions, rather than waiting for model outputs to change.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实时危机响应首先需要快速检测问题，这意味着从组织的角度来看，确定是否准备好进行连续 ML 的一个良好试金石是检查我们的监控和警报策略的彻底性和及时性。由于管道延迟和系统逐渐在新数据上学习的缓慢变化，数据缺陷产生下游有害影响的全面效果可能需要一些时间。这使得拥有简单的金丝雀指标特别重要，这些指标在输入分布发生变化时发出警报，而不是等待模型输出发生变化。
+- en: Monitoring or altering strategies will be helpful in real time only if they
+    are supported by folks who have the responsibility to respond when the alerts
+    fire. Well-functioning MLOps organizations set up specific service-level agreements
+    about how quickly an alert must be responded to, and set up mechanisms like pager
+    rotations to ensure that the alert is seen by the right person at the right time.
+    Having a global team with teammates in several time zones, should you be in that
+    fortunate position, can help tremendously with avoiding the need for folks to
+    be woken up by an alert at 3 A.M.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仅当有责任在警报触发时响应的人员支持时，监控或调整策略才会在实时中有所帮助。运作良好的 MLOps 组织设定了关于警报必须多快响应的具体服务水平协议，并设置了像电话值班轮换这样的机制，以确保警报在正确的时间被正确的人看到。拥有一个在多个时区拥有队友的全球团队，如果你处于这种幸运的位置，可以极大地帮助避免人们因警报在凌晨3点而被吵醒。
+- en: Once we receive an alert, we need to have a well-documented playbook of responses
+    that can be carried out by any member of the MLOps team, along with an escalation
+    path for further action.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦收到警报，我们需要有一个良好记录的应对手册，任何 MLOps 团队成员都可以执行，并且需要一个进一步行动的升级路径。
+- en: Tip
+  id: totrans-78
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: For continuous ML systems, we have a set of basic immediate responses to any
+    given crisis. These are stop training, fall back, roll back, remove bad data,
+    and roll through.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于连续 ML 系统，我们有一组针对任何给定危机的基本立即响应措施。这些是停止训练，回退，回滚，删除坏数据和通过滚动。
+- en: Not every crisis needs all of these steps, and the choice of which response
+    is most appropriate depends on the severity of the issue and the speed with which
+    we are able to diagnose and cure the root-cause issue. Let’s look at each of these
+    basic crisis response steps for continuous ML systems and then discuss factors
+    for choosing a response strategy.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并非每一次危机都需要所有这些步骤，选择哪种响应最合适取决于问题的严重性以及我们能够诊断和治愈根本原因的速度。让我们看看连续 ML 系统的每个基本危机响应步骤，然后讨论选择响应策略的因素。
+- en: Stop training
+  id: totrans-81
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 停止训练
+- en: 'It has been said that the First Rule of Holes is this: *when you find yourself
+    in a hole, stop digging*. Similarly, when we find that our data stream is corrupted
+    in some way, perhaps by a bad model, or an outage, or a code-level bug somewhere
+    in the system, a useful response can be to stop model training and halt pushing
+    any new model versions out to serving. This is a short-term response that at least
+    helps ensure that problems will not get worse while we decide on a mitigation
+    or fix. It makes sense to ensure that there is an easy way for MLOps folks to
+    stop training on any model that is their responsibility. Automated systems are
+    helpful here, but of course need to alert sufficiently so we do not discover that
+    a model has silently stopped training three weeks ago.'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有人说，第一条挖洞的法则是这样的：*当你发现自己在一个洞里时，停止挖掘*。类似地，当我们发现我们的数据流以某种方式被损坏，也许是由于一个糟糕的模型，或者一个停机，或者系统中某处的代码级错误时，一个有用的反应可以是停止模型训练，并停止推送任何新的模型版本到服务中。这是一个短期的响应，至少有助于确保问题不会在我们决定采取缓解或修复措施之前变得更糟。确保
+    MLOps 团队有一种简单的方法来停止他们负责的任何模型的训练是有意义的。自动化系统在这里是有帮助的，但当然需要足够的警报，以免发现模型已经在三周前静默停止训练了。
+- en: Tip
+  id: totrans-83
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: It is always useful to have the equivalent of a Big Red Button that can be used
+    to stop training manually in a detected emergency.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总是有用的有一个类似于大红按钮的东西，可以在发现紧急情况时手动停止训练。
+- en: Fall back
+  id: totrans-85
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 回退
+- en: In continuous ML systems, it is important to have a fallback strategy that can
+    be used in place of our production model that provides acceptable (even if nonoptimal)
+    results. This could be a far simpler model that does not train in a continuous
+    fashion, or a lookup table of the most common responses, or even just a small
+    function that returns the median prediction to all queries. The key thing is that
+    if our continuous ML system encounters sudden massive failures—what we might describe
+    as “being on fire”—we have an ultra-reliable method that can be used as a temporary
+    replacement without the larger product becoming completely unusable. Fallback
+    strategies are typically less reliable in overall performance than our main model
+    (otherwise, we would not use an ML model in the first place), so fallback strategies
+    are very much intended to be short-term responses that allow for emergency responses
+    to take place in other parts of the system.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在持续的机器学习系统中，有一个备用策略非常重要，可以用来替代我们的生产模型，提供可接受的（即使是非最佳的）结果。这可以是一个远比较不连续训练的更简单的模型，或者是一个包含最常见响应的查找表，甚至只是一个返回所有查询的中位数预测的小函数。关键是，如果我们的持续机器学习系统遇到突然的大规模故障——我们可能描述为“失控状态”——我们有一个超可靠的方法可以作为临时替代品，而不至于使整个产品变得完全无法使用。备用策略通常在整体性能上比我们的主要模型不太可靠（否则，我们首先不会使用机器学习模型），因此备用策略非常适合作为短期响应，允许在系统的其他部分采取紧急响应。
+- en: Roll back
+  id: totrans-87
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 回滚
+- en: 'If our continuous ML system is currently in a crisis state, it makes sense
+    to revert the system to a state from before the crisis and see if everything is
+    OK. The root cause of our crisis may have come in through two basic areas: bad
+    code or bad data.'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们的持续机器学习系统当前处于危机状态，将系统恢复到危机之前的状态并查看一切是否正常是有意义的。我们危机的根本原因可能来自两个基本领域：糟糕的代码或糟糕的数据。
+- en: If we believe that the root cause of our issue is bad code, from a recently
+    introduced bug, then rolling back our production binaries to use a previously
+    known-good version may fix the issue in the short term. Of course, any rollback
+    to a previous production binary must be done in a staged ramp-up in case any new
+    compatibility issues or other flaws exist that make the old version of the binary
+    no longer usable. At any rate, it is important to keep on hand a set of fully
+    compiled previous binaries so that rollback can be done quickly and efficiently
+    when needed.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们相信我们问题的根本原因是糟糕的代码，由于最近引入的错误，那么将我们的生产二进制文件回滚到以前已知的良好版本可能会在短期内修复问题。当然，任何回滚到以前的生产二进制文件都必须在逐步增加的阶段进行，以防存在使旧版本二进制文件不再可用的新兼容性问题或其他缺陷。无论如何，在需要时保持一组完全编译的先前二进制文件非常重要，以便可以快速有效地进行回滚。
+- en: If we believe that the root cause of our issue is bad data that has caused the
+    model to train itself into a bad state, it makes sense to roll back the model
+    version to a previously known-good version. Again, it is important to keep checkpoints
+    of our trained production model on hand so that we have a set of previous versions
+    to choose from. For example, imagine that Black Friday sales in the US cause such
+    a large increase in purchase requests from users to our *yarnit.ai* store that
+    the fraud detection portion of the system starts to label all purchases as invalid,
+    making it look to our model as though all products are extremely unlikely to be
+    purchased. Rolling back to a version of the model that was checkpointed a week
+    before the Black Friday date would at least allow the model to serve reasonable
+    predictions while the rest of the larger system was fixed.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们认为问题的根本原因是糟糕的数据导致模型训练自身进入糟糕状态，那么将模型版本回滚到以前已知的良好版本是有意义的。同样，保持我们训练的生产模型的检查点非常重要，这样我们就有一组以前的版本可以选择。例如，想象一下，美国的黑色星期五销售导致用户向我们的*yarnit.ai*商店发出大量购买请求，使系统的欺诈检测部分开始将所有购买标记为无效，使我们的模型看起来所有产品都极不可能被购买。回滚到一个在黑色星期五日期一周之前检查点的模型版本，至少可以让模型提供合理的预测，同时修复更大系统的其余部分。
+- en: Remove bad data
+  id: totrans-91
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 删除糟糕的数据
+- en: When we have bad data in our system, we need to have an easy way to remove it
+    so that our model will not be corrupted by it. In the preceding example, we would
+    want to remove the data that was corrupted by the faulty fraud detection system.
+    Otherwise, when we re-enable training to proceed, this data will be encountered
+    by our rolled-back model as it moves forward in time through the training data,
+    and it will be corrupted by the bad data again. Removing bad data is a useful
+    strategy whenever we believe that the data itself is highly unrepresentative of
+    typical data and is unlikely to give the model useful new information, and that
+    the root cause of the bad data is temporary, due to an external world event or
+    to bugs in our system that can be quickly fixed.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们的系统中有不良数据时，我们需要一种简单的方法将其移除，以免模型受其污染。在前面的例子中，我们希望移除由于错误的欺诈检测系统而受损的数据。否则，当我们重新启用训练继续进行时，这些数据将被我们回滚的模型遇到，因为它在训练数据中向前移动，这些坏数据会再次对其造成污染。每当我们认为数据本身极不典型且不太可能为模型提供有用的新信息，并且坏数据的根本原因是临时的，可能是由于外部世界事件或系统中的错误而导致的时候，移除坏数据是一个有用的策略。
+- en: Roll through
+  id: totrans-93
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 穿越
+- en: If we have stopped training for our continuous ML system, at some point we need
+    to cross our fingers and enable it to resume training. We typically do this after
+    bad data has been removed and we are sure that any bugs have been addressed. However,
+    if a crisis is detected due to an external world event, sometimes the best response
+    is to just cross our fingers and roll through it, allowing the model to train
+    on the atypical data and then to recover itself as the world event ends. Indeed,
+    it is unfortunately true that this world has few days with no political event,
+    major sporting event, or other major newsworthy disaster happening somewhere,
+    and making sure that our model has enough exposure to atypical data like this
+    from different global regions can be an important way to ensure that our model
+    is generally robust.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们已经停止了连续ML系统的训练，在某些时候我们需要祈祷并启用它来恢复训练。通常情况下，我们会在清除了不良数据并确保修复了所有错误后进行此操作。然而，如果由于外部事件检测到了危机，有时候最好的响应策略就是祈祷并穿越，让模型在非典型数据上进行训练，然后在事件结束时自行恢复。事实上，遗憾的是，这个世界很少有没有政治事件、重大体育赛事或其他重大新闻灾难发生的日子，确保我们的模型充分接触来自不同全球地区的这类非典型数据可能是确保模型总体上健壮性的重要方式之一。
+- en: Choosing a response strategy
+  id: totrans-95
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 选择响应策略
+- en: How do we choose which events to stop, roll back, and remove, and which to roll
+    through? To answer that question, we need to observe our model’s response to similar
+    historical events, which is most easily done when we have trained the model on
+    historical data in sequential temporal order. Another important question to answer
+    is whether the crisis-indicating metrics we are currently seeing are due to a
+    bad model or to the atypical state of the world. In other words, is our model
+    broken, or is it just being asked to handle much more difficult requests right
+    now? One way to judge this is to observe offline metrics on golden set data, which
+    should be recomputed for our model on a frequent periodic basis for this reason.
+    If the model is actually corrupted, the golden set results may show a sharp decrease
+    in performance, and rolling through is probably not the right approach.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何选择停止、回滚和移除哪些事件，以及穿越哪些事件？要回答这个问题，我们需要观察我们的模型对类似历史事件的响应，这在我们按顺序训练模型的历史数据时最容易实现。另一个重要问题是，我们目前看到的指示危机的度量是否是由于模型错误或世界处于非典型状态造成的。换句话说，是我们的模型出了问题，还是它只是在目前被要求处理更困难的请求？判断这一点的一种方法是观察黄金数据集上的离线指标，出于这个原因，应该经常重新计算我们模型的黄金数据集结果。如果模型确实出现问题，黄金数据集的结果可能会显示性能急剧下降，这时穿越可能不是正确的方法。
+- en: Organizational considerations
+  id: totrans-97
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 组织考虑事项
+- en: When a crisis is currently going on, it can be a difficult time to learn new
+    skills, to figure out roles within a team, or to decide on how to implement various
+    response and mitigation strategies. Real-world firefighters regularly train together,
+    refine best practices, and ensure that all of the infrastructure they need to
+    respond to an alarm is in excellent condition and is ready to roll into action
+    at a moment’s notice. Similarly, we do not know exactly when our continuous ML
+    systems will require crisis response, but we can confidently say it will happen
+    and that we need to be well prepared. Creating an effective crisis response team
+    is part of the cost of creating and maintaining a continuous ML system, and must
+    be accounted for when we move in this direction. This is discussed in more detail
+    in [“Continuous Organizations”](#continuous_organizations).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当当前正发生危机时，这可能是学习新技能、在团队内确定角色或决定如何实施各种响应和缓解策略的困难时期。现实世界的消防员经常一起训练，完善最佳实践，并确保他们需要响应警报的所有基础设施都处于良好状态，并随时准备投入行动。同样，我们不知道我们的持续机器学习系统何时需要危机响应，但我们可以有信心地说，这将会发生，并且我们需要做好充分准备。创建有效的危机响应团队是创建和维护持续机器学习系统成本的一部分，在我们朝这个方向迈进时必须加以考虑。这在[“持续组织”](#continuous_organizations)中详细讨论。
+- en: New Launches Require Staged Ramp-ups and Stable Baselines
+  id: totrans-99
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 新推出需要分阶段增长和稳定基线。
+- en: When we have had a model running as part of our continuous ML system for a period
+    of time, we will eventually want to launch a new version of that model that creates
+    improvements in various ways. Maybe we want to use a larger version of the model
+    for improved quality and now have serving capacity to handle it, or perhaps a
+    model developer has created several new features that significantly improve predictive
+    performance, or maybe we have discovered a more efficient model architecture that
+    reduces serving costs in an important way. In cases like these, we need to explicitly
+    launch the new version of the model to replace the old version.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们在持续的机器学习系统中运行模型一段时间后，最终会希望推出新版本的模型，以在各个方面实现改进。也许我们想要使用一个更大的模型版本来提高质量，现在有能力处理它，或者可能模型开发者创建了几个新特性，显著提高了预测性能，或者我们发现了一种更高效的模型架构，以重要方式降低了服务成本。在这些情况下，我们需要明确地推出新版本的模型来替换旧版本。
+- en: Launching a new model most often involves some amount of uncertainty because
+    of the limitations of offline testing and validation. As we describe in [Chapter 11](ch11.xhtml#incident_response),
+    offline testing and validation can give useful guidance on whether a new version
+    of a model is likely to perform well in production, but often cannot give a complete
+    picture. This is especially true when our continuous ML model is part of a feedback
+    loop, because the data that we have previously trained on was most likely chosen
+    by a previous model version, and evaluation on offline data is limited to data
+    that has been collected based on actions or recommendations made by that previous
+    model. We can imagine this situation as similar to that of a student driver, who
+    is first evaluated by sitting in the passenger seat and being asked to give their
+    opinion about the instructor’s actions in driving the car. Just because they agree
+    100% with the actions of the instructor does not mean that they will not make
+    some poor decisions when first given the opportunity to steer the car for themselves.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 推出新模型往往涉及一定程度的不确定性，这是因为离线测试和验证的限制。正如我们在[第11章](ch11.xhtml#incident_response)中描述的那样，离线测试和验证可以为我们提供关于新模型版本在生产环境中表现良好的有用指导，但通常无法给出完整的画面。当我们的持续机器学习模型是反馈环路的一部分时，情况尤其如此，因为我们先前训练的数据很可能是由先前的模型版本选择的，而离线数据的评估仅限于基于先前模型做出的行动或建议的数据。我们可以将这种情况想象成是学员驾驶员的情况，他们首先通过坐在副驾驶座位上评估，被要求对教练驾驶汽车的行为给出意见。仅仅因为他们对教练的行动完全同意，并不意味着他们在首次有机会自己驾驶汽车时不会做出一些不良决策。
+- en: 'In this way, a new model launch requires some amount of *testing in production*
+    as the final form of validation. We need to give our new model the ability to
+    demonstrate that it is capable of being in the driver’s seat. But that doesn’t
+    mean we just hand it the keys and expect everything to be perfect. Instead, we
+    will most often use a staged ramp-up, first allowing the model to serve only a
+    fraction of the overall data, and increasing that amount only as we observe good
+    performance over time. This strategy is commonly known as an *A/B test*: we test
+    out our new model A against the performance of our old model B, in a format that
+    resembles a controlled scientific experiment and helps verify that the new model
+    will show the appropriate performance on our final business metrics (which may
+    be distinct from offline evaluation metrics like accuracy).'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，新模型的推出需要在生产环境中进行一定量的 *测试*，作为最终验证的形式。我们需要让新模型展示它有能力成为驾驶座位上的模型。但这并不意味着我们只是交给它钥匙，然后期望一切都完美无缺。相反，我们通常会使用分阶段逐步增加的策略，首先允许模型仅服务整体数据的一小部分，并且只有在观察到长期良好表现后才增加这一部分。这种策略通常被称为
+    *A/B 测试*：我们测试我们的新模型 A 与旧模型 B 的性能，以类似控制科学实验的格式，帮助验证新模型在我们的最终业务指标上是否表现得合适（这可能与离线评估指标如准确性不同）。
+- en: The difference between a model launch and an ideal A/B test is that in a scientific
+    experiment, A and B are independent and do not influence each other. For example,
+    if we run an experiment in a scientific setting to determine whether cotton sweaters
+    (A) keep people as warm as natural wool sweaters (B), the people wearing wool
+    sweaters are unlikely to make the people wearing cotton ones report feeling any
+    warmer or colder. However, if the wool sweater folks are so warm and happy that
+    they go make tea and hot soup for the cotton sweater folks, this would definitely
+    ruin our experiment.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型发布和理想的 A/B 测试之间的区别在于，在科学实验中，A 和 B 是独立的，彼此不会互相影响。例如，如果我们在科学环境中进行实验，以确定棉质毛衣（A）是否像天然羊毛毛衣（B）一样保暖，那么穿羊毛毛衣的人不太可能使穿棉毛衣的人报告感觉更暖或更冷。然而，如果穿羊毛毛衣的人感到非常温暖和愉快，以至于他们去为穿棉毛衣的人煮茶和热汤，那肯定会破坏我们的实验。
+- en: For A/B experiments comparing continuous ML models, it turns out that A and
+    B may well influence each other when our models are part of a feedback loop. For
+    example, imagine that our new model A does a great job of recommending organic
+    wool products to *yarnit.ai* users, whereas our previous model B had never done
+    so. An A/B experiment might initially show that the A model is much better in
+    this regard, but then as training data is produced by A that includes many more
+    organic wool recommendations and purchases, the B model (which is also continuously
+    updating) may then also learn that these products are liked by users and begin
+    to recommend them as well, making the two models appear identical over time. If
+    these effects are more diffuse, it can be hard to say whether the benefits of
+    A have disappeared because it was never actually better than B, or if B has itself
+    improved.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于比较连续 ML 模型的 A/B 实验，事实证明当我们的模型处于反馈循环的一部分时，A 和 B 可能会互相影响。例如，想象一下，我们的新模型 A 在向
+    *yarnit.ai* 用户推荐有机羊毛产品方面做得很好，而我们之前的模型 B 从未这样做过。最初的 A/B 实验可能会显示 A 模型在这方面要好得多，但随着
+    A 生成的训练数据包括了许多有机羊毛的推荐和购买，B 模型（也在持续更新）可能也会学习到这些产品受用户喜欢，并开始推荐它们，使得这两个模型随着时间的推移看起来变得相似。如果这些影响更加分散，那么很难说
+    A 的好处是否消失了，因为它实际上从未比 B 更好，或者是因为 B 本身已经改进。
+- en: We could try to fix this by restricting A and B to each train on only the data
+    that they themselves serve. This strategy can work well when each model serves
+    the same amount of data, such as 50% of the overall traffic each, but can make
+    for flawed comparisons in other cases. If A is looking bad early on, is that because
+    the model is bad, or because it has only 1% of training data while B has 99%?
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以尝试通过限制 A 和 B 只在它们自己服务的数据上进行训练来解决这个问题。当每个模型提供相同数量的数据时，比如总流量的 50%，这种策略可以很好地工作，但在其他情况下可能会导致比较出现缺陷。如果
+    A 在早期看起来不好，是因为模型不好，还是因为它只有 1% 的训练数据，而 B 有 99%？
+- en: Another strategy is to try to create a stable baseline of some sort, which can
+    help serve as a reference point in comparisons so that we can figure out whether
+    comparisons between A and B are changing because A is getting worse or because
+    B is getting better—or indeed, if both are getting dramatically worse in lockstep.
+    A stable baseline is a model C that is not influenced by either A or B, and is
+    allowed to serve a certain amount of traffic so that we can use those results
+    as a comparison. The basic idea is to then look at (A-C) against (B-C) rather
+    than A against B directly, with the idea that this will allow us to see any changes
+    more clearly.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种策略是尝试创建某种稳定的基线，这可以帮助作为比较的参考点，以便我们可以弄清楚A和B之间的比较是因为A变得更糟还是因为B变得更好，或者确实，两者都在同步变得显著更糟。稳定的基线是一个不受A或B影响的模型C，并且允许提供一定量的流量，以便我们可以将这些结果用作比较的依据。基本思想是然后观察(A-C)对(B-C)而不是直接对比A对B，这将使我们能够更清楚地看到任何变化。
+- en: 'The four general strategies for creating stable baselines have different advantages
+    and disadvantages:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建稳定基线的四种一般策略具有不同的优缺点：
+- en: Fallback strategy as baseline
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为基准的回退策略
+- en: When we have a reasonable fallback strategy that does not involve continuous
+    retraining, this is useful not only for crisis response but also as a potential
+    independent datapoint. This can work well if the quality of the fallback strategy
+    is not too much worse than the main production model. If the difference is very
+    large, however, statistical noise may overwhelm any comparisons between A and
+    B using this as a reference point.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们有一个合理的回退策略，不涉及持续的重新训练时，这不仅对危机响应有用，还作为一个潜在的独立数据点。如果回退策略的质量与主要生产模型的差异不太大，则这可以很好地工作。然而，如果差异非常大，统计噪声可能会压倒使用此作为参考点的A和B之间的任何比较。
+- en: Stop trainer
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 停止训练器
+- en: If we have a copy of our production model B and halt training on it, then by
+    definition it will not be influenced by any future behavior of A or B. If we allow
+    it to serve a small amount of traffic, this can provide a useful stable baseline
+    C, with the caveat that the overall performance of a “stop trainer” model will
+    degrade slowly over time. It can be useful to run independent experiments to observe
+    how much degradation can be expected and whether this strategy will be useful.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有我们的生产模型B的一个副本并停止对其进行训练，那么根据定义，它将不会受到A或B的任何未来行为的影响。如果我们允许其提供少量流量服务，则可以提供一个有用的稳定基线C，但“停止训练器”模型的整体性能会随时间缓慢下降。进行独立实验以观察可以预期的退化程度以及该策略是否有用是有益的。
+- en: Delay trainer
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 延迟训练器
+- en: If we expect our overall launch process to take, say, two weeks, then a reasonable
+    alternative can be to run a copy of our production model that is set to update
+    continuously, but at a two-week delay. This has the advantage over the stop trainer
+    in that the relative performance is unlikely to degrade, with the drawback that
+    after it has been running for a length of time equal to its delay, it will begin
+    to become influenced by A and B and will lose its utility. Thus, a two-week delay
+    trainer model will become useless after two weeks.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们预计整体启动过程需要，比如说，两周时间，那么一个合理的选择可以是运行我们的生产模型的一个副本，设置为持续更新，但延迟两周。这相比于停止训练器有一个优势，即相对性能不太可能下降，但缺点是在运行时间等于其延迟的长度之后，它将开始受到A和B的影响，并且失去其效用。因此，两周延迟训练器模型将在两周后变得无用。
+- en: Parallel universe model
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并行宇宙模型
+- en: An approach that maintains strict independence from A and B but does not have
+    a limited shelf life is a parallel universe model that is allowed to serve a small
+    fraction of overall data and learns only on the data that it serves itself. A
+    and B do not train on this data, keeping these data universes completely separate.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个保持与A和B严格独立但没有有限使用寿命的方法是并行宇宙模型，该模型允许为总体数据的一小部分提供服务，并且仅在其自身提供的数据上学习。A和B不在这些数据上进行训练，从而使这些数据宇宙完全分离。
+- en: Why is this useful? Imagine that the act of putting B into production changes
+    the overall ecosystem in some way. We could imagine stock prediction market models
+    operating this way—perhaps pushing the overall market up or down in some special
+    cases. In this case, both A and B might end up strongly increasing or decreasing
+    their median predictions, but the difference A-B might be small and appear stable.
+    Having this third point C allows us to detect whether the changes between models
+    are isolated to differences in A and B themselves, or are due to a broader impact.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么这很有用？想象一下，将B投入生产的行为会以某种方式改变整体生态系统。我们可以想象股票预测市场模型是这样运作的——也许在某些特殊情况下推动整体市场的上涨或下跌。在这种情况下，A和B都可能大幅增加或减少其中位预测，但A-B的差异可能很小且看似稳定。有了第三个观点C，我们能够检测到模型之间的变化是由于A和B本身的差异，还是由于更广泛的影响。
+- en: Parallel universe models often take time to stabilize after being set up because
+    of the restricted amount of training data and the overall distribution shift.
+    But after this initial period, they can provide a useful independent evaluation
+    point—again, up to the limits of statistical noise when comparing evaluation metrics.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 平行宇宙模型在建立后通常需要时间来稳定，因为训练数据量有限且整体分布会发生变化。但经过这个初始期后，它们可以提供一个有用的独立评估点——当比较评估指标时，要考虑统计噪声的限制。
+- en: Models Must Be Managed Rather Than Shipped
+  id: totrans-118
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型必须进行管理，而不是简单地投入使用。
+- en: Overall, model launches require particular care because at these times our systems
+    are most vulnerable to crisis. If we are in a model launch process with A and
+    B both serving roughly half the traffic, we have just doubled the potential sources
+    of error and doubled the amount of work needed to address any emergency that may
+    arise. Like crisis response, model launches are done best when they rely on well-communicated,
+    well-practiced processes.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总体而言，模型的发布需要特别注意，因为在这些时候，我们的系统最容易遇到危机。如果我们在A和B均大约占一半流量的模型发布过程中，我们刚刚增加了潜在的错误来源，并且需要处理任何可能出现的紧急情况的工作量翻倍。像危机响应一样，模型的发布在依赖于沟通良好、经过良好实践的流程时效果最佳。
+- en: 'Some products are like brick walls: they take a lot of planning and effort
+    to get right, but once completed are more or less done and require only occasional
+    maintenance. The default state is that they just work. Continuous ML systems are
+    at the opposite end of the spectrum and require daily attention. Problems that
+    arise with a continuous ML model may be difficult to solve in a complete or permanent
+    way. For example, if one of our overall product issues is that we would like to
+    do a better job of recommending wool products to users in warm climates, this
+    is one that is likely to require a variety of approaches, and the utility of those
+    approaches may change over time as tastes and fashions adapt season to season
+    and year to year.'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有些产品就像砖墙：它们需要大量的规划和努力来完成，但一旦完成，基本上就完成了，只需要偶尔维护。默认状态是它们正常工作。连续的机器学习系统则处于相反的极端，并且需要每天关注。连续ML模型出现的问题可能难以以完全或永久的方式解决。例如，如果我们整体产品的一个问题是希望更好地向温暖气候的用户推荐羊毛产品，这可能需要采用多种方法，而这些方法的效用可能会随着季节和年份的变化而变化。
+- en: In this way, a continuous ML system is something that requires regular management.
+    Managing a model effectively requires daily access to metrics that report the
+    model’s predictive performance. This can be done through dashboards and related
+    tooling that allow a model manager to understand how things look today, how trends
+    might be changing, and where problems might be arising. Any dashboard’s utility
+    is upper bound by the amount of attention paid to it, so there needs to be a clear
+    owner who regularly spends time with it. A useful metaphor is that it is useful
+    to have a cup of coffee with our model every day, just to get to know it by working
+    with a dashboard to understand how it is doing that day. And just as a people
+    manager provides regular performance evaluation, a model owner should provide
+    regular reports about model performance to upper levels of the organization to
+    share knowledge and visibility.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以这种方式，持续机器学习系统需要定期管理。有效管理模型需要每日访问报告模型预测性能的指标。这可以通过仪表板和相关工具完成，使模型管理员能够了解今天的情况、趋势可能如何变化以及可能出现的问题所在。任何仪表板的效用都取决于对其付出的关注程度，因此需要明确的负责人定期花时间关注。一个有用的比喻是，每天和我们的模型喝一杯咖啡是有益的，通过使用仪表板了解今天它的表现。就像人员经理定期进行绩效评估一样，模型所有者应定期向组织高层提交有关模型性能的报告，以分享知识和可见性。
+- en: When we learn something useful about our model, a strong best practice is to
+    write it down in the form of a short writeup. A writeup, which can be just a few
+    paragraphs accompanied by a screenshot of a dashboard or similar supporting evidence,
+    can help build organizational knowledge, and is of the most benefit when the observation
+    is accompanied by a short summary about what it means about model behavior. Such
+    writeups have historically proven extremely useful, both for helping guide future
+    model development and for understanding and debugging unexpected behaviors seen
+    during crises.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们从我们的模型中学到一些有用的东西时，一个强大的最佳实践是以简短的写作形式记录下来。这样的写作，可能只是几段文字，附带有仪表板截图或类似的支持证据，可以帮助积累组织知识，当观察伴随有关于模型行为意义的简短总结时效果最佳。这样的写作历史上被证明非常有用，不仅有助于指导未来的模型发展，还有助于理解和调试危机中出现的意外行为。
+- en: Lastly, when we do encounter a crisis, it is important that organizationally
+    we extract as much learning from the experience as possible by creating postmortem
+    documents that describe in detail what happened, how the issue was diagnosed,
+    what the damage was, what mitigation strategies were applied and how successful
+    they were, and finally recommendations for how to make improvements to either
+    reduce recurrence of the issue or enable more effective response in the future.
+    Creating these postmortem documents is useful both in the short term to help identify
+    fixes, but also in the long term as a repository of organizational knowledge and
+    experience that can be referenced over time.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，在我们遇到危机时，从组织角度来看，通过创建事后分析文档尽可能多地从经验中吸取教训是非常重要的。这些文档详细描述了事件的发生过程，问题的诊断方法，造成的损害，应用的缓解策略以及其成功程度，最后提出了改进建议，无论是减少问题再次发生的频率还是增强未来更有效的应对能力。在短期内，创建这些事后分析文档有助于识别修复措施，而长期来看，它们作为组织知识和经验的库存同样有用，随时可供参考。
+- en: Continuous Organizations
+  id: totrans-124
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 持续的组织
+- en: At this point, it should be clear that an organization that is taking on a continuous
+    ML system is committing to a long-term responsibility. Like a puppy, a continuous
+    ML system requires daily attention, care, feeding, and training. Structuring our
+    organizations to be well equipped to handle the responsibilities of managing a
+    continuous ML system requires numerous structures to do well.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到了这一点，应该清楚的是，一个致力于持续机器学习系统的组织正在承担长期的责任。像小狗一样，持续机器学习系统需要日常关注、照料、喂养和训练。为了确保我们的组织能够有效地处理持续机器学习系统的管理责任，需要建立多种有效的结构。
+- en: Determining evaluation strategies is a key leadership responsibility. Evaluation
+    strategies allow us to assess the health and quality of our models, both in terms
+    of long-term business goals and short-term decisions, such as whether to include
+    or exclude a given feature from the model. As noted in [Chapter 9](ch09.xhtml#monitoring_and_observability_for_models),
+    it can be tempting to reduce this problem to determining metrics, but a given
+    metric (such as revenue, clicks, precision, recall, or even latency) is meaningless
+    without a reference point, baseline, or distribution. Decision making in continuous
+    ML settings often requires some amount of counterfactual reasoning, thinking through
+    the impact of feedback loops, or wrestling with noise and uncertainty that makes
+    effective decision making challenging. We can help reduce the difficulty of these
+    challenges to some degree by having clearly defined and documented standards and
+    processes in place for evaluation.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确定评估策略是一项关键的领导责任。评估策略使我们能够评估我们模型的健康和质量，无论是从长期的业务目标还是从短期决策来看，比如是否将某个特定特征包含或排除在模型之外。如[第9章](ch09.xhtml#monitoring_and_observability_for_models)所述，把这个问题简化为确定度量指标可能是诱人的，但是一个给定的度量指标（如收入、点击、精度、召回率甚至延迟）如果没有参照点、基准或分布，就毫无意义。在持续的机器学习环境中做决策常常需要进行某种反事实推理，思考反馈环路的影响，或是应对噪声和不确定性，这些都使有效的决策变得具有挑战性。通过制定清晰定义并记录评估标准和流程，我们可以在一定程度上帮助减少这些挑战的难度。
+- en: Organizationally, making investment decisions is similarly challenging. How
+    much should we invest in more compute to create a larger and potentially more
+    powerful model, and will that investment pay for itself in terms of improved product
+    outcomes relative to opportunity cost? How should we trade off investing in model
+    quality improvements versus ML system-level reliability? Organizationally, how
+    do we direct the time and effort of our constrained human experts to best benefit
+    the overall mission? These are fundamentally hard problems, in no small part because
+    different parts of our organization may have different or even incompatible viewpoints
+    on priorities.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在组织层面，做出投资决策同样具有挑战性。我们应该投入多少资源来创建更大、潜力更强的模型，这种投资是否能够通过改善产品结果来回本，相对于机会成本来说？我们如何在投资模型质量改进和机器学习系统级可靠性之间进行权衡？在组织层面，如何有效地引导有限的人力专家的时间和精力，以最大程度地使整体使命受益？这些都是根本性难题，其中一部分原因是我们组织的不同部分可能具有不同甚至是不兼容的优先事项。
+- en: We have two main strategies available for dealing with these kinds of issues.
+    The first is to ensure that we have organizational leadership with enough scope
+    and context to effectively weigh the differing needs of, for example, improving
+    model monitoring and crisis response handling with that of improving model accuracy.
+    Ensuring that the lessons learned from each part of the organization are well
+    communicated across the entire organization can be one way to help different parts
+    of an organization understand one another’s challenges and pain points. This is
+    best done by regularly sharing postmortems from incidents—and also by proactive
+    “pre-mortem” discussions identifying potential weaknesses and failure modes. The
+    second strategy is to invest in infrastructure that ensures that alerts and other
+    warnings are propagated well in the full chains of producers and consumers. This
+    can require a serious organizational commitment, but can also pay off over time
+    in terms of reducing the human burden of verification within complex systems.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们有两种主要策略来处理这些问题。第一种是确保我们有足够广泛的组织领导能够有效权衡改善模型监控和危机响应处理的不同需求，与提高模型准确性的需求。确保每个组织部分的经验教训能够在整个组织内充分传播，可以帮助不同部门理解彼此的挑战和痛点。最好的方式是定期分享事故事后总结，并通过主动的“事前分析”讨论识别潜在的弱点和故障模式来实现。第二种策略是投资于基础设施，确保警报和其他警告在生产者和消费者的完整链条中得到有效传播。这可能需要组织的认真承诺，但长期来看可以在减少复杂系统内部验证的人力负担方面收益。
+- en: Organizationally, understanding that a continuous ML system relies on a steady
+    stream of incoming data to determine system behavior makes clear that the data
+    pipeline itself requires serious, dedicated oversight and management. In addition
+    to simply ensuring that data is flowing and the pipeline is functioning well,
+    key questions around which kinds of data to collect, how long to store data, and
+    how our data pipelines should interact with upstream producers and downstream
+    consumers are all critical strategic questions for organizational leaders to address.
+    Deeper questions of privacy, ethics, data inclusivity, and fairness all also play
+    important roles and must be part of the overall organizational strategy.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在组织上，理解持续机器学习系统依赖于持续的数据流来确定系统行为，显然表明数据管道本身需要严肃、专注的监督和管理。除了简单地确保数据流畅和管道功能良好外，关键问题还包括应收集哪些类型的数据、数据存储多长时间以及我们的数据管道应如何与上游生产者和下游消费者进行交互，这些都是组织领导者必须解决的关键战略问题。隐私、伦理、数据包容性和公平性等更深层次的问题同样起着重要作用，并且必须成为整体组织战略的一部分。
+- en: As we’ve noted, the launch process for ML systems and further improvements necessarily
+    requires a staged ramp-up procedure in the continuous ML setting. A critical role
+    of leadership is providing the oversight and review for the results of each stage,
+    and making approval decisions to move to the next stage or determining that we
+    are not yet ready to proceed or must even ramp down if things are not looking
+    as intended. These decisions require high-level oversight because the consequences
+    can be far reaching and interactions can occur with multiple producer or consumer
+    systems, especially in the presence of feedback loops or other complex system-to-system
+    interaction points. The process for assessing the wider impact of various launch
+    stages and ensuring stability before proceeding must be well established and rigorously
+    followed for a continuous ML organization to be effective in the long run.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们所指出的，机器学习系统的启动过程及进一步改进在持续机器学习设置中必然需要一个分阶段的逐步启动过程。领导层的关键角色是对每个阶段的结果进行监督和评审，并作出是否进入下一个阶段的批准决定，或者确定我们尚未准备好继续前进，甚至需要降低规模，如果事情的发展不如预期。这些决策需要高层监督，因为后果可能影响深远，并且可能与多个生产者或消费者系统发生交互，特别是在存在反馈循环或其他复杂的系统对系统交互点时。在进行各个启动阶段的广泛影响评估并确保稳定之前，必须确立并严格遵循一套流程，这对于长期有效的持续机器学习组织至关重要。
+- en: Finally, when incidents or crisis moments occur, we need to have a process in
+    place for responding effectively. For continuous ML systems, we have an advantage
+    and a disadvantage in handling incidents. The advantage is that we almost always
+    have a slightly (or somewhat) older version of the current model that we can roll
+    back to in serving while we take a look at what went wrong. This can be incredibly
+    helpful when we need a quick mitigation for something that went disastrously wrong
+    with the current model. The disadvantage is that the entire system is constantly
+    evolving, making it difficult to isolate root causes or breaking changes. Our
+    model’s change might have been motivated or required by other concurrent changes
+    in the system (such as new data added, or new integrations using the model). In
+    this context, troubleshooting exactly what has gone wrong can be much more difficult
+    in a continuous ML environment. For concrete examples of this, see [Chapter 11](ch11.xhtml#incident_response).
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，当事件或危机时刻发生时，我们需要建立一个有效的响应流程。对于持续的机器学习系统，我们在处理事件时有优势和劣势。优势在于，我们几乎总是有一个稍微旧一些的当前模型版本，可以在我们检查出错原因的同时回滚到服务中，这在我们需要迅速应对当前模型出现严重问题时非常有帮助。劣势在于整个系统不断演化，难以隔离根本原因或变更中的断裂点。我们模型的变更可能是由系统中的其他并发变更（如添加新数据或使用模型的新集成）驱动或需要的。在这种情况下，要精确地排查问题变得更加困难，尤其是在持续的机器学习环境中。关于这一点的具体例子，请参阅[第11章](ch11.xhtml#incident_response)。
+- en: 'The most important prework for an organization running a continuous ML system
+    is to pre-negotiate outage consequences and handling. This goes beyond just determining,
+    in advance, who will fill which roles—although you need to do that too. ML production
+    engineers shouldn’t be determining the urgency of resolving a particular incident
+    while in the middle of it, and model developers shouldn’t be guessing at the costs
+    and consequences of a given outage while it is ongoing. Each person should know
+    their role, their authority, and their path to escalate a decision to someone
+    else because these should be worked out in advance. But where possible, the whole
+    organization should also have agreed upon some general service reliability standards.
+    Examples might be the following:'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行连续 ML 系统的组织最重要的前期工作是预先协商停机的后果和处理方式。这不仅仅是提前确定谁将担任哪些角色的问题 — 虽然这也是必须做的。ML 生产工程师不应在处理中确定解决特定事件的紧急程度，模型开发者也不应在停机事件发生时猜测成本和后果。每个人都应清楚自己的角色、权限以及向他人升级决策的途径，因为这些应该事先制定好。但是在可能的情况下，整个组织还应就一些一般的服务可靠性标准达成共识。例如：
+- en: This model can be up to 12 hours old without serious consequences, even though
+    we generally prefer that it be based on data that is no more than about 1 hour
+    old.
+  id: totrans-133
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 即使我们通常希望其基于不超过大约 1 小时的数据，此模型可以达到 12 小时的老化而没有严重后果。
+- en: If this model has quality metrics worse than a particular known threshold, the
+    approved fallback is to roll back to an old model.
+  id: totrans-134
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果此模型的质量指标低于已知特定阈值，批准的回退方法是回滚到旧模型。
+- en: If the model is worse than an additional threshold that is predetermined, waking
+    up the following business leaders is appropriate…
+  id: totrans-135
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果模型低于预定的额外阈值，唤醒以下业务领导是适当的…
+- en: And so on. The general idea is to predetermine the parameters of various kinds
+    of outages so that incident responders have the maximum ability to take action
+    and minimum latency to a decision about how to respond. Many organizations tend
+    not to work out these decisions in advance until they experience a few outages,
+    but after that, it becomes quite reasonable to pre-decide what to do in the case
+    of really bad ML problems.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 依此类推。总体思路是预先确定各种类型的停机参数，以便事件响应者能够最大程度地采取行动，并尽量减少对如何应对的决策延迟。许多组织通常不会在事先做出这些决策，直到经历了一些停机事件后，才会认为预先决定在遇到严重
+    ML 问题时应采取何种措施是非常合理的。
+- en: Rethinking Noncontinuous ML Systems
+  id: totrans-137
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 重新思考非连续 ML 系统
+- en: 'We have talked about a range of issues for continuous ML systems in this chapter.
+    But in addition to giving what we hope are useful mitigation strategies for creating
+    robust and reliable systems even in the face of the difficulties, we would like
+    to make a broader recommendation:'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章节我们讨论了连续 ML 系统的一系列问题。除了提供希望能为面对困难时创建健壮可靠系统的有用缓解策略之外，我们还想提出一个更广泛的建议：
+- en: All production ML systems should be treated as continuous ML systems.
+  id: totrans-139
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 所有生产 ML 系统都应被视为连续 ML 系统。
+- en: We should think about every model that is a key part of a production system
+    as one that is trained continuously, even if it is not actually updated on new
+    data every minute, every hour, or even every day or week.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应该把每个作为生产系统关键部分的模型都视为连续训练的模型，即使它实际上并非每分钟、每小时，甚至每天或每周都会基于新数据进行更新。
+- en: Why would we make such a recommendation? After all, continuous ML systems are
+    full of complexity and vectors for failure. One reason is that if we apply the
+    standards and best practices from continuous ML systems to all production-grade
+    ML systems, we will definitely be ensuring that our technical infrastructure,
+    model development, and MLOps or crisis response teams are set up to meet challenges
+    as they arise. If we assume that our ML system is a continuous ML system and plan
+    accordingly, we will be in a good spot.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么我们要做出这样的建议？毕竟，连续 ML 系统充满了复杂性和故障向量。一个原因是，如果我们将连续 ML 系统的标准和最佳实践应用于所有生产级 ML
+    系统，我们将确保我们的技术基础设施、模型开发以及 MLOps 或危机响应团队都能够应对挑战。如果我们假设我们的 ML 系统是一个连续 ML 系统并相应地进行规划，我们将处于一个良好的位置。
+- en: Is this overkill? If a model is trained only once, applying the standards and
+    best practices from continuous ML may be seen as a waste of resources. But in
+    reality, no production models are trained only once. In our experience, we have
+    seen that every production-level ML model will eventually be retrained or have
+    a new version launched—maybe in a few months, or next year, as new data becomes
+    available or models are developed. This can be done in an ad hoc fashion, every
+    few weeks or months, but this irregular approach is likely to lead to failures
+    and oversights. Our strong recommendation is that effective MLOps teams ensure
+    that their models are updated on a regular schedule, be it daily, weekly, or monthly,
+    so that validation procedures and checklists can become part of the organizational
+    culture. From this standpoint, then, the recommendations for continuous ML systems
+    are applicable to every ML system.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是否过度？如果一个模型只被训练一次，那么应用连续机器学习的标准和最佳实践可能会被视为资源浪费。但实际上，没有任何生产模型只会被训练一次。根据我们的经验，我们发现每个生产级机器学习模型最终都会重新训练或推出新版本——可能在几个月后，或明年，随着新数据的出现或模型的发展。这可以通过不定期的方式进行，每隔几周或几个月一次，但这种不规律的方法很可能导致失败和疏忽。我们强烈建议，有效的MLOps团队确保他们的模型按照规定的时间表进行更新，无论是每天、每周还是每月，以便验证程序和检查表能够成为组织文化的一部分。从这个角度来看，连续机器学习系统的建议适用于每一个机器学习系统。
+- en: Conclusion
+  id: totrans-143
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: In this chapter, we have laid out sets of procedures and practices that can
+    form the foundation of an organizational playbook for the ongoing care and oversight
+    of continuous ML systems. These systems offer a remarkable range of benefits,
+    enabling models that adapt to new data over time and allow for responsive learned
+    systems that interact with users, marketplaces, environments, and the world.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们提出了一套程序和实践方法，可作为组织管理连续机器学习系统时的基础手册。这些系统提供了广泛的好处，能够使模型随时间适应新数据，并允许响应式学习系统与用户、市场、环境和世界进行交互。
+- en: It is obvious that any system that is both highly impactful and easily influenced
+    requires considerable oversight. In our experience, the requirements for oversight
+    in these cases go far beyond what can be expected of any individual, no matter
+    how capable, and cannot be left to intuition or improvisation. Any organization
+    managing a continuous ML system needs to think of this as an ongoing high-priority
+    mission, with special care at times of launches or major updates, but also with
+    continual monitoring and contingencies in place to allow fast response to emergent
+    crises.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 很明显，任何既具有高影响力又容易受影响的系统都需要进行深入监督。根据我们的经验，在这些情况下，监督需求远远超出个人能力范围，不能依赖直觉或即兴处理。任何管理连续机器学习系统的组织都需要把这视为一项持续的高优先级任务，特别是在系统发布或重大更新时，但也需要进行持续的监控，并制定应急预案，以便对新出现的危机能够快速响应。
+- en: 'We covered six basic insights about continuous ML systems that we hope you
+    will come away with:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们总结了关于连续机器学习系统的六个基本观点，希望您能从中受益：
+- en: External world events may influence our systems.
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 外部世界事件可能会影响我们的系统。
+- en: Models may influence their own future training data through feedback loops.
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型可能通过反馈循环影响其未来的训练数据。
+- en: Temporal effects can arise at several timescales.
+  id: totrans-149
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 时间效应可能在多个时间尺度上出现。
+- en: Crisis response must be done in real time.
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 危机响应必须实时进行。
+- en: New launches require staged ramp-ups and stable baselines.
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 新发布需要分阶段的推进和稳定的基线。
+- en: Models must be managed rather than shipped.
+  id: totrans-152
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型必须进行管理而非简单部署。
+- en: And finally, we ended the chapter with the idea that all ML systems should likely
+    best be thought of as continuous ML systems, as all models are eventually retrained,
+    and having strong standards in place will benefit any organization in the long
+    run.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们认为所有机器学习系统最好都被视为连续机器学习系统，因为所有模型最终都会重新训练，建立强大的标准将使任何组织长期受益。
+- en: '^([1](ch10.xhtml#idm46106044805568-marker)) See [“5\. Ad Click Prediction:
+    Databases Versus Reality”](ch15.xhtml#fivedot_ad_click_prediction_databases_v)
+    for an example where this happens.'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch10.xhtml#idm46106044805568-marker)) 详见[“5\. 广告点击预测：数据库与现实”](ch15.xhtml#fivedot_ad_click_prediction_databases_v)，这里有一个相关案例。
+- en: ^([2](ch10.xhtml#idm46106044752032-marker)) See [“Feature store”](ch04.xhtml#feature_store-id0000011)
+    for an in-depth treatment of feature stores.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch10.xhtml#idm46106044752032-marker)) 详见[“特征存储”](ch04.xhtml#feature_store-id0000011)以深入了解特征存储。
+- en: ^([3](ch10.xhtml#ch01fn119-marker)) In statistics and ML parlance, the IID assumption
+    is that data is drawn independently from an identical distribution—that is, that
+    our test sets and training sets are randomly drawn from the same sources in the
+    same way. This is covered in much more detail in [Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality).
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch10.xhtml#ch01fn119-marker)) 在统计学和机器学习术语中，IID假设是数据是从相同分布独立抽取的，也就是说，我们的测试集和训练集以相同的方式随机抽取自同一来源。这在[第5章](ch05.xhtml#evaluating_model_validity_and_quality)中有更详细的介绍。
+- en: ^([4](ch10.xhtml#ch01fn120-marker)) Those familiar with different subfields
+    of ML will note that this is technically a contextual bandit setting, and thus
+    subject to an explore versus exploit trade-off. The main idea in this setting
+    is that when our system learns only about the things it intentionally selects,
+    it is important to sometimes randomly change our selections to explore the world
+    a little more and make sure we do not lock our system into a self-perpetuating
+    loop of beliefs. Exploring too little leads to missing out on the very best; exploring
+    too much is a waste of time and resources. Parallels to any of our own life choices
+    are, of course, completely coincidental.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch10.xhtml#ch01fn120-marker)) 熟悉机器学习不同子领域的人士会注意到，这在技术上是一个情境感知的强化学习设置，因此存在探索与利用的权衡。在这种情境下的主要思想是，当我们的系统只学习它有意选择的内容时，有时随机改变选择以更多地探索世界，并确保我们不会将系统锁定在自我永续信念的循环中是至关重要的。探索过少会导致错失最佳机会；过多则是时间和资源的浪费。当然，这与我们自己生活中的任何选择有什么相似之处，完全是巧合。
+- en: '^([5](ch10.xhtml#ch01fn121-marker)) ​​See [*The Flash Crash: A New Deconstruction*](https://oreil.ly/sAkYH)
+    for an in-depth treatment of the events that lead up to the flash crash, including
+    consideration of the triggering incident as well as the facilitating market conditions.
+    One point to take away from this discussion is just how hard it can be to do root-cause
+    analysis on systems that involve multiple models interacting with one another.'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch10.xhtml#ch01fn121-marker)) ​​参见[*闪崩：一场全新的解构*](https://oreil.ly/sAkYH)，详细讨论导致闪崩事件的事件，包括触发事件及促成市场条件的考量。从这次讨论中可以得出一个结论，即在涉及多个模型相互作用的系统中进行根本原因分析是多么困难。

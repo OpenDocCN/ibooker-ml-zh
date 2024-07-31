@@ -1,0 +1,2055 @@
+- en: Chapter 5\. Creating Vision Datasets
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第五章。创建视觉数据集
+- en: To carry out machine learning on images, we need images. Of the use cases we
+    looked at in [Chapter 4](ch04.xhtml#object_detection_and_image_segmentation),
+    the vast majority were for supervised machine learning. For such models, we also
+    need the correct answer, or *label*, to train the ML model. If you are going to
+    train an unsupervised ML model or a self-supervised model like a GAN or autoencoder,
+    you can leave out the labels. In this chapter, we will look at how to create a
+    machine learning dataset consisting of images and labels.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要对图像进行机器学习，我们需要图像。在我们在[第四章](ch04.xhtml#object_detection_and_image_segmentation)中查看的使用案例中，绝大多数是用于监督式机器学习。对于这样的模型，我们还需要正确的答案，或者*标签*，以训练ML模型。如果您打算训练无监督ML模型或类似GAN或自编码器的自监督模型，则可以省略标签。在本章中，我们将探讨如何创建由图像和标签组成的机器学习数据集。
+- en: Tip
+  id: totrans-2
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: The code for this chapter is in the *05_create_dataset* folder of the book’s
+    [GitHub repository](https://github.com/GoogleCloudPlatform/practical-ml-vision-book).
+    We will provide file names for code samples and notebooks where applicable.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的代码位于书籍的 *05_create_dataset* 文件夹中的[GitHub存储库](https://github.com/GoogleCloudPlatform/practical-ml-vision-book)。我们将在适当的情况下提供代码示例和笔记本的文件名。
+- en: Collecting Images
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 收集图像
+- en: 'In most ML projects, the first stage is to collect the data. The data collection
+    might be done in any number of ways: by mounting a camera at a traffic intersection,
+    connecting to a digital catalog to obtain photographs of auto parts, purchasing
+    an archive of satellite imagery, etc. It can be a logistical activity (mounting
+    traffic cameras), a technical activity (building a software connector to the catalog
+    database), or a commercial one (purchasing an image archive).'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大多数ML项目中，第一阶段是收集数据。数据收集可以通过多种方式进行：在交通路口安装摄像机、连接到数字目录以获取汽车零部件的照片、购买卫星图像档案等。它可以是后勤活动（安装交通摄像机）、技术活动（构建与目录数据库的软件连接器）或商业活动（购买图像档案）。
+- en: Photographs
+  id: totrans-6
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 照片
+- en: Photographs are one of the most common sources of image data. These can include
+    photographs taken from social media and other sources, and photographs taken under
+    controlled conditions by permanently mounted cameras.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 照片是图像数据的最常见来源之一。这些可以包括来自社交媒体和其他来源的照片，以及由永久安装的摄像机在受控条件下拍摄的照片。
+- en: One of the first choices we need to make when collecting images is the placement
+    of the camera and the size and resolution of the image. Obviously, the image has
+    to frame whatever it is that we are interested in—for example, a camera mounted
+    to photograph a traffic intersection would need to have an unobstructed view of
+    the entire intersection.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在收集图像时我们需要做出的第一个选择是摄像机的放置位置以及图像的大小和分辨率。显然，图像必须框住我们感兴趣的内容——例如，安装在交通路口拍摄的摄像机需要能够无障碍地看到整个路口。
+- en: 'Intuitively, it might seem that we will get the highest-accuracy models by
+    training them on the highest-resolution images, and so we should endeavor to collect
+    data at the highest resolution we can. However, high image resolutions come with
+    several drawbacks:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 直觉上，似乎通过在最高分辨率图像上训练可以得到最高准确率的模型，因此我们应该尽力以最高分辨率收集数据。然而，高分辨率图像也伴随着一些缺点：
+- en: Larger images will require larger models—the number of weights in every layer
+    of a convolutional model scales proportionally to the size of the input image.
+    We’ll need four times the number of parameters to train a model on 256x256 images
+    than on 128x128 images, so training will take longer and will require more computational
+    capacity and additional memory.
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更大的图像将需要更大的模型——卷积模型每一层中的权重数量与输入图像的尺寸成比例。因此，对256x256图像训练模型所需的参数数量是对128x128图像的四倍，因此训练时间更长，需要更多的计算能力和额外的内存。
+- en: The machines that we train ML models on have limited memory (RAM), so the larger
+    the image size, the fewer images we can have in a batch. In general, larger batch
+    sizes lead to smoother training curves. So, large images may be counterproductive
+    in terms of accuracy.
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们训练ML模型的机器具有有限的内存（RAM），因此图像尺寸越大，批处理中可以包含的图像数量就越少。通常情况下，更大的批处理大小会导致更平滑的训练曲线。因此，大图像在准确性方面可能适得其反。
+- en: Higher-resolution images, especially those taken in outdoor and low-light environments,
+    may have more noise. Smoothing the images down to a lower resolution might lead
+    to faster training and higher accuracy.
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更高分辨率的图像，特别是在室外和低光环境下拍摄的图像，可能会有更多噪音。将图像平滑处理到较低分辨率可能会导致更快的训练和更高的准确性。
+- en: Collecting and saving a high-resolution image takes longer than collecting and
+    saving a lower-resolution one. Therefore, to capture high-speed action, it might
+    be necessary to use a lower resolution.
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 收集和保存高分辨率图像所需的时间比收集和保存低分辨率图像所需的时间长。因此，为了捕捉高速动作，可能需要使用较低分辨率的图像。
+- en: Higher-resolution images take longer to transmit. So, if you are collecting
+    images on the edge^([1](ch05.xhtml#ch05fn01)) and sending them to the cloud for
+    inference, you can do faster inference by using smaller, lower-resolution images.
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更高分辨率的图像传输时间更长。因此，如果您在边缘收集图像并将其发送到云端进行推断，可以通过使用更小、低分辨率的图像来加快推断速度。
+- en: The recommendation, therefore, is to use the highest resolution that is warranted
+    by the noise characteristics of your images and that your machine learning infrastructure
+    budget can handle. Do not lower the resolution so much that the objects of interest
+    cannot be resolved.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此建议使用最高分辨率，该分辨率由图像的噪声特性和机器学习基础设施预算决定。不要降低分辨率，以至于无法解析感兴趣的对象。
+- en: In general, it is worth using the highest-quality camera (in terms of lens,
+    sensitivity, and so on) that your budget will allow—many computer vision problems
+    are simplified if the images used during prediction will always be in focus, if
+    the white balance will be consistent, and if the effect of noise on the images
+    is minimal. Some of these problems can be rectified using image preprocessing
+    (image preprocessing techniques will be covered in [Chapter 6](ch06.xhtml#preprocessing)).
+    Still, it is better to have images without these issues than to collect data and
+    have to correct them after the fact.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，值得使用预算允许的最高质量相机（例如镜头、灵敏度等），这样可以简化许多计算机视觉问题，例如预测时使用的图像始终保持清晰，白平衡保持一致，图像噪声的影响最小。一些问题可以通过图像预处理来解决（图像预处理技术将在[第6章](ch06.xhtml#preprocessing)中介绍），但最好的方法是拥有没有这些问题的图像，而不是在数据采集后进行修正。
+- en: Cameras can typically save photographs in a compressed (e.g., JPEG) or uncompressed
+    (e.g., RAW) format. When saving JPEG photographs, we can often choose the quality.
+    Lower-quality and lower-resolution JPEG files compress better, and so incur lower
+    storage costs. As described previously, lower-resolution images will also reduce
+    compute costs. Because storage is inexpensive relative to compute, our recommendation
+    is to choose a high-quality threshold for the JPEGs (95%+) and store them at a
+    lower resolution.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相机通常可以以压缩（例如JPEG）或未压缩（例如RAW）格式保存照片。在保存JPEG照片时，通常可以选择质量。较低质量和较低分辨率的JPEG文件压缩效果更好，因此存储成本更低。如前所述，低分辨率图像还将减少计算成本。由于存储费用相对于计算来说较低，我们建议选择高质量的JPEG（95%以上）并以较低分辨率存储它们。
+- en: Note
+  id: totrans-18
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The lowest resolution you can use depends on the problem. If you are trying
+    to classify landscape photographs to determine whether they are of water or land,
+    you might be able to get away with 12x16 images. If your aim is to identify the
+    type of trees in those landscape photographs, you might need the pixels to be
+    small enough to clearly pick up on the shapes of leaves, so you might need 768x1024
+    images.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用的最低分辨率取决于问题的性质。如果您试图分类景观照片以确定其是水域还是陆地，则可能可以使用12x16像素的图像。如果您的目标是识别这些景观照片中的树木类型，则可能需要像素足够小，能够清晰地捕捉叶子的形状，因此可能需要768x1024像素的图像。
+- en: Use uncompressed images only if your images consist of human-generated content
+    such as CAD drawings where the fuzzy edges of the JPEG compression might cause
+    issues with recognition.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仅在您的图像由人类生成的内容（例如CAD图纸，其中JPEG压缩的模糊边缘可能导致识别问题）时才使用未压缩图像。
+- en: Imaging
+  id: totrans-21
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 图像
+- en: Many instruments (X-rays, MRIs, spectroscopes, radars, lidars, and so on) create
+    2D or 3D images of a space. X-rays are projections of a 3D object and may be treated
+    as grayscale images (see [Figure 5-1](#a_chest_x-ray_can_be_treated_as_a_graysc)).
+    While typical photographs contain three (red, green, blue) channels, these images
+    have only one channel.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多仪器（X射线、MRI、光谱仪、雷达、激光雷达等）创建空间的2D或3D图像。X射线是三维物体的投影，可以视为灰度图像（见[图5-1](#a_chest_x-ray_can_be_treated_as_a_graysc)）。而典型的照片包含三个通道（红、绿、蓝），这些图像只有一个通道。
+- en: '![](Images/pmlc_0501.png)'
+  id: totrans-23
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0501.png)'
+- en: Figure 5-1\. A chest X-ray can be treated as a grayscale image. Image courtesy
+    of [Google AI Blog](https://oreil.ly/RoyB0).
+  id: totrans-24
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-1. 胸部X射线可以视为灰度图像。图像由[Google AI Blog](https://oreil.ly/RoyB0)提供。
+- en: If the instrument measures multiple quantities, we can treat the reflectance
+    at different wavelengths, Doppler velocity, and any other measured quantities
+    as separate channels of the image. In tomography, the projections are of thin
+    3D slices, thus creating multiple cross-sectional images; these cross-sections
+    may be treated as channels of a single image.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果仪器测量多个量，则可以将不同波长的反射率、多普勒速度和其他测量量视为图像的独立通道。在层析成像中，投影是薄的三维切片，因此创建多个横截面图像；这些横截面可以视为单一图像的通道。
+- en: There are some special considerations associated with imagery data depending
+    on the sensor geometry.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据传感器几何特性，影像数据存在一些特殊的考虑因素。
+- en: Polar grids
+  id: totrans-27
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 极坐标网格
+- en: 'Radar and ultrasound are carried out in a polar coordinate system (see [Figure 5-2](#using_a_polar_grid_as_is_versus_remappin)).
+    You can either treat the polar 2D data itself as the input image, or transform
+    it into a Cartesian coordinate system before using it as an input to machine learning
+    models. There are trade-offs in either approach: in the polar coordinate system
+    there is no interpolation or repeated pixels but the size of a pixel varies throughout
+    the image, whereas in the Cartesian coordinate system the pixel size is consistent
+    but much of the data is missing, interpolated, or aggregated when remapped. For
+    example, in [Figure 5-2](#using_a_polar_grid_as_is_versus_remappin), many of the
+    pixels at the bottom left will be missing and will have to be assigned some numerical
+    value for ML purposes. Meanwhile, pixels at the bottom right will involve aggregation
+    of many values from the pixel grid and pixels at the top will involve interpolation
+    between the pixel values. The presence of all three situations in Cartesian images
+    greatly complicates the learning task.'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 雷达和超声波在极坐标系统中执行（参见图5-2）。您可以将极坐标2D数据本身作为输入图像，或在将其用作机器学习模型输入之前将其转换为笛卡尔坐标系统。任何方法都有权衡：在极坐标系统中，没有插值或重复像素，但是像素大小在整个图像中变化，而在笛卡尔坐标系统中，像素大小一致，但在重新映射时，很多数据可能会丢失、插值或聚合。例如，在图5-2中，左下角的许多像素将丢失，并且必须为ML目的分配一些数值。与此同时，右下角的像素将涉及从像素网格中聚合许多值，而顶部的像素将涉及在像素值之间进行插值。笛卡尔图像中的这三种情况的存在极大地复杂化了学习任务。
+- en: '![](Images/pmlc_0502.png)'
+  id: totrans-29
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0502.png)'
+- en: Figure 5-2\. Using a polar grid as-is versus remapping the data to a Cartesian
+    grid.
+  id: totrans-30
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-2。直接使用极坐标网格与将数据重新映射到笛卡尔网格的比较。
+- en: We recommend using the polar grid as the input image to ML models, and including
+    the distance of each pixel from the center (or the size of the pixel) as an additional
+    input to the ML model. Because every pixel has a different size, the easiest way
+    to incorporate this information is to treat the size of the pixel as an additional
+    channel. This way we can take advantage of all of the image data without losing
+    information through coordinate transformation.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们建议使用极坐标网格作为ML模型的输入图像，并将每个像素到中心的距离（或像素的大小）作为ML模型的额外输入。因为每个像素的大小不同，将像素大小视为额外通道的最简单方法。这样，我们可以利用所有图像数据，而不通过坐标变换丢失信息。
+- en: Satellite channels
+  id: totrans-32
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 卫星频道
+- en: When working with satellite images, it might be worth working in the original
+    satellite view or a parallax-corrected grid rather than remapping the images to
+    Earth coordinates. If using projected map data, try to carry out the machine learning
+    in the original projection of the data. Treat images collected of the same location
+    at approximately the same time, but at different wavelengths, as channels (see
+    [Figure 5-3](Images/#images_collected_by_instruments_onboard)). Note that pretrained
+    models are usually trained on three-channel images (RGB), so transfer learning
+    and fine-tuning will not work, but the underlying architectures can work with
+    any number of channels if you are training from scratch.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在处理卫星图像时，与其将图像重新映射到地球坐标，不如在原始卫星视图或经过视差校正的网格上工作。如果使用投影地图数据，请尝试在数据的原始投影中进行机器学习。处理在大致相同时间但不同波长下拍摄的相同位置图像时，请将其视为通道（参见图5-3）。请注意，预训练模型通常是在三通道图像（RGB）上进行训练的，因此迁移学习和微调将无法使用，但如果从头开始训练，底层架构可以处理任意数量的通道。
+- en: '![](Images/pmlc_0503.png)'
+  id: totrans-34
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0503.png)'
+- en: Figure 5-3\. Images collected by instruments onboard the GOES-16 weather satellite
+    at approximately the same time on December 21, 2020\. Treat the original scalar
+    values of these colorized images as six-channel images that are input to the model.
+    Images courtesy of the [US National Weather Service](https://oreil.ly/VTOBi).
+  id: totrans-35
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-3。在2020年12月21日大约同一时间由GOES-16天气卫星上的仪器收集的图像。将这些彩色图像的原始标量值视为输入到模型的六通道图像。图像由[美国国家气象局](https://oreil.ly/VTOBi)提供。
+- en: Geospatial layers
+  id: totrans-36
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 地理空间图层
+- en: If you have multiple map layers (e.g., land ownership, topography, population
+    density; see [Figure 5-4](#geospatial_layers_can_be_treated_as_imag)) collected
+    in different projections, you will have to remap them into the same projection,
+    line up the pixels, and treat these different layers as channels of an image.
+    In such situations, it might be useful to include the latitude of the pixel as
+    an additional input channel to the model so that changes in pixel size can be
+    accounted for.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您有多个地图图层（例如土地所有权、地形、人口密度；参见[图5-4](#geospatial_layers_can_be_treated_as_imag)），这些图层是在不同投影下收集的，则必须将它们重新映射到相同的投影中，对齐像素，并将这些不同的图层视为图像的通道。在这种情况下，将像素的纬度作为模型的附加输入通道可能是有用的，以便可以考虑像素大小的变化。
+- en: Categorical layers (such as land cover type) may have to be one-hot encoded
+    so that the land cover type becomes five channels if there are five possible land
+    cover types.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分类层（如土地覆盖类型）可能需要进行独热编码，以便土地覆盖类型成为五个通道，如果有五种可能的土地覆盖类型。
+- en: '![](Images/pmlc_0504.png)'
+  id: totrans-39
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0504.png)'
+- en: Figure 5-4\. Geospatial layers can be treated as image channels. Image courtesy
+    of [USGS](https://oreil.ly/mmi41).
+  id: totrans-40
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-4。地理空间图层可以视为图像通道。图像由[USGS](https://oreil.ly/mmi41)提供。
+- en: Proof of Concept
+  id: totrans-41
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 概念验证
+- en: In many situations, you may not have the data on hand, and collecting it for
+    a proof of concept would take too long. You may look into purchasing similar data
+    to understand the feasibility of a project before investing in routine data collection.
+    When purchasing images, keep in mind that you want to acquire images that are
+    similar in quality, resolution, etc. to the images that you will ultimately be
+    able to use in the actual project.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多情况下，您可能没有现成的数据，并且收集概念验证所需的数据会花费太长时间。您可以考虑购买类似的数据来了解项目的可行性，然后再投资于例行数据收集。在购买图像时，请记住要获取与最终可以在实际项目中使用的图像类似质量、分辨率等的图像。
+- en: For example, many of the machine learning algorithms for the US GOES-16 satellite
+    had to be developed before the satellite was launched. Naturally, there was no
+    data available! In order to decide on the list of ML models that would be built
+    on the GOES-16 data, similar-quality data already being collected by the European
+    SEVIRI satellite was used to carry out proof-of-concept tests.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，许多用于美国GOES-16卫星的机器学习算法必须在卫星发射之前开发。自然而然地，当时还没有可用的数据！为了确定将在GOES-16数据上构建的机器学习模型列表，使用了欧洲SEVIRI卫星已经收集的类似质量的数据来进行概念验证测试。
+- en: Another way to carry out a proof of concept is to simulate images. We will see
+    an example of this in [Chapter 11](ch11.xhtml#advanced_vision_problems), where
+    the ability to count tomatoes on a vine is illustrated through simulated images.
+    When simulating images, it can be helpful to modify existing images rather than
+    creating them from scratch. For example, the simulated tomato vine images might
+    have been easier to generate if photographs of green vines, to which red tomatoes
+    of different sizes could be added, had been readily available.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进行概念验证的另一种方法是模拟图像。我们将在[第11章](ch11.xhtml#advanced_vision_problems)中看到一个例子，该例子通过模拟图像展示了数西红柿的能力。在模拟图像时，修改现有图像可能比从头开始创建更有帮助。例如，如果照片中已有绿色藤蔓，然后添加不同大小的红番茄，那么模拟的西红柿藤图像可能更容易生成。
+- en: Note
+  id: totrans-45
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Do not train a model on perfect data and then try to apply it to imperfect images.
+    For example, if you need a model to be able to identify flowers from photographs
+    that hikers take on trails, you should not train the model on photographs taken
+    by professional photographers that were subsequently retouched.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要在完美数据上训练模型，然后尝试将其应用于不完美的图像。例如，如果您需要一个模型能够从远足者在小径上拍摄的照片中识别花朵，那么不应该在由专业摄影师拍摄并经过修饰的照片上训练模型。
+- en: Data Types
+  id: totrans-47
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 数据类型
+- en: So far, we have processed only photographs. As discussed in the previous section,
+    there are other types of images, such as geospatial layers, MRI scans, or spectrograms
+    of sound, to which machine learning can be applied. Mathematically, all that the
+    ML techniques require is a 4D tensor (batch x height x width x channels) as input.
+    As long as our data can be put into this form, computer vision methods may be
+    applied.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们只处理了照片。如前一节讨论的那样，还有其他类型的图像，如地理空间图层、MRI扫描或声音的频谱图，可以应用机器学习。从数学上讲，所有这些ML技术都需要一个4D张量（批次
+    x 高度 x 宽度 x 通道）作为输入。只要我们的数据可以放入这种形式，就可以应用计算机视觉方法。
+- en: Of course, you have to keep in mind the underlying concepts that make certain
+    techniques work well. For example, you may not find success in applying convolutional
+    filters to the problem of finding [defective pixels](https://oreil.ly/OIygm) on
+    computer monitors because convolutional filters work well only when there is spatial
+    correlation between adjacent pixels.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，你必须牢记那些使某些技术成功的基本概念。例如，你可能无法成功地将卷积滤波器应用于寻找[缺陷像素](https://oreil.ly/OIygm)的问题上，因为卷积滤波器仅在相邻像素之间存在空间相关性时才有效。
+- en: Channels
+  id: totrans-50
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 通道
+- en: A typical photograph is stored as a 24-bit RGB image with three channels (red,
+    green, and blue), each of which is represented by an 8-bit number in the range
+    0–255\. Some computer-generated images also have a fourth *alpha* channel, which
+    captures the transparency of the pixel. The alpha channel is useful primarily
+    to overlay or composite images together.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 典型的照片以24位RGB图像存储，具有三个通道（红、绿和蓝），每个通道由0–255范围内的8位数表示。一些计算机生成的图像还有第四个*α*通道，用于捕获像素的透明度。α通道主要用于叠加或合成图像。
+- en: Scaling
+  id: totrans-52
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 缩放
+- en: 'Machine learning frameworks and pretrained models often expect that the pixel
+    values are scaled from [0,255] to [0,1]. ML models typically ignore the alpha
+    channel. In TensorFlow, this is done using:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习框架和预训练模型通常期望像素值从[0,255]缩放到[0,1]。ML模型通常忽略α通道。在TensorFlow中，可以通过以下方式实现：
+- en: '[PRE0]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Channel order
+  id: totrans-55
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 通道顺序
+- en: The shape of a typical image input is [height, width, channels], where the number
+    of channels is typically 3 for RGB images and 1 for grayscale. This is called
+    a *channels-last* representation and is the default with TensorFlow. Earlier ML
+    packages such as Theano and early versions of ML infrastructure such as Google’s
+    Tensor Processing Unit (TPU) v1.0 used a *channels-first* ordering. The channels-first
+    order is more efficient in terms of computation because it reduces back-and-forth
+    seeks within memory.^([2](ch05.xhtml#idm46511265503560)) However, most image formats
+    store the data pixel by pixel, so channels-last is the more natural data ingest
+    and output format. The move from channels-first to channels-last is an example
+    of ease of use being prioritized over efficiency as computational hardware becomes
+    more powerful.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 典型图像输入的形状是[高度，宽度，通道]，其中通道数通常是RGB图像的3个和灰度图像的1个。这称为*channels-last*表示，并且是TensorFlow的默认设置。早期的ML包如Theano和Google的Tensor
+    Processing Unit (TPU) v1.0使用*channels-first*排序。从计算效率的角度来看，channels-first顺序更高效，因为它减少了内存中的来回查找。^([2](ch05.xhtml#idm46511265503560))
+    然而，大多数图像格式将数据按像素存储，所以channels-last是更自然的数据摄入和输出格式。从channels-first到channels-last的转变是在计算硬件变得更加强大的背景下，将易用性置于效率之上的一个例子。
+- en: 'Because channel order can vary, Keras allows you to specify the order in the
+    global *$HOME/.keras/keras.json* configuration file:'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为通道顺序可能有所不同，Keras允许你在全局*$HOME/.keras/keras.json*配置文件中指定顺序：
+- en: '[PRE1]'
+  id: totrans-58
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: The default is to use TensorFlow as the Keras backend, and therefore the image
+    format defaults to `channels_last`. This is what we will do in this book. Because
+    this is a global setting that will affect every model being run on the system,
+    we strongly recommend that you don’t fiddle with this file.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，使用TensorFlow作为Keras后端，因此图像格式默认为`channels_last`。这是本书中我们将要做的。因为这是一个全局设置，会影响系统上运行的每个模型，我们强烈建议你不要调整这个文件。
+- en: 'If you have an image that is channels-first and need to change it to channels-last,
+    you can use `tf.einsum()`:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你有一个通道优先的图像，并且需要将其改为通道最后的格式，可以使用`tf.einsum()`：
+- en: '[PRE2]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'or simply do a transpose, providing the appropriate axes:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者简单地转置，提供适当的轴：
+- en: '[PRE3]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Grayscale
+  id: totrans-64
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 灰度
+- en: 'If you have a grayscale image, or a simple 2D array of numbers, you may have
+    to expand the dimensions to change the shape from [height, width] to [height,
+    width, 1]:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你有一张灰度图像，或者一个简单的2D数字数组，你可能需要扩展维度，将形状从[高度，宽度]改变为[高度，宽度，1]：
+- en: '[PRE4]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: By specifying `axis=-1`, we ask for the channel dimension to be appended to
+    the existing shape and the new channel dimension to be set to 1.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过指定`axis=-1`，我们要求将通道维度附加到现有形状，并将新的通道维度设置为1。
+- en: Geospatial Data
+  id: totrans-68
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 地理空间数据
+- en: Geospatial data can either be generated from map layers or as a result of remote
+    sensing from drones, satellites, radars, and the like.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 地理空间数据可以通过地图图层生成，也可以通过从无人机、卫星、雷达等进行遥感获得。
+- en: Raster data
+  id: totrans-70
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 光栅数据
+- en: 'Geospatial data that results from maps often has *raster bands* (2D arrays
+    of pixel values) that can be treated as channels. For example, you may have several
+    raster bands covering a land area: population density, land cover type, flooding
+    propensity, and so on. In order to apply computer vision techniques to such raster
+    data, simply read the individual bands and stack them together to form an image:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从地图中产生的地理空间数据通常具有可视为通道的*光栅波段*（像素值的二维数组）。例如，您可能有几个覆盖土地区域的光栅波段：人口密度、土地覆盖类型、易受洪水影响程度等。为了将计算机视觉技术应用于这种光栅数据，只需读取各个波段并将它们堆叠在一起形成图像：
+- en: '[PRE5]'
+  id: totrans-72
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: In addition to raster data, you might also have vector data such as the locations
+    of roads, rivers, states, or cities. In that case, you have to rasterize the data
+    before using it in image-based ML models. For example, you might draw the roads
+    or rivers as a set of one-pixel-wide line segments (see the top panel of [Figure 5-5](#rasterizing_vector_datadot_in_the_raster)).
+    If the vector data consists of polygons, such as state boundaries, you would rasterize
+    the data by filling in the pixels that fall within the boundary. If there are
+    15 states, then you will end up with 15 raster images, with each image containing
+    1 in the pixels that are within the boundary of the corresponding state—this is
+    the image equivalent of one-hot encoding categorical values (see the bottom panel
+    of [Figure 5-5](#rasterizing_vector_datadot_in_the_raster)). If the vector data
+    consists of city boundaries, you’ll have to decide whether to treat this as a
+    Boolean value (the pixel value is 0 if rural, and 1 if it is a city) or a categorical
+    variable (in which case, you’d generate *N* raster bands for the *N* cities in
+    the dataset).
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了光栅数据之外，您可能还有矢量数据，例如道路、河流、州或城市的位置。在这种情况下，您必须在将其用于基于图像的机器学习模型之前将数据栅格化。例如，您可以将道路或河流绘制为一组一像素宽的线段（参见[图 5-5](#rasterizing_vector_datadot_in_the_raster)的顶部面板）。如果矢量数据由多边形组成，例如州界限，您将通过填充落入边界内的像素来栅格化数据。如果有15个州，则最终将得到15个光栅图像，每个图像中包含1表示对应州界限内的像素—这相当于图像中的一位有效编码类别值（参见[图 5-5](#rasterizing_vector_datadot_in_the_raster)的底部面板）。如果矢量数据由城市边界组成，您需要决定是否将其视为布尔值（如果是农村，则像素值为0，城市则为1）或分类变量（在这种情况下，您将为数据集中的*N*个城市生成*N*个光栅波段）。
+- en: '![](Images/pmlc_0505.png)'
+  id: totrans-74
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0505.png)'
+- en: 'Figure 5-5\. Rasterizing vector data. In the rasterized images, the 1s are
+    highlighted. Map sources: OpenStreetMap (top) and Wikipedia (bottom).'
+  id: totrans-75
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-5\. 矢量数据栅格化。在栅格化图像中，1表示的区域已经高亮显示。地图来源：OpenStreetMap（顶部）和维基百科（底部）。
+- en: The raster data will typically be in a geographic projection. Some projections
+    (such as Lambert conformal) preserve areas, others (such as Mercator) preserve
+    direction, and others (such as equidistant cylindrical) are chosen because they
+    are simple to create. In our experience, any projection works fine for machine
+    learning, but you should ensure that all the raster bands are in the same projection.
+    It can also be helpful to add the latitude as an additional input channel if the
+    size of a pixel will vary with latitude.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 光栅数据通常采用地理投影。某些投影（如兰伯特等角投影）保留面积，其他投影（如墨卡托投影）保留方向，还有一些投影（如等距圆柱投影）由于简便而被选择。根据我们的经验，任何投影对机器学习都很有效，但您应确保所有光栅波段采用相同的投影。如果像素的大小随纬度变化，将纬度添加为额外输入通道也可能有助于。
+- en: Remote sensing
+  id: totrans-77
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 遥感
+- en: Remotely sensed data is collected by an imaging instrument. If the instrument
+    in question is a camera (as with a lot of drone images), the result will be an
+    image with three channels. On the other hand, if there are multiple instruments
+    on board the satellite capturing the images or if the instrument can operate at
+    multiple frequencies, the result will be an image with a large number of channels.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 遥感数据由成像仪器收集。如果涉及的仪器是相机（例如大多数无人机图像），则结果将是一个具有三个通道的图像。另一方面，如果卫星上有多个仪器捕捉图像，或者仪器可以在多个频率上运行，结果将是一个具有大量通道的图像。
+- en: Tip
+  id: totrans-79
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Often, remote sensing images are colorized for visualization purposes. It is
+    better to go back and get the raw numbers that are sensed by the instrument rather
+    than using these colorized images.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 远程传感器图像通常会进行彩色处理以便于可视化。最好回到获取仪器传感的原始数字，而不是使用这些彩色图像。
+- en: Make sure that you read and normalize the images as we did for the photographs.
+    For example, scale the values found in each image from 0 to 1\. Sometimes the
+    data will contain outliers. For example, bathymetric images may have outlier values
+    due to ocean waves and tides. In such cases, it may be necessary to clip the data
+    to a reasonable range before scaling it.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保像处理照片那样读取并标准化图像。例如，将每个图像中找到的值缩放从0到1。有时数据会包含异常值。例如，由于海洋波浪和潮汐，测深图像可能具有异常值。在这种情况下，可能需要在缩放之前将数据剪切到合理范围内。
+- en: Remote sensing images will often contain missing data (such as the part of the
+    image outside of the satellite horizon or areas of clutter in radar images). If
+    it is possible to crop out the missing areas, do so. Impute missing values by
+    interpolating over them if the missing areas are small. If the missing values
+    consist of large areas, or occur in a significant fraction of the pixels, create
+    a separate raster band that indicates whether the pixel is missing a true value
+    or has been replaced by a sentinel value such as zero.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 遥感图像通常会包含缺失数据（例如卫星视野外的图像部分或雷达图像中的杂波区域）。如果可能的话，可以裁剪掉缺失的区域。如果缺失区域很小，则通过插值来填补缺失值。如果缺失值包含大面积区域或占据了大部分像素，则创建一个单独的光栅带，指示像素是否缺少真实值或已被替换为零。
+- en: Both geospatial and remote sensing data require a significant amount of processing
+    before they can be input into ML models. Because of this, it is worthwhile to
+    have a scripted/automated data preparation step or pipeline that takes the raw
+    images, processes them into raster bands, stacks them, and writes them out into
+    an efficient format such as TensorFlow Records.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在将遥感和地理空间数据输入ML模型之前，这些数据需要进行大量处理。因此，最好有一个脚本化/自动化的数据准备步骤或管道，将原始图像处理为光栅带，堆叠它们，并将其写入诸如TensorFlow
+    Records之类的高效格式。
+- en: Audio and Video
+  id: totrans-84
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 音频和视频
+- en: Audio is a 1D signal whereas videos are 3D. It is better to use ML techniques
+    that have been devised specifically for audio and video, but a simple first solution
+    might involve applying image ML techniques to audio and video data. In this section,
+    we’ll discuss this approach. Audio and video ML frameworks are outside the scope
+    of this book.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 音频是一个1D信号，而视频是3D信号。最好使用专门为音频和视频设计的ML技术，但简单的首选解决方案可能涉及将图像ML技术应用于音频和视频数据。在本节中，我们将讨论这种方法。音频和视频ML框架超出了本书的范围。
+- en: Spectrogram
+  id: totrans-86
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 谱图
+- en: To do machine learning on audio, it is necessary to split the audio into chunks
+    and then apply ML to these time windows. The size of the time window depends on
+    what’s being detected—you need a few seconds to identify words, but a fraction
+    of a second to identify instruments.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在音频上进行机器学习，必须将音频分割成块，然后将ML应用于这些时间窗口。时间窗口的大小取决于要检测的内容——识别单词需要几秒钟，而识别乐器则需要几分之一秒。
+- en: The result is a 1D signal, so it is possible to use `Conv1D` instead of `Conv2D`
+    layers to process audio data. Technically speaking, this would be signal processing
+    in the time space. However, the results tend to be better if audio signals are
+    represented as spectrograms—a stacked view of the spectrum of frequencies in the
+    audio signal as it varies over time. In a spectrogram, the x-axis of the image
+    represents time and the y-axis represents the frequency. The pixel value represents
+    the spectral density, which is the loudness of the audio signal at a specific
+    frequency (see [Figure 5-6](#audio_signal_left_parenthesisleftright_p)). Typically,
+    the spectral density is represented in decibels, so it is best to use the logarithm
+    of the spectrogram as the image input.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果是一个1D信号，因此可以使用`Conv1D`而不是`Conv2D`层来处理音频数据。从技术上讲，这将是时间空间的信号处理。然而，如果将音频信号表示为频谱图——音频信号频率在时间上的堆叠视图，则结果往往更好。在频谱图中，图像的x轴表示时间，y轴表示频率。像素值表示谱密度，即特定频率处音频信号的响度（见[图5-6](#audio_signal_left_parenthesisleftright_p)）。通常，谱密度以分贝表示，因此最好使用谱图的对数作为图像输入。
+- en: 'To read and convert an audio signal into the log of the spectrogram, use the
+    `scipy` package:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要读取并将音频信号转换为谱图的对数，使用`scipy`包：
+- en: '[PRE6]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: '![](Images/pmlc_0506.png)'
+  id: totrans-91
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0506.png)'
+- en: Figure 5-6\. Audio signal (left) and spectrogram (right) of two musical instruments.
+  id: totrans-92
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-6\. 两种乐器的音频信号（左）和频谱图（右）。
+- en: Frame by frame
+  id: totrans-93
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 逐帧
+- en: 'Videos consist of *frames*, each of which is an image. The obvious approach
+    to handling videos is to carry out image processing on the individual frames,
+    and postprocess the results into an analysis of the entire video. We can use the
+    OpenCV (`cv2`) package to read a video file in one of the standard formats and
+    obtain a frame:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 视频由*帧*组成，每帧都是一幅图像。处理视频的明显方法是对单独的帧进行图像处理，然后将结果后处理成对整个视频的分析。我们可以使用OpenCV（`cv2`）包来读取一个标准格式的视频文件并获取一帧：
+- en: '[PRE7]'
+  id: totrans-95
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: For example, we might classify the image frames, and treat the result of the
+    video classification problem as the set of all the categories found in all the
+    frames. The problem is that such an approach loses sight of the fact that adjacent
+    frames in a video are highly correlated, just as adjacent pixels in an image are
+    highly correlated.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，我们可能对图像帧进行分类，并将视频分类问题的结果视为所有帧中找到的所有类别的集合。问题在于这种方法忽视了视频中相邻帧高度相关的事实，就像图像中相邻像素高度相关一样。
+- en: Conv3D
+  id: totrans-97
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Conv3D
+- en: Instead of processing videos one frame at a time, we can compute rolling averages
+    of video frames and then apply computer vision algorithms. This approach is particularly
+    useful when the videos are grainy. Unlike the frame-by-frame approach, the rolling
+    average takes advantage of frame correlation to denoise the image.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以计算视频帧的滚动平均值，然后应用计算机视觉算法，而不是逐帧处理视频。当视频存在颗粒状时，这种方法特别有用。与逐帧处理方法不同，滚动平均利用帧相关性来去噪图像。
+- en: 'A more sophisticated approach is to use 3D convolution. We read video clips
+    into a 5D tensor with the shape [batch, time, height, width, channels], breaking
+    the movie into short clips if necessary:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更复杂的方法是使用3D卷积。我们将视频剪辑读入一个形状为[批次，时间，高度，宽度，通道]的5D张量中，必要时将电影分成短片：
+- en: '[PRE8]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Then, we apply `Conv3D` instead of `Conv2D` in our image processing pipeline.
+    This is similar to a rolling average where the weights of each time step are learned
+    from the data, followed by a nonlinear activation function.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，在我们的图像处理管道中，我们应用`Conv3D`而不是`Conv2D`。这类似于滚动平均，其中每个时间步的权重是从数据中学习的，然后是非线性激活函数。
+- en: Another approach is to use recurrent neural networks (RNNs) and other sequence
+    methods that are more suitable for time-series data. However, because RNNs of
+    video sequences are quite hard to train, the 3D convolutional approach tends to
+    be more practical. An alternative is to extract features from the time signal
+    using convolution and then pass the results of the convolution filter to a less
+    complex RNN.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种方法是使用递归神经网络（RNNs）和其他适合时间序列数据的序列方法。然而，由于视频序列的RNNs很难训练，3D卷积方法往往更实用。另一种选择是使用卷积从时间信号中提取特征，然后将卷积滤波器的结果传递给一个较简单的RNN。
+- en: Manual Labeling
+  id: totrans-103
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 手动标记
+- en: In many ML projects, the first step at which the data science team gets involved
+    is in labeling the image data. Even if the labeling will be automated, the first
+    few images in a proof of concept are almost always hand-labeled. The form and
+    organization will differ based on the problem type (image classification or object
+    detection) and whether an image can have multiple labels or only one.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多机器学习项目中，数据科学团队参与的第一步是对图像数据进行标记。即使标记将被自动化，概念验证的前几幅图像几乎总是手动标记的。表格的形式和组织将根据问题类型（图像分类或物体检测）以及图像是否可以具有多个标签而有所不同。
+- en: 'To hand-label images, a *rater* views the image, determines the label(s), and
+    records the label(s). There are two typical approaches to doing this recording:
+    using a folder structure and a metadata table.'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要手动标记图像，*评分员*查看图像，确定标签并记录标签。有两种典型的记录方法：使用文件夹结构和元数据表。
+- en: In a folder organization, raters simply move images to different folders depending
+    on what their label is. All flowers that are daisies are stored in a folder named
+    *daisy*, for example. Raters can do this quickly because most operating systems
+    provide previews of images and handy ways to select groups of images and move
+    them into folders (see [Figure 5-8](Images/#preview_images_and_quickly_move_them_to)).
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在文件夹组织中，评分员根据标签将图像简单地移动到不同的文件夹中。例如，所有雏菊花都存储在名为*daisy*的文件夹中。评分员可以快速完成此操作，因为大多数操作系统提供图像预览和方便的方式选择并移动图像到文件夹中（参见[图5-8](Images/#preview_images_and_quickly_move_them_to)）。
+- en: The problem with the folder approach is that it leads to duplication if an image
+    can have multiple labels—for example, if an image contains both roses and daisies.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用文件夹方法的问题在于，如果图像可以具有多个标签，则会导致重复，例如，如果图像同时包含玫瑰和雏菊。
+- en: '![](Images/pmlc_0508.png)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0508.png)'
+- en: Figure 5-8\. Preview images and quickly move them to the appropriate folder.
+  id: totrans-109
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-8\. 预览图像并快速将其移动到适当的文件夹。
+- en: 'The alternative, and recommended, approach is to record the label(s) in a metadata
+    table (such as in a spreadsheet or a CSV file) that has at least two columns—one
+    column is the URL to the image file, and the other is the list of labels that
+    are valid for the image:'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种推荐的方法是将标签记录在元数据表中（例如电子表格或CSV文件），该表至少有两列：一列是图像文件的URL，另一列是适用于该图像的标签列表。
+- en: '[PRE9]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: A good approach to marry the efficiency of the folder approach and the generalizability
+    of the metadata table approach is to organize the images into folders and then
+    use a script to crawl the images and create the metadata table.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将文件夹方法的高效性与元数据表方法的通用性结合的一个好方法是将图像组织到文件夹中，然后使用脚本遍历图像并创建元数据表。
+- en: Multilabel
+  id: totrans-113
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 多标签
+- en: 'If an image can be associated with multiple labels (for example, if an image
+    can contain both daisies and sunflowers), one approach is to simply copy the image
+    into both folders and have two separate lines:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果一幅图像可以关联多个标签（例如，如果图像既可以包含雏菊又可以包含向日葵），一种方法是简单地将图像复制到两个文件夹中，并分别创建两行数据：
+- en: '[PRE10]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'However, having duplicates like this will make it more difficult to train a
+    truly multilabel multiclass problem. A better approach is to make the labels column
+    contain all the matching categories:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，像这样具有重复的方法会使得训练真正的多标签多类问题更加困难。更好的方法是使标签列包含所有匹配的类别：
+- en: '[PRE11]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: The ingest pipeline will have to parse the labels string to extract the list
+    of matching categories using `tf.strings.split`.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 摄入管道将需要解析标签字符串，以提取使用 `tf.strings.split` 匹配的类别列表。
+- en: Object Detection
+  id: totrans-119
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 物体检测
+- en: For object detection, the metadata file needs to include the bounding box of
+    the object in the image. This can be accomplished by having a third column that
+    contains the bounding box vertices in a predefined order (such as counterclockwise
+    starting from top-left). For segmentation problems, this column will contain a
+    polygon rather than a bounding box (see [Figure 5-9](#the_metadata_file_in_object_detection_an)).
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于物体检测，元数据文件需要包括图像中物体的边界框。可以通过在预定义顺序中的第三列包含边界框顶点来实现此目的（例如从左上角逆时针开始）。对于分割问题，此列将包含一个多边形而不是边界框（参见[图 5-9](#the_metadata_file_in_object_detection_an)）。
+- en: '![](Images/pmlc_0509.png)'
+  id: totrans-121
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0509.png)'
+- en: Figure 5-9\. The metadata file in object detection and segmentation problems
+    needs to include a bounding box or polygon, respectively.
+  id: totrans-122
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-9\. 物体检测和分割问题中的元数据文件需要包含边界框或多边形。
+- en: Doughnut-shaped objects (with a center that is not part of the object) can be
+    represented by a pair of polygons where the inner polygon has its vertices running
+    in the opposite direction. To avoid this complexity, the segmentation boundaries
+    are sometimes represented simply as a set of pixels instead of polygons.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于环形对象（中心不是对象的一部分）可以用一对多边形表示，其中内多边形的顶点顺序相反。为了避免这种复杂性，有时分割边界仅表示为一组像素而不是多边形。
+- en: Labeling at Scale
+  id: totrans-124
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 大规模标记
+- en: Manually labeling thousands of images is cumbersome and error-prone. How can
+    we make it more efficient and accurate? One way is to use tools that make it possible
+    to hand-label thousands of images efficiently. The other is to use methods to
+    catch and correct labeling errors.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 手动标记成千上万张图像既繁琐又容易出错。我们如何能够更高效和准确地完成呢？一种方法是使用能够高效手动标记成千上万张图像的工具。另一种方法是使用方法来捕捉和纠正标记错误。
+- en: Labeling User Interface
+  id: totrans-126
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 标记用户界面
+- en: A labeling tool should have a facility to display the image, and enable the
+    rater to quickly select valid categories and save the rating to a database.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标记工具应具备显示图像并允许评分者快速选择有效类别并将评分保存到数据库的功能。
+- en: To support object identification and image segmentation use cases, the tool
+    should have annotation capability and the ability to translate drawn bounding
+    boxes or polygons into image pixel coordinates. The [Computer Vision Annotation
+    Tool](https://oreil.ly/Mpmdq) (see [Figure 5-10](Images/#a_tool_for_labeling_images_efficientlydo))
+    is a free, web-based video and image annotation tool that is available [online](https://cvat.org)
+    and can be installed locally. It supports a variety of annotation formats.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为支持对象识别和图像分割用例，该工具应具有注释能力，并能将绘制的边界框或多边形转换为图像像素坐标。[计算机视觉标注工具](https://oreil.ly/Mpmdq)（见[图 5-10](Images/#a_tool_for_labeling_images_efficientlydo)）是一个免费的基于Web的视频和图像注释工具，可在线使用并可在本地安装。它支持各种注释格式。
+- en: '![](Images/pmlc_0510.png)'
+  id: totrans-129
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0510.png)'
+- en: Figure 5-10\. A tool for labeling images efficiently.
+  id: totrans-130
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-10\. 一个用于高效标注图像的工具。
+- en: Multiple Tasks
+  id: totrans-131
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 多个任务
+- en: Often, we will need to label images for multiple tasks. For example, we might
+    need to classify the same images by flower type (daisy, tulip, ...), color (yellow,
+    red, ...), location (indoors, outdoors, ...), planting style (potted, in-ground,
+    …), and so on. An efficient approach in such situations is to do the labeling
+    using the interactive functionality of a Jupyter notebook (see [Figure 5-11](Images/#efficiently_labeling_images_for_multiple)).
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们经常需要为多个任务标注图像。例如，我们可能需要按照花的类型（雏菊，郁金香，...）、颜色（黄色，红色，...）、位置（室内，室外，...）、种植风格（盆栽，地栽，...）等分类相同的图像。在这种情况下，使用Jupyter笔记本的交互功能进行标注是一种高效的方法（见[图 5-11](Images/#efficiently_labeling_images_for_multiple)）。
+- en: '![](Images/pmlc_0511.png)'
+  id: totrans-133
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0511.png)'
+- en: Figure 5-11\. Efficiently labeling images for multiple tasks in a Jupyter notebook.
+  id: totrans-134
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-11\. 在Jupyter笔记本中为多任务高效标注图像。
+- en: 'The functionality is provided by the Python package [`multi-label-pigeon`](https://oreil.ly/NLwqJ):'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个功能由Python包[`multi-label-pigeon`](https://oreil.ly/NLwqJ)提供：
+- en: '[PRE12]'
+  id: totrans-136
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'The full code is in [*05_label_images.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/05_create_dataset/05_label_images.ipynb)
+    for this book. The output is a JSON file with annotations for all the tasks for
+    all the images:'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 详细代码在GitHub上的[*05_label_images.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/05_create_dataset/05_label_images.ipynb)中。输出是包含所有图像所有任务注释的JSON文件：
+- en: '[PRE13]'
+  id: totrans-138
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Voting and Crowdsourcing
+  id: totrans-139
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 投票和众包
+- en: 'Manual labeling is subject to two challenges: human error and inherent uncertainty.
+    Raters may get tired and wrongly identify an image. It may also be the case that
+    the classification is ambiguous. Consider for example an X-ray image: radiologists
+    may differ on whether something is a fracture or not.'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 手动标注面临两个挑战：人为错误和固有不确定性。评分者可能因疲劳而错误地识别图像。分类可能也存在歧义。例如，考虑X光图像：放射科医生可能对于某物是否骨折存在分歧。
+- en: 'In both these situations, it can be helpful to implement a voting system. For
+    example, an image might be shown to two raters. If the raters agree, their label
+    is assigned to the image. If the raters disagree, we can choose to do one of several
+    things:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这两种情况下，实施投票系统可能会有所帮助。例如，一个图像可能会展示给两个评分者。如果评分者达成一致，他们的标签将分配给该图像。如果评分者意见不一，我们可以选择采取以下几种措施之一：
+- en: Discard the image if we don’t want to train using ambiguous data.
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果不希望使用歧义数据进行训练，则丢弃该图像。
+- en: Consider the image as belonging to a neutral class.
+  id: totrans-143
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将图像视为属于中立类别。
+- en: Have the final label be determined by a third labeler, in effect making it a
+    majority vote of three labelers. Of course, it is possible to increase the voting
+    pool to any odd number.
+  id: totrans-144
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最终标签由第三个标签者决定，实际上是三个标签者的多数投票。当然，可以将投票池增加到任何奇数个。
+- en: Voting applies to multilabel problems as well. We just need to treat the incidence
+    of each category as a binary classification problem, and then assign to an image
+    all the labels on which a majority of raters agree.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 投票也适用于多标签问题。我们只需要将每个类别的发生视为二元分类问题，然后将评分者大多数同意的标签分配给图像。
+- en: Even object identification and segmentation boundaries can be determined via
+    voting. An example of such a system is shown in [Figure 5-12](#crowdsourcing_object_detection_or_segmen)—the
+    primary purpose of the CAPTCHA system is to identify whether a user is a robot
+    or a human, but a secondary purpose is to [crowdsource](https://oreil.ly/9Ww3Y)
+    the labeling of images. It is clear that by decreasing the size of the tiles,
+    it is possible to get a finer-grained labeling. By occasionally adding images
+    or tiling, and collecting the results over many users, it is possible to get images
+    successfully labeled.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使是对象识别和分割边界也可以通过投票确定。这样的系统示例显示在[图5-12](#crowdsourcing_object_detection_or_segmen)中——CAPTCHA系统的主要目的是识别用户是机器人还是人类，但第二个目的是[众包](https://oreil.ly/9Ww3Y)图像的标记。通过减少瓦片的大小，可以得到更精细的标记。通过偶尔添加图像或瓦片，并在许多用户中收集结果，可以成功地获得标记图像。
+- en: '![](Images/pmlc_0512.png)'
+  id: totrans-147
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0512.png)'
+- en: Figure 5-12\. Crowdsourcing object detection or segmentation polygons.
+  id: totrans-148
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-12。众包对象检测或分割多边形。
+- en: Labeling Services
+  id: totrans-149
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 标签服务
+- en: Even with efficient labeling, it can take days or months to label all the images
+    needed to train a state-of-the-art image model. This is not a productive use of
+    a data scientist’s time. Because of this, many *labeling services* have cropped
+    up. These are businesses that distribute the work of labeling images among dozens
+    of employees at low-cost locations. Typically, we have to provide a few sample
+    images and a description of the technique that needs to be employed to label images.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使进行了高效的标记，也可能需要数天或数月来标记所有需要训练先进图像模型的图像。这不是数据科学家时间的有效利用。因此，出现了许多*标签服务*。这些是将标记图像的工作分配给低成本地区的几十名员工的企业。通常，我们必须提供几个示例图像和需要使用的标记技术的描述。
+- en: Labeling services are a bit more sophisticated than crowdsourcing. These services
+    work not only for well-known objects (stop signs, crosswalks, etc.), but also
+    for tasks where a layperson can be taught to make the correct decision quickly
+    (e.g., a fracture versus a scratch mark in X-ray images). That said, you would
+    probably not use labeling services for tasks like identifying the molecular structure
+    of a virus that would take significant domain expertise.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标签服务比众包稍微复杂一些。这些服务不仅适用于知名对象（停止标志、人行横道等），还适用于可以教会普通人快速做出正确决策的任务（例如X射线图像中的骨折与划痕）。尽管如此，您可能不会将标签服务用于识别需要显著领域专业知识的病毒分子结构等任务。
+- en: Examples of labeling services include [AI Platform Data Labeling Service](https://oreil.ly/V8vfu),
+    [Clarifai](https://oreil.ly/U4ylE), and [Lionbridge](https://oreil.ly/NR5Z0).
+    You’d typically work with the procurement department of your organization to use
+    such a service. You should also verify how these services handle sensitive or
+    personally identifying data.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标签服务的例子包括[AI平台数据标记服务](https://oreil.ly/V8vfu)，[Clarifai](https://oreil.ly/U4ylE)，和[Lionbridge](https://oreil.ly/NR5Z0)。您通常会与您组织的采购部门合作使用此类服务。您还应该验证这些服务如何处理敏感或个人身份信息数据。
+- en: Automated Labeling
+  id: totrans-153
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 自动标记
+- en: In many situations, it is possible to obtain labels in an automated way. These
+    methods can be useful even if they are not 100% accurate because it is far more
+    efficient for raters to correct automatically obtained labels than it is for them
+    to assign labels to images one by one.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多情况下，可以自动获取标签。即使这些方法不是100%准确，它们也很有用，因为评分员更有效地纠正自动获取的标签，而不是逐个为图像分配标签。
+- en: Labels from Related Data
+  id: totrans-155
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 相关数据的标签
+- en: As an example, you might be able to obtain the label for an image by looking
+    at the section of the product catalog that the image appears in, or by doing entity
+    extraction from the words that describe the image.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，您可以通过查看图像出现的产品目录部分或通过从描述图像的单词中进行实体提取来获得图像的标签。
+- en: In some cases, ground truth is available by looking at only a few of the pixels
+    of the image. For example, seismic images can be labeled at locations where wells
+    were dug and core samples extracted. A radar image may be labeled using the readings
+    of ground rain gauges at locations where those gauges are installed. These point
+    labels may be used to label tiles of the original image. Alternatively, the point
+    labels may be spatially interpolated, and the spatially interpolated data used
+    as labels for tasks such as segmentation.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，仅查看图像少量像素即可获得地面真相。例如，可以通过查看挖掘井和提取核心样本的位置来标记地震图像。雷达图像可以使用安装地面雨量计的地点处的读数来标记。这些点标签可以用于标记原始图像的瓦片。或者，可以对点标签进行空间插值，并将空间插值数据用作分割等任务的标签。
+- en: Noisy Student
+  id: totrans-158
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Noisy Student
+- en: 'It is possible to stretch the labeling of images using a [Noisy Student](https://arxiv.org/abs/1911.04252)
+    model. This approach works as follows:'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以使用[Noisy Student](https://arxiv.org/abs/1911.04252)模型来延展图像的标注。这种方法的运作方式如下：
+- en: Manually label, say, 10,000 images.
+  id: totrans-160
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 手动标记，比如说，10,000张图像。
+- en: Use these images to train a small machine learning model. This is the *teacher
+    model*.
+  id: totrans-161
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用这些图像来训练一个小型机器学习模型。这个模型就是*教师模型*。
+- en: Use the trained machine learning model to predict the labels of, say, one million
+    unlabeled images.
+  id: totrans-162
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用训练好的机器学习模型来预测，比如说，一百万张未标记图像的标签。
+- en: Train a larger machine learning model, called the *student model*, on the combination
+    of labeled and pseudo-labeled images. During the learning of the student model,
+    employ dropout and random data augmentations (covered in [Chapter 6](ch06.xhtml#preprocessing))
+    so that this model generalizes better than the teacher.
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在标记和伪标记图像的组合上训练一个更大的机器学习模型，称为*学生模型*。在学生模型的学习过程中，使用dropout和随机数据增强（在[第6章](ch06.xhtml#preprocessing)中介绍），以使该模型比教师模型更好地泛化。
+- en: Iterate by putting the student model back as the teacher.
+  id: totrans-164
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过将学生模型重新放回教师位置来迭代。
+- en: It is possible to manually correct the pseudo-labels by choosing images where
+    the machine learning models are not confident. This can be incorporated into the
+    Noisy Student paradigm by doing the manual labeling before putting the student
+    back as the new teacher model.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以通过选择机器学习模型不自信的图像来手动校正伪标签。这可以在将学生重新放回新的教师模型之前并入到Noisy Student范例中。
+- en: Self-Supervised Learning
+  id: totrans-166
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 自监督学习
+- en: In some cases, the machine learning approach can itself provide labels. For
+    example, to create embeddings of images, we can train an autoencoder, as we will
+    describe in [Chapter 10](ch10.xhtml#trends_in_ml). In an autoencoder, the image
+    serves as its own label.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，机器学习方法本身可以提供标签。例如，为了创建图像的嵌入，我们可以训练一个自编码器，正如我们在[第10章](ch10.xhtml#trends_in_ml)中所描述的那样。在自编码器中，图像本身作为其标签。
+- en: 'Another way that learning can be self-supervised is if the label will be known
+    after some time. It may be possible to label a medical image based on the eventual
+    outcome for the patient. If a patient subsequently develops emphysema, for example,
+    that label can be applied to lung images taken of the patient a few months prior
+    to the diagnosis. Such a labeling method works for many forecasts of future activity:
+    a satellite weather image might be labeled based on the subsequent occurrence
+    of cloud-to-ground lightning as detected by a ground-based network, and a dataset
+    for predicting whether a user is going to abandon their shopping cart or cancel
+    their subscription can be labeled based on the eventual action of the user. So,
+    even if our images don’t have a label immediately at capture time, it can be worth
+    holding on to them until we eventually get a label for them.'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种自监督学习的方式是，标签将在一段时间后才能确定。例如，可以基于患者最终的结果来标记医学图像。例如，如果患者随后患有肺气肿，那么可以将此标签应用于在诊断前几个月拍摄的患者肺部图像。这种标注方法适用于许多未来活动的预测：卫星天气图像可以基于地面网络检测到的云到地闪电的后续发生情况来标记，预测用户是否将放弃购物车或取消订阅的数据集可以基于用户的最终行动来标记。因此，即使我们的图像在拍摄时没有立即标签，也可以值得保留它们，直到最终为它们获得标签。
+- en: Many data quality problems can be framed in a self-supervised way. For example,
+    if the task is to fill in an image of the ground when clouds are obstructing the
+    view, the model can be trained by artificially removing parts of a clear-sky image
+    and using the actual pixel values as labels.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多数据质量问题可以用自监督的方式来解决。例如，如果任务是在云层遮挡视野时填充地面图像，则模型可以通过人工移除晴空图像的部分并使用实际像素值作为标签进行训练。
+- en: Bias
+  id: totrans-170
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 偏见
+- en: The ideal machine learning dataset is one that allows us to train a model that
+    will be perfect when it is placed into production. If, on the other hand, certain
+    examples are under- or overrepresented in the dataset in such a way as to produce
+    lower accuracy in those scenarios when they are encountered in production, then
+    we have a problem. The dataset is then said to be *biased*.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理想的机器学习数据集是一个允许我们训练一个在投入生产时表现完美的模型的数据集。如果某些示例在数据集中被低估或高估，以至于当它们在生产环境中遇到时会导致低精度，则我们会面临问题。此时，数据集被称为*有偏*。
+- en: In this section, we will discuss sources of dataset bias, how to collect data
+    for a training dataset in an unbiased way, and how to detect bias in your dataset.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将讨论数据集偏见的来源，如何以无偏的方式收集训练数据集，并如何检测数据集中的偏见。
+- en: Sources of Bias
+  id: totrans-173
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 偏见的来源
+- en: Bias in a dataset is a characteristic of the dataset that will lead to unwanted
+    behavior when the model is placed into production.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据集中的偏见是指数据集的特性，在模型投入生产时会导致不希望的行为。
+- en: 'We find that many people confuse two related, but separate, concepts: bias
+    and imbalance. Bias is different from imbalance—it is quite possible that less
+    than 1% of the pictures taken by an automatic wildlife camera are of jaguars.
+    A dataset of wildlife pictures that has a very small proportion of jaguars is
+    to be expected: it’s unbalanced, but this is not evidence of bias. We might downsample
+    commonly occurring animals and upsample unusual ones to help the machine learning
+    model learn to identify different types of wildlife better, but such upsampling
+    does not make the dataset biased. Instead, dataset bias is any aspect of the dataset
+    that causes the model to behave in unwanted ways.'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们发现许多人混淆了两个相关但不同的概念：偏见和不平衡。偏见不同于不平衡——自动野生动物摄像机拍摄的照片中不到1%可能是美洲虎。预期野生动物图片数据集中美洲虎比例很小是可以预期的：它是不平衡的，但这并不是偏见的证据。我们可以对常见动物进行降采样和罕见动物进行过采样，以帮助机器学习模型更好地识别不同类型的野生动物，但这种过采样并不会使数据集产生偏见。相反，数据集偏见是指数据集的任何方面导致模型产生不希望的行为。
+- en: There are three sources of bias. *Selection bias* happens when the model is
+    trained on a skewed subset of the scenarios that it will encounter in production.
+    *Measurement bias* occurs when the way an image is collected varies between training
+    and production. *Confirmation bias* happens when the distribution of values in
+    real life leads to the model reinforcing unwanted behaviors. Let’s take a closer
+    look at why each of these might occur; then we’ll quickly show you how to detect
+    bias in a dataset.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有三种偏见的来源。*选择偏见*发生在模型训练时倾斜的情况下。*测量偏见*发生在图像收集方式在训练和生产中的变化。*确认偏见*发生在现实生活中数值分布导致模型强化不希望的行为。让我们更详细地看看每个偏见为何可能发生；然后我们将快速向您展示如何检测数据集中的偏见。
+- en: Selection Bias
+  id: totrans-177
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 选择偏见
+- en: Selection bias usually happens as a result of imperfect data collection—we mistakenly
+    limit the source of our data, such that certain categories are excluded or poorly
+    sampled. For example, suppose we’re training a model to identify objects we sell.
+    We might have trained the model on images in our product catalog, but this may
+    have caused products from our partners to not be included. Therefore, the model
+    will not recognize partner items that we sell but that were not in our product
+    catalog. Similarly, an image model trained on photographs of houses found in county
+    records may perform poorly on houses under construction if unfinished homes are
+    not subject to county taxes, and are therefore not in the records.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择偏见通常发生在数据收集的不完善上——我们错误地限制了数据来源，使得某些类别被排除或采样不足。例如，假设我们正在训练一个模型来识别我们销售的物品。我们可能已经在产品目录中的图像上训练了模型，但这可能导致我们合作伙伴的产品没有被包括进来。因此，模型将无法识别我们销售但不在产品目录中的合作伙伴物品。同样地，如果一个房屋图片模型是基于县记录中的房屋照片进行训练的，那么如果未完成的房屋不受县税的影响，因此不在记录中，那么该模型在施工中的房屋可能表现不佳。
+- en: A common reason for selection bias is that certain types of data are easier
+    to collect than others. For example, it might be easier to collect images of French
+    and Italian art than of Jamaican or Fijiian art. Datasets of artworks can therefore
+    underrepresent certain countries or time periods. Likewise, previous years’ product
+    catalogs may be easy to find, but competitors’ catalogs for this year might not
+    be available yet, so our dataset might be up-to-date for our products but not
+    for those of our competitors.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择偏差的常见原因是某些类型的数据比其他数据更容易收集。例如，收集法国和意大利艺术品的图像可能比收集牙买加或斐济艺术品的图像更容易。艺术品数据集因此可能低估了某些国家或时间段。同样，以前几年的产品目录可能很容易找到，但今年竞争对手的目录可能尚未提供，因此我们的数据集对我们的产品可能是最新的，但对竞争对手的产品却不是。
+- en: Sometimes selection bias happens simply because the training dataset is collected
+    in a fixed time period, whereas the production time period is a lot more variable.
+    For example, the training dataset might have been collected on a clear day, but
+    the system is expected to work night and day, in clear weather and in rainy weather.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时选择偏差发生是因为训练数据集在固定时间段内收集，而生产时间段则变化更大。例如，训练数据集可能是在晴天收集的，但系统预期在昼夜、晴雨中都能工作。
+- en: Selection bias can also happen as a result of outlier pruning and dataset cleanup.
+    If we discard images of houseboats, barns, and mobile homes, the model will not
+    be able to identify such buildings. If we are creating a dataset of seashells
+    and discard any images of a shell with the animal still in it, then the model
+    will perform poorly if shown a living crustacean.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择偏差也可能由于异常值修剪和数据集清理而发生。如果我们丢弃了船屋、谷仓和移动房屋的图像，模型将无法识别这些建筑物。如果我们正在创建海贝数据集，并且丢弃了任何带有动物残留的贝壳图像，则如果展示一个有生活甲壳动物的图像，模型的性能将较差。
+- en: To fix selection bias, it is necessary to work backward from the production
+    system. What types of houses will need to be identified? Are there enough examples
+    of such houses in the dataset? If not, the solution is to proactively collect
+    such images.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要解决选择偏差，需要从生产系统反向工作。需要识别哪些类型的房屋？数据集中是否有足够的这类房屋的示例？如果没有，解决方案是积极收集这样的图像。
+- en: Measurement Bias
+  id: totrans-183
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 测量偏差
+- en: Measurement bias occurs as a result of differences in the way an image is collected
+    for training versus in production. These variations lead to systematic differences—perhaps
+    we used a high-quality camera for the training images, but our production system
+    employs an off-the-shelf camera that has a lower aperture, white balance, and/or
+    resolution.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测量偏差是由于在训练和生产过程中收集图像的方式不同而导致的结果差异。这些变化导致系统性差异——也许我们在训练图像中使用了高质量的相机，但我们的生产系统却使用了一个光圈更低、白平衡和/或分辨率更低的现成相机。
+- en: Measurement bias can also happen because of differences in who provides the
+    data in training versus in production. For example, we may want to build a tool
+    to help hikers identify wildflowers. If the training dataset consists of professional
+    photographs, the photographs will include sophisticated effects like bokeh that
+    will not be present in the photographs provided by a typical hiker for purposes
+    of identification.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测量偏差也可能因为训练和生产数据提供者的差异而发生。例如，我们可能希望建立一个工具来帮助远足者识别野花。如果训练数据集由专业摄影师提供，这些照片将包含像背景虚化这样的复杂效果，而这些效果在普通远足者提供的用于识别的照片中则不会出现。
+- en: Measurement bias also happens when the labeling of images is done by a group
+    of people. Different raters may have different standards, and inconsistencies
+    in labeling can lead to poorer machine learning models.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测量偏差也会发生在由一组人标记图像时。不同的评分者可能有不同的标准，标签的不一致性可能导致较差的机器学习模型。
+- en: Measurement bias can also be quite subtle. Perhaps all the photographs of foxes
+    are taken against snow, whereas all the photographs of dogs are against grass.
+    A machine learning model may learn to discriminate between snow and grass and
+    achieve superior accuracy to a model that actually learns the features of foxes
+    and dogs. So, we need to be mindful of what other things are within our images
+    (and examine model explanations) to ensure our models learn the things we want
+    them to learn.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测量偏差也可能非常微妙。也许所有狐狸的照片都是在雪地中拍摄的，而所有狗的照片都是在草地上拍摄的。机器学习模型可能会学习区分雪和草，并比实际学习狐狸和狗特征的模型实现更高的准确性。因此，我们需要注意我们的图像中还有哪些其他因素（并检查模型的解释），以确保我们的模型学习我们希望它们学习的内容。
+- en: Confirmation Bias
+  id: totrans-188
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 确认偏见
+- en: Remember when we said that many people confuse bias and imbalance? The difference
+    and interrelationship between the two is particularly important when it comes
+    to confirmation bias. A dataset may be biased even if it accurately represents
+    an imbalanced real-world distribution—this is something that you should keep in
+    mind as you read this section. Remember that bias in a dataset includes anything
+    about the dataset that leads to unwanted behavior in ML models trained on that
+    dataset.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还记得我们说过很多人混淆偏见和不平衡吗？两者之间的差异和相互关系在讨论确认偏见时尤为重要。即使数据集准确地代表了不平衡的现实世界分布，数据集可能也存在偏见——这是你在阅读本节时应该牢记的事情。请记住，数据集中的偏见包括导致机器学习模型在该数据集上训练时产生不良行为的任何内容。
+- en: 'Donald Rumsfeld, who was the US Secretary of Defense in 2002, famously listed
+    [three categories of knowledge](https://oreil.ly/gmbxl):'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 唐纳德·拉姆斯菲尔德（Donald Rumsfeld）是2002年的美国国防部长，他著名列出了[三类知识](https://oreil.ly/gmbxl)：
+- en: There are known knowns; there are things we know we know. We also know there
+    are known unknowns; that is to say we know there are some things we do not know.
+    But there are also unknown unknowns—the ones we don’t know we don’t know. And
+    if one looks throughout the history of our country and other free countries, it
+    is the latter category that tends to be the difficult one.
+  id: totrans-191
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们知道已知的事物；我们知道我们知道的事物。我们也知道有已知的未知；也就是说，我们知道有一些我们不知道的事物。但也有未知的未知——那些我们不知道我们不知道的事物。如果人们回顾我们国家和其他自由国家的历史，往往是后一种情况更为困难。
+- en: Confirmation bias is bias that we don’t know about when we collect the data
+    but which can nevertheless play havoc with models trained on the dataset. Human
+    reluctance to examine the reasons why certain imbalances exist can lead to ML
+    models perpetuating existing biases.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确认偏见是我们在收集数据时不知道的偏见，但这些偏见可能会对训练在数据集上的模型造成严重影响。人们不愿意审视某些不平衡存在的原因，可能会导致机器学习模型延续现有的偏见。
+- en: Collecting data “in the wild” can lead to confirmation bias. For example, at
+    the time of writing, firefighters tend to be predominantly men. If we were to
+    collect a random sample of images of firefighters, chances are that all the images
+    would be of male firefighters. A machine learning model trained on such a dataset,
+    when shown an image of a woman firefighter, might generate the caption that this
+    is a woman in costume at a Halloween party. That would be pretty offensive, wouldn’t
+    it? This is a made-up example, but it illustrates how an existing bias in society
+    gets amplified when datasets reflect the real world. Do a search of recent news
+    headlines about biased AI, and you will find any number of real-world disasters
+    that have, at their core, a similar bias because they reflect real-world distributions.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在“野外”收集数据可能会导致确认偏见。例如，在撰写本文时，消防员往往以男性为主。如果我们随机收集消防员的图像样本，很可能所有的图像都是男性消防员的图像。一个在这样的数据集上训练过的机器学习模型，在看到一位女性消防员的图像时，可能会生成这是一位女性在万圣节派对上穿着的图像的说明。这会相当冒犯，对吧？这是一个虚构的例子，但它说明了当数据集反映现实世界时，社会中现有偏见如何被放大。搜索关于有偏见的人工智能的最新新闻标题，你会发现许多核心都是类似的现实世界灾难，因为它们反映了现实世界的分布。
+- en: A small-town newspaper will tend to cover events that occur in the town, and
+    by virtue of this data being “in the wild,” most of the photographs of concerts,
+    fairs, and outdoor dining will contain images of the majority community. On the
+    other hand, most of the photographs of minority-community teens that appear in
+    the newspaper might be photographs of arrests. Arrest photographs of majority-community
+    teens will also appear in the newspaper, but they will be greatly outnumbered
+    by photographs of those teens in outdoor settings. Given such a dataset, a machine
+    learning model will learn to associate minority-community members with jail and
+    majority-community members with benign activities. Again, this is an example of
+    a model confirming and perpetuating the bias of the newspaper editors because
+    of what newspaper stories tend to cover.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 小镇报纸往往报道发生在镇上的事件，由于这些数据“在野外”，大多数音乐会、市集和户外用餐的照片中会包含大多数社区的图像。另一方面，报纸中出现的少数社区青少年的大多数照片可能是被捕的照片。报纸上也会出现大多数社区青少年的被捕照片，但这些照片在户外环境中的照片将大大超过它们。有了这样的数据集，机器学习模型将会学会将少数社区成员与监狱联系起来，将大多数社区成员与良性活动联系起来。这再次是一个模型确认和延续报纸编辑偏见的例子，因为报纸报道的内容倾向于涵盖这些内容。
+- en: Confirmation bias can also amplify existing biases in terms of labels. If a
+    company trains a model to sort through job applications it has received and classify
+    them based on who finally got hired, the model will learn any bias (whether it
+    is in favor of elite colleges or against minority candidates) that the company’s
+    current interviewers have. If the company tends to hire very few Black candidates
+    or highly favors Ivy League candidates, the model will learn and replicate that.
+    The “unbiased” model has become extremely biased.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确认偏见也可能放大标签方面的现有偏见。如果一家公司训练一个模型来筛选收到的工作申请，并根据最终被聘用的人对其进行分类，那么模型将学习公司当前面试官所具有的任何偏见（无论是支持精英学院还是反对少数族裔候选人）。如果公司倾向于很少聘请黑人候选人或非常青睐常春藤盟校候选人，模型将学习并复制这一点。这种“无偏见”的模型实际上已经变得极度偏见。
+- en: To address confirmation bias, we have to be aware of this blind spot that we
+    have, and consciously move areas of unknown unknowns to one of the other two categories.
+    We have to be aware of the existing biases in our company, in our industry, or
+    in society and carefully validate that our dataset is not collected in such a
+    way as to amplify that bias. The recommended approach involves both awareness
+    (of potential bias) and active data collection (to mitigate this bias).
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要解决确认偏见问题，我们必须意识到我们的这个盲点，并有意识地将未知未知领域移动到另外两个类别中的一个。我们必须意识到我们公司、行业或社会中存在的偏见，并仔细验证我们的数据集是否收集方式不会放大这种偏见。推荐的方法涉及意识（潜在偏见）和积极的数据收集（以减少这种偏见）。
+- en: Detecting Bias
+  id: totrans-197
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 检测偏见
+- en: To detect bias, you can carry out *sliced evaluations*—essentially, compute
+    the objective function of your model, but only on members of a group. Compare
+    this with the value of the metric for non-members of the group. Then investigate
+    any groups for which the sliced metrics are very different from that of the overall
+    dataset. You can also apply a Bayesian approach and calculate measures such as
+    “what are the chances that a retinal scan will be categorized as diseased if the
+    sample is from a racial minority?”
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要检测偏见，您可以进行*分段评估*——基本上是计算您模型的客观函数，但仅针对群体成员。将此与非群体成员的指标值进行比较。然后调查任何群体，其分段指标与整体数据集非常不同。您还可以应用贝叶斯方法，并计算诸如“如果样本来自少数民族，那么视网膜扫描是否会被分类为疾病的机会有多大？”等措施。
+- en: The [Aequitas Fairness Tree approach](https://oreil.ly/eE64O) suggests which
+    metric to monitor depending on whether the ML model is used punitively or assistively.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Aequitas公平树方法](https://oreil.ly/eE64O)建议根据机器学习模型是惩罚性还是辅助性地使用，来决定监测哪些指标。'
+- en: Creating a Dataset
+  id: totrans-200
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 创建数据集
+- en: 'Once we have collected a set of images and labeled them, we are ready to train
+    an ML model with those images. However, we will have to split the dataset into
+    three parts: training, validation, and testing sets. We will also want to take
+    the opportunity to store the image data in a more efficient format for ML. Let’s
+    look at both of these steps and how our training program would read files in this
+    format.'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们收集了一组图像并对其进行了标记，我们就可以使用这些图像训练一个机器学习模型。然而，我们必须将数据集分为三部分：训练集、验证集和测试集。我们还希望利用这个机会以更高效的格式存储图像数据供机器学习使用。让我们来看看这两个步骤以及我们的训练程序如何读取这种格式的文件。
+- en: Splitting Data
+  id: totrans-202
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据分割
+- en: The dataset of images and labels will have to be split into three parts, for
+    training, validation, and testing. The actual proportion is up to us, but something
+    like 80:10:10 is common.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像和标签的数据集将必须分为三个部分，用于训练、验证和测试。实际比例由我们决定，但类似80:10:10的比例是常见的。
+- en: The training dataset is the set of examples that are presented to the model.
+    The optimizer uses these examples to tune the weights of the model so as to reduce
+    the error, or *loss*, on the training dataset. The loss on the training dataset
+    at the end of training is not, however, a reliable measure of the performance
+    of the model. To estimate that, we have to use a dataset of examples that have
+    not been shown to the model during its training process. That is the purpose of
+    the validation dataset.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练数据集是提供给模型的示例集。优化器利用这些示例调整模型的权重，以减少在训练数据集上的误差或*损失*。然而，在训练结束时的训练数据集上的损失并不是模型性能的可靠衡量标准。为了估计模型性能，我们必须使用一个在模型训练过程中未曾展示过给模型的示例集，这就是验证数据集的目的。
+- en: If we were training only one model, and training it only once, we would need
+    only the training and validation datasets (in this case, an 80:20 split is common).
+    However, it is very likely that we will retry the training with a different set
+    of hyperparameters—perhaps we will change the learning rate, or decrease the dropout,
+    or add a couple more layers to the model. The more of these hyperparameters we
+    optimize against the validation dataset, the more the skill of the model on the
+    validation dataset gets incorporated into the structure of the model itself. The
+    validation dataset is thus no longer a reliable estimate of how the model will
+    perform when given net new data.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们只训练一个模型，并且只训练一次，那么我们只需要训练和验证数据集（在这种情况下，通常是 80:20 的划分）。然而，很可能我们会使用不同的超参数重新尝试训练——也许我们会改变学习率，或者减少
+    dropout，或者向模型添加更多层。我们优化的超参数越多，验证数据集上的模型技能就越多地融入到模型结构本身中。因此，验证数据集不再是模型在给定新数据时表现的可靠估计。
+- en: Our final evaluation (of the model fit on the training dataset, and using parameters
+    optimized on the validation dataset) is carried out on the test dataset.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们最终对训练数据集上模型的适配进行评估，并使用在验证数据集上优化的参数。这一评估是在测试数据集上进行的。
+- en: Splitting the dataset at the beginning of each training run is not a good idea.
+    If we do this, every experiment will have different training and validation datasets,
+    which defeats the purpose of retaining a truly independent test dataset. Instead,
+    we should split once, and then continue using the same training and validation
+    datasets for all our hyperparameter tuning experiments. Therefore, we should save
+    the training, validation, and test CSV files and use these consistently throughout
+    the model lifecycle.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在每次训练运行开始时拆分数据集并不是一个好主意。如果这样做，每个实验将具有不同的训练和验证数据集，这违背了保留真正独立测试数据集的目的。相反，我们应该只拆分一次，然后在所有超参数调整实验中继续使用相同的训练和验证数据集。因此，我们应该保存训练、验证和测试
+    CSV 文件，并在整个模型生命周期中始终使用它们。
+- en: Sometimes, we might want to do cross-validation on the dataset. To do this,
+    we train the model multiple times using different splits of the first 90% into
+    training and validation datasets (the test dataset remains the same 10%). In such
+    a case, we’d write out multiple training and validation files. Cross-validation
+    is common on small datasets, but much less common in machine learning on large
+    datasets such as those used in image models.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时，我们可能希望在数据集上进行交叉验证。为此，我们多次使用不同划分的前 90% 数据来训练模型（测试数据集保持相同的 10%）。在这种情况下，我们会生成多个训练和验证文件。在小数据集上，交叉验证很常见，但在像图像模型中使用的大数据集上则不太常见。
+- en: TensorFlow Records
+  id: totrans-209
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: TensorFlow Records
+- en: The CSV file format mentioned in the previous section is not recommended for
+    large-scale machine learning because it relies on storing image data as individual
+    JPEG files, which is not very efficient. A more efficient data format to use is
+    TensorFlow Records (TFRecords). We can convert our JPEG image files into TFRecords
+    using Apache Beam.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前面章节提到的 CSV 文件格式并不推荐用于大规模机器学习，因为它依赖于将图像数据存储为单独的 JPEG 文件，这种方法效率不高。更高效的数据格式是 TensorFlow
+    Records（TFRecords）。我们可以使用 Apache Beam 将 JPEG 图像文件转换为 TFRecords。
+- en: 'First, we define a method to create a TFRecord given the image filename and
+    the label of the image:'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们定义一个方法来创建 TFRecord，给定图像文件名和图像的标签：
+- en: '[PRE14]'
+  id: totrans-212
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'The TFRecord is a dictionary with two main keys: `image` and `label`. Because
+    different images can have different sizes, we also take care to store the shape
+    of the original image. To save time looking up the index of the label during training,
+    we also store the label as an integer.'
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFRecord 是一个字典，有两个主要键：`image` 和 `label`。由于不同的图像可能具有不同的大小，我们还要注意存储原始图像的形状。为了在训练过程中节省查找标签索引的时间，我们也将标签存储为整数。
+- en: Tip
+  id: totrans-214
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: Besides efficiency, TFRecords give us the ability to embed image metadata such
+    as the label, bounding box, and even additional ML inputs such as the location
+    and timestamp of the image as part of the data itself. This way, we don’t need
+    to rely on ad hoc mechanisms such as the file/directory name or external files
+    to encode metadata.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了效率外，TFRecords 还能让我们将图像元数据（如标签、边界框甚至额外的 ML 输入，如图像的位置和时间戳）作为数据的一部分嵌入其中。这样，我们就不需要依赖文件/目录名称或外部文件来编码元数据了。
+- en: 'The image itself is a flattened array of floating-point numbers—for efficiency,
+    we are doing the JPEG decoding and scaling before writing to the TFRecords. This
+    way, it is not necessary to redo these operations as we iterate over the training
+    dataset:'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像本身是一个浮点数的扁平数组 —— 为了效率，在写入 TFRecords 之前，我们进行了 JPEG 解码和缩放。这样做的好处是，在迭代训练数据集时不需要重新执行这些操作：
+- en: '[PRE15]'
+  id: totrans-217
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: As well as being more efficient, decoding the images and scaling their values
+    to [0, 1] before writing them out to TFRecords has two other advantages. First,
+    this puts the data in the exact form required by the image models in TensorFlow
+    Hub (see [Chapter 3](ch03.xhtml#image_vision)). Second, it allows the reading
+    code to use the data without having to know whether the files were in JPEG or
+    PNG or some other image format.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解码图像并将其值缩放到 [0, 1] 范围内，然后写入 TFRecords 不仅更高效，还有两个额外优势。首先，这样做将数据放入 TensorFlow
+    Hub 中图像模型所需的确切格式（参见[第三章](ch03.xhtml#image_vision)）。其次，它允许读取代码使用数据，而无需知道文件是 JPEG、PNG
+    还是其他图像格式。
+- en: Tip
+  id: totrans-219
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: An equally valid approach is to store the data in the TFRecord as JPEG bytes,
+    rely on TensorFlow’s `decode_image()` function to read the data, and scale the
+    image values to [0, 1] in the preprocessing layer of the model. Because the JPEG
+    bytes are compressed using an algorithm tailored for images, the resulting files
+    can be smaller than gzipped TFRecord files consisting of raw pixel values. Use
+    this approach if bandwidth is more important than decoding time. Another benefit
+    of this approach is that the decoding operation is usually pipelined on the CPU
+    while the model trains on a GPU, so it might be essentially free.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种同样有效的方法是将数据存储在 TFRecord 中作为 JPEG 字节，依赖于 TensorFlow 的 `decode_image()` 函数来读取数据，并在模型的预处理层中将图像值缩放到
+    [0, 1] 范围内。由于使用了专为图像优化的算法对 JPEG 字节进行了压缩，因此生成的文件可能比由原始像素值组成的 gzip TFRecord 文件更小。如果带宽比解码时间更重要，则使用此方法。此方法的另一个好处是，解码操作通常在
+    CPU 上进行流水线处理，而模型在 GPU 上训练，因此解码操作可能基本上是免费的。
+- en: 'The Apache Beam pipeline consists of getting the training, validation, and
+    test CSV files, creating TFRecords, and writing the three datasets with appropriate
+    prefixes. For example, the training TFRecord files are created using:'
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Beam 管道包括获取训练、验证和测试的 CSV 文件，创建 TFRecords，并使用适当的前缀写入这三个数据集。例如，使用以下方式创建训练
+    TFRecord 文件：
+- en: '[PRE16]'
+  id: totrans-222
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: While there are several advantages to decoding and scaling the pixel values
+    before writing them out to TFRecords, the floating-point pixel data tends to take
+    up more space than the original byte stream. This drawback is addressed in the
+    preceding code by compressing the TFRecord files. The TFRecord writer will automatically
+    compress the output files when we specify that the filename suffix should be *.gz*.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管在将像素值解码并写入 TFRecords 之前解码和缩放有多个优点，但是浮点像素数据往往比原始字节流占用更多空间。在前面的代码中，通过压缩 TFRecord
+    文件来解决这个缺点。当我们指定文件名后缀应为 *.gz* 时，TFRecord 写入程序将自动压缩输出文件。
+- en: Running at scale
+  id: totrans-224
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 规模运行
+- en: The previous code is fine for transforming a few images, but when you have thousands
+    to millions of images, you’ll want a more scalable, resilient solution. The solution
+    needs to be fault-tolerant, able to be distributed to multiple machines, and capable
+    of being monitored using standard DevOps tools. Typically, we’d also want to pipe
+    the output to a cost-efficient blob storage as new images come streaming in. Ideally,
+    we’d want this to be done in a serverless way so that we don’t have to manage
+    and scale up/down this infrastructure ourselves.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述代码用于转换少量图像是可以的，但是当你有成千上百万的图像时，你需要一个更可扩展、更具韧性的解决方案。解决方案需要具有容错性，能够分布到多台机器上，并能够使用标准的
+    DevOps 工具进行监控。通常情况下，我们还希望在新图像流入时将输出管道传输到成本效益的 Blob 存储中。理想情况下，我们希望以无服务器方式完成这些操作，这样我们就不必自己管理和调整基础架构的规模。
+- en: 'One solution that addresses these production needs of resilience, monitoring,
+    streaming, and autoscaling is to run our Apache Beam code on Google Cloud Dataflow
+    rather than in a Jupyter notebook:'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 满足这些生产需求（容错性、监控、流式处理和自动扩展）的一个解决方案是，在 Google Cloud Dataflow 上运行我们的 Apache Beam
+    代码，而不是在 Jupyter 笔记本中运行：
+- en: '[PRE17]'
+  id: totrans-227
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: The options can be obtained from the command line using standard Python constructs
+    (like `argparse`) and will typically include the Cloud project to be billed and
+    the Cloud region in which to run the pipeline. Besides Cloud Dataflow, other runners
+    for Apache Beam include Apache Spark and Apache Flink.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以使用标准 Python 结构（如 `argparse`）从命令行获取选项，通常包括要计费的 Cloud 项目和要运行管道的 Cloud 区域。除了
+    Cloud Dataflow，Apache Beam 的其他运行程序包括 Apache Spark 和 Apache Flink。
+- en: 'As long as we are creating a pipeline like this, it can be helpful to capture
+    all the steps of our workflow within it, including the step of splitting the dataset.
+    We can do this as follows (the full code is in [*jpeg_to_tfrecord.py* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/05_create_dataset/jpeg_to_tfrecord.py)):'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只要我们像这样创建管道，捕获工作流程的所有步骤（包括数据集分割的步骤）就会很有帮助。我们可以按以下方式执行此操作（完整代码位于 [*jpeg_to_tfrecord.py*
+    GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/05_create_dataset/jpeg_to_tfrecord.py)
+    中）：
+- en: '[PRE18]'
+  id: totrans-230
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'where the `assign_record_to_split()` function assigns each record to one of
+    the three splits:'
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中 `assign_record_to_split()` 函数将每个记录分配给三个 splits 中的一个：
+- en: '[PRE19]'
+  id: totrans-232
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'At this point, splits consists of tuples like:'
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一点上，splits 由如下元组组成：
+- en: '[PRE20]'
+  id: totrans-234
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'These can then be farmed out into three sets of sharded files with the appropriate
+    prefixes:'
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，可以将这些分成三组具有适当前缀的分片文件：
+- en: '[PRE21]'
+  id: totrans-236
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: When this program is run, the job will be submitted to the Cloud Dataflow service,
+    which will execute the entire pipeline (see [Figure 5-13](#running_the_dataset_creation_pipeline_in))
+    and create TFRecord files corresponding to all three splits with names like *valid-00000-of-00005.gz*.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行此程序时，作业将提交给 Cloud Dataflow 服务，后者将执行整个管道（参见 [图 5-13](#running_the_dataset_creation_pipeline_in)），并创建对应于所有三个
+    splits 的 TFRecord 文件，名称类似于 *valid-00000-of-00005.gz*。
+- en: '![](Images/pmlc_0513.png)'
+  id: totrans-238
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0513.png)'
+- en: Figure 5-13\. Running the dataset creation pipeline in Cloud Dataflow.
+  id: totrans-239
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-13\. 在 Cloud Dataflow 中运行数据集创建管道。
+- en: Changing the input from CSV files to Cloud pub/sub will convert this pipeline
+    from a batch pipeline to a streaming one. All the intermediate steps remain the
+    same, and the resulting sharded TFRecords (which are in a format conducive for
+    machine learning) can function as our ML *data lake*.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将输入从 CSV 文件更改为 Cloud pub/sub 将此管道从批处理管道转换为流式管道。所有中间步骤保持不变，生成的分片 TFRecords（适合机器学习的格式）可以作为我们的
+    ML *数据湖*。
+- en: TensorFlow Recorder
+  id: totrans-241
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: TensorFlow Recorder
+- en: 'In the previous sections we looked at how to manually create TFRecord files,
+    carrying out some extract, transform, load (ETL) operations along the way. If
+    you already have data in Pandas or CSV files, it may be much more convenient to
+    use the [TFRecorder Python package](https://oreil.ly/w7f80), which adds a `tensorflow.to_tfr()`
+    method to a Pandas dataframe:'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们看了如何手动创建 TFRecord 文件，在此过程中执行了一些提取、转换、加载（ETL）操作。如果您已经有 Pandas 或 CSV
+    文件中的数据，可能更方便使用 [TFRecorder Python 包](https://oreil.ly/w7f80)，它将 `tensorflow.to_tfr()`
+    方法添加到 Pandas dataframe 中：
+- en: '[PRE22]'
+  id: totrans-243
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'The CSV files in this example are assumed to have lines that look like this:'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本示例中的 CSV 文件假定具有如下形式的行：
+- en: '[PRE23]'
+  id: totrans-245
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: TFRecorder will serialize the images into TensorFlow Records.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFRecorder 将图像序列化为 TensorFlow Records。
+- en: 'Running TFRecorder at scale in Cloud Dataflow involves adding a few parameters
+    to the call:'
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Cloud Dataflow 中以规模运行 TFRecorder 涉及向调用添加几个参数：
+- en: '[PRE24]'
+  id: totrans-248
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: For details on how to create and load a wheel to be used, please check the [TFRecorder
+    documentation](https://oreil.ly/1osx7).
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有关如何创建和加载用于使用的轮子的详细信息，请查看 [TFRecorder 文档](https://oreil.ly/1osx7)。
+- en: Reading TensorFlow Records
+  id: totrans-250
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 读取 TensorFlow Records
+- en: 'To read TensorFlow Records, use a `tf.data.TFRecordDataset`. To read all the
+    training files into a TensorFlow dataset, we can pattern match and then pass the
+    resulting files into `TFRecordDataset()`:'
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要读取 TensorFlow Records，请使用 `tf.data.TFRecordDataset`。要将所有训练文件读入 TensorFlow dataset，我们可以进行模式匹配，然后将结果文件传递给
+    `TFRecordDataset()`：
+- en: '[PRE25]'
+  id: totrans-252
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: The full code is in [*06a_resizing.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06a_resizing.ipynb),
+    but in a notebook in the folder for [Chapter 6](ch06.xhtml#preprocessing) because
+    that’s when we actually have to read these files.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完整的代码位于 [*06a_resizing.ipynb* GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/06_preprocessing/06a_resizing.ipynb)
+    中的笔记本中，但在 [第 6 章](ch06.xhtml#preprocessing) 的文件夹中，因为那时我们实际上需要读取这些文件。
+- en: 'The dataset at this point contains protobufs. We need to parse the protobufs
+    based on the schema of the records that we wrote to the files. We specify that
+    schema as follows:'
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，数据集包含 protobufs。我们需要根据写入文件的记录的模式来解析 protobufs。我们将该模式指定如下：
+- en: '[PRE26]'
+  id: totrans-255
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'Compare this with the code we used to create the TensorFlow Record:'
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将此与用于创建 TensorFlow Record 的代码进行比较：
+- en: '[PRE27]'
+  id: totrans-257
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: The `label` and `label_int` have a fixed length (1), but the `image` and its
+    `shape` are variable length (since they are arrays).
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`label` 和 `label_int` 具有固定长度（1），但 `image` 及其 `shape` 长度可变（因为它们是数组）。'
+- en: 'Given the proto and the feature description (or schema), we can read in the
+    data using the function `parse_single_example()`:'
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定 proto 和特征描述（或模式），我们可以使用函数 `parse_single_example()` 读取数据：
+- en: '[PRE28]'
+  id: totrans-260
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'For storage efficiency, variable-length arrays are stored as sparse tensors
+    (see [“What Is a Sparse Tensor?”](#what_is_a_sparse_tensorquestion_mark)). We
+    can make them dense and reshape the flattened image array into a 3D tensor, giving
+    us the full parsing function:'
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了存储效率，变长数组被存储为稀疏张量（参见[“什么是稀疏张量？”](#what_is_a_sparse_tensorquestion_mark)）。我们可以将它们转换为密集张量，并将扁平化的图像数组重塑为
+    3D 张量，从而得到完整的解析函数：
+- en: '[PRE29]'
+  id: totrans-262
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'We can now apply the parsing function to every proto that is read using `map()`:'
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以将解析函数应用于使用 `map()` 读取的每个 proto：
+- en: '[PRE30]'
+  id: totrans-264
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: At this point, the training dataset gives us the image and its label, which
+    we can use just like the image and label we obtained from the CSV dataset in [Chapter 2](ch02.xhtml#ml_models_for_vision).
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到此为止，训练数据集为我们提供了图像及其标签，我们可以像在[第 2 章](ch02.xhtml#ml_models_for_vision)中从 CSV
+    数据集中获得的图像和标签一样使用它们。
+- en: Summary
+  id: totrans-266
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: In this chapter, we looked at how to create vision datasets consisting of images
+    and the labels associated with those images. The images can be photographs or
+    can be produced by sensors that create 2D or 3D projections. It is possible to
+    align several such images into a single image by treating the individual image’s
+    values as channels.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们看了如何创建由图像和这些图像相关标签组成的视觉数据集。这些图像可以是照片，也可以是由创建 2D 或 3D 投影的传感器生成的图像。可以通过将各个图像的值视为通道来将多个这样的图像对齐到单个图像中。
+- en: Image labeling often has to be done manually, at least in the beginning stages
+    of a project. We looked at different types of labels for different problem types,
+    how to organize the labels, how to efficiently label images, and how to use voting
+    to reduce errors in the labels. Labels can sometimes be extracted automatically
+    from the eventual outcome, or from ancillary datasets. It is also possible to
+    set up an iterative Noisy Student process to create pseudo-labels.
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像标注通常需要手动完成，至少在项目初期是这样。我们研究了不同类型问题的标签、如何组织标签、如何高效标注图像以及如何使用投票减少标签错误。标签有时可以从最终结果中自动提取，或从辅助数据集中提取。还可以设置迭代的
+    Noisy Student 过程来创建伪标签。
+- en: We also discussed dataset bias, the causes of bias, and how to lower the chances
+    of bias in our datasets. We will look at how to diagnose bias in [Chapter 8](ch08.xhtml#model_quality_and_continuous_evaluation).
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还讨论了数据集偏差、偏差的原因以及如何降低数据集中偏差的机会。在[第 8 章](ch08.xhtml#model_quality_and_continuous_evaluation)中，我们将学习如何诊断数据集中的偏差。
+- en: Finally, we saw how to create training and validation, test splits of our data,
+    and store these three image datasets efficiently in a data lake. In the next two
+    chapters, you will learn how to train ML models on the datasets you created for
+    that purpose. In [Chapter 6](ch06.xhtml#preprocessing), we will explore how to
+    preprocess images for machine learning, and in [Chapter 7](ch07.xhtml#training_pipeline)
+    we will discuss how to train ML models on the preprocessed images.
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们学习了如何为数据创建训练、验证和测试分割，并将这三个图像数据集高效地存储在数据湖中。在接下来的两章中，您将学习如何在为此目的创建的数据集上训练
+    ML 模型。在[第 6 章](ch06.xhtml#preprocessing)中，我们将探讨如何为机器学习预处理图像，在[第 7 章](ch07.xhtml#training_pipeline)中，我们将讨论如何在预处理后的图像上训练
+    ML 模型。
+- en: ^([1](ch05.xhtml#ch05fn01-marker)) This is common in Internet of Things (IoT)
+    applications; see the Wikipedia entry on [“Fog computing”](https://oreil.ly/Txyj8).
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch05.xhtml#ch05fn01-marker)) 这在物联网（IoT）应用中很常见；请参阅[“雾计算”](https://oreil.ly/Txyj8)的维基百科条目。
+- en: ^([2](ch05.xhtml#idm46511265503560-marker)) See [“Understanding Memory Formats”](https://oreil.ly/HPmsI)
+    on the oneAPI Deep Neural Network Library.
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch05.xhtml#idm46511265503560-marker)) 参见[“理解内存格式”](https://oreil.ly/HPmsI)，关于
+    oneAPI 深度神经网络库。

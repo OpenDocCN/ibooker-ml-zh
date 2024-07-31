@@ -1,0 +1,1388 @@
+- en: Chapter 7\. Monitoring and Feedback Loop
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 7 章\. 监控与反馈循环
+- en: Du Phan
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 杜凡
+- en: When a machine learning model is deployed in production, it can start degrading
+    in quality fast—and without warning—until it’s too late (i.e., it’s had a potentially
+    negative impact on the business). That’s why model monitoring is a crucial step
+    in the ML model life cycle and a critical piece of MLOps (illustrated in [Figure 7-1](#monitoring_and_feedback_loop_highlighte)
+    as a part of the overall life cycle).
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当一个机器学习模型部署到生产环境中时，它可能会迅速降低质量，而且没有警告，直到为时已晚（即它对业务可能造成负面影响）。这就是为什么模型监控是机器学习模型生命周期中至关重要的一步，也是
+    MLOps 的关键部分（如 [图 7-1](#monitoring_and_feedback_loop_highlighte) 所示，作为整体生命周期的一部分）。
+- en: '![](assets/imlo_0701.png)'
+  id: totrans-3
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/imlo_0701.png)'
+- en: Figure 7-1\. Monitoring and feedback loop highlighted in the larger context
+    of the ML project life cycle
+  id: totrans-4
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-1\. 在机器学习项目生命周期的更大背景下突出显示的监控和反馈循环
+- en: 'Machine learning models need to be monitored at two levels:'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习模型需要在两个层面进行监控：
+- en: 'At the resource level, including ensuring the model is running correctly in
+    the production environment. Key questions include: Is the system alive? Are the
+    CPU, RAM, network usage, and disk space as expected? Are requests being processed
+    at the expected rate?'
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在资源层面上，包括确保模型在生产环境中正常运行。关键问题包括：系统是否正常？CPU、RAM、网络使用情况和磁盘空间是否符合预期？请求是否以预期速率处理？
+- en: 'At the performance level, meaning monitoring the pertinence of the model over
+    time. Key questions include: Is the model still an accurate representation of
+    the pattern of new incoming data? Is it performing as well as it did during the
+    design phase?'
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在性能层面上，这意味着随着时间的推移监控模型的相关性。关键问题包括：模型是否仍然准确地反映了新进数据的模式？它在设计阶段的表现是否良好？
+- en: The first level is a traditional DevOps topic that has been extensively addressed
+    in the literature (and has been covered in [Chapter 6](ch06.html#deploying_to_production)).
+    However, the latter is more complicated. Why? Because how well a model performs
+    is a reflection of the data used to train it; in particular, how representative
+    that training data is of the live request data. As the world is constantly changing,
+    a static model cannot catch up with new patterns that are emerging and evolving
+    without a constant source of new data. While it is possible to detect large deviations
+    on single predictions (see [Chapter 5](ch05.html#preparing_for_production)), smaller
+    but still significant deviations have to be detected statistically on datasets
+    of scored rows, with or without ground truth.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个层面是传统的 DevOps 主题，在文献中已广泛讨论过（并已在 [第 6 章](ch06.html#deploying_to_production)
+    中进行了涵盖）。然而，后者则更为复杂。为什么？因为模型的表现如何反映了用于训练它的数据；特别是训练数据与实时请求数据的代表性有多高。随着世界的不断变化，静态模型无法跟上不断出现和演变的新模式。虽然可以检测到单个预测的大偏差（见
+    [第 5 章](ch05.html#preparing_for_production)），但对评分行数据集中的较小但仍显著的偏差必须在统计上检测，无论有无基础真相。
+- en: Model performance monitoring attempts to track this degradation, and, at an
+    appropriate time, it will also trigger the retraining of the model with more representative
+    data. This chapter delves into detail on how data teams should handle both monitoring
+    and subsequent retraining.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型性能监控旨在追踪这种退化，并在适当时机触发使用更具代表性数据重新训练模型。本章详细探讨了数据团队应如何处理监控及随后的重新训练。
+- en: How Often Should Models Be Retrained?
+  id: totrans-10
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型应该多久重新训练一次？
+- en: 'One of the key questions teams have regarding monitoring and retraining is:
+    how often should models be retrained? Unfortunately, there is no easy answer,
+    as this question depends on many factors, including:'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于监控和重新训练，团队经常提出的一个关键问题是：模型应该多久重新训练一次？不幸的是，这个问题没有简单的答案，因为它取决于许多因素，包括：
+- en: The domain
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 领域
+- en: 'Models in areas like cybersecurity or real-time trading need to be updated
+    regularly to keep up with the constant changes inherent in these fields. Physical
+    models, like voice recognition, are generally more stable, because the patterns
+    don’t often abruptly change. However, even more stable physical models need to
+    adapt to change: what happens to a voice recognition model if the person has a
+    cough and the tone of their voice changes?'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在像网络安全或实时交易这样的领域，模型需要定期更新以跟上这些领域固有的不断变化。物理模型，如语音识别，通常更稳定，因为模式不会突然改变。然而，即使是更稳定的物理模型也需要适应变化：如果一个语音识别模型遇到人咳嗽导致声音音调变化会发生什么？
+- en: The cost
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 成本
+- en: Organizations need to consider whether the cost of retraining is worth the improvement
+    in performance. For example, if it takes one week to run the whole data pipeline
+    and retrain the model, is it worth a 1% improvement?
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组织需要考虑重新训练的成本是否值得性能的提升。例如，如果运行整个数据流水线和重新训练模型需要一周时间，那么获得1%的提升是否值得？
+- en: The model performance
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型性能
+- en: In some situations, the model performance is restrained by the limited number
+    of training examples, and thus the decision to retrain hinges on collecting enough
+    new data.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，模型性能受到训练样本数量的限制，因此重新训练的决定取决于收集足够的新数据。
+- en: Whatever the domain, the delay to obtain the ground truth is key to defining
+    a lower bound to the retraining period. It is very risky to use a prediction model
+    when there is a possibility that it drifts faster than the lag between prediction
+    time and ground truth obtention time. In this scenario, the model can start giving
+    bad results without any recourse other than to withdraw the model if the drift
+    is too significant. What this means in practice is that it is unlikely a model
+    with a lag of one year is retrained more than a few times a year.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论在哪个领域，获得基本事实的延迟是定义重新训练周期下界的关键。当可能出现预测模型漂移速度快于预测时间和获得基本事实的间隔时，使用预测模型是非常冒险的。在这种情况下，如果漂移过于显著，模型可能会开始给出糟糕的结果，除了撤销模型之外，没有其他措施。实际上，这意味着一年延迟的模型重新训练频率不太可能超过几次。
+- en: For the same reason, it is unlikely that a model is trained on data collected
+    during a period smaller than this lag. Retraining will not be performed in a shorter
+    period, either. In other words, if the model retraining occurs way more often
+    than the lag, there will be almost no impact of the retraining on the performance
+    of the model.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于同样的原因，不太可能在比此延迟更短的数据集上训练模型。重新训练也不会在更短的周期内进行。换句话说，如果模型重新训练的频率远高于延迟时间，那么重新训练对模型性能的影响几乎为零。
+- en: 'There are also two organizational bounds to consider when it comes to retraining
+    frequency:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在重新训练频率时，还需考虑两个组织界限：
+- en: An upper bound
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个上界
+- en: It is better to perform retraining once every year to ensure that the team in
+    charge has the skills to do it (despite potential turnover—i.e., the possibility
+    that the people retraining the model were not the ones who built it) and that
+    the computing toolchain is still up.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最好每年进行一次重新训练，以确保负责团队具备这方面的技能（尽管可能发生人员流动，即重新训练模型的人员并非创建模型的人员），并且计算工具链仍然有效。
+- en: A lower bound
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个下界
+- en: Take, for example, a model with near-instantaneous feedback, such as a recommendation
+    engine where the user clicks on the product offerings within seconds after the
+    prediction. Advanced deployment schemes will involve shadow testing or A/B testing
+    to make sure that the model performs as anticipated. Because it is a statistical
+    validation, it takes some time to gather the required information. This necessarily
+    sets a lower bound to the retraining period. Even with a simple deployment, the
+    process will probably allow for some human validation or for the possibility of
+    manual rollback, which means it’s unlikely that the retraining will occur more
+    than once a day.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，考虑一个具有几乎即时反馈的模型，例如推荐引擎，在预测后用户几秒钟内点击产品。高级部署方案将涉及阴影测试或A/B测试，以确保模型的性能符合预期。由于这是统计验证，需要一些时间来收集所需信息。这必然为重新训练周期设定了一个下界。即使是简单的部署过程，也可能允许一些人工验证或手动回滚的可能性，这意味着重新训练不太可能每天发生一次。
+- en: 'Therefore, it is very likely that retraining will be done between once a day
+    and once a year. The simplest solution that consists of retraining the model in
+    the same way and in the same environment it was trained in originally is acceptable.
+    Some critical cases may require retraining in a production environment, even though
+    the initial training was done in a design environment, but the retraining method
+    is usually identical to the training method so that the overall complexity is
+    limited. As always, there is an exception to this rule: online learning.'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，重新训练的频率可能在每天至每年一次之间。最简单的解决方案是在与原始训练方式和环境相同的情况下进行重新训练，这是可接受的。一些关键情况可能需要在生产环境中重新训练，即使最初的训练是在设计环境中进行的，但重新训练的方法通常与训练方法相同，以限制总体复杂度。正如常规的规则一样，总是有例外：在线学习。
+- en: In any case, some level of model retraining is definitely necessary—it’s not
+    a question of if, but of when. Deploying ML models without considering retraining
+    would be like launching an unmanned aircraft from Paris in the exact right direction
+    and hoping it will land safely in New York City without further control.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论如何，某种程度的模型重新训练肯定是必要的 —— 这不是一个是否的问题，而是一个何时的问题。部署机器学习模型而不考虑重新训练，就像在巴黎向正确的方向发射一架无人机，希望它能够安全地在不需要进一步控制的情况下降落在纽约市一样。
+- en: The good news is that if it was possible to gather enough data to train the
+    model the first time, then most of the solutions for retraining are already available
+    (with the possible exception of cross-trained models that are used in a different
+    context—for example, trained with data from one country but used in another).
+    It is therefore critical for organizations to have a clear idea of deployed models’
+    drift and accuracy by setting up a process that allows for easy monitoring and
+    notifications. An ideal scenario would be a pipeline that automatically triggers
+    checks for degradation of model performance.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好消息是，如果第一次能够收集足够的数据来训练模型，那么大多数重新训练的解决方案已经可用（可能有交叉训练模型的例外情况，这些模型在不同的上下文中使用，例如，用一个国家的数据训练，但在另一个国家使用）。因此，组织必须通过建立一个允许轻松监控和通知的过程来清楚地了解部署模型的漂移和准确性，这一点至关重要。理想的情况是一个能够自动触发模型性能退化检查的流水线。
+- en: It’s important to note that the goal of notifications is not necessarily to
+    kick off an automated process of retraining, validation, and deployment. Model
+    performance can change for a variety of reasons, and retraining may not always
+    be the answer. The point is to alert the data scientist of the change; that person
+    can then diagnose the issue and evaluate the next course of action.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要注意的是，通知的目标不一定是启动自动化的重新训练、验证和部署过程。模型性能可能因各种原因而变化，重新训练并不总是解决方案。重点是通知数据科学家发生了变化；该人员随后可以诊断问题并评估下一步行动。
+- en: It is therefore critical that as part of MLOps and the ML model life cycle,
+    data scientists and their managers and the organization as a whole (which is ultimately
+    the entity that has to deal with the business consequences of degrading model
+    performances and any subsequent changes) understand model degradation. Practically,
+    every deployed model should come with monitoring metrics and corresponding warning
+    thresholds to detect meaningful business performance drops as quickly as possible.
+    The following sections focus on understanding these metrics to be able to define
+    them for a particular model.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，在MLOps和ML模型生命周期的一部分，数据科学家及其经理和整个组织（最终必须处理模型性能下降和任何后续更改的业务后果的实体）必须理解模型退化的重要性。实际上，每个部署的模型都应该配备监控度量和相应的警告阈值，以尽快检测到业务绩效的显著下降。以下几节重点介绍了理解这些度量以便为特定模型定义它们的方法。
+- en: Understanding Model Degradation
+  id: totrans-30
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 理解模型退化
+- en: 'Once a machine learning model is trained and deployed in production, there
+    are two approaches to monitor its performance degradation: ground truth evaluation
+    and input drift detection. Understanding the theory behind and limitations of
+    these approaches is critical to determining the best strategy.'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦机器学习模型在生产环境中训练并部署，有两种方法可以监控其性能退化：地面真实评估和输入漂移检测。理解这些方法背后的理论和局限性对于确定最佳策略至关重要。
+- en: Ground Truth Evaluation
+  id: totrans-32
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 地面真实评估
+- en: Ground truth retraining requires waiting for the label event. For example, in
+    a fraud detection model, the ground truth would be whether or not a specific transaction
+    was actually fraudulent. For a recommendation engine, it would be whether or not
+    the customer clicked on—or ultimately bought—one of the recommended products.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 地面真实重新训练需要等待标签事件。例如，在欺诈检测模型中，地面真实是特定交易是否真的欺诈。对于推荐引擎，则是客户是否点击或最终购买了推荐的产品之一。
+- en: With the new ground truth collected, the next step is to compute the performance
+    of the model based on ground truth and compare it with registered metrics in the
+    training phase. When the difference surpasses a threshold, the model can be deemed
+    as outdated, and it should be retrained.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 收集了新的地面真实数据后，下一步是根据地面真实数据计算模型的性能，并将其与训练阶段的注册度量进行比较。当差异超过阈值时，可以认定模型已过时，应该重新训练。
+- en: 'The metrics to be monitored can be of two varieties:'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要监控的度量标准可以分为两种类型：
+- en: Statistical metrics like accuracy, [ROC AUC](https://oreil.ly/tY9Bg), log loss,
+    etc. As the model designer has probably already chosen one of these metrics to
+    pick the best model, it is a first-choice candidate for monitoring. For more complex
+    models, where the average performance is not enough, it may be necessary to look
+    at metrics computed by subpopulations.
+  id: totrans-36
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 像准确度，[ROC AUC](https://oreil.ly/tY9Bg)，对数损失等统计指标。由于模型设计者可能已经选择了其中一个指标来选择最佳模型，因此它是监控的首选候选。对于更复杂的模型，如果平均性能不够，可能需要查看由子群体计算的指标。
+- en: Business metrics, like cost-benefit assessment. For example, [the credit scoring
+    business has developed its own specific metrics](https://oreil.ly/SqOr5).
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 业务指标，例如成本效益评估。例如，[信用评分业务已经开发了自己的特定指标](https://oreil.ly/SqOr5)。
+- en: The main advantage of the first kind of metric is that it is domain agnostic,
+    so the data scientist likely feels comfortable setting thresholds. So as to have
+    the earliest meaningful warning, it is even possible to compute *p*-values to
+    assess the probability that the observed drop is not due to random fluctuations.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一种指标的主要优势在于它是领域无关的，因此数据科学家可能会对设置阈值感到舒适。为了能够获得最早的有意义警告，甚至可以计算*p*值来评估观察到的下降不是由于随机波动引起的概率。
+- en: The drawback is that the drop may be statistically significant without having
+    any noticeable impact. Or worse, the cost of retraining and the risk associated
+    with a redeployment may be higher than the expected benefits. Business metrics
+    are far more interesting because they ordinarily have a monetary value, enabling
+    subject matter experts to better handle the cost-benefit trade-off of the retraining
+    decision.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缺点在于，下降可能在统计上显著，而没有任何显著影响。或者更糟的是，重新训练的成本和重新部署所带来的风险可能高于预期的收益。业务指标更有趣，因为它们通常具有货币价值，使主题专家能够更好地处理重新训练决策的成本效益权衡。
+- en: 'When available, ground truth monitoring is the best solution. However, it may
+    be problematic. There are three main challenges:'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在可用时，地面真相监控是最佳解决方案。但是，这可能会带来问题。存在三个主要挑战：
+- en: Ground truth is not always immediately, or even imminently, available. For some
+    types of models, teams need to wait months (or longer) for ground truth labels
+    to be available, which can mean significant economic loss if the model is degrading
+    quickly. As said before, deploying a model for which the drift is faster than
+    the lag is risky. However, by definition, drifts are not forecastable, so models
+    with long lags need mitigation measures.
+  id: totrans-41
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 地面真相通常不是立即，甚至不是紧急可得的。对于某些类型的模型，团队需要等待几个月（甚至更长时间）以获取地面真相标签，如果模型快速退化，这可能导致重大经济损失。如前所述，部署一个漂移速度快于滞后的模型是有风险的。然而，根据定义，漂移是无法预测的，因此具有长滞后的模型需要采取缓解措施。
+- en: Ground truth and prediction are decoupled. To compute the performance of the
+    deployed model on new data, it’s necessary to be able to match ground truth with
+    the corresponding observation. In many production environments, this is a challenging
+    task because these two pieces of information are generated and stored in different
+    systems and at different timestamps. For low-cost or short-lived models, it might
+    not be worth automated ground truth collection. Note that this is rather short-sighted,
+    because sooner or later, the model will need to be retrained.
+  id: totrans-42
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 地面真相与预测是解耦的。为了计算部署模型在新数据上的性能，必须能够将地面真相与相应的观察结果进行匹配。在许多生产环境中，这是一项具有挑战性的任务，因为这两个信息片段生成和存储在不同系统和不同时间戳。对于低成本或短寿命的模型来说，可能没有自动地面真相收集的价值。请注意，这种做法相当短视，因为迟早，模型将需要重新训练。
+- en: Ground truth is only partially available. In some situations, it is extremely
+    expensive to retrieve the ground truth for all the observations, which means choosing
+    which samples to label and thus inadvertently introducing bias into the system.
+  id: totrans-43
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 地面真相仅部分可得。在某些情况下，检索所有观察结果的地面真相成本极高，这意味着需要选择哪些样本进行标记，从而无意中引入系统偏见。
+- en: For the last challenge, fraud detection presents a clear use case. Given that
+    each transaction needs to be examined manually and the process takes a long time,
+    does it make sense to establish ground truth for only suspect cases (i.e., cases
+    where the model gives a high probability of fraud)? At first glance, the approach
+    seems reasonable; however, a critical mind understands that this creates a feedback
+    loop that will amplify the flaws of the model. Fraud patterns that were never
+    captured by the model (i.e., those that have a low fraud probability according
+    to the model) will never be taken into account in the retraining process.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于最后一个挑战，欺诈检测提出了一个明确的用例。考虑到每笔交易都需要手动检查且过程耗时，仅为疑似案例（即模型高概率判定为欺诈的案例）建立地面真相是否有意义？乍看之下，这种方法似乎是合理的；然而，有批判性思维的人会理解，这会产生一个反馈循环，放大模型的缺陷。模型从未捕获的欺诈模式（即根据模型具有低欺诈概率的模式）将不会在重新训练过程中考虑进去。
+- en: One solution to this challenge might be to randomly label, establishing a ground
+    truth for just a subsample of transactions in addition to those that were flagged
+    as suspicious. Another solution might be to reweight the biased sample so that
+    its characteristics match the general population more closely. For example, if
+    the system awarded little credit to people with low income, the model should reweight
+    them according to their importance in the applicant, or even in the general, population.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决此挑战的一种方法可能是随机标记，为除了那些被标记为可疑的事务之外的子样本建立一个地面真相。另一种解决方案可能是重新加权偏倚样本，使其特征更接近总体人群。例如，如果系统很少向低收入人群发放信用，那么模型应根据他们在申请人，甚至总体人群中的重要性进行重新加权。
+- en: The bottom line is that whatever the mitigation measure, the labeled sample
+    subset must cover all possible future predictions so that the trained model makes
+    good predictions whatever the sample; this will sometimes mean making suboptimal
+    decisions for the sake of checking that the model continues to generalize well.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论采取什么样的缓解措施，标记的样本子集必须涵盖所有可能的未来预测，以确保训练模型在任何样本上都能做出良好的预测；这有时意味着出于检查模型是否继续良好泛化而做出次优决策。
+- en: Once this problem is solved for retraining, the solution (reweighting, random
+    sampling) can be used for monitoring. Input drift detection complements this approach,
+    as it is needed to make sure that ground truth covering new, unexplored domains
+    is made available to retrain the model.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决了重新训练的问题后，解决方案（重新加权、随机抽样）可以用于监控。输入漂移检测是这种方法的补充，因为它需要确保提供覆盖新的、未开发领域的地面真相以供重新训练模型使用。
+- en: Input Drift Detection
+  id: totrans-48
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 输入漂移检测
+- en: Given the challenges and limitations of ground truth retraining presented in
+    the previous section, a more practical approach might be input drift detection.
+    This section takes a brief but deep dive into the underlying logic behind drift
+    and presents different scenarios that can cause models and data to drift.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴于前一节中提出的地面真相重新训练的挑战和限制，一个更实际的方法可能是输入漂移检测。本节简要探讨了漂移背后的逻辑，并呈现了可能导致模型和数据漂移的不同场景。
+- en: Say the goal is to predict the quality of Bordeaux wines using as training data
+    the [UCI Wine Quality dataset](https://oreil.ly/VPx17), which contains information
+    about red and white variants of the Portuguese wine vinho verde along with a quality
+    score varying between 0 and 10.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设目标是使用[UCI葡萄酒质量数据集](https://oreil.ly/VPx17)作为训练数据来预测波尔多葡萄酒的质量，该数据集包含关于葡萄牙葡萄酒维诺维尔德的红色和白色变种以及在0到10之间变化的质量评分。
+- en: 'The following features are provided for each wine: type, fixed acidity, volatile
+    acidity, citric acid, residual sugar, chlorides, free sulfur dioxide, total sulfur
+    dioxide, density, pH, sulphates, and alcohol rate.'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每种葡萄酒提供以下特征：类型、固定酸度、挥发性酸度、柠檬酸、残留糖、氯化物、游离二氧化硫、总二氧化硫、密度、pH值、硫酸盐和酒精度。
+- en: To simplify the modeling problem, say that a good wine is one with a quality
+    score equal to or greater than 7\. The goal is thus to build a binary model that
+    predicts this label from the wine’s attributes.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了简化建模问题，假设一个好的葡萄酒是质量评分等于或大于7的葡萄酒。因此，目标是构建一个二元模型，从葡萄酒的属性预测这一标签。
+- en: 'To demonstrate data drift, we explicitly split the original dataset into two:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了演示数据漂移，我们明确将原始数据集分为两部分：
+- en: wine_alcohol_above_11, which contains all wines with an alcohol rate of 11%
+    and above
+  id: totrans-54
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: wine_alcohol_above_11，包含所有酒精度为11%及以上的葡萄酒
+- en: wine_alcohol_below_11, which contains all wines with an alcohol rate below 11%
+  id: totrans-55
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: wine_alcohol_below_11 包含所有酒精含量低于 11% 的葡萄酒
+- en: We split wine_alcohol_above_11 to train and score our model, and the second
+    dataset, wine_alcohol_below_11, will be considered as new incoming data that needs
+    to be scored once the model has been deployed.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将 wine_alcohol_above_11 数据集拆分为训练和评分用途，而第二个数据集 wine_alcohol_below_11 则被视为需要在模型部署后进行评分的新进数据。
+- en: 'We have artificially created a big problem: it is very unlikely that the quality
+    of wine is independent from the alcohol level. Worse, the alcohol level is likely
+    to be correlated differently with the other features in the two datasets. As a
+    result, what is learned on one dataset (“if the residual sugar is low and the
+    pH is high, then the probability that the wine is good is high”) may be wrong
+    on the other one because, for example, the residual sugar is not important anymore
+    when the alcohol level is high.'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们人为地创造了一个大问题：很难认为葡萄酒的质量与酒精含量无关。更糟糕的是，两个数据集中的酒精含量可能与其他特征的相关性不同。因此，在一个数据集上学到的知识（“如果残余糖低，pH值高，则葡萄酒好的概率很高”）在另一个数据集上可能是错误的，因为例如，当酒精含量高时，残余糖就不再重要了。
+- en: 'Mathematically speaking, the samples of each dataset cannot be assumed to be
+    drawn from the same distribution (i.e., they are not “identically distributed”).
+    Another mathematical property is necessary to ensure that ML algorithms perform
+    as expected: independence. This property is broken if samples are duplicated in
+    the dataset or if it is possible to forecast the “next” sample given the previous
+    one, for example.'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从数学角度来看，每个数据集的样本不能假设是从相同分布中抽取的（即它们不是“同分布的”）。确保 ML 算法按预期执行需要另一个数学属性：独立性。如果数据集中的样本重复或者可以预测“下一个”样本，则该属性被破坏，例如。
+- en: Let’s assume that despite the obvious problems, we train the algorithm on the
+    first dataset and then deploy it on the second one. The resulting distribution
+    shift is called a drift. It will be called a feature drift if the alcohol level
+    is one of the features used by the ML model (or if the alcohol level is correlated
+    with other features used by the model) and a concept drift if it is not.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设尽管存在明显的问题，我们仍在第一个数据集上训练算法，然后将其部署在第二个数据集上。由此产生的分布偏移称为漂移。如果酒精含量是 ML 模型使用的特征之一（或者酒精含量与模型使用的其他特征相关），则称为特征漂移；如果不是，则称为概念漂移。
+- en: Drift Detection in Practice
+  id: totrans-60
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实践中的漂移检测
+- en: As explained previously, to be able to react in a timely manner, model behavior
+    should be monitored solely based on the feature values of the incoming data, without
+    waiting for the ground truth to be available.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，为了能够及时反应，应仅基于传入数据的特征值监控模型行为，而不必等待地面真相的出现。
+- en: The logic is that if the data distribution (e.g., mean, standard deviation,
+    correlations between features) diverges between the training and testing phases^([1](ch07.html#ch01fn7))
+    on one side and the development phase on the other, it is a strong signal that
+    the model’s performance won’t be the same. It is not the perfect mitigation measure,
+    as retraining on the drifted dataset will not be an option, but it can be part
+    of mitigation measures (e.g., reverting to a simpler model, reweighting).
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 逻辑是，如果数据分布（例如，均值、标准差、特征之间的相关性）在训练和测试阶段^([1](ch07.html#ch01fn7))与开发阶段之间出现分歧，这是模型性能不同的强烈信号。这并非是完美的缓解措施，因为在漂移数据集上重新训练不是一个选项，但可以作为缓解措施的一部分（例如，返回到更简单的模型，重新加权）。
+- en: Example Causes of Data Drift
+  id: totrans-63
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据漂移的示例原因
+- en: 'There are two frequent root causes of data drift:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据漂移有两个常见的根本原因：
+- en: Sample selection bias, where the training sample is not representative of the
+    population. For instance, building a model to assess the effectiveness of a discount
+    program will be biased if the best discounts are proposed for the best clients.
+     Selection bias often stems from the data collection pipeline itself. In the wine
+    example, the original dataset sample with alcohol levels above 11% surely does
+    not represent the whole population of wines—this is sample selection at its best.
+    It could have been mitigated if a few samples of wine with an alcohol level above
+    11% had been kept and reweighted according to the expected proportion in the population
+    of wines to be seen by the deployed model. Note that this task is easier said
+    than done in real life, as the problematic features are often unknown or maybe
+    even not available.
+  id: totrans-65
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 样本选择偏差，即训练样本不代表总体。例如，建立一个评估折扣计划效果的模型，如果最佳折扣仅为最好的客户提供，那么会存在偏差。选择偏差通常源自数据采集管道本身。在葡萄酒的例子中，原始数据集中酒精含量超过11%的样本肯定不代表所有葡萄酒的总体——这是样本选择的最佳实践。如果一些酒精含量超过11%的样本被保留，并根据在部署模型时预期的比例进行重新加权，那么可以减轻这种偏差。需要注意的是，这在实际生活中要做到比说起来更难，因为问题特征通常是未知的，甚至可能根本不可得。
+- en: 'Non-stationary environment, where training data collected from the source population
+    does not represent the target population. This often happens for time-dependent
+    tasks—such as forecasting use cases—with strong seasonality effects, where learning
+    a model over a given month won’t generalize to another month. Back to the wine
+    example: one can imagine a case where the original dataset sample only includes
+    wines from a specific year, which might represent a particularly good (or bad)
+    vintage. A model trained on this data may not generalize to other years.'
+  id: totrans-66
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 非稳态环境，即从源群体收集的训练数据不代表目标群体。这通常发生在依赖时间的任务中，例如具有强季节性影响的预测用例，学习一个在某个月份的模型无法推广到另一个月份。回到葡萄酒的例子：可以想象一种情况，原始数据集样本仅包括特定年份的葡萄酒，这可能代表一个特别好（或坏）的年份。基于这些数据训练的模型可能无法推广到其他年份。
+- en: Input Drift Detection Techniques
+  id: totrans-67
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 输入漂移检测技术
+- en: 'After understanding the possible situations that can cause different types
+    of drift, the next logical question is: how can drift be detected? This section
+    presents two common approaches. The choice between them depends on the expected
+    level of interpretability.'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在理解可能引起不同漂移类型的可能情况后，下一个逻辑问题是：如何检测漂移？本节介绍了两种常见的方法。选择哪种方法取决于期望的可解释性水平。
+- en: Organizations that need proven and explainable methods should prefer univariate
+    statistical tests. If complex drift involving several features simultaneously
+    is expected, or if the data scientists want to reuse what they already know and
+    assuming the organization doesn’t dread the black box effect, the domain classifier
+    approach may be a good option, too.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要经过验证且可解释的方法的组织应优先选择单变量统计测试。如果预期涉及同时涉及多个特征的复杂漂移，或者数据科学家希望重用已知的内容，假设组织不怕黑盒效应，则领域分类器方法也可能是一个不错的选择。
+- en: Univariate statistical tests
+  id: totrans-70
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 单变量统计测试
+- en: This method requires applying a statistical test on data from the source distribution
+    and the target distribution for each feature. A warning will be raised when the
+    results of those tests are significant.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此方法要求对每个特征从源分布和目标分布的数据应用统计检验。当这些检验的结果显著时，将发出警告。
+- en: 'The choice of hypothesis tests have been extensively studied in the literature,
+    but the basic approaches rely on these two tests:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于假设检验的选择已在文献中广泛研究，但基本方法依赖于这两个测试：
+- en: For continuous features, the Kolmogorov-Smirnov test is a nonparametric hypothesis
+    test that is used to check whether two samples come from the same distribution.
+    It measures a distance between the empirical distribution functions.
+  id: totrans-73
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于连续特征，Kolmogorov-Smirnov检验是一种非参数假设检验，用于检查两个样本是否来自同一分布。它测量了经验分布函数之间的距离。
+- en: For categorical features, the Chi-squared test is a practical choice that checks
+    whether the observed frequencies for a categorical feature in the target data
+    match the expected frequencies seen from the source data.
+  id: totrans-74
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于分类特征，卡方检验是一个实用的选择，用于检查目标数据中分类特征的观察频率是否与源数据中的预期频率匹配。
+- en: The main advantage of *p*-values is that they help detect drift as quickly as
+    possible. The main drawback is that they detect an effect, but they do not quantify
+    the level of the effect (i.e., on large datasets, they detect very small changes,
+    which may be completely without impact). As a result, if development datasets
+    are very large, it is necessary to complement *p*-values with business-significant
+    metrics. For example, on a sufficiently large dataset, the average age may have
+    significantly drifted from a statistical perspective, but if the drift is only
+    a few months, this is probably an insignificant value for many business use cases.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*p* 值的主要优势在于它们帮助尽快检测漂移。主要缺点在于它们检测到一个效果，但不量化效果的程度（即在大型数据集上，它们检测到非常小的变化，这些变化可能完全没有影响）。因此，如果开发数据集非常大，就必须用商业重要的度量补充
+    *p* 值。例如，在足够大的数据集上，平均年龄可能从统计角度显著漂移，但如果漂移仅为几个月，对许多业务用例来说可能是无关紧要的值。'
+- en: Domain classifier
+  id: totrans-76
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 领域分类器
+- en: In this approach, data scientists train a model that tries to discriminate between
+    the original dataset (input features and, optionally, predicted target) and the
+    development dataset. In other words, they stack the two datasets and train a classifier
+    that aims at predicting the data’s origin. The performance of the model (its accuracy,
+    for example) can then be considered as a metric for the drift level.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种方法中，数据科学家训练一个模型，试图区分原始数据集（输入特征和可选的预测目标）和开发数据集。换句话说，他们堆叠两个数据集，并训练一个分类器，旨在预测数据的来源。模型的性能（例如准确性）可以被视为漂移水平的度量标准。
+- en: If this model is successful in its task, and thus has a high drift score, it
+    implies that the data used at training time and the new data can be distinguished,
+    so it’s fair to say that the new data has drifted. To gain more insights, in particular
+    to identify the features that are responsible for the drift, one can use the feature
+    importance of the trained model.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果这个模型在其任务中取得成功，并且具有较高的漂移分数，这意味着在训练时使用的数据和新数据可以被区分开来，因此可以说新数据已经发生了漂移。为了获得更多的见解，特别是为了识别导致漂移的特征，可以使用训练模型的特征重要性。
+- en: Interpretation of results
+  id: totrans-79
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 结果的解释
+- en: 'Both domain classifier and univariate statistical tests point to the importance
+    of features or of the target to explain drift. Drift attributed to the target
+    is important to identify because it often directly impacts the bottom line of
+    the business. (Think, for example, of credit scores: if the scores are lower overall,
+    the number of awarded loans is likely to be lower, and therefore revenue will
+    be lower.) Drift attributed to features is useful to mitigate the impact of drift,
+    as it may hint at the need for:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 领域分类器和单变量统计测试都指出了解释漂移的特征或目标的重要性。需要识别归因于目标的漂移，因为它通常直接影响业务的底线。（例如，信用评分：如果整体评分较低，可能获得贷款的数量也较少，因此收入将较低。）归因于特征的漂移有助于减少漂移的影响，因为它可能暗示着需要：
+- en: Reweighting according to this feature (e.g., if customers above 60 now represent
+    60% of users but were only 30% in the training set, then double their weight and
+    retrain the model)
+  id: totrans-81
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 根据这个特征进行重新加权（例如，如果60岁以上的顾客现在占用户的60%，但在训练集中只占30%，则加倍其权重并重新训练模型）
+- en: Removing the feature and training a new model without it
+  id: totrans-82
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 移除该特征并训练一个不包含它的新模型
+- en: 'In all cases, it is very unlikely that automatic actions exist if drift is
+    detected. It could happen if it is costly to deploy retrained models: the model
+    would be retrained on new data only if performance based on ground truth had dropped
+    or significant drift was detected. In this peculiar case, new data is indeed available
+    to mitigate the drift.'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在所有情况下，如果检测到漂移，自动操作几乎不可能存在。只有在重新训练模型成本高昂时才可能发生这种情况：只有在基于地面真实数据的性能下降或检测到显著漂移时，才会重新对新数据进行训练。在这种特殊情况下，确实可以利用新数据来减轻漂移。
+- en: The Feedback Loop
+  id: totrans-84
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 反馈循环
+- en: All effective machine learning projects implement a form of data feedback loop;
+    that is, information from the production environment flows back to the model prototyping
+    environment for further improvement.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有有效的机器学习项目都实施一种形式的数据反馈循环；即，来自生产环境的信息流回模型原型环境以进一步改进。
+- en: One can see in [Figure 7-2](#continuous_delivery_for_end_to_end_mach) that data
+    collected in the monitoring and feedback loop is sent to the model development
+    phase (details about this data are covered in [Chapter 6](ch06.html#deploying_to_production)).
+    From there, the system analyzes whether the model is working as expected. If it
+    is, no action is required. If the model’s performance is degrading, an update
+    will be triggered, either automatically or manually by the data scientist. In
+    practice, as seen at the beginning of this chapter, this usually means either
+    retraining the model with new labeled data or developing a new model with additional
+    features.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图7-2](#continuous_delivery_for_end_to_end_mach)中可以看到，监控和反馈循环中收集的数据被发送到模型开发阶段（有关这些数据的详细信息在[第6章](ch06.html#deploying_to_production)中介绍）。从那里，系统分析模型是否按预期运行。如果是，则无需采取任何行动。如果模型的性能下降，则数据科学家将会自动或手动触发更新。实际上，正如本章开头所述，这通常意味着使用新标记数据重新训练模型或开发具有附加特征的新模型。
+- en: '![](assets/imlo_0702.png)'
+  id: totrans-87
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/imlo_0702.png)'
+- en: Figure 7-2\. Continuous delivery for end-to-end machine learning process
+  id: totrans-88
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-2\. 端到端机器学习过程的持续交付
+- en: 'In either case, the goal is to be able to capture the emerging patterns and
+    make sure that the business is not negatively impacted. This infrastructure is
+    comprised of three main components, which in addition to the concepts discussed
+    in the first part of this chapter, are critical to robust MLOps capabilities:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论哪种情况，目标都是能够捕捉新兴模式，并确保业务不会受到负面影响。这种基础设施由三个主要组件组成，除了本章第一部分讨论的概念外，还对稳健的MLOps能力至关重要：
+- en: A logging system that collects data from several production servers
+  id: totrans-90
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个从几个生产服务器收集数据的日志系统
+- en: A model evaluation store that does versioning and evaluation between different
+    model versions
+  id: totrans-91
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个进行模型版本控制和评估的模型评估存储库
+- en: An online system that does model comparison on production environments, either
+    with the shadow scoring (champion/challenger) setup or with A/B testing
+  id: totrans-92
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在生产环境中进行模型比较的在线系统，无论是使用阴影评分（冠军/挑战者）设置还是A/B测试
+- en: The following sections address each of these components individually, including
+    their purpose, key features, and challenges.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 后续章节将分别讨论每个组件，包括它们的目的、主要特点和挑战。
+- en: Logging
+  id: totrans-94
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 日志记录
+- en: Monitoring a live system, with or without machine learning components, means
+    collecting and aggregating data about its states. Nowadays, as production infrastructures
+    are getting more and more complex, with several models deployed simultaneously
+    across several servers, an effective logging system is more important than ever.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监控生产系统，无论是否带有机器学习组件，意味着收集和聚合关于其状态的数据。如今，随着生产基础设施变得越来越复杂，同时在多个服务器上部署多个模型，一个有效的日志系统比以往任何时候都更加重要。
+- en: Data from these environments needs to be centralized to be analyzed and monitored,
+    either automatically or manually. This will enable continuous improvement of the
+    ML system. An event log of a machine learning system is a record with a timestamp
+    and the following information.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些环境中的数据需要集中存储以便自动或手动分析和监控。这将促使机器学习系统的持续改进。机器学习系统的事件日志是带有时间戳和以下信息的记录。
+- en: Model metadata
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型元数据
+- en: Identification of the model and the version.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型及其版本的识别。
+- en: Model inputs
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型输入
+- en: Feature values of new observations, which allow for verification of whether
+    the new incoming data is what the model was expecting and thus allowing for detection
+    of data drift (as explained in the previous section).
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 新观测的特征值，这些值允许验证新进数据是否符合模型的预期，并因此允许检测数据漂移（如前一节所述）。
+- en: Model outputs
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型输出
+- en: Predictions made by the model that, along with the ground truth collected later
+    on, give a concrete idea about the model performance in a production environment.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型的预测结果，随后与后续收集的真实数据相结合，能够清楚地展示模型在生产环境中的表现。
+- en: System action
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 系统操作
+- en: It’s rare that the model prediction is the end product of a machine learning
+    application; the more common situation is that the system will take an action
+    based on this prediction. For example, in a fraud detection use case, when the
+    model gives high probability, the system can either block the transaction or send
+    a warning to the bank. This type of information is important because it affects
+    the user reaction and thus indirectly affects the feedback data.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型预测很少作为机器学习应用的最终产品；更常见的情况是系统根据此预测采取行动。例如，在欺诈检测用例中，当模型给出高概率时，系统可以选择要么阻止交易，要么向银行发送警告。这类信息很重要，因为它影响用户的反应，从而间接影响反馈数据。
+- en: Model explanation
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型解释。
+- en: In some highly regulated domains such as finance or healthcare, predictions
+    must come with an explanation (i.e., which features have the most influence on
+    the prediction). This kind of information is usually computed with techniques
+    such as Shapley value computation and should be logged to identify potential issues
+    with the model (e.g., bias, overfitting).
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些高度受监管的领域，如金融或医疗保健，预测必须附带解释（即哪些特征对预测影响最大）。这种信息通常通过Shapley值计算等技术来计算，并应记录以识别模型可能存在的问题（例如偏差、过拟合）。
+- en: Model Evaluation
+  id: totrans-107
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型评估。
+- en: 'Once the logging system is in place, it periodically fetches data from the
+    production environment for monitoring. Everything goes well until one day the
+    data drift alert is triggered: the incoming data distribution is drifting away
+    from the training data distribution. It’s possible that the model performance
+    is degrading.'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦日志系统就位，它定期从生产环境中获取数据进行监控。一切顺利，直到某天触发数据漂移警报：传入数据的分布与训练数据的分布偏离。可能是模型性能正在下降。
+- en: 'After review, data scientists decide to improve the model by retraining it,
+    using the techniques described earlier in this chapter. With several trained candidate
+    models, the next step is to compare them with the deployed model. In practice,
+    this means evaluating all the models (the candidates as well as the deployed model)
+    on the same dataset. If one of the candidate models outperforms the deployed model,
+    there are two ways to proceed: either update the model on the production environment
+    or move to an online evaluation via a champion/challenger or A/B testing setup.'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 审查后，数据科学家决定通过重新训练模型来改进它，使用本章前面描述的技术。在有了多个训练好的候选模型后，下一步是将它们与部署模型进行比较。实际上，这意味着对同一数据集评估所有模型（候选模型和部署模型）。如果其中一个候选模型的表现优于部署模型，则有两种继续的方式：要么在生产环境中更新模型，要么转移到通过冠军/挑战者或A/B测试设置进行在线评估。
+- en: 'In a nutshell, this is the notion of model store. It is a structure that allows
+    data scientists to:'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简而言之，这是模型存储的概念。它是一种结构，允许数据科学家：
+- en: Compare multiple, newly trained model versions against existing deployed versions
+  id: totrans-111
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 比较多个新训练的模型版本与现有部署版本。
+- en: Compare completely new models against versions of other models on labeled data
+  id: totrans-112
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在标记数据上比较完全新的模型与其他模型版本。
+- en: Track model performance over time
+  id: totrans-113
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 跟踪模型随时间的表现。
+- en: Formally, the model evaluation store serves as a structure that centralizes
+    the data related to model life cycle to allow comparisons (though note that comparing
+    models makes sense only if they address the same problem). By definition, all
+    these comparisons are grouped under the umbrella of a logical model.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 形式上，模型评估存储作为一个结构，集中存储与模型生命周期相关的数据，以便进行比较（尽管需要注意，仅当模型解决相同问题时，比较才有意义）。从定义上来看，所有这些比较都归结为逻辑模型的大伞下。
+- en: Logical model
+  id: totrans-115
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 逻辑模型。
+- en: 'Building a machine learning application is an iterative process, from deploying
+    to production, monitoring performance, retrieving data, and looking for ways to
+    improve how the system addresses the target problem. There are many ways to iterate,
+    some of which have already been discussed in this chapter, including:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构建机器学习应用是一个迭代的过程，从部署到生产，监控性能，检索数据，并寻找改进系统解决目标问题的方法。有许多迭代的方式，其中一些已经在本章讨论过，包括：
+- en: Retraining the same model on new data
+  id: totrans-117
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用相同数据对同一模型进行再训练。
+- en: Adding new features to the model
+  id: totrans-118
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 向模型添加新特征。
+- en: Developing new algorithms
+  id: totrans-119
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 开发新算法。
+- en: For those reasons, the machine learning model itself is not a static object;
+    it constantly changes with time. It is therefore helpful to have a higher abstraction
+    level to reason about machine learning applications, which is referred to as a
+    *logical model*.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 出于这些原因，机器学习模型本身不是静态的对象；它随着时间不断变化。因此，对于推理机器学习应用程序，具有更高抽象级别是有帮助的，这被称为*逻辑模型*。
+- en: A logical model is a collection of model templates and their versions that aims
+    to solve a business problem. A model version is obtained by training a model template
+    on a given dataset. All versions of model templates of the same logical model
+    can usually be evaluated on the same kinds of datasets (i.e., on datasets with
+    the same feature definition and/or schema); however, this may not be the case
+    if the problem did not change but the features available to solve it did. Model
+    versions could be implemented using completely different technologies, and there
+    could even be several implementations of the same model version (Python, SQL,
+    Java, etc.); regardless, they are supposed to give the same prediction if given
+    the same input.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 逻辑模型是解决业务问题的模型模板及其版本的集合。通过在给定数据集上训练模型模板可以获得模型版本。同一逻辑模型的所有模型模板版本通常可以在相同类型的数据集上进行评估（即在具有相同特征定义和/或架构的数据集上）。但是，如果问题没有改变但用于解决问题的特征发生了变化，则可能不会如此。模型版本可以使用完全不同的技术实现，甚至可以有几种实现同一模型版本的方式（例如Python、SQL、Java等）。然而，如果给定相同的输入，它们应该会给出相同的预测。
+- en: Let’s get back to the wine example introduced earlier in this chapter. Three
+    months after deployment, there is new data about less alcoholic wine. We can retrain
+    our model on the new data, thus obtaining a new model version using the same model
+    template. While investigating the result, we discover new patterns are emerging.
+    We may decide to create new features that capture this information and add it
+    to the model, or we may decide to use another ML algorithm (like deep learning)
+    instead of XGBoost. This would result in a new model template.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们回到本章前面介绍的葡萄酒例子。在部署后的三个月里，关于低酒精葡萄酒的新数据出现了。我们可以在新数据上重新训练我们的模型，从而使用相同的模型模板获得新的模型版本。在调查结果时，我们发现新的模式正在出现。我们可以决定创建捕捉这些信息的新特征并将其添加到模型中，或者我们可以决定使用其他ML算法（如深度学习）而不是XGBoost。这将导致一个新的模型模板。
+- en: 'As a result, our model has two model templates and three versions:'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，我们的模型有两个模型模板和三个版本：
+- en: The first version is live in production, based on the original model template.
+  id: totrans-124
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第一个版本已经在生产环境中上线，基于原始的模型模板。
+- en: The second version is based on the original template, but trained on new data.
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第二个版本基于原始模板，但是在新数据上进行了训练。
+- en: The third version uses the deep learning–based template with additional features
+    and is trained on the same data as the second version.
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第三个版本采用基于深度学习的模板，具有额外的功能，并且是在第二个版本相同的数据上训练的。
+- en: The information about the evaluation of these versions on various datasets (both
+    the test datasets used at training time and the development datasets that may
+    be scored after training) is then stored in the model evaluation store.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些版本在各种数据集上的评估信息（包括训练时使用的测试数据集以及可能在训练后进行评分的开发数据集）随后存储在模型评估存储中。
+- en: Model evaluation store
+  id: totrans-128
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型评估存储
+- en: 'As a reminder, model evaluation stores are structures that centralize the data
+    related to model life cycles to allow comparisons. The two main tasks of a model
+    evaluation store are:'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为提醒，模型评估存储是结构，用于集中与模型生命周期相关的数据，以便进行比较。模型评估存储的两个主要任务是：
+- en: 'Versioning the evolution of a logical model through time. Each logged version
+    of the logical model must come with all the essential information concerning its
+    training phase, including:'
+  id: totrans-130
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过时间对逻辑模型的演变进行版本控制。每个记录的逻辑模型版本必须包含关于其训练阶段的所有必要信息，包括：
+- en: The list of features used
+  id: totrans-131
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用的特征列表
+- en: The preprocessing techniques that are applied to each feature
+  id: totrans-132
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用于每个特征的预处理技术
+- en: The algorithm used, along with the chosen hyperparameters
+  id: totrans-133
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用的算法以及选择的超参数
+- en: The training dataset
+  id: totrans-134
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练数据集
+- en: The test dataset used to evaluate the trained model (this is necessary for the
+    version comparison phase)
+  id: totrans-135
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用于评估训练模型的测试数据集（这对于版本比较阶段是必要的）
+- en: Evaluation metrics
+  id: totrans-136
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 评估指标
+- en: Comparing the performance between different versions of a logical model. To
+    decide which version of a logical model to deploy, all of them (the candidates
+    and the deployed one) must be evaluated on the same dataset.
+  id: totrans-137
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 比较逻辑模型不同版本之间的性能。要决定部署哪个逻辑模型版本，必须对它们（候选模型和已部署模型）在相同数据集上进行评估。
+- en: The choice of dataset to evaluate is crucial. If there is enough new labeled
+    data to give a reliable estimation of the model performance, this is the preferred
+    choice because it is closest to what we are expecting to receive in the production
+    environment. Otherwise, we can use the original test dataset of the deployed model.
+    Assuming that the data has not drifted, this gives us a concrete idea about the
+    performance of the candidate models compared to the original model.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择评估数据集至关重要。如果有足够的新标记数据可以可靠地评估模型的性能，那么这是首选，因为它最接近我们预期在生产环境中接收到的数据。否则，我们可以使用已部署模型的原始测试数据集。假设数据没有漂移，这给我们提供了一个关于候选模型性能与原始模型比较的具体想法。
+- en: After identifying the best candidate model, the job is not yet done. In practice,
+    there is often a substantial discrepancy between the offline and online performance
+    of the models. Therefore, it’s critical to take the testing to the production
+    environment. This online evaluation gives the most truthful feedback about the
+    behavior of the candidate model when facing real data.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在确定最佳候选模型之后，工作还没有结束。实际上，模型的离线和在线表现经常存在显著差异。因此，将测试环境转移到生产环境至关重要。这种在线评估能够最真实地反映候选模型在面对真实数据时的表现。
+- en: Online Evaluation
+  id: totrans-140
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在线评估
+- en: 'Online evaluation of models in production is critical from a business perspective,
+    but can be challenging from a technical perspective. There two main modes of online
+    evaluation:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从业务角度看，生产环境中的模型在线评估至关重要，但从技术角度来看可能具有挑战性。在线评估主要有两种模式：
+- en: Champion/challenger (otherwise known as shadow testing), where the candidate
+    model shadows the deployed model and scores the same live requests
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 冠军/挑战者（又称影子测试），其中候选模型跟随已部署模型并对相同的实时请求进行评分
+- en: A/B testing, where the candidate model scores a portion of the live requests
+    and the deployed model scores the others
+  id: totrans-143
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: A/B 测试，其中候选模型评分部分实时请求，而已部署的模型评分其他请求
+- en: Both cases require ground truth, so the evaluation will necessarily take longer
+    than the lag between prediction and ground truth obtention. In addition, whenever
+    shadow testing is possible, it should be used over A/B testing because it is far
+    simpler to understand and set up, and it detects differences more quickly.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两种情况都需要基本事实支持，因此评估时间肯定比预测与基本事实之间的时间差要长。此外，如果可能进行影子测试，应优先使用它而不是 A/B 测试，因为它更简单理解和设置，并能更快地检测出差异。
+- en: Champion/Challenger
+  id: totrans-145
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 冠军/挑战者
+- en: 'Champion/challenger involves deploying one or several additional models (the
+    challengers) to the production environment. These models receive and score the
+    same incoming requests as the active model (the champion). However, they do not
+    return any response or prediction to the system: that’s still the job of the old
+    model. The predictions are simply logged for further analysis. That’s why this
+    method is also called “shadow testing” or “dark launch.”'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 冠军/挑战者涉及将一个或多个额外模型（挑战者）部署到生产环境中。这些模型接收并评分与活跃模型（冠军）相同的输入请求。然而，它们不会向系统返回任何响应或预测：这仍然是旧模型的任务。预测结果仅被记录以便进一步分析。这也是为什么这种方法被称为“影子测试”或“暗发布”。
+- en: 'This setup allows for two things:'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此设置允许两件事情：
+- en: Verification that the performance of the new models is better than, or at least
+    as good as, the old model. Because the two models are scoring on the same data,
+    there is a direct comparison of their accuracy in the production environment.
+    Note that this could also be done offline by using the new models on the dataset
+    made of new requests scored by the champion model.
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确认新模型的性能优于或至少不逊于旧模型。由于两个模型在相同数据上进行评分，因此可以直接比较它们在生产环境中的准确性。注意，这也可以通过使用新请求数据集上的新模型与冠军模型的离线比较来完成。
+- en: Measurement of how the new models handle realistic load. Because the new models
+    can have new features, new preprocessing techniques, or even a new algorithm,
+    the prediction time for a request won’t be the same as that of the original model,
+    and it is important to have a concrete idea of this change. Of course, this is
+    the main advantage of doing it online.
+  id: totrans-149
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 测量新模型如何处理现实负载。由于新模型可能具有新功能、新的预处理技术，甚至是新的算法，因此对请求的预测时间与原始模型不同，了解这种变化是非常重要的。当然，这是在线执行的主要优势。
+- en: 'The other advantage of this deployment scheme is that the data scientist or
+    the ML engineer is giving visibility to other stakeholders on the future champion
+    model: instead of being locked in the data science environment, the challenger
+    model results are exposed to the business leaders, which decreases the perceived
+    risk to switch to a new model.'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种部署方案的另一个优势是数据科学家或机器学习工程师向其他利益相关者展示了未来冠军模型的可见性：挑战者模型的结果不再局限于数据科学环境，而是向业务领导展示，这降低了切换到新模型的感知风险。
+- en: To be able to compare the champion and the challenger models, the same information
+    must be logged for both, including input data, output data, processing time, etc.
+    This means updating the logging system so that it can differentiate between the
+    two sources of data.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了能够比较冠军和挑战者模型，必须为两者记录相同的信息，包括输入数据、输出数据、处理时间等。这意味着更新记录系统以便能够区分这两个数据源。
+- en: How long should both models be deployed before it’s clear that one is better
+    than the other? Long enough that the metric fluctuations due to randomness are
+    dampened because enough predictions have been made. This can be assessed graphically
+    by checking that the metric estimations are not fluctuating anymore or by doing
+    a proper statistical test (as most metrics are averages of row-wise scores, the
+    most usual test is a paired sample T-test) that yields the probability that the
+    observation that one metric is higher than the other is due to these random fluctuations.
+    The wider the metric difference, the fewer predictions necessary to ensure that
+    the difference is significant.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在清楚哪个模型比另一个更好之前，应部署多长时间？应部署足够长的时间，以便随机性引起的度量波动得以抑制，因为已经进行了足够的预测。可以通过图形方式评估这一点，检查度量估计是否不再波动，或者通过进行适当的统计检验（因为大多数指标是行分数的平均值，最常见的测试是配对样本T检验），该检验能够给出一个概率，即一个指标高于另一个指标的观察是否由这些随机波动引起。度量差异越大，确保差异显著所需的预测次数就越少。
+- en: Depending on the use case and the implementation of the champion/challenger
+    system, server performance can be a concern. If two memory-intensive models are
+    called synchronously, they can slow the system down. This will not only have a
+    negative impact on the user experience but also corrupt the data collected about
+    the functioning of the models.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据使用案例和冠军/挑战者系统的实施方式，服务器性能可能是一个问题。如果同时调用两个内存密集型模型，它们可能会使系统变慢。这不仅会对用户体验产生负面影响，还会损坏关于模型运行情况的收集数据。
+- en: Another concern is communication with the external system. If the two models
+    use an external API to enrich their features, that doubles the number of requests
+    to these services, thus doubling costs. If that API has a caching system in place,
+    then the second request will be processed much faster than the first, which can
+    bias the result when comparing the total prediction time of the two models. Note
+    that the challenger may be used only for a random subset of the incoming requests,
+    which will alleviate the load at the expense of increased time before a conclusion
+    can be drawn.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个关注点是与外部系统的通信。如果两个模型使用外部API来丰富其特性，这将导致向这些服务的请求数量加倍，从而使成本加倍。如果该API有一个缓存系统，那么第二个请求将比第一个请求处理得更快，这可能会在比较两个模型的总预测时间时产生偏差。需要注意的是，挑战者模型可能仅用于随机子集的传入请求，这将减轻负载，但增加了在得出结论之前所需的时间。
+- en: 'Finally, when implementing a challenger model, it’s important to ensure it
+    doesn’t have any influence on the system’s actions. This implies two scenarios:'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，在实施挑战者模型时，重要的是确保它不会对系统的行动产生任何影响。这意味着有两种情况：
+- en: When the challenger model encounters an unexpected issue and fails, the production
+    environment will not experience any discontinuation or degradation in terms of
+    response time.
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当挑战者模型遇到意外问题并失败时，生产环境不会在响应时间方面出现任何中断或降级。
+- en: Actions taken by the system depend only on the prediction of the champion model,
+    and they happen only once. For example, in a fraud detection use case, imagine
+    that by mistake the challenger model is plugged directly into the system, charging
+    each transaction twice—a catastrophic scenario.
+  id: totrans-157
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 系统采取的行动仅依赖于冠军模型的预测，并且只发生一次。例如，在欺诈检测用例中，想象一下如果错误地将挑战者模型直接插入系统中，每笔交易会被收取两次—这是一个灾难性的情况。
+- en: In general, some effort needs to be spent on the logging, monitoring, and serving
+    system to ensure the production environment functions as usual and is not impacted
+    by any issues coming from the challenger model.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，需要花费一些精力在日志记录、监控和服务系统上，以确保生产环境正常运行，并且不受来自挑战者模型的任何问题的影响。
+- en: A/B testing
+  id: totrans-159
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: A/B 测试
+- en: 'A/B testing (a randomized experiment testing two variants, A and B) is a widely
+    used technique in website optimization. For ML models, it should be used only
+    when champion/challenger is not possible. This might happen when:'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: A/B 测试（一种随机实验，测试两种变体 A 和 B）是网站优化中广泛使用的技术。对于 ML 模型，仅当无法使用冠军/挑战者时才应使用它。这可能发生在以下情况下：
+- en: The ground truth cannot be evaluated for both models. For example, for a recommendation
+    engine, the prediction gives a list of items on which a given customer is likely
+    to click if they are presented. Therefore, it is impossible to know if the customer
+    would have clicked if an item was not presented. In this case, some kind of A/B
+    testing will have to be done, in which some customers will be shown the recommendations
+    of model A, and some the recommendations of model B. Similarly, for a fraud detection
+    model, because heavy work is needed to obtain the ground truth, it may not be
+    possible to do so for the positive predictions of two models; it would increase
+    the workload too much, because some frauds are detected by only one model. As
+    a result, randomly applying only the B model to a small fraction of the requests
+    will allow the workload to remain constant.
+  id: totrans-161
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于两种模型，无法评估真实情况。例如，对于推荐引擎，预测会给出客户可能点击的商品列表，如果它们被呈现给客户。因此，无法确定如果没有呈现商品，客户是否会点击。在这种情况下，需要进行某种形式的
+    A/B 测试，其中一些客户将看到模型 A 的推荐，另一些客户将看到模型 B 的推荐。同样地，对于欺诈检测模型，因为需要大量工作来获取真实情况，可能无法对两个模型的正面预测进行评估；这将增加工作量太多，因为一些欺诈仅被一个模型检测到。因此，随机应用仅
+    B 模型到一小部分请求将使工作量保持恒定。
+- en: The objective to optimize is only indirectly related to the performance of the
+    prediction. Imagine an ad engine based on an ML model that predicts if a user
+    will click on the ad. Now imagine that it is evaluated on the buy rate, i.e.,
+    whether the user bought the product or service. Once again, it is not possible
+    to record the reaction of the user for two different models, so in this case,
+    A/B testing is the only way.
+  id: totrans-162
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 优化的目标仅间接与预测性能相关。想象一下基于 ML 模型的广告引擎，它预测用户是否会点击广告。现在想象一下，它是根据购买率来评估的，即用户是否购买了产品或服务。再次地，无法记录用户对两种不同模型的反应，因此在这种情况下，A/B
+    测试是唯一的方式。
+- en: Entire books are dedicated to A/B testing, so this section presents only its
+    main idea and a simple walkthrough. Unlike the champion/challenger framework,
+    with A/B testing, the candidate model returns predictions for certain requests,
+    and the original model handles the other requests. Once the test period is over,
+    statistical tests compare the performance of the two models, and teams can make
+    a decision based on the statistical significance of those tests.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有些书籍专门讨论 A/B 测试，因此本节只介绍其主要思想和简单步骤。与冠军/挑战者框架不同，使用 A/B 测试时，候选模型为某些请求返回预测，原始模型处理其他请求。测试期结束后，统计测试比较两个模型的性能，团队可以根据这些测试的统计显著性做出决策。
+- en: In an MLOps context, some considerations need to be made. A walkthrough of these
+    considerations is presented in [Table 7-1](#table_seven_two).
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 MLOps 环境中，需要考虑一些因素。这些考虑因素的详细介绍在 [表 7-1](#table_seven_two) 中提供。
+- en: Table 7-1\. Considerations for A/B testing in MLOps
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 7-1\. MLOps 中进行 A/B 测试的考虑因素
+- en: '| Stage | MLOps consideration |'
+  id: totrans-166
+  prefs: []
+  type: TYPE_TB
+  zh: '| 阶段 | MLOps 考虑因素 |'
+- en: '| --- | --- |'
+  id: totrans-167
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| Before the A/B test | Define a clear goal: A quantitative business metric
+    that needs to be optimized, such as click-through rate.Define a precise population:
+    Carefully choose a segment for the test along with a splitting strategy that assures
+    no bias between groups. (This is the so-called experimental design or randomized
+    control trial that’s been popularized by drug studies.) This may be a random split,
+    or it may be more complex. For example, the situation might dictate that all the
+    requests of a particular customer are handled by the same model.Define the statistical
+    protocol: The resulting metrics are compared using statistical tests, and the
+    null hypothesis is either rejected or retained. To make the conclusion robust,
+    teams need to define beforehand the sample size for the desired minimum effect
+    size, which is the minimum difference between the two models’ performance metrics.
+    Teams must also fix a test duration (or alternatively have a method to handle
+    multiple tests). Note that with similar sample sizes, the power to detect meaningful
+    differences will be lower than with champion/challenger because unpaired sample
+    tests have to be used. (It is usually impossible to match each request scored
+    with model B to a request scored with model A, whereas with champion/challenger,
+    this is trivial.) |'
+  id: totrans-168
+  prefs: []
+  type: TYPE_TB
+  zh: '| A/B 测试之前 | 确定一个明确的目标：需要优化的量化业务指标，如点击率。定义精确的人群：仔细选择测试的细分及分组策略，以确保群组之间没有偏见。（这就是被药物研究推广的实验设计或随机对照试验。）这可能是一个随机分割，也可能更复杂。例如，情况可能要求特定客户的所有请求由同一个模型处理。定义统计协议：使用统计测试比较结果指标，并接受或拒绝零假设。为了使结论更加健壮，团队需要事先定义所需的最小效果大小的样本量，即两个模型性能指标之间的最小差异。团队还必须固定测试持续时间（或者采用处理多个测试的方法）。请注意，与冠军/挑战者相似的样本大小将无法使用成对样本测试来检测有意义的差异，因为必须使用未配对样本测试。（通常情况下，不可能将每个由模型
+    B 评分的请求与模型 A 评分的请求配对，而冠军/挑战者则很简单。） |'
+- en: '| During the A/B test | It is important not to stop the experiment before the
+    test duration is over, even if the statistical test starts to return a significant
+    metric difference. This practice (also called p-hacking) produces unreliable and
+    biased results due to cherry-picking the desired outcome. |'
+  id: totrans-169
+  prefs: []
+  type: TYPE_TB
+  zh: '| 在 A/B 测试期间 | 很重要的一点是在测试时间结束之前不要停止实验，即使统计测试开始显示显著的指标差异。这种做法（也称为 p-hacking）由于挑选期望的结果而产生不可靠和有偏见的结果。
+    |'
+- en: '| After the A/B test | Once the test duration is over, check the collected
+    data to make sure the quality is good. From there, run the statistical tests;
+    if the metric difference is statistically significant in favor of the candidate
+    model, the original model can be replaced with the new version. |'
+  id: totrans-170
+  prefs: []
+  type: TYPE_TB
+  zh: '| A/B 测试后 | 一旦测试时间结束，检查收集的数据确保质量良好。从这里开始，运行统计测试；如果指标差异在倾向于候选模型的统计学意义上显著，则可以用新版本替换原模型。
+    |'
+- en: Closing Thoughts
+  id: totrans-171
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结思考
+- en: Ordinary software is built to satisfy specifications. Once an application is
+    deployed, its ability to fulfill its objective does not degrade. ML models, by
+    contrast, have objectives statistically defined by their performance on a given
+    dataset. As a result, their performance changes, usually for the worse, when the
+    statistical properties of the data change.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 普通软件被构建来满足规范。一旦应用部署，其完成目标的能力不会降低。相比之下，机器学习模型的目标是根据其在给定数据集上的性能统计性定义的。因此，当数据的统计特性发生变化时，它们的性能通常会变差。
+- en: In addition to ordinary software maintenance needs (bug correction, release
+    upgrades, etc.), this performance drift has to be carefully monitored. We have
+    seen that performance monitoring based on the ground truth is the cornerstone,
+    while drift monitoring can provide early warning signals. Among possible drift
+    mitigation measures, the workhorse is definitely retraining on new data, while
+    model modification remains an option. Once a new model is ready to be deployed,
+    its improved performance can be validated thanks to shadow scoring or, as a second
+    choice, A/B testing. This enables proving that the new model is better in order
+    to improve the performance of the system.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了普通软件维护需求（错误修正，发布升级等），必须仔细监控性能漂移。我们已经看到，基于实际情况的性能监控是基石，而漂移监控可以提供早期警告信号。在可能的漂移缓解措施中，主要的工作马是在新数据上重新训练，而模型修改则是一个选项。一旦新模型准备部署，可以通过阴影评分或作为第二选择的
+    A/B 测试验证其改进的性能。这使得证明新模型更好以提高系统性能成为可能。
+- en: ^([1](ch07.html#ch01fn7-marker)) It is also advisable to assess the drift between
+    the training and the test dataset, especially when the test dataset is posterior
+    to the training dataset. See [“Choosing Evaluation Metrics”](ch04.html#choosing_evaluation_metrics)
+    for details.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch07.html#ch01fn7-marker)) 在评估训练数据集和测试数据集之间的偏移时，特别是当测试数据集在训练数据集之后时，评估漂移是明智的。详细信息请参见[“选择评估指标”](ch04.html#choosing_evaluation_metrics)。

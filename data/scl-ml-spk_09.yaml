@@ -1,0 +1,2432 @@
+- en: Chapter 9\. PyTorch Distributed Machine Learning Approach
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第9章。PyTorch分布式机器学习方法
+- en: PyTorch is an open source machine learning library developed by Facebook’s AI
+    Research (FAIR) team and later donated to the Linux Foundation. It was designed
+    to simplify the creation of artificial neural networks and enable applications
+    such as computer vision, natural language processing, and more. The primary interface
+    to PyTorch is Python, but it’s built on low-level C and C++ code. This is a very
+    different approach from Spark, which uses Scala and Java (JVM-based programming
+    languages) at its core.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch是由Facebook的人工智能研究（FAIR）团队开发的开源机器学习库，后来捐赠给了Linux基金会。它旨在简化人工神经网络的创建，并支持计算机视觉、自然语言处理等应用。PyTorch的主要接口是Python，但其底层是基于C和C++的代码。这与Spark大不相同，Spark的核心是Scala和Java（基于JVM的编程语言）。
+- en: In the previous chapters, you’ve learned about the building blocks of the machine
+    learning workflow. We started with Spark, then expanded to explore TensorFlow’s
+    distributed training capabilities. In this chapter, we will turn our attention
+    to PyTorch. The goal is to help you better understand what PyTorch is and how
+    its distributed machine learning training works, from an architectural and conceptual
+    perspective, so you can make better decisions when combining multiple frameworks
+    together in a distributed setting.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前几章，你已经了解了机器学习工作流的构建模块。我们从Spark开始，然后扩展到探索TensorFlow的分布式训练能力。在本章中，我们将把注意力转向PyTorch。我们的目标是帮助你更好地理解PyTorch是什么以及其分布式机器学习训练如何工作，从架构和概念的角度，以便你在分布式环境中结合多个框架时能做出更好的决策。
+- en: We will also go through a step-by-step example of working with distributed PyTorch
+    while leveraging the previous work we did with Spark in Chapters [4](ch04.xhtml#data_ingestioncomma_preprocessingcomma)
+    and [5](ch05.xhtml#feature_engineering) and Petastorm in [Chapter 7](ch07.xhtml#bridging_spark_and_deep_learning_framew).
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '我们还将逐步介绍如何在分布式PyTorch中使用之前在第 [4](ch04.xhtml#data_ingestioncomma_preprocessingcomma)
+    章和第 [5](ch05.xhtml#feature_engineering) 章中与Spark以及在第 [7](ch07.xhtml#bridging_spark_and_deep_learning_framew)
+    章中与Petastorm所做的工作。 '
+- en: 'This chapter covers the following:'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖以下内容：
+- en: A quick overview of PyTorch basics
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: PyTorch基础知识快速概述
+- en: PyTorch distributed strategies for training models
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: PyTorch分布式训练模型的策略
+- en: How to load Parquet data into PyTorch
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何将Parquet数据加载到PyTorch中
+- en: Putting it all together—from Petastorm to a model with PyTorch
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将所有内容整合在一起——从Petastorm到PyTorch模型
+- en: Troubleshooting guidance for working with Petastorm and distributed PyTorch
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与Petastorm和分布式PyTorch一起工作的故障排除指南
+- en: How PyTorch differs from TensorFlow
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: PyTorch与TensorFlow的不同之处
+- en: Note
+  id: totrans-11
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If you’re new to PyTorch, I suggest that you first read an introductory text
+    like Joe Papa’s [*PyTorch Pocket Reference*](https://oreil.ly/pytorch-pr) (O’Reilly).
+    This chapter provides a quick overview of the basics; it will mostly focus on
+    the distributed training strategies and how to connect PyTorch with Spark.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你是PyTorch的新手，我建议你首先阅读像Joe Papa的[*PyTorch Pocket Reference*](https://oreil.ly/pytorch-pr)（O’Reilly）这样的入门文本。本章节快速概述了基础知识；重点主要放在分布式训练策略上以及如何将PyTorch与Spark连接起来。
+- en: A Quick Overview of PyTorch Basics
+  id: totrans-13
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: PyTorch基础知识快速概述
+- en: You’ve learned about a lot of technological concepts in this book, and it is
+    important that you use the right terminology for the tool at hand and that you
+    understand the differences between the various machine learning frameworks. If
+    you are new to PyTorch and want to familiarize yourself with its terminology,
+    this section is for you. While many naming conventions are the same, some are
+    entirely different. This section will highlight some of the key terms and concepts
+    in PyTorch, starting with its computation graph.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书中，你学到了很多技术概念，重要的是你要为手头的工具使用正确的术语，并理解各种机器学习框架之间的区别。如果你是PyTorch的新手，并希望熟悉其术语，本节适合你。虽然许多命名约定相同，但有些完全不同。本节将突出一些PyTorch中的关键术语和概念，从其计算图开始。
+- en: Computation Graph
+  id: totrans-15
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 计算图
+- en: Like TensorFlow and Spark, PyTorch uses a computation graph. An example is shown
+    in [Figure 9-1](#example_of_a_computation_graph_extended); as you can see, it
+    emphasizes forward computation through the neural network itself while supporting
+    the backward computation of gradients during the training runs.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 像TensorFlow和Spark一样，PyTorch使用计算图。示例显示在 [Figure 9-1](#example_of_a_computation_graph_extended)
+    中；正如你所见，它强调通过神经网络本身的前向计算，同时在训练运行期间支持反向计算梯度。
+- en: In this figure, the circles (*x1*, *x2*, etc.) represent *tensors*, and the
+    rectangles represent the *operations* on the data, like *Log*, *Sin*, and ***
+    (used for multiplication). The graph computation starts from the bottom left,
+    by calculating *x1* * *x2*—an operation that generates a tensor, *a*. During this
+    operation, the graph also saves information for the future backward-multiplication
+    gradient operation (called *MultBackward* in [Figure 9-1](#example_of_a_computation_graph_extended)).
+    This information will later support the backward propagation of loss (as a reminder,
+    in a neural network, the algorithm uses this information to calculate the delta
+    over the graph and improve the training process). PyTorch computes the gradients
+    with respect to the inputs by using a process called *automatic differentiation*,
+    and the computation graph is executed by the automatic differentiation engine.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个图中，圆圈（*x1*、*x2*等）表示*张量*，矩形表示数据上的*操作*，如*Log*、*Sin*和**（用于乘法）。图的计算从左下角开始，通过计算*x1*
+    * *x2*——生成张量*a*的操作。在此操作期间，图还保存了未来的反向乘法梯度操作的信息（在[图 9-1](#example_of_a_computation_graph_extended)中称为*MultBackward*）。此信息稍后将支持损失的反向传播（作为提醒，在神经网络中，算法使用此信息计算图上的增量并改进训练过程）。PyTorch通过自动求导过程计算相对于输入的梯度，并由自动求导引擎执行计算图。
+- en: '![](assets/smls_0901.png)'
+  id: totrans-18
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0901.png)'
+- en: Figure 9-1\. Example of a computation graph extended with the backward pass
+    (from the [PyTorch blog](https://oreil.ly/9WnNf))
+  id: totrans-19
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-1\. 带有反向传递的计算图示例（来自[PyTorch博客](https://oreil.ly/9WnNf))
+- en: '[Figure 9-2](#breaking_down_the_forward_computation_a) shows a subset of the
+    computation graph, focusing on the forward computation alone.'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 9-2](#breaking_down_the_forward_computation_a)展示了计算图的一个子集，重点是仅向前计算。'
+- en: '![](assets/smls_0902.png)'
+  id: totrans-21
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0902.png)'
+- en: Figure 9-2\. Breaking down the forward computation approach
+  id: totrans-22
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-2\. 解析向前计算方法
+- en: We multiply *x1* and *x2*, which yields the value *a*. We then run another operation
+    on that value (*Log*(*a*)), and so on. Since this is a subset of the neural network,
+    we know that there will be a backward propagation pass to adjust the values of
+    the weights and train the model. [Figure 9-3](#the_graph_supports_forward_and_backward)
+    shows the mechanism of maintaining the delta value the algorithm needs for backward
+    propagation.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们对*x1*和*x2*进行乘法运算，得到值*a*。然后我们对该值运行另一个操作（*Log*(*a*)），依此类推。由于这是神经网络的一个子集，我们知道将会有一个反向传播过程来调整权重的值并训练模型。[图 9-3](#the_graph_supports_forward_and_backward)展示了维护反向传播所需的增量值的机制。
+- en: '![](assets/smls_0903.png)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0903.png)'
+- en: Figure 9-3\. The graph supports forward and backward computation
+  id: totrans-25
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-3\. 图支持向前和向后计算
+- en: On every forward iteration, there is a process calculating the differentiation
+    for the backward iteration that will come. In other words, PyTorch’s automatic
+    differentiation engine calculates the gradients automatically before the backward
+    computation even starts.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在每次向前迭代中，都有一个计算梯度以供将来向后迭代使用的过程。换句话说，PyTorch的自动求导引擎在后向计算开始前自动计算梯度。
+- en: Note that in PyTorch, the computation graph is *dynamic*, compared to in TensorFlow,
+    where graph construction is *static*. With the static approach, the program constructs
+    the graph first and executes it only once it is complete. With the dynamic approach,
+    the graph is built at runtime, and execution starts before the graph is completed;
+    the program builds the computation graph on the fly as needed.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在PyTorch中，与TensorFlow不同，计算图是*动态*的，TensorFlow中计算图是*静态*的。在静态方法中，程序首先构建图，只有在完成后才执行。动态方法中，图是在运行时构建的，执行开始前即使图未完成；程序根据需要动态构建计算图。
+- en: PyTorch Mechanics and Concepts
+  id: totrans-28
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: PyTorch 机制与概念
+- en: 'These are the basic concepts that you should be familiar with when working
+    with PyTorch, to understand its neural network implementations and how it interprets
+    the computation graph:'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些是在使用PyTorch时应熟悉的基本概念，以理解其神经网络实现及其如何解释计算图：
+- en: '`torch.Tensor`'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`torch.Tensor`'
+- en: PyTorch tensors are similar to TF tensors; they are multidimensional matrices
+    that contain scalar types such as `float`, `int`, etc. The types can be NumPy
+    types, optimized for CPUs or GPUs. Tensors also have a *stride*, which represents
+    the step size in memory the machine needs to reach the next successive array element
+    in the physical memory. Think about a matrix representation in memory; how many
+    bits do we need to read to reach the next value in it? This is the stride. A tensor’s
+    stride depends on its physical representation, which is conditioned by the machine’s
+    configuration (hardware, memory, etc.—for example, a GPU would behave differently
+    than a CPU).
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch 张量类似于 TF 张量；它们是包含标量类型（如 `float`、`int` 等）的多维矩阵。类型可以是 NumPy 类型，优化用于 CPU
+    或 GPU。张量还有一个*步幅*，表示机器在内存中达到下一个连续数组元素所需的步长。想象一下在内存中的矩阵表示；为了到达下一个值，机器需要读取多少位？这就是步幅。张量的步幅取决于其物理表示，由机器的配置（硬件、内存等）决定（例如，GPU
+    的行为与 CPU 不同）。
+- en: '`torch.autograd`'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`torch.autograd`'
+- en: 'Autograd is PyTorch’s built-in automatic differentiation engine. When you declare
+    tensors with `requires_grad=True`, it collects the input and output gradients
+    of every operation on the tensors. Later, the PyTorch engine uses this information
+    during the automatic calculation of gradients in a backward propagation pass.
+    In other words, the autograd graph is constructed during forward computation and
+    used during backward computation. To understand this better, take a look at the
+    following Python code snippet showing local training before moving to distributed
+    training:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自动求导是 PyTorch 内置的自动微分引擎。当你声明张量时，若设置 `requires_grad=True`，它会收集张量上每个操作的输入和输出梯度。之后，PyTorch
+    引擎在反向传播过程中利用这些信息自动计算梯度。换句话说，autograd 图在前向计算时构建，在反向计算时使用。为了更好地理解，可以看下面的 Python
+    代码片段，展示了从本地训练到分布式训练的过渡：
+- en: '[PRE0]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: '[![1](assets/1.png)](#comarker1_9_1)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#comarker1_9_1)'
+- en: 'First, we create a linear layer using the following math equation: *y* = *x*
+    * *A^T* + *b*. The input, `(10, 10)`, means that the layer expects 10 input features
+    and outputs 10 features as well. Internally, there are two functions: the first
+    one is the multiplier (*x* * *A^T*), and the second one is the bias function (+
+    *b*).'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们使用以下数学公式创建线性层：*y* = *x* * *A^T* + *b*。输入 `(10, 10)` 表示该层期望有 10 个输入特征，同时输出
+    10 个特征。在内部，有两个函数：第一个是乘法器 (*x* * *A^T*)，第二个是偏置函数 (+ *b*)。
+- en: '[![2](assets/2.png)](#comarker2_9_1)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#comarker2_9_1)'
+- en: Next, we generate dummy input and dummy label/target tensors with a given size
+    of 20 by 10.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们生成给定大小为 20×10 的虚拟输入和虚拟标签/目标张量。
+- en: '[![3](assets/3.png)](#comarker3_9_1)'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#comarker3_9_1)'
+- en: 'Now we apply the linear model over the input to generate the output. During
+    its execution, PyTorch builds the autograd graph implicitly. Autograd records
+    the input and the output (*y*) of the function, which it saves for calculating
+    the gradient. Since the linear model consists of two operations, it will record
+    both. That is, it will create two nodes: one for the multiplier, which will store
+    the input (*x*) and weight (*A^T*) of the operation, and one for the bias, which
+    stores the output of the multiplication process (*x* * *A^T*) and the bias.'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们应用线性模型到输入上生成输出。在执行过程中，PyTorch 隐式构建 autograd 图。Autograd 记录函数的输入和输出 (*y*)，用于计算梯度。由于线性模型由两个操作组成，它将记录两个节点：一个用于乘法器，存储操作的输入
+    (*x*) 和权重 (*A^T*)，另一个用于偏置，存储乘法过程的输出 (*x* * *A^T*) 和偏置。
+- en: '[![3](assets/4.png)](#comarker4_9_1)'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/4.png)](#comarker4_9_1)'
+- en: We use the MSE (mean squared error) loss function to compute the error and the
+    difference between the output and the expected target label/output.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用 MSE（均方误差）损失函数计算输出与期望目标标签/输出之间的误差。
+- en: '[![4](assets/5.png)](#comarker5_9_1)'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](assets/5.png)](#comarker5_9_1)'
+- en: Finally, we call `backward` on the loss tensor, which traverses the autograd
+    graph built during the forward pass to compute the gradients for each parameter.
+    After that, all the `Parameter` instances in the model will have a `graph_view`
+    parameter that stores the gradients computed during the backward pass. The next
+    layer could be, for example, an optimizer; it will reference the parameters calculated
+    previously and apply the gradients to them. This operation will update the parameters’
+    values to correct them and reduce the loss. (This concept exists in TensorFlow
+    as well, but it’s not a main feature of that framework and requires much tweaking.)
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们对损失张量调用`backward`，它遍历了在前向传播期间构建的自动求导图，为每个参数计算梯度。之后，模型中的所有`Parameter`实例都将有一个`graph_view`参数，用于存储在反向传播期间计算的梯度。接下来的层可能是优化器；它将引用先前计算的参数，并将梯度应用于它们。此操作将更新参数的值以修正它们并减少损失。（这个概念在TensorFlow中也存在，但不是该框架的主要特性，并且需要进行大量调整。）
+- en: '`AutogradMeta`'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`AutogradMeta`'
+- en: 'This  is the object that holds the metadata that is generated to support the
+    backward pass through the autograd graph. It is defined in PyTorch C++ source
+    code as follows:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个对象保存了为支持自动求导图中的反向传播生成的元数据。它在PyTorch的C++源代码中定义如下：
+- en: '[PRE1]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: AutogradMeta holds a C++ shared pointer instance named `grad_fn_`. This is a
+    function to calculate the actual gradient. There is also a C++ weak pointer instance
+    named `grad_accumulator_` that, when available, accumulates gradients.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`AutogradMeta`包含一个名为`grad_fn_`的C++共享指针实例，用于计算实际梯度。还有一个名为`grad_accumulator_`的C++弱指针实例，当可用时会累积梯度。'
+- en: '`Variable`'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Variable`'
+- en: A `Variable` in PyTorch is a wrapper around a tensor that encapsulates additional
+    information, such as the `AutogradMeta` object, the tensor’s value, and the gradient.
+    From a computation graph point of view, `Variable`s are represented as nodes in
+    the graph.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在PyTorch中，`Variable`是围绕张量的一个包装器，它封装了额外的信息，例如`AutogradMeta`对象、张量的值和梯度。从计算图的角度看，`Variable`在图中表示为节点。
+- en: '`torch.layout`'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`torch.layout`'
+- en: This object represents how the tensor memory is structured, dense or sparse,
+    according to the tensor’s requirements.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此对象表示张量内存的结构方式，根据张量的要求，可以是密集的或稀疏的。
+- en: '`torch.mm`'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`torch.mm`'
+- en: This is a function that performs a matrix multiplication on two input matrices/tensors.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个在两个输入矩阵/张量上执行矩阵乘法的函数。
+- en: '`torch.utils.data.DataLoader`'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`torch.utils.data.DataLoader`'
+- en: A data loader in PyTorch iterates over the dataset and generates batches of
+    data to train the model on one machine. In [“Loading Data with PyTorch and Petastorm”](#loading_data_with_pytorch_and_petastorm),
+    you will see how Petastorm works with the PyTorch data loader.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch中的数据加载器遍历数据集并生成数据批次，以在一台机器上训练模型。在[“使用PyTorch和Petastorm加载数据”](#loading_data_with_pytorch_and_petastorm)中，您将了解Petastorm如何与PyTorch数据加载器配合使用。
+- en: '`torch.optim.Optimizer`'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`torch.optim.Optimizer`'
+- en: 'PyTorch’s `torch.optim` package implements several optimization algorithms.
+    The optimizer’s goal is similar to that of all algorithms in machine learning:
+    reducing the loss and improving accuracy. In a neural network, this involves adjusting
+    the node weights and learning rate. Every PyTorch optimizer has a `state_dict`
+    method that returns a `dict` containing information about the optimizer’s state,
+    including the parameters it needs to optimize and the model’s hyperparameters.'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch的`torch.optim`包实现了多种优化算法。优化器的目标与机器学习中的所有算法相似：降低损失并提高准确性。在神经网络中，这涉及调整节点权重和学习率。每个PyTorch优化器都有一个`state_dict`方法，返回一个包含有关优化器状态的`dict`，包括需要优化的参数和模型的超参数。
+- en: Note
+  id: totrans-59
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: As a quick reminder, model parameters are calculated automatically from training
+    data, while model hyperparameters are set manually and used in the processes of
+    calculating model parameters. Hyperparameters don’t change during the training
+    process; parameters do change and are impacted by the algorithm and the hyperparameters.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为快速提醒，模型参数是从训练数据中自动计算的，而模型超参数是手动设置的，并在计算模型参数的过程中使用。超参数在训练过程中不会更改；参数会随着算法和超参数的影响而改变。
+- en: Autograd collects information about the operations in the graph to optimize
+    the neural network during the backward computation. It doesn’t perform the optimizations
+    immediately, during the forward pass; the optimized parameters are synchronized
+    during the loss computation step of a backward pass (see the previous code snippet
+    for details). The reason for this is that backward propagation is more expensive
+    in terms of network communication.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Autograd收集有关图中操作的信息，在向后计算期间优化神经网络。它不会在前向传递期间立即执行优化，而是在向后传递的损失计算步骤期间同步优化参数（有关详细信息，请参见前面的代码片段）。这是因为在网络通信方面，向后传播更昂贵。
+- en: 'In this step, PyTorch calculates the gradients incrementally, which provides
+    a good opportunity to calculate the parameters as well and, by doing so, avoid
+    another run of expensive communication (more on that in the next section). Later,
+    to update the parameters, we need to explicitly call `step` on the `optimizer`.
+    The following code snippet demonstrates calculating the loss and later running
+    the optimizer step to update the parameters:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一步中，PyTorch会逐步计算梯度，这为计算参数提供了一个良好的机会，通过这样做，避免了另一次昂贵的通信运行（更多详情请见下一节）。稍后，为了更新参数，我们需要明确调用`optimizer`的`step`。以下代码片段展示了计算损失以及后续运行优化器步骤更新参数的过程：
+- en: '[PRE2]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Depending on the type of optimizer you are using, you may need to provide it
+    with other inputs.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据您使用的优化器类型，您可能需要提供其他输入。
+- en: PyTorch Distributed Strategies for Training Models
+  id: totrans-65
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: PyTorch用于训练模型的分布式策略
+- en: The nice thing about PyTorch is that it enables an application to grow gradually
+    from simple to complex, running on one machine when you have a prototype and scaling
+    to multiple machines in the production or staging/development environment as necessary.
+    The `torch.distributed` package provides a set of PyTorch features that allow
+    training of machine learning models across machines (i.e., distributed data-parallel
+    training).
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch的好处在于它能让应用从简单到复杂逐步增长，在你有原型时在一台机器上运行，并根据需要在生产或暂存/开发环境中扩展到多台机器。`torch.distributed`包提供了一组PyTorch功能，允许跨多台机器（即分布式数据并行训练）训练机器学习模型。
+- en: 'Let’s start with a story. In 2020, Shen Li, a FAIR researcher, decided to investigate
+    how to accelerate data-parallel training with PyTorch. He and his team conducted
+    [research](https://oreil.ly/UjGcR) to examine multiple configurations, experimenting
+    with optimizers, parameters, etc. This led them to an interesting conclusion—in
+    the distributed data-parallel (DDP) training world, there are no one-size-fits-all
+    solutions:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从一个故事开始。2020年，FAIR研究员沈黎决定研究如何加速使用PyTorch的数据并行训练。他和他的团队进行了[研究](https://oreil.ly/UjGcR)，以检查多种配置，试验优化器、参数等。这使他们得出一个有趣的结论——在分布式数据并行（DDP）训练领域，没有一种大小适合所有的解决方案：
+- en: There are various techniques to improve its speed, creating a complex configuration
+    space. Based on our observations, there is no single configuration that would
+    work for all use cases, as it would highly depend on the model size, model structure,
+    network link bandwidth, etc.
+  id: totrans-68
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 有多种技术可以提高其速度，创建一个复杂的配置空间。根据我们的观察，没有单一的配置适用于所有用例，因为这高度依赖于模型大小、模型结构、网络链接带宽等。
+- en: Now that you understand the landscape a little better, this section will provide
+    some guidance that you can use to make decisions and familiarize yourself with
+    different PyTorch abstractions. You will learn about the various distributed strategies
+    from a procedural and process communication standpoint, which will add to your
+    machine learning training toolkit.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您对这个领域有了更好的理解，本节将提供一些指导，您可以用来做出决策，并熟悉不同的PyTorch抽象。您将从过程和进程通信的角度了解各种分布式策略，这将增加您的机器学习训练工具包。
+- en: Introduction to PyTorch’s Distributed Approach
+  id: totrans-70
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: PyTorch的分布式方法介绍
+- en: PyTorch’s base library for all things distributed is `torch.distributed`. It
+    handles all the aspects of distributed communication from a hardware and networking
+    perspective, such as InfiniBand interconnect for GPUs/CPUs. In any distributed
+    system, hardware is the base, and you should optimize the application to match
+    the hardware. `torch.distributed` allows you to do this regardless of the specifics
+    of the setup you’re working with.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch的分布式基础库是`torch.distributed`，它处理来自硬件和网络视角的分布式通信的所有方面，例如用于GPU/CPU的InfiniBand互连。在任何分布式系统中，硬件是基础，你应该优化应用程序以匹配硬件。`torch.distributed`允许你做到这一点，无论你正在使用的设置的具体细节如何。
+- en: 'We can categorize the features in `torch.distributed` into three main components:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将`torch.distributed`中的功能分为三个主要组件：
+- en: Distributed data-parallel training (DDP)
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式数据并行训练（DDP）
+- en: PyTorch’s `DistributedDataParallel` class implements distributed data parallelism
+    based on the `torch.distributed` package at the module level. How are the two
+    different, and why do we need both? That’s a good question. The short answer is
+    that `DistributedDataParallel` handles only the application itself—the training
+    of the algorithms at the application level—while `torch.distributed` handles hardware.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch的`DistributedDataParallel`类基于模块级别的`torch.distributed`包实现了分布式数据并行。这两者有什么不同，为什么我们需要同时使用？这是一个很好的问题。简短的答案是，`DistributedDataParallel`仅处理应用本身——即应用级别算法的训练，而`torch.distributed`处理硬件层面。
+- en: As part of DDP, PyTorch introduces multiple abstractions that will be covered
+    in the following section.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为DDP的一部分，PyTorch引入了多个抽象概念，将在下一节中介绍。
+- en: RPC-based distributed training (RPC)
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于RPC的分布式训练（RPC）
+- en: PyTorch’s distributed RPC framework (`torch.distributed.rpc`) supports the training
+    process at a higher level and provides mechanisms to enable remote communication
+    between machines. It enables functionality such as distributed pipeline parallelism,
+    a parameter server paradigm (similar to TensorFlow’s, discussed in [Chapter 8](ch08.xhtml#tensorflow_distributed_ml_approach)),
+    and more. It also provides a distributed autograd framework for model-parallel
+    training.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch的分布式RPC框架（`torch.distributed.rpc`）支持更高级别的训练过程，并提供机制来实现机器之间的远程通信。它支持诸如分布式管道并行、参数服务器范式（类似于TensorFlow中讨论的第8章）等功能。它还为模型并行训练提供了分布式自动求导框架。
+- en: Collective Communication (c10d)
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集体通信（c10d）
+- en: This library  provides additional functionality that expands the communication
+    structure and supports sending tensors across processes within a group. It provides
+    APIs for collective and peer-to-peer communication, such as `all_reduce`, `all_gather`,
+    `send`, and `isend`. The DDP and RPC frameworks are built on top of it. As developers,
+    we rarely interact with this library, but it is good practice to familiarize yourself
+    with the concepts.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该库提供了扩展通信结构并支持在组内跨进程发送张量的额外功能。它提供了集体和点对点通信的API，如`all_reduce`、`all_gather`、`send`和`isend`。DDP和RPC框架都是在其之上构建的。作为开发者，我们很少与这个库交互，但熟悉这些概念是一种良好的实践。
+- en: 'As a last step, after deciding which of these strategies to use and implementing
+    it, you will initialize the distributed environment by calling the initialization
+    method:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在决定使用哪种策略并实施后的最后一步，您将通过调用初始化方法来初始化分布式环境：
+- en: '[PRE3]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: We’ll take a closer look at each of these approaches in the following sections.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在接下来的几节中更详细地研究这些方法。
+- en: Distributed Data-Parallel Training
+  id: totrans-83
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 分布式数据并行训练
+- en: As part of DDP, PyTorch introduces multiple abstractions that will be covered
+    throughout this section. We’ll start with buckets.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为DDP的一部分，PyTorch引入了多个抽象概念，将在本节中介绍。我们将从buckets开始。
+- en: Instead of looking at a specific neural network layer, PyTorch divides the communication
+    into *buckets*. A bucket holds the indices of where each value in the `input`
+    belongs. The bucket boundaries are set by a tensor instance called `boundaries`.
+    As shown in [Figure 9-4](#pytorch_abstraction_of_layers_in_bucket), buckets can
+    consist of multiple layers or one layer, depending on how we define them with
+    `torch.bucketize`. Buckets are a critical component of the architecture as they
+    define gradient calculating boundaries within the backward propagation pass. That
+    is why *bucket1* is at the bottom of [Figure 9-4](#pytorch_abstraction_of_layers_in_bucket).
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与查看特定神经网络层不同，PyTorch 将通信划分为*桶*。一个桶保存了 `input` 中每个值所属的索引。桶的边界由称为 `boundaries`
+    的张量实例设置。如图 [9-4](#pytorch_abstraction_of_layers_in_bucket) 所示，桶可以包含多个层或一个层，具体取决于我们如何使用
+    `torch.bucketize` 来定义它们。桶在架构中是一个关键组成部分，因为它们在反向传播过程中定义了梯度计算的边界。这就是为什么 *bucket1*
+    位于图 [9-4](#pytorch_abstraction_of_layers_in_bucket) 的底部的原因。
+- en: '![](assets/smls_0904.png)'
+  id: totrans-86
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0904.png)'
+- en: Figure 9-4\. PyTorch abstraction of layers in buckets
+  id: totrans-87
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-4\. PyTorch 中的层桶抽象
+- en: Depending on the machine’s communication strategy, buckets can also assist in
+    defining when to kick-start the next gradient computation pass. When all buckets
+    are done, an all-reduce operation is used to accumulate the values across buckets.
+    The PyTorch engine works in a greedy manner, which means that not all layers and
+    gradients will always fit in the same bucket. This turns the distributed bucket
+    abstraction into a stochastic system, which enables the PyTorch engine to decide
+    at runtime which compute operation is more efficient, given the known information.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据机器的通信策略，桶也可以帮助定义何时启动下一个梯度计算过程。当所有桶完成后，会使用全局归约操作来累积各个桶中的值。PyTorch 引擎以贪婪方式工作，这意味着并非所有层和梯度总能适应同一桶中。这使得分布式桶抽象成为一个随机系统，允许
+    PyTorch 引擎在运行时决定哪种计算操作更有效，根据已知信息。
+- en: Tip
+  id: totrans-89
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: DDP takes in a seed value as well to ingest into the model parameters at the
+    beginning. It is important that you provide the seed in a distributed setting.
+    If you don’t, each machine will generate its own seed, which will likely differ
+    from those used by the other machines. This will cause the model parameters to
+    be different as well and, as a result, harm the coverage process.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DDP 在开始时也需要接受一个种子值，用于注入到模型参数中。在分布式设置中，提供种子值非常重要。如果不提供种子值，每台机器将生成自己的种子，这些种子很可能不同于其他机器使用的种子。这将导致模型参数也不同，从而影响覆盖过程。
+- en: RPC-Based Distributed Training
+  id: totrans-91
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 基于 RPC 的分布式训练
+- en: The remote procedure call procedure enables a program on the local machine to
+    start a program on another machine, as long as they share the same address space.
+    It’s as though the resident of apartment A could start the washing machine in
+    apartment B, just by supplying that machine’s address. This is the concept behind
+    RPCs.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 远程过程调用（RPC）允许本地机器上的程序启动另一台机器上的程序，只要它们共享相同的地址空间。这就像公寓 A 的居民可以通过提供洗衣机的地址来启动公寓
+    B 中的洗衣机一样。这就是 RPC 背后的概念。
+- en: 'In PyTorch, the RPC framework allows data scientists to train models across
+    multiple machines using primitives for remote communication and a higher-level
+    API for recognizing models split across machines. What are the main use cases
+    to be aware of? As mentioned previously, PyTorch’s RPC framework enables the implementation
+    of the following paradigms:'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 PyTorch 中，RPC 框架允许数据科学家使用远程通信的原语以及更高级别的 API 来训练跨多台机器的模型。有哪些主要用例需要注意？如前所述，PyTorch
+    的 RPC 框架使以下范例的实现成为可能：
+- en: A *parameter server* (similar to in TensorFlow), where one or more servers store
+    the parameters and distributed trainers communicate with them to fetch and update
+    the values
+  id: totrans-94
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*参数服务器*（类似于 TensorFlow），其中一个或多个服务器存储参数，并且分布式训练器与它们通信以获取和更新这些值'
+- en: '*Model parallelism*, which allows different parts of a large model that cannot
+    fit on a single GPU to be placed on separate GPUs'
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*模型并行*，允许将无法放在单个 GPU 上的大型模型的不同部分放置在不同的 GPU 上'
+- en: '*Pipeline parallelism* (an experimental feature), where each input minibatch
+    is split into microbatches that can be executed concurrently on all the GPUs'
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*管道并行*（一种实验性特性），其中每个输入小批量被分割成可以在所有 GPU 上并发执行的微批量'
+- en: Warning
+  id: totrans-97
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: This is a low-level framework for general distributed training. It makes sense
+    to take advantage of it in scenarios that are not covered by DDP.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个通用分布式训练的低级框架。在那些不适用于 DDP 的场景中，利用它是有意义的。
+- en: 'The APIs the framework provides can be grouped into four categories based on
+    the features they support:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 框架提供的 API 可以根据它们支持的功能分成四类：
+- en: Remote execution
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 远程执行
+- en: You can run arbitrary functions remotely and get a return value back or create
+    a reference to the return value. This is something we can expect from any RPC
+    system.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以远程运行任意函数并获取返回值，或者创建对返回值的引用。这是我们可以从任何 RPC 系统中期待的功能。
+- en: Remote references (RRefs)
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 远程引用 (RRefs)
+- en: An RRef is a distributed shared pointer to an object. It allows you to access
+    and reference a value on a remote worker without fetching the actual data from
+    that object. Due to its structure and implementation, it provides automatic reference
+    counting, which can be useful for understanding how often a remote data object
+    is referenced, for example.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: RRef 是一个分布式共享指针，用于指向远程工作器上的对象。它允许您访问和引用一个值，而不需要从该对象获取实际数据。由于其结构和实现，它提供自动引用计数，这对于理解远程数据对象被引用的频率非常有用，例如。
+- en: Distributed autograd
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式自动求导
+- en: The autograd engine runs locally on each worker involved in the forward pass;
+    out of the box, it does not scale. Distributed autograd extends this beyond the
+    boundary of a single machine, stitching together the local autograd engines on
+    all the machines so the backward pass can be run in a distributed fashion.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自动求导引擎在每个参与前向传播的工作器上本地运行；默认情况下，它不具备扩展性。分布式自动求导将其扩展到单台机器的边界之外，将所有机器上的本地自动求导引擎串联在一起，以便可以以分布式方式运行反向传播。
+- en: Distributed optimizer
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式优化器
+- en: The distributed optimizer collects the RRefs of all the parameters to optimize
+    and creates a local optimizer on each of the workers where the parameters live.
+    It then uses RPCs to execute the optimizers locally. Depending on which optimizer
+    is used, it periodically averages the results across workers.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式优化器收集所有参数的 RRef，并在每个参数所在的工作器上创建本地优化器。然后它使用 RPC 在本地执行优化器。根据所使用的优化器，它周期性地在工作器之间对结果进行平均。
+- en: Let’s dive into each of these a little more deeply so you can better understand
+    what they look like in code and in execution diagrams.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们深入探讨每一个问题，这样您就能更好地理解它们在代码和执行图中的表现。
+- en: Remote execution
+  id: totrans-109
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 远程执行
+- en: 'PyTorch’s remote execution APIs allow us to run user functions remotely. The
+    first thing we need to do is initiate the RPC by calling the `init_rpc` function.
+    This function requires three parameters: the name of the machine, its globally
+    unique ID/rank within the group, and an `int` that represents the number of workers
+    in the group (`world_size`). Take a look at the following code snippet:'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch 的远程执行 API 允许我们远程运行用户函数。我们需要做的第一件事是通过调用 `init_rpc` 函数来启动 RPC。此函数需要三个参数：机器的名称、其在组内的全局唯一
+    ID/等级，以及一个代表组中工作器数量的整数 (`world_size`)。请看下面的代码片段：
+- en: '[PRE4]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: The `init_rpc` function does two things here. First, it starts an agent running
+    in the background. When the agent is ready, it can start receiving and processing
+    requests from other peers. Second, it starts rendezvous^([1](ch09.xhtml#ch01fn21))
+    communication, connecting with peers. At the end of this stage, the agent is aware
+    of all RPC processes that are running and all the peers in this RPC group are
+    aware of each other.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`init_rpc` 函数在这里有两个作用。首先，它启动一个在后台运行的代理。当代理准备就绪时，它可以开始接收并处理来自其他对等节点的请求。其次，它启动了
+    rendezvous^([1](ch09.xhtml#ch01fn21)) 通信，与对等节点建立连接。在此阶段结束时，代理已经知道正在运行的所有 RPC 进程，而此
+    RPC 组中的所有对等节点也互相知晓。'
+- en: Note that there is no client/server architecture here; all communication is
+    peer-to-peer (we will talk more about how this works in [“Peer-to-peer communication
+    in PyTorch”](#peer_to_peer_communication_in_pytorch)). The default backend leverages
+    the TensorPipe library, which provides a tensor-aware point-to-point communication
+    primitive specially designed for machine learning. To change that, you can provide
+    the function with a dedicated `BackendType`; this allows you to change certain
+    elements of the configuration, such as timeout for peers to reply and the `init_method`
+    used. `w0` (the name of the machine in this example) stands for worker zero. Starting
+    now, we will use `w0`, `w1`, `w2`, `w3`, etc. for worker 0, worker 1, worker 2,
+    worker 3, and so on.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意这里没有客户端/服务器架构；所有通信都是点对点的（我们将在[“PyTorch中的点对点通信”](#peer_to_peer_communication_in_pytorch)中详细讨论这是如何工作的）。默认后端利用了TensorPipe库，该库提供了一种特别设计用于机器学习的张量感知点对点通信原语。要更改这一点，您可以提供一个专用的`BackendType`函数；这允许您更改配置的某些元素，例如对等方回复的超时和使用的`init_method`。在本例中（机器的名称），`w0`代表worker
+    zero。从现在开始，我们将使用`w0`、`w1`、`w2`、`w3`等表示worker 0、worker 1、worker 2、worker 3等等。
+- en: Now that the machines are ready, we can start sending remote function calls
+    to peers in the group, as shown in [Figure 9-5](#pytorch_remote_execution_diagram).
+    For that, there should be a tensor and a remote operation we would like to execute,
+    along with the rest of the arguments that the operation requires.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在机器准备就绪，我们可以开始向组内的对等体发送远程函数调用，如[图9-5](#pytorch_remote_execution_diagram)所示。为此，应该有一个张量和我们想要执行的远程操作，以及操作所需的其余参数。
+- en: '![](assets/smls_0905.png)'
+  id: totrans-115
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0905.png)'
+- en: Figure 9-5\. PyTorch remote execution diagram
+  id: totrans-116
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-5\. PyTorch远程执行图示
+- en: 'When discussing communication, it’s important to distinguish between two key
+    concepts:'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在讨论通信时，重要的是要区分两个关键概念：
+- en: '*Communication topology*, which denotes how the machines are organized in the
+    group and who communicates with whom (such as peer-to-peer or client/server)'
+  id: totrans-118
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*通信拓扑*，指示机器在组中的组织方式以及谁与谁通信（例如点对点或客户端/服务器）'
+- en: '*Communication type*, which defines how the machines communicate with one another'
+  id: totrans-119
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*通信类型*，定义了机器之间如何通信'
+- en: 'PyTorch enables us to choose the exact communication type we want to have between
+    the machines, for each operation. You can choose from three options: `rpc_sync`,
+    `rpc_async`, and `remote`. The following code snippet demonstrates the use of
+    all three:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch使我们能够选择每个操作之间所需的精确通信类型。您可以从三个选项中选择：`rpc_sync`、`rpc_async`和`remote`。以下代码片段演示了这三种用法：
+- en: '[PRE5]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: '[![1](assets/1.png)](#comarker1_9_2)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#comarker1_9_2)'
+- en: We initialize a torch of size 32 with zeros as values. The goal is to mock a
+    tensor.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们初始化了一个大小为32且值为零的torch张量。目标是模拟一个张量。
+- en: '[![2](assets/2.png)](#comarker2_9_2)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#comarker2_9_2)'
+- en: We use the synchronous API when we need to wait for a value to be returned before
+    proceeding. With `rpc_sync`, we cannot proceed to the next step until the communication
+    is established, the operation takes place, and the value is returned. This is
+    a *blocking function*;^([2](ch09.xhtml#ch01fn22)) it blocks the program from continuing
+    until a response is returned to the caller. `rpc_sync`’s first input argument
+    is the name of the process to connect with; the second is the operation that we
+    want to run on the destination process. In this case, we use `torch.add`, which
+    is a PyTorch function that is already implemented. The third argument, `args`,
+    is the list of arguments we wish to provide to the `torch.add` function to use
+    as input on the destination process. The function returns the updated tensor.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们需要等待返回值再继续时，我们使用同步API。使用`rpc_sync`，我们在通信建立、操作执行并返回值之前无法进行下一步。这是一个*阻塞函数*；^([2](ch09.xhtml#ch01fn22))它会阻塞程序，直到调用者收到响应为止。`rpc_sync`的第一个输入参数是要连接的进程名称；第二个是我们想要在目标进程上运行的操作。在这种情况下，我们使用已经实现的PyTorch函数`torch.add`。第三个参数`args`是我们希望提供给`torch.add`函数的输入参数列表。该函数返回更新后的张量。
+- en: '[![3](assets/3.png)](#comarker3_9_2)'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#comarker3_9_2)'
+- en: 'We use the asynchronous API when we want to run an operation on the destination
+    process but we don’t need the results right away. The `rpc_async` call here is
+    similar to the previous call to `rpc_sync` (it takes the same arguments), but
+    in this case the function doesn’t block the program from continuing to execute
+    the next command. An async call returns a *future—*an object that acts as a proxy
+    to a result that is unknown at the present time because its computation isn’t
+    complete. To retrieve the results when they are needed, we need to call `fut.wait`
+    and save them into a variable. `wait` is a blocking function that will block the
+    program until the results are returned. This functionality enables us to execute
+    multiple future operations in parallel. For example, if we want to perform `add`
+    and `max` operations on the same worker, we can run them concurrently, then call
+    `wait` on both and sum up the two torch vectors using the `+` operator:'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们想要在目标进程上运行操作但不需要立即获取结果时，我们使用异步 API。这里的 `rpc_async` 调用类似于前面的 `rpc_sync` 调用（它接受相同的参数），但在这种情况下，该函数不会阻塞程序继续执行下一个命令。异步调用返回一个
+    *future* —— 一个作为结果代理的对象，因为其计算尚未完成，当前时间结果未知。要在需要结果时检索结果，我们需要调用 `fut.wait` 并将其保存到变量中。`wait`
+    是一个阻塞函数，它将阻塞程序，直到结果返回。这种功能使我们能够并行执行多个未来操作。例如，如果我们希望在同一工作器上执行 `add` 和 `max` 操作，我们可以同时运行它们，然后对两个
+    torch 向量使用 `+` 运算符进行求和：
+- en: '[PRE6]'
+  id: totrans-128
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: This enables concurrent control over the operations.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这使得对操作进行并发控制成为可能。
+- en: '[![4](assets/4.png)](#comarker4_9_2)'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](assets/4.png)](#comarker4_9_2)'
+- en: The `remote` function (the third API) doesn’t fetch a value; its purpose is
+    to execute a function remotely that creates something. It takes the name of the
+    process to run the function on, the function to run, and if necessary the `args`
+    or `kwargs` for the function invocation. You can also provide an optional `timeout`
+    parameter. In this example, we run an annotated TorchScript function, `script_add`.
+    TorchScript enables us to compile a program locally and later load it in a process
+    without a Python dependency. We can leverage this functionality for executing
+    the remote function. `@torch.jit.script` is the Python annotation that defines
+    it; whenever we use this annotation, the Python interpreter, together with PyTorch,
+    inspects the source code and turns it into a TorchScript. The `remote` function
+    is asynchronous, meaning the program isn’t blocked. However, the main difference
+    between the `remote` and `rpc_async` APIs is that the `remote` API returns a remote
+    reference to the value on the other machine (RRefs are discussed in the following
+    section). The return value lives in the destination process and is not fetched
+    back to the original process that triggered it. To summarize this example, the
+    `script_add` function is sent to `w1` with the arguments of `x` (the torch) and
+    `1`, the value that the program adds to the torch’s values.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`remote` 函数（第三个 API）并不获取值；它的目的是远程执行一个创建某物的函数。它接受要运行函数的进程名称、要运行的函数，以及必要时的 `args`
+    或 `kwargs`。您还可以提供一个可选的 `timeout` 参数。在这个示例中，我们运行一个 TorchScript 函数 `script_add`
+    的注释版本。TorchScript 允许我们在本地编译程序，稍后在一个没有 Python 依赖的进程中加载它。我们可以利用这个功能来执行远程函数。`@torch.jit.script`
+    是定义它的 Python 注释；每当我们使用这个注释时，Python 解释器与 PyTorch 一起检查源代码，并将其转换为 TorchScript。`remote`
+    函数是异步的，这意味着程序不会被阻塞。然而，`remote` 和 `rpc_async` API 的主要区别在于，`remote` API 返回一个远程引用，指向另一台机器上的值（RRefs
+    在下一节中讨论）。返回值存在于目标进程中，并不会被传回触发它的原始进程。总结这个例子，`script_add` 函数与参数 `x`（torch）和 `1`
+    一起发送到 `w1`。'
+- en: Tip
+  id: totrans-132
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: You can also use the TorchScript approach after training. Let’s say we’ve trained
+    a model with PyTorch in a Python environment. Now, we wish to export the trained
+    model into an environment where using Python programs is disadvantageous due to
+    the lower performance of this language in the multithreading world. TorchScript
+    creates a standalone C++ program that can run on a different process/machine without
+    a Python environment.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以在训练后使用 TorchScript 方法。假设我们在 Python 环境中使用 PyTorch 训练了一个模型。现在，我们希望将训练好的模型导出到一个环境中，由于
+    Python 语言在多线程世界中的性能较低，使用 Python 程序不利。TorchScript 创建了一个独立的 C++ 程序，可以在没有 Python
+    环境的不同进程/机器上运行。
+- en: 'How do you choose between the three available remote execution options? As
+    with everything related to machine learning and building distributed execution
+    graphs, the answer is: it depends. The guidance here is to break down the network
+    layers and consider the functionality of each. Does one operation need to wait
+    for another one to finish? Are they dependent on one another? If so, `rpc_``sync`
+    would be a good approach here. Can we parallelize some operations, making them
+    concurrent? Can we continue with the training without having all the information
+    available? In this case, we can use `rpc_``async`. Do we want to execute a function
+    on a remote server without returning a value back? For example, when we have a
+    topology with a parameter server and trainers, we can create the parameter table
+    on the PS without fetching back the table, since the main program running won’t
+    need it. The `remote` function is the best choice here.'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你如何在三种可用的远程执行选项之间进行选择？就与所有与机器学习和构建分布式执行图有关的事物一样，答案是：要看情况。这里的指导是要分解网络层并考虑每个功能的功能。某个操作是否需要等待另一个操作完成？它们是否彼此依赖？如果是这样，`rpc_sync`在这里将是一个不错的选择。我们是否可以并行一些操作，使它们同时进行？我们是否可以在所有信息可用之前继续训练？在这种情况下，我们可以使用`rpc_async`。我们是否想在远程服务器上执行一个函数而不返回值？例如，当我们有一个带有参数服务器和训练器的拓扑结构时，我们可以在PS上创建参数表，而不需要将表取回，因为运行主程序时不需要它。在这种情况下，`remote`函数是最佳选择。
+- en: Remote references
+  id: totrans-135
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 远程引用
+- en: During the process of training in a distributed system, it is common to have
+    a driver node that drives the execution of the training loops and worker nodes
+    that operate on the data. So there might be scenarios where we need to create
+    remote references, for example for user-defined functions. In this scenario, the
+    UDF is defined on the driver and shipped to the workers, which each operate on
+    their chunk of data in parallel, without sending the results back to the driver.
+    The workers hold on to the results, and the driver only has references to them.
+    This is similar to the concept of distributed shared pointers in computer science,
+    where the pointer stores the address where the data is stored but not the actual
+    data itself. Any machine with a copy of the reference (called *users*) can request
+    the object from its creator (the *owner*)*.*
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在分布式系统中的训练过程中，通常会有一个驱动节点来驱动训练循环的执行，以及在数据上操作的工作节点。因此，在某些情况下，我们可能需要创建远程引用，例如用于用户定义的函数。在这种场景中，UDF在驱动程序上定义并被传输到工作节点，每个节点并行操作其数据块，而不将结果发送回驱动程序。工作节点保持结果，而驱动程序只持有对它们的引用。这类似于计算机科学中分布式共享指针的概念，其中指针存储数据存储的地址，但不存储实际数据本身。具有引用副本（称为*用户*）的任何机器都可以从其创建者（*所有者*）请求对象。
+- en: Using RRefs to orchestrate distributed algorithms
+  id: totrans-137
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 使用RRefs来编排分布式算法
+- en: 'The `remote` function, introduced in the previous section, creates an RRef
+    on the designated worker. This function powers PyTorch distributed algorithms
+    by orchestrating the execution of operations and callable functions over the worker
+    processes. Let’s take a look at the following code snippet and [Figure 9-6](#remote_orchestration_of_a_simple_add_fu)
+    to get a better understanding of how it works:'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前一节介绍的`remote`函数在指定的工作节点上创建了一个RRef。该函数通过协调工作进程上的操作和可调用函数来支持PyTorch分布式算法。让我们看以下代码片段和[图 9-6](#remote_orchestration_of_a_simple_add_fu)，以更好地理解其工作原理：
+- en: '[PRE7]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: '![](assets/smls_0906.png)'
+  id: totrans-140
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0906.png)'
+- en: Figure 9-6\. Remote orchestration of a simple add function that powers many
+    distributed training algorithms
+  id: totrans-141
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-6\. 简单加法函数的远程编排，为许多分布式训练算法提供支持
+- en: The code snippet runs on worker `w0` and creates four remote references, on
+    workers `w1`, `w2`, `w3`, and `w4` (action 1 in [Figure 9-6](#remote_orchestration_of_a_simple_add_fu)).
+    The `remote` calls to `w1` and `w2` ask each of them to load a different chunk
+    of the data and return RRefs to that data. `w1` loads data chunk `a`, and `w2`
+    loads data chunk `b`. In [Figure 9-6](#remote_orchestration_of_a_simple_add_fu),
+    init is the action number 1.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该代码片段在`w0`上运行，并在`w1`、`w2`、`w3`和`w4`（[图 9-6](#remote_orchestration_of_a_simple_add_fu)的操作1）创建了四个远程引用。对`w1`和`w2`的`remote`调用要求它们分别加载数据的不同分块并返回指向该数据的RRefs。`w1`加载数据块`a`，而`w2`加载数据块`b`。在[图 9-6](#remote_orchestration_of_a_simple_add_fu)中，init是动作编号1。
+- en: '`w3` is assigned the function of adding the two chunks of data using the `some_add`
+    function, which takes two `RRef` objects as input and calls `to_here` on them.
+    This call starts the fetching of the data, so the results from `w1` and `w2` are
+    fetched to `w3`. `w3` adds the results locally and returns an RRef to the results
+    to `w0` (action 2 in [Figure 9-6](#remote_orchestration_of_a_simple_add_fu)).
+    `w4` can now perform some additional function using the results from `w3` (action
+    3 in [Figure 9-6](#remote_orchestration_of_a_simple_add_fu)).'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`w3`被分配了使用`some_add`函数添加两个数据块的功能，该函数以两个`RRef`对象作为输入并对它们调用`to_here`。这个调用开始获取数据，因此从`w1`和`w2`获取结果到`w3`。`w3`在本地添加结果并将结果的一个RRef返回给`w0`（在[Figure
+    9-6](#remote_orchestration_of_a_simple_add_fu)中的操作2）。`w4`现在可以使用`w3`的结果执行一些额外的功能（在[Figure
+    9-6](#remote_orchestration_of_a_simple_add_fu)中的操作3）。'
+- en: 'Note that since the program’s main entry point runs on worker 0, all the communications
+    run through it. However, this communication is relatively lightweight since it
+    contains only the control messages of the remote references themselves. The calls
+    to fetch data from `w1` and `w2` and are executed only on `w3`. Here, the remote
+    references help us to achieve two goals:'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，由于程序的主入口在工作进程0上运行，所有通信都通过它进行。然而，这种通信相对轻量级，因为它仅包含远程引用本身的控制消息。从`w1`和`w2`获取数据的调用仅在`w3`上执行。在这里，远程引用帮助我们实现了两个目标：
+- en: The code stays in one process on our driver, `w0`, which acts as the main orchestrator.
+  id: totrans-145
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 代码留在我们的驱动器`w0`上的一个进程中，它充当主编排器。
+- en: This avoids the price of carrying and moving data from the worker processes
+    to the orchestrator. (In Spark, this is the `collect` function that we want to
+    avoid at all costs when working with scalable data that cannot fit into one machine’s
+    memory.)
+  id: totrans-146
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 避免将数据从工作进程传输到编排器，以避免这一费用。（在Spark中，这是我们在处理无法容纳在一台机器内存中的可伸缩数据时要尽力避免使用的`collect`函数。）
+- en: The orchestrator is one important aspect of working with RRefs; another is the
+    ability to identify objects by reference.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 编排器是使用RRefs的一个重要方面；另一个是通过引用标识对象的能力。
+- en: Identifying objects by reference
+  id: totrans-148
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 通过引用标识对象
+- en: As the previous example showed, PyTorch’s remote references were also designed
+    to uniquely identify objects in a distributed environment and can later be passed
+    as RPC arguments, avoiding communicating real data. When `w0` calls the `remote`
+    function, a `UserRRef` object is created locally. `w0` can send this object as
+    an argument to other workers and, by doing so, enable them to fetch the result
+    or pass the reference along. At the same time, the call to `remote` creates an
+    `Owner​RRef` object instance on the named worker, which contains the actual result
+    of executing the function. In short, `w0` created `UserRRef`s owned by `w1` and
+    `w2` and sent them to `w3`.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如前面的例子所示，PyTorch的远程引用也旨在在分布式环境中唯一标识对象，并且可以将其作为RPC参数传递，避免传输真实数据。当`w0`调用`remote`函数时，在本地创建一个`UserRRef`对象。`w0`可以将此对象作为参数发送给其他工作进程，并通过这样做使它们能够获取结果或传递引用。同时，对`remote`的调用在命名的工作进程上创建了一个`OwnerRRef`对象实例，其中包含执行函数的实际结果。简而言之，`w0`创建了由`w1`和`w2`拥有的`UserRRef`并将它们发送给了`w3`。
+- en: 'A user machine can get a `UserRRef` in three scenarios:'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户机器可以在三种情况下获取一个`UserRRef`：
+- en: It can receive a `UserRRef` from the owner.
+  id: totrans-151
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它可以从所有者那里接收一个`UserRRef`。
+- en: It can receive a `UserRRef` from another user.
+  id: totrans-152
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它可以从另一个用户那里接收一个`UserRRef`。
+- en: It can create a new `UserRRef` owned by another worker.
+  id: totrans-153
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它可以创建一个由另一个工作进程拥有的新`UserRRef`。
+- en: The owner keeps track of the number of references in order to better asses when
+    it can delete the data itself during a garbage collection^([3](ch09.xhtml#ch01fn23))
+    operation. We aren’t going to dive into any more detail on that, but if you’d
+    like to learn more about it, check out the [RRef design note](https://oreil.ly/uYzCh)
+    on GitHub.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有者跟踪引用计数，以便在垃圾回收操作中更好地评估何时可以删除数据本身。我们不会深入探讨这一点，但如果您想了解更多，请查看GitHub上的[RRef设计说明](https://oreil.ly/uYzCh)。
+- en: The key point to remember about RRefs is that they allow data scientists to
+    design more complicated distributed machine learning algorithms that are not implemented
+    out of the box in PyTorch. This functionality is often used by researchers driving
+    innovation in the machine learning algorithm landscape. It’s good to understand
+    it as you dive deeper into PyTorch and distributed machine learning, as well as
+    for troubleshooting.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于 RRef 的关键是，它们允许数据科学家设计更复杂的分布式机器学习算法，这些算法在 PyTorch 中并没有直接实现。这一功能通常由推动机器学习算法创新的研究人员使用。在深入研究
+    PyTorch 和分布式机器学习以及故障排除时，理解这一点非常重要。
+- en: Distributed autograd
+  id: totrans-156
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 分布式自动求导
+- en: Earlier in the chapter, you got a glimpse into how PyTorch’s automatic differentiation
+    engine works locally. Now, we are ready to level up and explore how it works on
+    distributed datasets. In a distributed setting, the model is replicated on multiple
+    machines, with each machine processing one part of the dataset. This means that
+    each machine will calculate its own gradient value based on its input. Although
+    the operations are the same, the input plays a big part here.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的早些时候，您已经了解了 PyTorch 自动求导引擎在本地工作的一瞥。现在，我们准备升级并探索其在分布式数据集上的工作方式。在分布式环境中，模型在多台机器上复制，每台机器处理数据集的一部分。这意味着每台机器将根据其输入计算自己的梯度值。尽管操作是相同的，但输入在这里起到了重要作用。
+- en: PyTorch’s RPC-based distributed autograd framework takes advantage of remote
+    execution and remote references, discussed previously, to collect and calculate
+    the gradients during the training. For distributed purposes, the autograd engine
+    is extended using function/operation context—this approach is similar to the one
+    with TensorFlow discussed in [Chapter 8](ch08.xhtml#tensorflow_distributed_ml_approach).
+    A shared pointer to the context, which has a globally unique identifier, is distributed
+    to each one of the nodes that takes part in the training. Potentially, every worker
+    can retrieve context information (`send` and `recv` functions, gradients, etc.).
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch 基于 RPC 的分布式自动求导框架利用远程执行和远程引用来在训练期间收集和计算梯度，之前已经讨论过。为了分布式目的，自动求导引擎使用函数/操作上下文进行扩展，这种方法类似于之前在[第
+    8 章](ch08.xhtml#tensorflow_distributed_ml_approach)中讨论的 TensorFlow 方法。指向上下文的共享指针具有全局唯一标识符，并分发给参与训练的每个节点。潜在地，每个工作节点都可以检索上下文信息（`send`
+    和 `recv` 函数、梯度等）。
+- en: Moreover, the autograd functions on the different machines are stitched together
+    with every RPC call, which lets us keep track of the changes in gradients in the
+    distributed system. The goal of distributed autograd is to provide a similar experience
+    to running a backward pass on the local machine. That means that for every forward
+    pass, the machine also stores the `send` and `recv` information (identifying the
+    sending machine and receiving machine, respectively). This makes sure that there’s
+    always a reference to the nodes in the distributed autograd graph and fuels the
+    backward pass.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，每次 RPC 调用都会将不同机器上的自动求导函数连接起来，这使得我们能够在分布式系统中跟踪梯度的变化。分布式自动求导的目标是提供类似于在本地机器上运行反向传播的体验。这意味着对于每次前向传播，机器还会存储`send`和`recv`信息（分别标识发送机器和接收机器）。这确保了在分布式自动求导图中始终有节点的参考，并推动了反向传播的执行。
+- en: 'The following code snippet starts a distributed autograd context:'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的代码片段启动了一个分布式自动求导上下文：
+- en: '[PRE8]'
+  id: totrans-161
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: The distributed optimizer and the calls to start forward and backward passes
+    should all be invoked within this context.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有调用开始前向和后向传播的分布式优化器都应在此上下文中调用。
+- en: The distributed optimizer
+  id: totrans-163
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 分布式优化器
+- en: 'So far, we’ve seen optimizers used in various frameworks: Spark, TensorFlow,
+    and PyTorch. Why do we need a distributed optimizer with PyTorch? In distributed
+    training, the model parameters are scattered across multiple machines, and we
+    need to optimize all of them. Without a distributed optimizer, data-parallel training
+    would require each machine to collect the parameters from all of the others and
+    then run a local optimizer. This would create a large amount of overhead in terms
+    of communication (many-to-many or *n*:*n* communications) and computation, as
+    each machine would need to run the optimization function. It would also result
+    in bottlenecks and the risk of discrepancies for optimizations run on machines
+    that missed some messages or weren’t able to collect all of the data for some
+    reason.'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经看到了各种框架中使用的优化器：Spark、TensorFlow和PyTorch。为什么我们需要一个分布式优化器来处理PyTorch？在分布式训练中，模型参数分散在多台机器上，我们需要优化所有这些参数。如果没有分布式优化器，数据并行训练将要求每台机器从所有其他机器收集参数，然后运行本地优化器。这会在通信（多对多或*n*：*n*通信）和计算方面产生大量开销，因为每台机器都需要运行优化函数。同时，这也会导致瓶颈和在某些机器上运行优化时错过消息或无法收集所有数据的风险。
+- en: PyTorch solves these problems by implementing a thin wrapper called `Distributed​Optimizer`.
+    Instead of collecting all the parameters, this wrapper only takes remote references
+    to them. During the initialization of the optimization function, it contacts the
+    owners of these parameters and runs the optimization locally on those machines.
+    With this approach there is still many-to-many communication, but it’s lightweight
+    as the data doesn’t have to be transferred; it’s just a call to the owners to
+    collect, calculate, and optimize the parameters. Later, when we run the `step`
+    function within the autograd context, this function will reach out to all the
+    participating optimizers to execute `step` locally.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch通过实现一个名为`Distributed​Optimizer`的薄包装器来解决这些问题。该包装器仅接收这些参数的远程引用而不是收集所有参数。在优化函数初始化期间，它会联系这些参数的所有者并在这些机器上本地运行优化。采用这种方法仍然存在多对多通信，但它非常轻量级，因为数据无需传输；它只是一个调用，用于收集、计算和优化参数。稍后，在自动求导上下文中运行`step`函数时，此函数将联系所有参与的优化器在本地执行`step`。
+- en: 'The following code snippet demonstrates how to use the distributed optimizer:'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码片段展示了如何使用分布式优化器：
+- en: '[PRE9]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: If you do decide to develop your own distributed training algorithm, pay attention
+    to the optimizers that are supported in `torch.distributed`. Note that not everything
+    is supported there, and you might need to implement some functionality yourself.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你决定开发自己的分布式训练算法，请注意`torch.distributed`中支持的优化器。请注意，并非所有功能都受支持，可能需要自己实现某些功能。
+- en: TorchServe, a popular tool for serving PyTorch models, also supports gRPC (Google’s
+    high-performance RPC framework) as a communication protocol. However, contrary
+    to gRPC, PyTorch’s RPC implementation understands tensor objects. If you are trying
+    to hook together a PyTorch training algorithm with gRPC, the third-party library
+    will expect JSON, a string, or another user-defined data type to handle the tensors.
+    This will force you to take care of the serialization work that is already implemented
+    and optimized in the PyTorch RPC library. While this can be and has been done
+    successfully, it introduces more work—and we all want to make our jobs easier,
+    not harder, right?
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TorchServe，一个用于提供PyTorch模型的流行工具，还支持gRPC（Google的高性能RPC框架）作为通信协议。但与gRPC相反，PyTorch的RPC实现能理解张量对象。如果你尝试将PyTorch训练算法与gRPC连接起来，第三方库将期望JSON、字符串或另一种用户定义的数据类型来处理张量。这将迫使你处理已在PyTorch
+    RPC库中实现并优化的序列化工作。虽然这可以成功实现，并且已经成功实现过，但这会增加更多的工作量——我们都希望能让工作更轻松，而不是更难，对吧？
+- en: Communication Topologies in PyTorch (c10d)
+  id: totrans-170
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: PyTorch中的通信拓扑结构（c10d）
+- en: 'PyTorch supports two types of communication: collective communication and peer-to-peer
+    (also known as point-to-point) communication. Both APIs enable defining and adjusting
+    the topology. Under the hood, DDP uses collective communication, while RPC uses
+    peer-to-peer communication. Both support synchronous and asynchronous operations.'
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch支持两种通信方式：集体通信和点对点（也称为点对点）通信。这两种API都可以定义和调整拓扑结构。在底层，DDP使用集体通信，而RPC使用点对点通信。两者都支持同步和异步操作。
+- en: Note
+  id: totrans-172
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The peer-to-peer and collective communication APIs are implemented in the `torch.distributed.distributed_c10d`
+    library in C++, for performance reasons. Like the RPC APIs, these are low-level
+    APIs you should know about if you’re trying to troubleshoot existing applications
+    or build your own distributed algorithm.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 端到端和集体通信API是使用C++在`torch.distributed.distributed_c10d`库中实现的，出于性能考虑。与RPC API类似，这些是低级API，如果您正在尝试排查现有应用程序或构建自己的分布式算法，那么您应该了解这些API。
+- en: Collective communication in PyTorch
+  id: totrans-174
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: PyTorch中的集体通信
+- en: In computer science, *collective communication* is defined as any communication
+    that involves a group of processes/machines. The most used operations are *broadcast*,
+    *barrier synchronization*, *reduce*, *gather*, *scatter*, *all-to-all complete
+    exchange*, and *scan*. PyTorch’s c10d library provides various APIs for collective
+    communication, including `all_reduce` and `all_gather`, as well as peer-to-peer
+    communication APIs (discussed in the following section). It supports sending tensors
+    across machines within a group, which is necessary because many algorithms require
+    those kinds of operations. For example, `reduce` is critical; it reduces the target
+    tensors in all processes to a single tensor and returns the result to all processes.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在计算机科学中，*集体通信*被定义为涉及一组进程/机器的任何通信。最常用的操作包括*广播*、*屏障同步*、*减少*、*聚集*、*分散*、*全对全完整交换*和*扫描*。PyTorch的c10d库提供了多种集体通信的API，包括`all_reduce`和`all_gather`，以及端到端通信API（在以下部分讨论）。它支持在组内的机器之间发送张量，这是许多算法所需的操作。例如，`reduce`是至关重要的；它将所有进程中的目标张量减少为单个张量，并将结果返回给所有进程。
+- en: '[Figure 9-7](#an_all_reduce_operation_in_pytorch) shows how the parameters
+    are saved alongside their gradients (as discussed in [“Distributed autograd”](#distributed_autograd))
+    and an all-reduce operation is used to exchange the information between the processes.
+    Note how the parameters in each process are split into buckets, as described in
+    the section on DDP. The all-reduce operation runs in the bucket index order to
+    maintain the order of execution, which helps us avoid having inconsistent results
+    across processes and machines.'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图9-7](#an_all_reduce_operation_in_pytorch)展示了如何保存参数及其梯度（如[“分布式自动求导”](#distributed_autograd)中讨论的），并使用全归约操作在进程之间交换信息。请注意，每个进程中的参数被分割成桶，如DDP部分所述。全归约操作按桶索引顺序运行，以维护执行顺序，这有助于避免跨进程和机器之间出现不一致的结果。'
+- en: '![](assets/smls_0907.png)'
+  id: totrans-177
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0907.png)'
+- en: Figure 9-7\. An all-reduce operation in PyTorch
+  id: totrans-178
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-7\. PyTorch中的全归约操作
+- en: The `all_reduce` function collects all the tensors and initiates an operation
+    that reduces them into a single result tensor. After it’s done, it returns the
+    result to the individual processes/machines. In PyTorch, `all_reduce` is implemented
+    to support tensors. Under the hood, it supports the use of all three built-in
+    backend protocols (Gloo, MPI, and NCCL) for distributed CPU and/or GPU training.
+    Note that not all backend protocols support all hardware processors, meaning that
+    not all operations support CUDA.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`all_reduce`函数收集所有张量并启动一个将它们减少为单个结果张量的操作。完成后，它将结果返回给各个进程/机器。在PyTorch中，`all_reduce`被实现为支持张量的操作。在幕后，它支持使用三种内置后端协议（Gloo、MPI和NCCL）进行分布式CPU和/或GPU训练。请注意，并非所有后端协议都支持所有硬件处理器，这意味着并非所有操作都支持CUDA。'
+- en: 'The same goes for `all_gather`, though this is a more expensive function. An
+    example of its use is for assessing the size of a tensor: the PyTorch engine will
+    gather all the tensor sizes and define a default size based on the largest one.
+    You can find multiple uses for this function in the c10d library.'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`all_gather`也是如此，尽管这是一个更昂贵的函数。其使用示例是用于评估张量的大小：PyTorch引擎将收集所有张量的大小，并基于最大的大小定义一个默认大小。您可以在c10d库中找到此函数的多种用途。'
+- en: How does collective communication impact our development? When we start writing
+    a distributed application with PyTorch, our first task is to define the environment,
+    spin up the workers, and start the processes. During the initialization process,
+    we need to specify the backend communication protocol. This setup work for the
+    cluster of machines should be done together with a sysadmin or using a coordination
+    tool to avoid mistakes.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集体通信如何影响我们的开发？当我们开始使用PyTorch编写分布式应用程序时，我们的第一个任务是定义环境、启动工作进程并开始进程。在初始化过程中，我们需要指定后端通信协议。在群集机器的设置工作中，应与系统管理员一起完成或使用协调工具，以避免错误。
+- en: 'Collective communication works for all the processes in a group (a subset of
+    the processes in the cluster). So we first need to start a group. This is how
+    we do that:'
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集体通信适用于组中的所有进程（集群中进程的子集）。因此，我们首先需要启动一个组。这是我们如何做到的：
+- en: '[PRE10]'
+  id: totrans-183
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'The first argument to `init_process_group` is the type of backend: one of `mpi`,
+    `gloo`, or `nccl`. The other arguments are optional; they include `init_method`,
+    which specifies how to start the process group (usually this is a URL to a script
+    on a shared filesystem); `world_size`, which is the number of processes/machines
+    in the group; and `rank`, which is the rank of the current process that is running
+    (a number between 0 and `world_size` – 1).'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`init_process_group`的第一个参数是后端类型：`mpi`、`gloo`或`nccl`之一。其他参数是可选的；它们包括`init_method`，它指定如何启动进程组（通常是指向共享文件系统上脚本的URL）；`world_size`，即组中的进程/机器数；以及`rank`，即当前正在运行的进程的等级（0到`world_size
+    - 1`之间的数字）。'
+- en: 'PyTorch’s contributors provide some [guidance](https://oreil.ly/EkdQ0) around
+    which backend we should use, depending on the hardware:'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch的贡献者提供了一些[指导](https://oreil.ly/EkdQ0)，关于我们应该根据硬件使用哪种后端：
+- en: Rule of thumb
+  id: totrans-186
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 经验法则
+- en: Use the NCCL backend for distributed GPU training.
+  id: totrans-187
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用NCCL后端进行分布式GPU训练。
+- en: Use the Gloo backend for distributed CPU training.
+  id: totrans-188
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用Gloo后端进行分布式CPU训练。
+- en: GPU hosts with InfiniBand interconnect
+  id: totrans-189
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用InfiniBand互连的GPU主机。
+- en: Use NCCL, since it’s the only backend that currently supports InfiniBand and
+    GPUDirect.
+  id: totrans-190
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用NCCL，因为它是当前唯一支持InfiniBand和GPUDirect的后端。
+- en: GPU hosts with Ethernet interconnect
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用以太网互连的GPU主机。
+- en: Use NCCL, since it currently provides the best distributed GPU training performance,
+    especially for multiprocess single-node or multi-node distributed training. If
+    you encounter any problem with NCCL, use Gloo as the fallback option. (Note that
+    Gloo currently runs more slowly than NCCL for GPUs.)
+  id: totrans-192
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用NCCL，因为它目前为分布式GPU训练提供了最佳性能，特别是对于多进程单节点或多节点分布式训练。如果使用NCCL遇到任何问题，请使用Gloo作为备选选项。（请注意，目前Gloo在GPU上的运行速度比NCCL慢。）
+- en: CPU hosts with InfiniBand interconnect
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用InfiniBand互连的CPU主机
+- en: If your InfiniBand has enabled IP over IB, use Gloo, otherwise, use MPI instead.
+  id: totrans-194
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您的InfiniBand启用了IP over IB，请使用Gloo，否则请改用MPI。
+- en: CPU hosts with Ethernet interconnect
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用以太网互连的CPU主机。
+- en: Use Gloo, unless you have specific reasons to use MPI.
+  id: totrans-196
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用Gloo，除非您有特定原因使用MPI。
+- en: Take advantage of this guidance and consult with your sysadmin to determine
+    the best backend to work with.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 利用这些指导，并咨询您的系统管理员，确定最佳的后端用于工作。
+- en: 'Once you’ve initialized the process group, you’re ready to connect and start
+    the cluster itself. From a main function, we can start an iterative process that
+    goes over all the machines and initializes the process on each one. Let’s take
+    a look at the following template code (from the [docs](https://oreil.ly/l4Ia4))
+    to better understand how to get started:'
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您初始化了进程组，就可以连接并启动集群本身。从主函数开始，我们可以启动一个迭代过程，遍历所有机器并在每台机器上初始化进程。让我们看一下以下模板代码（来自[文档](https://oreil.ly/l4Ia4)），以更好地理解如何开始：
+- en: '[PRE11]'
+  id: totrans-199
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: As you can see here, there is a main function with a defined `size`, which is
+    the number of machines/processes on the machines we want to initialize. The `for`
+    loop in the main function iterates over the specified range of `rank` values,
+    starting from 0 and finishing at `rank` – 1\. Recall that `rank` here refers to
+    the number of the machine we start the process on, which is also its ID in the
+    system. Inside the loop, we call `mp.Process`, which returns a process instance
+    named `p`, followed by `p.start` and `processes.append(p)`. `mp` is the multiprocessing
+    function available in PyTorch. During the iteration over all the machines, it
+    starts processes on each of them, with the target function being `init_process`.
+    This is a nonblocking operation that only defines the process itself. Later, the
+    `start` function starts it. The script also saves these processes in an array,
+    which we have access to for further computations and operations on the cluster.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您在此处所见，有一个具有定义`size`的主函数，它是我们要初始化的机器/进程上的机器数。主函数中的`for`循环遍历指定的`rank`值范围，从0开始，以`rank
+    - 1`结束。请回想一下，这里的`rank`指的是我们在其上启动进程的机器的编号，这也是其在系统中的ID。在循环内部，我们调用`mp.Process`，它返回一个名为`p`的进程实例，然后是`p.start`和`processes.append(p)`。`mp`是PyTorch中可用的多进程功能。在所有机器上的迭代过程中，它在每台机器上启动进程，目标函数是`init_process`。这是一个非阻塞操作，仅定义进程本身。稍后，`start`函数启动它。脚本还将这些进程保存在一个数组中，我们可以访问该数组以进行进一步的计算和对集群的操作。
+- en: Inside `init_process`, the script defines the environment and the group it is
+    part of. The process is aware of the world size, its rank, and the backend it
+    should use for communication. It also receives the `run` function (in the function
+    signature, this is the `fn` argument). This function has the implementation of
+    what this process needs to run.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 `init_process` 中，脚本定义了环境及其所属的组。该进程了解世界大小、其秩以及应用于通信的后端。它还接收了 `run` 函数（在函数签名中，这是
+    `fn` 参数）。此函数实现了此进程需要运行的内容。
+- en: 'Here’s an example of the all-reduce `run` function from the docs:'
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是来自文档的所有减少 `run` 函数的示例：
+- en: '[PRE12]'
+  id: totrans-203
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: This code creates a new group for the all-reduce distributed operation with
+    a list of group members, `[0,1]`. This means that processes 0 and 1 are now part
+    of the group that will run this operation. It also defines a tensor of size 1
+    with ones as values. This is a mock tensor for the purposes of the template; you
+    would want to use the real tensor on which you want to run the reduce operation.
+    Finally, it calls `dist.all_reduce`, passing it the tensor, the reduce operation
+    to run (in the template’s case, this is `SUM`), and the group that will take part
+    in it. The following operations are available out of the box in PyTorch:^([4](ch09.xhtml#ch01fn24))
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码为所有减少分布操作创建一个新组，该组包含成员列表 `[0,1]`。这意味着进程 0 和 1 现在是将运行此操作的组的一部分。它还定义了一个大小为
+    1 的张量，其值为 1。这是模板目的上的模拟张量；您应该使用要在其上运行减少操作的真实张量。最后，它调用 `dist.all_reduce`，传递张量、要运行的减少操作（在模板的情况下为
+    `SUM`）和将参与其中的组。PyTorch 提供以下操作的开箱即用功能：^([4](ch09.xhtml#ch01fn24))
+- en: '[PRE13]'
+  id: totrans-205
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'PyTorch provides the following collective communication APIs:'
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch 提供以下集体通信 API：
+- en: '`scatter`'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`scatter`'
+- en: Distributes the list of tensors at the root rank level (rank 0, by default)
+    across all the ranks/processes in the group, as shown in [Figure 9-8](#scatter_functionality).^([5](ch09.xhtml#ch01fn25))
+    In this example, before executing `scatter`, rank 0 has the list of tensors `[t0,
+    t1, t2, t3]`; after executing this function, rank 0 has `t0`, rank 1 has `t1`,
+    and so on.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将张量列表在根秩级别（默认情况下为秩 0）分发到组中的所有秩/进程，如图 [9-8](#scatter_functionality) 所示。^([5](ch09.xhtml#ch01fn25))
+    在此示例中，在执行 `scatter` 之前，秩 0 具有张量列表 `[t0, t1, t2, t3]`；执行此函数后，秩 0 具有 `t0`，秩 1 具有
+    `t1`，依此类推。
+- en: '![Scatter functionality](assets/smls_0908.png)'
+  id: totrans-209
+  prefs: []
+  type: TYPE_IMG
+  zh: '![分散功能](assets/smls_0908.png)'
+- en: Figure 9-8\. Scatter functionality
+  id: totrans-210
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-8\. 分散功能
+- en: '`gather`'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`gather`'
+- en: The opposite of `scatter`, this function collects the tensors from the group
+    and stores them in rank 0\. Rank 1 passes `t1`, rank 2 passes `t2`, and so on,
+    as shown in [Figure 9-9](#gather_functionality).
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 `scatter` 相反，此功能从组中收集张量并将它们存储在秩为 0 的位置。秩 1 传递 `t1`，秩 2 传递 `t2`，依此类推，如图 [9-9](#gather_functionality)
+    所示。
+- en: '![Gather functionality](assets/smls_0909.png)'
+  id: totrans-213
+  prefs: []
+  type: TYPE_IMG
+  zh: '![聚集功能](assets/smls_0909.png)'
+- en: Figure 9-9\. Gather functionality
+  id: totrans-214
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-9\. 聚集功能
+- en: '`reduce`'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`reduce`'
+- en: This function is similar to `gather`, but it appends the tensors, ending up
+    with one tensor that represents the gathered tensors. In this case, rank 0 would
+    end up with `T=t0+t1+t2+t3`, as shown in [Figure 9-10](#reduce_functionality).
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此功能类似于 `gather`，但会将张量附加到最终的张量中，最终得到代表已收集张量的一个张量。在本例中，秩 0 最终将得到 `T=t0+t1+t2+t3`，如图
+    [9-10](#reduce_functionality) 所示。
+- en: '![Reduce functionality](assets/smls_0910.png)'
+  id: totrans-217
+  prefs: []
+  type: TYPE_IMG
+  zh: '![减少功能](assets/smls_0910.png)'
+- en: Figure 9-10\. Reduce functionality
+  id: totrans-218
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-10\. 减少功能
+- en: '`all_reduce`'
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`all_reduce`'
+- en: With the `all_reduce` function, every process in the group shares its information
+    with and collects information from the rest of the group, as shown in [Figure 9-11](#all_reduce_functionality).
+    This is similar to `reduce`, but all machines take part in sending and receiving,
+    and at the end of the process, all the machines will have the same tensor. As
+    discussed before, this can lead to errors if there are any failures in communication
+    over the network.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 `all_reduce` 函数，组中的每个进程与其余组中的所有进程共享信息，并收集信息，如图 [9-11](#all_reduce_functionality)
+    所示。这类似于 `reduce`，但所有机器参与发送和接收，在过程结束时，所有机器将具有相同的张量。如前所述，如果网络通信中出现任何故障，这可能导致错误。
+- en: '![All-reduce functionality](assets/smls_0911.png)'
+  id: totrans-221
+  prefs: []
+  type: TYPE_IMG
+  zh: '![全部减少功能](assets/smls_0911.png)'
+- en: Figure 9-11\. All-reduce functionality
+  id: totrans-222
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-11\. 全部减少功能
+- en: '`all_gather`'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`all_gather`'
+- en: This is similar to `all_reduce`, only here the processes are all sending and
+    receiving tensors to and from the rest of the group without operating on the received
+    tensors. Instead, the received tensors are saved in an array, as shown in [Figure 9-12](#all_gather_functionality).
+    As the name suggests, all of the processes perform the gather functionality.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这与 `all_reduce` 类似，只是这里的进程都在向整个组发送和接收张量，而不对接收到的张量进行操作。相反，接收到的张量保存在一个数组中，如 [图 9-12](#all_gather_functionality)
+    所示。顾名思义，所有进程执行 gather 功能。
+- en: '![All-gather functionality](assets/smls_0912.png)'
+  id: totrans-225
+  prefs: []
+  type: TYPE_IMG
+  zh: '![All-gather 功能](assets/smls_0912.png)'
+- en: Figure 9-12\. All-gather functionality
+  id: totrans-226
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-12\. All-gather 功能
+- en: '`broadcast`'
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`broadcast`'
+- en: The `broadcast` function duplicates a tensor across machines, as shown in [Figure 9-13](#broadcast_functionality).
+    This is useful when you have information that can fit into memory and should be
+    utilized by all ranks.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`broadcast` 函数将一个张量复制到多台机器上，如 [图 9-13](#broadcast_functionality) 所示。当你有适合内存的信息并且所有等级都需要使用时，这非常有用。'
+- en: '![Broadcast functionality](assets/smls_0913.png)'
+  id: totrans-229
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Broadcast 功能](assets/smls_0913.png)'
+- en: Figure 9-13\. Broadcast functionality
+  id: totrans-230
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-13\. 广播功能
+- en: Now that you have a better understanding of the collective communication APIs
+    PyTorch provides, it’s time to move on to the other communication type, peer-to-peer
+    communication.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你对 PyTorch 提供的集体通信 API 有了更好的理解，是时候转向另一种通信类型，即点对点通信。
+- en: Peer-to-peer communication in PyTorch
+  id: totrans-232
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: PyTorch 中的点对点通信
+- en: 'PyTorch provides four APIs for peer-to-peer (P2P) communication, aka point-to-point
+    communication. These include the `send` and `recv` functions mentioned in [“Distributed
+    autograd”](#distributed_autograd), used for synchronous communication, as well
+    as similar functions for sending and receiving tensor data asynchronously: `isend`
+    and `irecv`.'
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PyTorch 提供了四种用于点对点（P2P）通信的 API，也称为点到点通信。这些包括在 [“分布式自动微分”](#distributed_autograd)
+    中提到的 `send` 和 `recv` 函数，用于同步通信，以及用于异步发送和接收张量数据的类似函数：`isend` 和 `irecv`。
+- en: 'We can use the same template code shown in the previous section to distribute
+    the tensors and initialize the cluster; the only thing that changes is the `run`
+    function. The following code snippet contains a simplified example of how to implement
+    `run` using the P2P APIs available in `torch.distributed`:'
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用在前一节中展示的相同模板代码来分发张量并初始化集群；唯一变化的是 `run` 函数。以下代码片段展示了如何使用 `torch.distributed`
+    中可用的 P2P API 实现 `run` 的简化示例：
+- en: '[PRE14]'
+  id: totrans-235
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: This is a classic example of blocking P2P communication. In the `run` function,
+    we have a tensor of size 32 with zeros as values (this acts as a mock tensor).
+    The `if` statement checks the rank of the current process. If it is rank 0, we
+    update the tensor and send it to rank 1, as specified by the `dst=1` argument
+    to the `send` function.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是经典的阻塞式 P2P 通信示例。在 `run` 函数中，我们有一个大小为 32 的张量，值为零（充当模拟张量）。`if` 语句检查当前进程的等级。如果它是等级
+    0，我们会更新张量并将其发送到等级 1，正如 `send` 函数中的 `dst=1` 参数指定的那样。
+- en: If the rank is not 0, as defined by the `else` clause, the process receives
+    the tensor using the `dist.recv` function. The `print` function is used here solely
+    to provide information for debugging the process during troubleshooting. For a
+    real-world application, it is best to leverage the Python logging mechanism; this
+    allows you to categorize the log messages by severity (debug, info, error, etc.)
+    and later search for issues by severity level.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果等级不是 0，如 `else` 子句中所定义的那样，进程将使用 `dist.recv` 函数接收张量。此处仅使用 `print` 函数提供信息，用于调试和故障排除过程中的问题。对于实际应用程序，最好利用
+    Python 的日志记录机制；这样可以通过严重性级别（调试、信息、错误等）对日志消息进行分类，并稍后按严重性级别搜索问题。
+- en: To implement nonblocking (asynchronous) P2P communication, all we need to do
+    is replace the `dist.send` and `dist.recv` functions in the definition of the
+    `run` function with `dist.isend` and `dist.irecv`. With asynchronous communication,
+    you will need to call `wait` on the request object that you received from the
+    action to wait for the execution to finish before proceeding to the next one.
+    If there is no dependent operation, you still have to call `wait` before the `run`
+    function finishes.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现非阻塞（异步）P2P通信，我们只需在 `run` 函数定义中用 `dist.isend` 和 `dist.irecv` 替换 `dist.send`
+    和 `dist.recv` 函数。使用异步通信时，需要调用从操作中接收到的请求对象的 `wait` 方法来等待执行完成，然后再进行下一个操作。如果没有依赖操作，仍需在
+    `run` 函数结束前调用 `wait`。
+- en: '[Figure 9-14](#ptwop_communication_between_rank_zero_a) demonstrates P2P communication,
+    where rank 0 sends information to rank 3.'
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 9-14](#ptwop_communication_between_rank_zero_a) 展示了点对点通信，其中 rank 0 向 rank
+    3 发送信息。'
+- en: '![](assets/smls_0914.png)'
+  id: totrans-240
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0914.png)'
+- en: Figure 9-14\. P2P communication between rank 0 and rank 3
+  id: totrans-241
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-14\. rank 0 和 rank 3 之间的点对点通信
+- en: 'The discussion of asynchronous and synchronous communication here probably
+    reminds you of the RPC protocol, and for good reason: PyTorch’s RPC framework
+    is built on top of the P2P communication APIs, which act as enablers for the `remote`
+    function. As discussed in [“Remote execution”](#remote_execution), this function
+    runs a user function using a background thread on the specified worker process.
+    Instead of returning data over the network, it returns a lightweight reference
+    that acts as a pointer.'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此处异步和同步通信的讨论可能会让您想起 RPC 协议，原因是 PyTorch 的 RPC 框架建立在点对点通信 API 之上，充当 `remote` 函数的启用器。如
+    [“Remote execution”](#remote_execution) 中所述，此函数在指定的工作进程上使用后台线程运行用户函数。它不是通过网络返回数据，而是返回一个作为指针的轻量引用。
+- en: What Can We Do with PyTorch’s Low-Level APIs?
+  id: totrans-243
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 我们能用 PyTorch 的低级 API 做什么？
+- en: Research, optimization, and troubleshooting! Working with low-level APIs of
+    a distributed system often requires a profound understanding of the system itself,
+    but they can be helpful, for instance, for troubleshooting high-level APIs in
+    a real-world situation. Let’s look at an example. In 2021, Chaoyang He et al.
+    decided to build an automated elastic pipeline for distributing transformers as
+    part of distributed training. They created the [PipeTransformer](https://oreil.ly/MEJfx),
+    shown in [Figure 9-15](#overview_of_pipetransformer_training_sy). The pipeline
+    is transformed according to the number of parameters in the training phase. Remember
+    that in a neural network, the number of parameters can change in each network
+    layer. So it might happen that at the beginning there are billions of parameters,
+    and as the training evolves, so does the number of parameters. You can see that
+    pipeline 0 uses more machines and cores at time step 0 than it does at time step
+    1.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 研究、优化和故障排除！在处理分布式系统的低级 API 时，通常需要对系统本身有深刻理解，但在现实世界的高级 API 故障排除中可能会很有帮助。让我们看一个例子。2021
+    年，Chaoyang He 等人决定构建一个自动化弹性管道，作为分布式训练的一部分，他们创建了 [PipeTransformer](https://oreil.ly/MEJfx)，如
+    [图 9-15](#overview_of_pipetransformer_training_sy) 所示。在训练阶段，管道根据参数数量进行转换。请记住，在神经网络中，每个网络层的参数数量都可能会改变。因此，在开始时可能有数十亿个参数，随着训练的进行，参数数量也会相应变化。您可以看到，管道
+    0 在时间步骤 0 使用的机器和核心比时间步骤 1 更多。
+- en: '![](assets/smls_0915.png)'
+  id: totrans-245
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0915.png)'
+- en: Figure 9-15\. Overview of PipeTransformer training system diagram
+  id: totrans-246
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-15\. PipeTransformer 训练系统概述图
+- en: Here, specifically, the researchers used the freeze algorithm, which can identify
+    and freeze some layers gradually during training, which helps the number of parameters
+    to converge and provides more control over the training. The freeze algorithm
+    notifies the AutoPipe module about changes in the number of parameters, gradients,
+    etc. In turn, the AutoPipe notifies the AutoDP about the pipeline length, notifies
+    the AutoCache about the frozen layers, and also calls `transform` on the pipeline
+    itself to execute it. PyTorch’s low-level APIs, coupled with dedicated hardware
+    and a high-level API, enabled the team to build this system and test their research.
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，研究人员特别使用了冻结算法，该算法能够在训练过程中逐渐识别和冻结某些层，这有助于参数的收敛并提供更多训练控制。冻结算法通知 AutoPipe 模块有关参数数量、梯度等的变化。AutoPipe
+    再通知 AutoDP 有关管道长度的信息，通知 AutoCache 冻结层的情况，并在管道本身上调用 `transform` 来执行它。PyTorch 的低级
+    API 结合专用硬件和高级 API，使团队能够构建此系统并测试他们的研究成果。
+- en: Loading Data with PyTorch and Petastorm
+  id: totrans-248
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用 PyTorch 和 Petastorm 加载数据
+- en: In [Chapter 7](ch07.xhtml#bridging_spark_and_deep_learning_framew), we discussed
+    bridging between working with Spark into PyTorch. As you know, for most of the
+    data transformations required for machine learning workflows, the software is
+    developed with the Spark framework and saved to Parquet files—but PyTorch doesn’t
+    provide an out-of-the-box data loader for the Parquet format, so if you need to
+    use PyTorch APIs, you’ll need to introduce dedicated tools to load this data.
+    This book focuses on leveraging Uber’s open source project, Petastorm, for this
+    purpose, but you should keep an open mind about other tools and watch for new
+    entries to the market.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第7章](ch07.xhtml#bridging_spark_and_deep_learning_framew)中，我们讨论了从Spark到PyTorch的桥接。如你所知，对于大多数机器学习工作流所需的数据转换，软件是在Spark框架下开发并保存为Parquet文件的，但PyTorch并没有为Parquet格式提供开箱即用的数据加载器，因此如果需要使用PyTorch
+    API，你需要引入专门的工具来加载这些数据。本书侧重于利用Uber的开源项目Petastorm来实现这一目的，但你应该对其他工具保持开放态度，并关注市场上的新进展。
+- en: As a data scientist, when loading data in PyTorch, you would typically use `DataLoader`
+    together with the `Dataset` class. However, with Petastorm you can avoid them
+    entirely and use the Petastorm converter library instead. The first step is to
+    create the converter itself—this is what enables you to take a Spark DataFrame
+    and convert it into a PyTorch data loader with `converter_train.make_torch_dataloader`.
+    This function will generate the desired `DataLoader` so you can continue your
+    work with PyTorch distributed APIs.
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为数据科学家，在PyTorch中加载数据时，通常会使用`DataLoader`与`Dataset`类。但是，使用Petastorm，你可以完全避免它们，并改用Petastorm转换器库。第一步是创建转换器本身——这就是使你能够使用`converter_train.make_torch_dataloader`将Spark
+    DataFrame转换为PyTorch数据加载器的功能。该函数将生成所需的`DataLoader`，以便你可以继续使用PyTorch分布式API进行工作。
+- en: 'Let’s take a look at some code to better understand the API. As with TensorFlow,
+    the first thing to do is create the converter for the training dataset and the
+    evaluation dataset:'
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看一些代码，以更好地理解API。与TensorFlow一样，首先要做的是为训练数据集和评估数据集创建转换器：
+- en: '[PRE15]'
+  id: totrans-252
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: The `make_spark_converter` function is a generic function, so it’s the same
+    as the one we used for TensorFlow. Once the Petastorm converter is ready, we can
+    leverage it to convert to the loading mechanism we want to use it with.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`make_spark_converter`函数是一个通用函数，因此与我们用于TensorFlow的函数相同。一旦Petastorm转换器准备好，我们就可以利用它来转换为我们希望使用的加载机制。'
+- en: 'As you can see in the next code snippet, we make a PyTorch data loader using
+    the `converter_train.make_torch_dataloader` function. We pass it a `trans⁠form_​spec_fn`
+    that details how to process the data. This function offers another opportunity
+    to preprocess the data before training the model itself; for example resizing
+    of the images can be done here:'
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你在下面的代码片段中所见，我们使用`converter_train.make_torch_dataloader`函数创建了一个PyTorch数据加载器。我们传递了一个`trans⁠form_​spec_fn`，该函数详细说明了如何处理数据。这个函数提供了在训练模型本身之前预处理数据的另一个机会；例如，可以在这里调整图像的大小：
+- en: '[PRE16]'
+  id: totrans-255
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: The `make_torch_dataloader` function creates a `TorchDatasetContextManager`
+    that manages the creation and termination of a Petastorm reader. Under the hood,
+    the `TorchDatasetContextManager` is leveraging the `make_batch_reader` function
+    to create the reader. You can provide the function with the `petastorm_reader_kwargs`
+    argument, which Petastorm will transfer to `make_batch_reader`.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`make_torch_dataloader`函数创建一个`TorchDatasetContextManager`，用于管理Petastorm阅读器的创建和终止。在内部，`TorchDatasetContextManager`利用`make_batch_reader`函数来创建阅读器。你可以向该函数提供`petastorm_reader_kwargs`参数，Petastorm将其传递给`make_batch_reader`。'
+- en: 'To summarize its behavior, it does two things:'
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结其行为，它做了两件事：
+- en: Opens a Petastorm reader on the Parquet file directory URL using the `make_batch_reader`
+    function
+  id: totrans-258
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用`make_batch_reader`函数在Parquet文件目录URL上打开Petastorm阅读器
+- en: Creates a PyTorch `DataLoader` based on this reader
+  id: totrans-259
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 基于此阅读器创建PyTorch `DataLoader`
+- en: The `DataLoader` in Petastorm is a data loader adapter for `torch.utils.data.DataLoader`,
+    which uses PyTorch’s collation functionality to combine the data in the batches.
+    By default, it uses `default_collate`, which checks what type of data the `Dataset`
+    returns and tries to combine it.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Petastorm中的`DataLoader`是`torch.utils.data.DataLoader`的数据加载器适配器，使用PyTorch的汇集功能来合并批次中的数据。默认情况下，它使用`default_collate`，该函数检查`Dataset`返回的数据类型并尝试组合它们。
+- en: The reader also enables you to *shuffle* the queue. This randomizes the batch
+    data entirely by adding an instance from a different file to the queue at random
+    on each iteration. If you wish to use this functionality, use the `shuffling_queue_capacity`
+    parameter in the call to `make_torch_dataloader`, passing it the size of the queue
+    you wish to have. Note that this parameter is set to `0` by default, and no shuffling
+    is done in this state. Shuffling the queue is a great feature if your data is
+    sorted, as with a sorted dataset, it’s possible that the algorithm will develop
+    a bias toward the first data it encounters (depending, of course, on the algorithm
+    and the statistical behavior of the data).
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 读者还可以*洗牌*队列。这会使每次迭代中完全随机地向队列中添加来自不同文件的实例，从而完全随机化批处理数据。如果您希望使用此功能，请在调用`make_torch_dataloader`时使用`shuffling_queue_capacity`参数，并传递您希望具有的队列大小。请注意，默认情况下此参数设置为`0`，此时不进行洗牌。如果您的数据已排序，洗牌队列是一个很棒的功能，因为对于排序数据集，算法可能会对遇到的第一批数据产生偏见（当然这取决于算法和数据的统计行为）。
+- en: The whole operation iterates and returns items from the reader in batches. It
+    also promotes and sanitizes multiple Spark types into PyTorch-friendly types,^([6](ch09.xhtml#ch01fn26))
+    as detailed in [Table 9-1](#spark_types_promoted_to_pytorch_types).
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 整个操作会分批迭代并从读者返回项目。它还会将多个Spark类型提升和清理为PyTorch友好的类型^([6](ch09.xhtml#ch01fn26))，如[表 9-1](#spark_types_promoted_to_pytorch_types)所详述。
+- en: Table 9-1\. Spark types promoted to PyTorch types
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 9-1\. 提升为PyTorch类型的Spark类型
+- en: '| Spark types that need to be promoted | PyTorch types to which Petastorm promotes
+    them |'
+  id: totrans-264
+  prefs: []
+  type: TYPE_TB
+  zh: '| 需要提升的Spark类型 | Petastorm提升为的PyTorch类型 |'
+- en: '| --- | --- |'
+  id: totrans-265
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `int8`, `uint16` | `int32` |'
+  id: totrans-266
+  prefs: []
+  type: TYPE_TB
+  zh: '| `int8`，`uint16` | `int32` |'
+- en: '| `uint32` | `int64` |'
+  id: totrans-267
+  prefs: []
+  type: TYPE_TB
+  zh: '| `uint32` | `int64` |'
+- en: '| `Boolean` | `uint8` |'
+  id: totrans-268
+  prefs: []
+  type: TYPE_TB
+  zh: '| `布尔值` | `uint8` |'
+- en: '| `timestamp` | `float32`, via Petastorm’s `decimal.Decimal` type^([a](ch09.xhtml#ch01fn27))
+    |'
+  id: totrans-269
+  prefs: []
+  type: TYPE_TB
+  zh: '| `时间戳` | `float32`，通过Petastorm的`decimal.Decimal`类型^([a](ch09.xhtml#ch01fn27))
+    |'
+- en: '| ^([a](ch09.xhtml#ch01fn27-marker)) Here there are two phases to the data
+    type transformation: first the Spark `timestamp` values are converted to the Petastorm
+    `decimal.Decimal` type, and then these values are converted to `float32`. |'
+  id: totrans-270
+  prefs: []
+  type: TYPE_TB
+  zh: '| ^([a](ch09.xhtml#ch01fn27-marker)) 这里有两个数据类型转换阶段：首先将Spark的`时间戳`值转换为Petastorm的`decimal.Decimal`类型，然后将这些值转换为`float32`。
+    |'
+- en: What are the limitations? Good question. NumPy strings, arrays of strings, object
+    arrays, and object classes are not supported. What about `None`? PyTorch does
+    not support nullable fields, which means that as part of the filtering process,
+    we must filter out or provide a default value for any feature with a value of
+    `None`.
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有哪些限制？好问题。NumPy字符串、字符串数组、对象数组和对象类不受支持。`None`呢？PyTorch不支持可空字段，这意味着作为过滤过程的一部分，我们必须过滤掉或为任何值为`None`的特征提供默认值。
+- en: 'When working with unsupported data types, most of the collisions result in
+    the following exception: `PyTorch does not support arrays of string or object
+    classes`. If you encounter this exception, note that the reason Petastorm cannot
+    fill in the blanks here is because PyTorch itself would have not supported this
+    data type either. So be mindful when designing the process to start with. To get
+    around this, you’ll need to change the design of your data or use a workaround.
+    A decent option is to use `transform_spec=transform_spec_fn` to process the data,
+    as discussed at the end of [Chapter 8](ch08.xhtml#tensorflow_distributed_ml_approach).'
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在处理不支持的数据类型时，大多数冲突导致以下异常：`PyTorch不支持字符串数组或对象类`。如果遇到此异常，请注意，Petastorm无法在这里填补空白的原因是因为PyTorch本身也不支持此数据类型。因此，在设计流程时要慎重考虑。要解决这个问题，您需要更改数据的设计或使用解决方法。一个不错的选择是使用`transform_spec=transform_spec_fn`来处理数据，正如[第8章](ch08.xhtml#tensorflow_distributed_ml_approach)末尾所讨论的那样。
+- en: After we have the PyTorch `DataLoader` ready, the next step is to use it for
+    training, validating, and testing.
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们准备好PyTorch的`DataLoader`之后，下一步是将其用于训练、验证和测试。
+- en: Tip
+  id: totrans-274
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: The `DataLoader` constructor accepts an argument for defining the number of
+    workers to use to load the data. However, there is a problem in its implementation.
+    Under the hood, Petastorm’s PyTorch DataLoader implementation uses `mp.spawn`,
+    which pickles the model and the parameters and saves it to disk. If there are
+    any translation issues along the way, this will crash your program, so you’ll
+    need to avoid using this. It can also dramatically slow down the process and create
+    a bottleneck.
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`DataLoader` 构造函数接受一个参数，用于定义要用于加载数据的工作线程数。然而，在其实现中存在一个问题。在幕后，Petastorm 的 PyTorch
+    DataLoader 实现使用 `mp.spawn`，它会将模型和参数进行序列化并保存到磁盘。如果沿途有任何翻译问题，这将导致程序崩溃，因此您需要避免使用它。这也可能会显著减慢处理过程并创建瓶颈。'
+- en: Troubleshooting Guidance for Working with Petastorm and Distributed PyTorch
+  id: totrans-276
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Petastorm 和分布式 PyTorch 的故障排除指南
+- en: Various challenges can arise when working with multiple computation engines,
+    due to mismatches and bugs like the ones mentioned in the previous section. We’ll
+    look at a few here, starting with mismatched data types.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用多个计算引擎时可能会遇到各种挑战，由于上一节提到的类型不匹配和错误等。我们将在这里看到一些例子，首先是类型不匹配的问题。
+- en: The Enigma of Mismatched Data Types
+  id: totrans-278
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据类型不匹配的谜题
+- en: Types are one of the great mysteries when working with data. Why does every
+    platform decide to introduce and support its own types? I guess we’ll never figure
+    that one out!
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在处理数据时，类型是一个巨大的谜团。为什么每个平台都决定引入和支持自己的类型？我想我们永远也无法解决这个问题！
+- en: 'Existential questions aside, if you remember, [Table 2-1](ch02.xhtml#basic_python_data_types_and_how_to_init)
+    in [Chapter 2](ch02.xhtml#introduction_to_spark_and_pyspark) showed how data types
+    in Spark are mapped to data types in Python. Since [Chapter 2](ch02.xhtml#introduction_to_spark_and_pyspark),
+    our data has gone through multiple iterations and formats. A moment’s reflection
+    on how the data flowed in our examples shows that the trip was fascinating, with
+    many type changes along the way:'
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了存在的问题，如果您记得，在[第二章](ch02.xhtml#introduction_to_spark_and_pyspark)中的[表 2-1](ch02.xhtml#basic_python_data_types_and_how_to_init)展示了Spark中的数据类型如何映射到Python中的数据类型。自从[第二章](ch02.xhtml#introduction_to_spark_and_pyspark)以来，我们的数据经历了多次迭代和格式化。稍作反思我们示例中的数据流动情况，您会发现这段旅程令人着迷，途中进行了许多类型更改：
+- en: File → Spark casting → Spark processing → Save to Parquet → Petastorm → PyTorch
+  id: totrans-281
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 文件 → Spark 转换 → Spark 处理 → 保存为 Parquet → Petastorm → PyTorch
+- en: It’s a good practice for you and your team to keep track of the data versions
+    and changes by using an auditing mechanism. Details on the file format and encoding
+    (such as UTF-8, UTF-18, etc.) can be recorded, together with the library that
+    produced and saved it. Tracking all of this information can provide you with everything
+    you need for a holistic and systematic troubleshooting process.
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于您和您的团队来说，通过使用审核机制来跟踪数据版本和更改是一个好的实践。可以记录文件格式和编码（如 UTF-8、UTF-18 等）的详细信息，以及生成和保存它的库。跟踪所有这些信息可以为您提供一切您需要的全面和系统化的故障排除过程。
+- en: As an example, there is a known challenge when working with a plain Python list
+    (or any Spark array format, which is translated into a plain Python list in PySpark)
+    and Petastorm. While writing can work with arrays, loading the data in PyTorch
+    will often fail on schema mismatch. One workaround is to take the RDD approach
+    and strip away the Spark DataFrame abstractions. Doing so enables you to make
+    sure you are using data types that fit with Petastorm and later PyTorch.
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，在使用普通的 Python 列表（或任何 Spark 数组格式，在 PySpark 中转换为普通的 Python 列表）和 Petastorm 进行工作时存在已知的挑战。虽然写入可以使用数组，但在
+    PyTorch 中加载数据时通常会因为模式不匹配而失败。一种解决方法是采用 RDD 方法，摆脱 Spark DataFrame 的抽象。这样做可以确保您使用符合
+    Petastorm 和后续 PyTorch 的数据类型。
+- en: 'The following code sample demonstrates forcing Petastorm to convert the data
+    to a specific schema. If you remember from the discussion following [Table 9-1](#spark_types_promoted_to_pytorch_types),
+    PyTorch does not support arrays of string or object classes. However, you will
+    often need to work with arrays or lists. To get around this issue, you can translate
+    the list/array to a supported type by providing a `Unischema` definition that
+    takes an array as one of the data types and translates it to an `np.array`, which
+    is later translated into a PyTorch tensor:'
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的代码示例演示了如何强制Petastorm将数据转换为特定的模式。如果你还记得[表 9-1](#spark_types_promoted_to_pytorch_types)后面的讨论，PyTorch不支持字符串或对象类的数组。然而，你经常需要处理数组或列表。为了解决这个问题，你可以通过提供一个`Unischema`定义来将列表/数组转换为支持的类型，例如将数组转换为`np.array`，然后再将其转换为PyTorch张量：
+- en: '[PRE17]'
+  id: totrans-285
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'In this code, we first define the desired schema: a field named `id` of type
+    `Ndarray​Co⁠dec`. Next, we create a `row_to_dict` function that does type checks
+    against the defined schema. If it is an instance of a list/array, it will confer
+    to enforce the type and the NumPy value. It iterates over each one of the rows
+    in the Spark DataFrame to make sure it conforms to the schema by calling the `_fields[k].numpy_dtype`
+    operation.'
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这段代码中，我们首先定义了所需的模式：一个名为`id`的字段，类型为`Ndarray​Co⁠dec`。接下来，我们创建了一个`row_to_dict`函数，它对定义的模式进行类型检查。如果是列表/数组的实例，它将强制执行类型和NumPy值。它遍历Spark
+    DataFrame中的每一行，通过调用`_fields[k].numpy_dtype`操作来确保其符合模式。
+- en: 'We then define a `generate_dataset` function that strips away the Spark DataFrame
+    by using `df.rdd`. This calls the internal RDD that is part of the DataFrame,
+    and now we can easily execute RDD functionality on it, such as mapping. Notice
+    that here there is a *two map function* approach: one map is used to enforce the
+    type as necessary, and the other one (`dict_to_spark_row`) is a Petastorm function
+    that is required by the Petastorm API.'
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来我们定义一个`generate_dataset`函数，通过使用`df.rdd`来去掉Spark DataFrame。这调用了DataFrame的内部RDD，现在我们可以在其上轻松执行RDD功能，例如映射。请注意，这里采用了*两个映射函数*的方法：一个映射用于必要时强制类型，另一个(`dict_to_spark_row`)是Petastorm
+    API所需的Petastorm函数。
+- en: Finally, we save the data to a dedicated Petastorm location.
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们将数据保存到专用的Petastorm位置。
+- en: After getting the data into the desired type and state, we can load it from
+    the `output_url` with the dedicated Petastorm converter that we defined earlier,
+    in [“Loading Data with PyTorch and Petastorm”](#loading_data_with_pytorch_and_petastorm).
+    Now let’s look at another problem you may need to troubleshoot when working with
+    Petastorm and distributed PyTorch.
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在将数据转换为所需类型和状态后，我们可以使用之前定义的专用Petastorm转换器从`output_url`加载数据，在[“使用PyTorch和Petastorm加载数据”](#loading_data_with_pytorch_and_petastorm)中我们已经定义了。现在让我们来看看在使用Petastorm和分布式PyTorch时可能需要解决的另一个问题。
+- en: The Mystery of Straggling Workers
+  id: totrans-290
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '**迟到的工作人员**'
+- en: '*Straggling workers* are workers that are running behind the rest of the cluster.
+    They might have failed and relaunched, or there may have been a network issue
+    that caused them to receive the data late, or some other problem that can arise
+    in a distributed system may have slowed them down. Synchronized training accentuates
+    the problem of straggling workers in a distributed system, as the data they produce
+    becomes stale and irrelevant.'
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*迟到的工作人员*是指比集群其他部分跑得慢的工作人员。他们可能已经失败并重新启动，或者可能出现了网络问题导致他们接收数据延迟，或者其他可能在分布式系统中出现的问题导致他们速度变慢。在同步训练中，迟到的工作人员问题尤为突出，因为他们产生的数据变得过时和无关紧要。'
+- en: 'These processes can also create a bottleneck when adding more machines for
+    distributed processing. If 25% of the machines in a system are straggling, as
+    you scale up the number of machines, more and more of them will be affected. This
+    might not seem like such a big deal if you have 4 machines, but if you scale up
+    to have 32 or 128, it won’t be a problem you can ignore, and it might require
+    rethinking the structure of operations and communication. Of course, this problem
+    is model-dependent, and it’s hard to provide best practices for dealing with it.
+    The best approach is to be vigilant and notice if there are any changes in how
+    long it takes the training to finish when scaling horizontally. The trade-off
+    is often in the model’s accuracy—there is no optimal solution to get high-level
+    accuracy using asynchronous communication. Therefore, it is best to keep this
+    in mind and understand which outcome you want to prioritize: better accuracy during
+    model building or faster convergence/training of the model?'
+  id: totrans-292
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些过程在添加更多用于分布式处理的机器时也可能会造成瓶颈。如果系统中有25%的机器出现了迟钝现象，随着机器数量的增加，受影响的机器会越来越多。如果你只有4台机器，这可能看起来并不是什么大问题，但是如果你扩展到32或128台，这将成为一个不能忽视的问题，并且可能需要重新考虑操作和通信结构。当然，这个问题与模型相关，并且很难提供处理它的最佳实践。最好的方法是保持警惕，注意水平扩展时训练完成时间的变化。常常需要在模型的准确性上做出权衡——使用异步通信来获得高水平的准确性没有最佳解决方案。因此，最好记住并理解你想要优先考虑的结果：在模型构建过程中更好的准确性，还是更快的收敛/训练模型？
+- en: How Does PyTorch Differ from TensorFlow?
+  id: totrans-293
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: PyTorch与TensorFlow有何不同？
+- en: 'Now that you have a better understanding of PyTorch and its distributed training
+    mechanism, you’re probably asking yourself this question: how does it differ from
+    TensorFlow? We’ve discussed functionality and terminology already, but from a
+    running and operation perspective, there are a few more things you should know
+    about.'
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你对PyTorch及其分布式训练机制有了更好的理解，可能会问自己一个问题：它与TensorFlow有何不同？我们已经讨论了功能和术语，但从运行和操作的角度来看，你还应该了解更多内容。
+- en: '[Table 9-2](#pytorch_versus_tensorflow) breaks down the differences between
+    TensorFlow and PyTorch in several key areas.'
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 9-2](#pytorch_versus_tensorflow)详细解析了TensorFlow和PyTorch在几个关键领域的差异。'
+- en: Table 9-2\. PyTorch versus TensorFlow
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 9-2\. PyTorch与TensorFlow
+- en: '|   | PyTorch | TensorFlow |'
+  id: totrans-297
+  prefs: []
+  type: TYPE_TB
+  zh: '|   | PyTorch | TensorFlow |'
+- en: '| --- | --- | --- |'
+  id: totrans-298
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| **Visualization and debugging** | Has fewer tools for visualization and debugging,
+    as it is a relative newcomer in the industry. | Has better tools for visualization
+    for debugging, as it is a more mature tool in the industry. |'
+  id: totrans-299
+  prefs: []
+  type: TYPE_TB
+  zh: '| **可视化和调试** | 工业界的新秀，因此可视化和调试工具较少。 | 工业界成熟工具，提供更好的可视化和调试工具。 |'
+- en: '| **Computation graph** | Construction is dynamic, and it’s updated during
+    runtime. The graph consists of tensors, operations, and information required for
+    backward propagation and is executed by the autograd engine. Supports imperative
+    programming using inheritance, etc. | Construction is static. `tf.Graph` data
+    structures contain a set of tensors and `tf.Operation` objects, which represent
+    units of computation. Supports symbolic manipulation; good for algebraic expressions.
+    Also supports imperative programming using inheritance, etc. |'
+  id: totrans-300
+  prefs: []
+  type: TYPE_TB
+  zh: '| **计算图** | 构建是动态的，在运行时更新。图包含张量、操作和反向传播所需的信息，并由自动求导引擎执行。支持使用继承等命令式编程。 | 构建是静态的。`tf.Graph`数据结构包含一组张量和`tf.Operation`对象，代表计算单元。支持符号操作；适合代数表达式。同时支持使用继承等命令式编程。
+    |'
+- en: '| **Programming limitations** | Considered less generic. | Has lots of boilerplate
+    code. |'
+  id: totrans-301
+  prefs: []
+  type: TYPE_TB
+  zh: '| **编程限制** | 被认为不够通用。 | 有大量样板代码。 |'
+- en: '| **Language support for model loading** | Loading models in languages other
+    than Python is considered more complex. | Models can be loaded in other supported
+    languages, such as Java and C++. |'
+  id: totrans-302
+  prefs: []
+  type: TYPE_TB
+  zh: '| **模型加载的语言支持** | 除了Python以外的语言中加载模型被认为更为复杂。 | 模型可以在其他支持的语言中加载，如Java和C++。 |'
+- en: '| **Supported deployment options** | TorchScript—use a dedicated script and
+    wrap the machine learning model according to the desired pattern (deployment patterns
+    are discussed further in [Chapter 10](ch10.xhtml#deployment_patterns_for_machine_learnin)).
+    | TensorFlow Serving (commonly used for small-scale applications), Flask web server,
+    mobile (Android/iOS; the models themselves can be optimized to fit in the memory
+    of a mobile or IoT device). |'
+  id: totrans-303
+  prefs: []
+  type: TYPE_TB
+  zh: '| **支持的部署选项** | TorchScript —— 使用专用脚本并根据所需模式封装机器学习模型（部署模式在 [第10章](ch10.xhtml#deployment_patterns_for_machine_learnin)
+    进一步讨论）。 | TensorFlow Serving（通常用于小规模应用）、Flask Web 服务器、移动端（Android/iOS；模型本身可以优化以适应移动或物联网设备的内存）。
+    |'
+- en: A general difference between TF and PyTorch’s distributed machine learning capabilities
+    is that PyTorch’s approach is more specific and is intended to provide fine-grained
+    control for practical machine learning experiments. Your choice of tools will
+    ultimately come down to what your organization really needs and what it can afford.
+    You need to consider what tools are already supported, how the machine learning
+    lifecycle works with those tools, whether they can be replaced easily, etc.
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF 和 PyTorch 的分布式机器学习能力的一般区别在于，PyTorch 的方法更具体，旨在为实际的机器学习实验提供细粒度的控制。您的工具选择最终取决于您的组织实际需要和可以负担的内容。您需要考虑哪些工具已得到支持，机器学习生命周期如何与这些工具配合工作，它们是否可以轻松替换等。
+- en: To determine which framework to use to enrich your distributed machine learning
+    capabilities, it is a good idea to examine and assess its ecosystem offerings.
+    While it is a relative newcomer, PyTorch has a growing [ecosystem](https://oreil.ly/cxVeV)
+    with over 50 libraries and projects. Some are dedicated to specific domains, such
+    as natural language processing or computer vision solutions, while others support
+    the machine learning process itself (such as accelerators) or provide enhanced
+    security and privacy (such as [PySyft](https://oreil.ly/c7Da7)). For example,
+    suppose you need to train a machine learning model while decoupling the training
+    from private user data. A good place to start would be exploring what exists in
+    each tool’s ecosystem to enable this. This understanding will greatly facilitate
+    the decision process. You can choose either to adopt an existing framework or
+    to develop your own.
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要确定使用哪个框架来丰富您的分布式机器学习能力，审视和评估其生态系统提供是一个好主意。虽然相对较新，PyTorch 的生态系统正在增长，拥有超过 50
+    个库和项目。一些专注于特定领域，如自然语言处理或计算机视觉解决方案，而其他支持机器学习过程本身（如加速器）或提供增强的安全性和隐私保护（如 [PySyft](https://oreil.ly/c7Da7)）。例如，假设您需要在训练机器学习模型时与私人用户数据分离。了解每个工具生态系统中存在的内容是一个很好的起点，以实现这一目标。这种理解将极大地促进决策过程。您可以选择采用现有框架或开发自己的框架。
+- en: Summary
+  id: totrans-306
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概要
+- en: 'In this chapter, you learned about all the main components of distributed PyTorch
+    and took a deep dive into its RPC framework. You also got a better understanding
+    of how PyTorch differs from TensorFlow in its approach to distributed systems
+    and machine learning flow. More often than not, you will need to take into consideration
+    the waiting time aspect. Training a model with one GPU can take four days. If
+    you want to turn that into an hour, you can leverage a machine with 64 GPUs—but
+    what if you don’t have access to such a machine, and you want to speed up the
+    training process? Multinode training may be an option: 8 nodes with 8 GPUs each
+    can support the 64 GPU requirement. This is where PyTorch’s distributed optimization
+    comes into play, as it provides much more flexibility in how things are distributed
+    than Spark or TensorFlow.'
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您了解了分布式 PyTorch 的所有主要组件，并深入探讨了其 RPC 框架。您还更好地理解了 PyTorch 在分布式系统和机器学习流程方面与
+    TensorFlow 的不同之处。往往情况下，您需要考虑等待时间方面的因素。使用单个 GPU 训练模型可能需要四天时间。如果您想缩短到一个小时，可以利用具有
+    64 个 GPU 的机器 —— 但如果您无法访问这样的机器，而又想加速训练过程怎么办？多节点训练可能是一个选择：每个具有 8 个 GPU 的 8 个节点可以满足
+    64 个 GPU 的需求。这就是 PyTorch 的分布式优化发挥作用的地方，因为它在如何分配事物方面提供了比 Spark 或 TensorFlow 更大的灵活性。
+- en: Up to now, we have covered training machine learning models at scale and how
+    to go about optimization and bridging from one framework to another. In the next
+    and final chapter, you will learn about various topics relating to deploying your
+    machine learning model and monitoring it in production, including knowing when
+    to archive it.
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经涵盖了在规模上训练机器学习模型以及如何进行优化和从一个框架过渡到另一个框架的内容。在下一章，也是最后一章中，您将学习有关部署您的机器学习模型及在生产环境中进行监控的各种主题，包括何时归档模型。
+- en: ^([1](ch09.xhtml#ch01fn21-marker)) In PyTorch, *rendezvous* refers to the process
+    of peer machine discovery and distributed primitive synchronization.
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch09.xhtml#ch01fn21-marker)) 在 PyTorch 中，*rendezvous* 指的是对等机器发现和分布式原语同步的过程。
+- en: ^([2](ch09.xhtml#ch01fn22-marker)) In computer science, this is a function that
+    blocks the program from processing the next operation until a response is received.
+    It often involves I/O, communicating with a remote machine, or other processes.
+  id: totrans-310
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch09.xhtml#ch01fn22-marker)) 在计算机科学中，这是一个函数，它阻止程序处理下一个操作，直到接收到响应。通常涉及输入/输出、与远程机器的通信或其他进程。
+- en: ^([3](ch09.xhtml#ch01fn23-marker)) In memory management, garbage collection
+    attempts to reclaim memory that was allocated by the program but no longer referenced.
+  id: totrans-311
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch09.xhtml#ch01fn23-marker)) 在内存管理中，垃圾回收尝试回收由程序分配但不再引用的内存。
+- en: ^([4](ch09.xhtml#ch01fn24-marker)) `BAND`, `BOR`, and `BXOR` are not supported
+    with the NCCL backend.
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch09.xhtml#ch01fn24-marker)) `BAND`、`BOR` 和 `BXOR` 在 NCCL 后端不受支持。
+- en: ^([5](ch09.xhtml#ch01fn25-marker)) Figures [9-8](#scatter_functionality) through
+    [9-13](#broadcast_functionality) are courtesy of the PyTorch documentation’s contributors
+    and can be found at [*https://pytorch.org/tutorials/intermediate/dist_tuto.xhtml*](https://pytorch.org/tutorials/intermediate/dist_tuto.xhtml).
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch09.xhtml#ch01fn25-marker)) 图 [9-8](#scatter_functionality) 到 [9-13](#broadcast_functionality)
+    是由 PyTorch 文档的贡献者提供，并可在 [*https://pytorch.org/tutorials/intermediate/dist_tuto.xhtml*](https://pytorch.org/tutorials/intermediate/dist_tuto.xhtml)
+    上找到。
+- en: ^([6](ch09.xhtml#ch01fn26-marker)) PyTorch’s supported types are `double`, `float`,
+    `float16`, `float32`, `int64`, `int32`, and `uint8`.
+  id: totrans-314
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch09.xhtml#ch01fn26-marker)) PyTorch 支持的数据类型有 `double`、`float`、`float16`、`float32`、`int64`、`int32`
+    和 `uint8`。

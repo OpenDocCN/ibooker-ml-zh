@@ -1,0 +1,2854 @@
+- en: Chapter 7\. Training Pipeline
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 7 章\. 训练管道
+- en: The stage after preprocessing is model training, during which the machine learning
+    model will read in the training data and use that data to adjust its weights (see
+    [Figure 7-1](#in_the_model_training_processcomma_the_m)). After training, the
+    model is saved or exported so that it can be deployed.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预处理后的阶段是模型训练，在此期间，机器学习模型将读取训练数据，并使用该数据调整其权重（参见 [图 7-1](#in_the_model_training_processcomma_the_m)）。训练后，将保存或导出模型以便部署。
+- en: '![](Images/pmlc_0701.png)'
+  id: totrans-2
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0701.png)'
+- en: Figure 7-1\. In the model training process, the ML model is trained on preprocessed
+    data and then exported for deployment. The exported model is used to make predictions.
+  id: totrans-3
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-1\. 在模型训练过程中，ML 模型在预处理数据上进行训练，然后导出用于部署。导出的模型用于进行预测。
+- en: In this chapter, we will look at ways to make the ingestion of training (and
+    validation) data into the model more efficient. We will take advantage of time
+    slicing between the different computational devices (CPUs and GPUs) available
+    to us, and examine how to make the whole process more resilient and reproducible.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将探讨如何使训练（和验证）数据的摄取过程更加高效。我们将利用我们可以使用的不同计算设备（CPU 和 GPU）之间的时间切片，并研究如何使整个过程更具韧性和可重现性。
+- en: Tip
+  id: totrans-5
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: The code for this chapter is in the *07_training* folder of the book’s [GitHub
+    repository](https://github.com/GoogleCloudPlatform/practical-ml-vision-book).
+    We will provide file names for code samples and notebooks where applicable.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的代码位于书籍的 *07_training* 文件夹中的 [GitHub 代码库](https://github.com/GoogleCloudPlatform/practical-ml-vision-book)
+    中。适用时，我们将提供代码示例和笔记本的文件名。
+- en: Efficient Ingestion
+  id: totrans-7
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 高效摄取
+- en: 'A significant part of the time it takes to train machine learning models is
+    spent on ingesting data—reading it and transforming it into a form that is usable
+    by the model. The more we can do to streamline and speed up this stage of the
+    training pipeline, the more efficient we can be. We can do this by:'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练机器学习模型所花费的时间中，有很大一部分用于摄取数据——读取并将其转换为模型可用的形式。我们可以通过以下方式来简化和加快训练管道的这个阶段，从而提高效率：
+- en: Storing data efficiently
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 高效存储数据
+- en: We should preprocess the input images as much as possible, and store the preprocessed
+    values in a way that is efficient to read.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应尽可能多地预处理输入图像，并以便于读取的方式存储预处理值。
+- en: Parallelizing the reading of data
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并行化数据读取
+- en: When ingesting data, the speed of storage devices tends to be a bottleneck.
+    Different files may be stored on different disks, or can be read via different
+    network connections, so it is often possible to parallelize the reading of data.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在摄取数据时，存储设备的速度往往是瓶颈。不同文件可以存储在不同的磁盘上，也可以通过不同的网络连接读取，因此通常可以并行读取数据。
+- en: Preparing images in parallel with training
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与训练并行准备图像
+- en: If we can preprocess the images on the CPU in parallel with training on the
+    GPU, we should do so.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们可以在 GPU 训练的同时在 CPU 上并行预处理图像，我们应该这样做。
+- en: Maximizing GPU utilization
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最大化 GPU 利用率
+- en: As much as possible, we should try to carry out matrix and mathematical operations
+    on the GPU, since it is many orders of magnitude faster than a CPU. If any of
+    our preprocessing operations involve these operations, we should push them to
+    the GPU.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽可能多地在 GPU 上进行矩阵和数学运算，因为它比 CPU 快几个数量级。如果我们的任何预处理操作涉及这些操作，我们应该将它们推送到 GPU 上。
+- en: Let’s look at each of these ideas in more detail.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们更详细地看看这些想法。
+- en: Storing Data Efficiently
+  id: totrans-18
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 高效存储数据
+- en: Storing images as individual JPEG files is not very efficient from a machine
+    learning perspective. In [Chapter 5](ch05.xhtml#creating_vision_datasets), we
+    discussed how to convert JPEG images into TensorFlow Records. In this section,
+    we will explain why TFRecords are an efficient storage mechanism, and consider
+    trade-offs between flexibility and efficiency in terms of the amount of preprocessing
+    that is carried out before the data is written out.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将图像存储为单独的 JPEG 文件从机器学习的角度来看效率不高。在 [第 5 章](ch05.xhtml#creating_vision_datasets)
+    中，我们讨论了如何将 JPEG 图像转换为 TensorFlow Records。在本节中，我们将解释为什么 TFRecords 是一种高效的存储机制，并考虑在将数据写出之前进行的预处理量在灵活性和效率之间的权衡。
+- en: TensorFlow Records
+  id: totrans-20
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: TensorFlow Records
+- en: Why store images as TensorFlow Records? Let’s consider what we’re looking for
+    in a file format.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么将图像存储为 TensorFlow Records？让我们考虑一下文件格式中我们寻找的内容。
+- en: We know that we are going to be reading these images in batches, so it will
+    be best if we can read an entire batch of images using a single network connection
+    rather than open up one connection per file. Reading a batch all at once will
+    also provide greater throughput to our machine learning pipeline and minimize
+    the amount of time the GPU is waiting for the next batch of images.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们知道我们将批量读取这些图像，因此最好能够使用单个网络连接读取整个图像批次，而不是为每个文件打开一个连接。一次性读取一个批次也将为我们的机器学习管道提供更大的吞吐量，并最小化
+    GPU 等待下一批图像的时间。
+- en: Ideally, we would like the files to be around 10–100 MB in size. This allows
+    us to balance the ability to read the images from multiple workers (one for every
+    GPU) and the need to have each file open long enough to amortize the latency of
+    reading the first byte over many batches.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理想情况下，我们希望文件的大小在 10 到 100 MB 之间。这样可以在多个工作节点（每个 GPU 一个）中平衡读取图像的能力，并确保每个文件打开的时间足够长，以便在许多批次中分摊读取第一个字节的延迟。
+- en: Also, we would like the file format to be such that bytes read from the file
+    can be mapped immediately to an in-memory structure without the need to parse
+    the file or handle storage layout differences (such as endianness) between different
+    types of machines.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，我们希望文件格式能够使从文件中读取的字节能够立即映射到内存结构，而无需解析文件或处理不同类型机器（如字节序）之间的存储布局差异。
+- en: The file format that meets all these criteria is TensorFlow Records. We can
+    store the image data for training, validation, and testing into separate TFRecord
+    files, and shard the files at around 100 MB each. Apache Beam has a handy TFRecord
+    writer that we used in [Chapter 5](ch05.xhtml#creating_vision_datasets).
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 符合所有这些标准的文件格式是 TensorFlow Records。我们可以将用于训练、验证和测试的图像数据存储到单独的 TFRecord 文件中，并在每个文件约
+    100 MB 的范围内进行分片。Apache Beam 提供了一个方便的 TFRecord 写入器，我们在[第 5 章](ch05.xhtml#creating_vision_datasets)中使用过。
+- en: Storing preprocessed data
+  id: totrans-26
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 存储预处理数据
+- en: We can improve the performance of our training pipeline if we don’t have to
+    do the preprocessing in the training loop. We might be able to carry out the desired
+    preprocessing on the JPEG images and then write out the preprocessed data rather
+    than the raw data.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们在训练循环中不需要进行预处理，可以提升训练管道的性能。我们可以在 JPEG 图像上执行所需的预处理，然后将预处理后的数据而不是原始数据写入。
+- en: In practice, we will have to split the preprocessing operations between the
+    ETL pipeline that creates the TensorFlow Records and the model code itself. Why
+    not do it all in the ETL pipeline or all in the model code? The reason is that
+    preprocessing operations applied in the ETL pipeline are done only once instead
+    of in each epoch of the model training. However, there will always be preprocessing
+    operations that are specific to the model that we are training or that need to
+    be different during each epoch. These cannot be done in the ETL pipeline—they
+    must be done in the training code.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实践中，我们必须在创建 TensorFlow Records 的 ETL 管道和模型代码本身之间分割预处理操作。为什么不全部在 ETL 管道中完成或全部在模型代码中完成？原因是应用于
+    ETL 管道中的预处理操作仅在模型训练的每个周期中执行一次。然而，总会有预处理操作是特定于我们正在训练的模型或者需要在每个周期中有所不同的。这些不能在 ETL
+    管道中完成，必须在训练代码中完成。
+- en: 'In [Chapter 5](ch05.xhtml#creating_vision_datasets), we decoded our JPEG files,
+    scaled them to lie between [0, 1], flattened out the array, and wrote the flattened
+    array out to TensorFlow Records:'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第 5 章](ch05.xhtml#creating_vision_datasets)中，我们解码了 JPEG 文件，将其缩放到 [0, 1] 之间，展开数组，并将展开的数组写入
+    TensorFlow Records 中：
+- en: '[PRE0]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: The operations that we did before writing the TensorFlow Records were chosen
+    explicitly.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在编写 TensorFlow Records 之前选择的操作是明确选择的。
+- en: 'We could have done less if we’d wanted—we could have simply read the JPEG files
+    and written out the contents of each file as a string into the TensorFlow Records:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果愿意的话，我们可以做得更少——我们可以简单地读取 JPEG 文件，将每个文件的内容作为字符串写入 TensorFlow Records 中：
+- en: '[PRE1]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Had we been concerned about potentially different file formats (JPEG, PNG, etc.)
+    or image formats not understood by TensorFlow, we could have decoded each image,
+    converted the pixel values into a common format, and written out the compressed
+    JPEG as a string.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们担心可能存在不同的文件格式（JPEG、PNG 等）或 TensorFlow 不理解的图像格式，我们可以解码每个图像，将像素值转换为公共格式，并将压缩的
+    JPEG 写成字符串存储起来。
+- en: 'We could also have done much more. For example, we could have created an embedding
+    of the images and written out not the image data, but only the embeddings:'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们也可以做得更多。例如，我们可以创建图像的嵌入并不是写入图像数据，而只是嵌入数据：
+- en: '[PRE2]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The choice of what operations to perform comes down to a trade-off between efficiency
+    and reusability. It’s also affected by what types of reusability we envision.
+    Remember that ML model training is a highly iterative, experimental process. Each
+    training experiment will iterate over the training dataset multiple times (specified
+    by the number of epochs). Therefore, each TFRecord in the training dataset will
+    have to be processed multiple times. The more of the processing we can carry out
+    before writing the TFRecords, the less processing has to be carried out in the
+    training pipeline itself. This will result in faster and more efficient training
+    and higher data throughput. This advantage is multiplied manyfold because we normally
+    do not just train a model once; we run multiple experiments with multiple hyperparameters.
+    On the other hand, we have to make sure that the preprocessing that we are carrying
+    out is desirable for all the ML models that we want to train using this dataset—the
+    more preprocessing we do, the less reusable our dataset might become. We should
+    also not enter the realm of micro-optimizations that improve speed minimally but
+    make the code much less clear or reusable.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择执行哪些操作涉及效率和可重用性之间的权衡。这也受到我们所设想的可重用性类型的影响。请记住，ML模型训练是一个高度迭代的实验过程。每次训练实验都会多次（由epochs数量指定）遍历训练数据集。因此，每个训练数据集中的TFRecord都必须被多次处理。我们能在写入TFRecords之前执行的处理越多，训练流水线本身就要进行的处理就越少。这将导致更快速、更高效的训练和更高的数据吞吐量。这个优势会倍增，因为通常我们不仅仅会训练一次模型；我们会使用多个超参数运行多次实验。另一方面，我们必须确保我们正在进行的预处理对我们希望使用这个数据集训练的所有ML模型都是有益的——我们进行的预处理越多，数据集的可重用性可能就越低。我们还不应该陷入微小优化的领域，这些微小优化可能会微幅提高速度，但会使代码变得不够清晰或可重用。
+- en: If we write out the image embeddings (rather than the pixel values) to TensorFlow
+    Records, the training pipeline will be hugely efficient since the embedding computation
+    typically involves passing the image through one hundred or more neural network
+    layers. The efficiency gains can be considerable. However, this presupposes that
+    we will be doing transfer learning. We cannot train an image model from scratch
+    using this dataset. Of course, storage being much less expensive than compute,
+    we might also find that it is advantageous to create two datasets, one of the
+    embeddings and the other of the pixel values.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们将图像嵌入（而不是像素值）写入TensorFlow Records，训练流水线将会非常高效，因为嵌入计算通常涉及将图像通过一百多个神经网络层。效率提升是相当可观的。然而，这假定我们将进行迁移学习。我们不能使用这个数据集从头开始训练图像模型。当然，存储比计算便宜得多，我们可能还会发现创建两个数据集（一个是嵌入数据，另一个是像素值）是有利的。
+- en: Because TensorFlow Records can vary in terms of how much preprocessing has been
+    carried out, it is a good practice to document this in the form of metadata. Explain
+    what data is present in the records, and how that data was generated. General-purpose
+    tools like [Google Cloud Data Catalog](https://oreil.ly/T2W2N), [Collibra](https://oreil.ly/MZNaZ),
+    and [Informatica](https://oreil.ly/MsFaX) can help here, as can custom ML frameworks
+    like the [Feast feature store](https://oreil.ly/t3Rh2).
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为TensorFlow Records可能在预处理方面有所不同，因此在元数据的形式中记录这一点是一个好的做法。解释记录中存在的数据以及数据生成方式。像[Google
+    Cloud数据目录](https://oreil.ly/T2W2N)、[Collibra](https://oreil.ly/MZNaZ)和[Informatica](https://oreil.ly/MsFaX)等通用工具可以帮助这一点，还有像[Feast特征存储](https://oreil.ly/t3Rh2)这样的自定义ML框架。
+- en: Reading Data in Parallel
+  id: totrans-40
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 并行读取数据
+- en: 'Another way to improve the efficiency of ingesting data into the training pipeline
+    is to read the records in parallel. In [Chapter 6](ch06.xhtml#preprocessing),
+    we read the written-out TFRecords and preprocessed them using:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提高将数据导入训练流水线效率的另一种方法是并行读取记录。在[第6章](ch06.xhtml#preprocessing)中，我们读取已写入的TFRecords，并使用以下方法进行预处理：
+- en: '[PRE3]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'In this code, we are doing three things:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这段代码中，我们正在做三件事：
+- en: Creating a `TFRecordDataset` from a pattern
+  id: totrans-44
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从模式中创建`TFRecordDataset`
+- en: Passing each record in the files to `read_from_tfr()`, which returns an (img,
+    label) tuple
+  id: totrans-45
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将每个文件中的记录传递给`read_from_tfr()`，该函数返回一个(img, label)元组。
+- en: Preprocessing the tuples using `_preproc_img_label()`
+  id: totrans-46
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用`_preproc_img_label()`预处理元组
+- en: Parallelizing
+  id: totrans-47
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 并行化
+- en: 'There are a couple of improvements that we can make to our code, assuming that
+    we are running on a machine with more than one virtual CPU (most modern machines
+    have at least two vCPUs, often more). First, we can ask TensorFlow to automatically
+    interleave reading when we create the dataset:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以对我们的代码进行一些改进，假设我们在一台具有多个虚拟 CPU 的机器上运行（大多数现代机器至少有两个 vCPU，通常更多）。首先，我们可以在创建数据集时要求
+    TensorFlow 自动交错读取：
+- en: '[PRE4]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'Second, the two `map()` operations can be parallelized using:'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，两个 `map()` 操作可以使用并行化：
+- en: '[PRE5]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Measuring performance
+  id: totrans-52
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 测量性能
+- en: 'In order to measure the performance impact of these changes, we need to go
+    through the dataset and carry out some mathematical operations. Let’s compute
+    the mean of all the images. To prevent TensorFlow from optimizing away any calculations
+    (see the following sidebar), we’ll compute the mean only of pixels that are above
+    some random threshold that is different in each iteration of the loop:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了衡量这些变化的性能影响，我们需要遍历数据集并执行一些数学运算。让我们计算所有图像的平均值。为了防止 TensorFlow 优化掉任何计算（见下面的侧边栏），我们只计算每次迭代中高于某个随机阈值的像素的平均值：
+- en: '[PRE6]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: '[Table 7-1](#time_taken_to_loop_through_a_small_datas) shows the result of
+    measuring the performance of the preceding loop when ingesting the first 10 TFRecord
+    files using different mechanisms. It is clear that while the additional parallelization
+    increases the overall CPU time, the actual wall-clock time reduces with each bout
+    of parallelization. We get a 35% reduction in the time spent by making the maps
+    parallel and by interleaving two datasets.'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 7-1](#time_taken_to_loop_through_a_small_datas)显示了在使用不同机制时，测量前述循环性能的结果。显然，虽然额外的并行化增加了整体
+    CPU 时间，但实际的挂钟时间随着每次并行化减少。通过使映射并行化并交错两个数据集，我们减少了35%的时间。'
+- en: Table 7-1\. Time taken to loop through a small dataset when the ingestion is
+    done in different ways
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 7-1\. 使用不同方式处理小数据集时循环所需的时间
+- en: '| Method | CPU time | Wall time |'
+  id: totrans-57
+  prefs: []
+  type: TYPE_TB
+  zh: '| 方法 | CPU 时间 | 墙上时间 |'
+- en: '| --- | --- | --- |'
+  id: totrans-58
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Plain | 7.53 s | 7.99 s |'
+  id: totrans-59
+  prefs: []
+  type: TYPE_TB
+  zh: '| 普通 | 7.53 s | 7.99 s |'
+- en: '| Parallel map | 8.30 s | 5.94 s |'
+  id: totrans-60
+  prefs: []
+  type: TYPE_TB
+  zh: '| 并行映射 | 8.30 s | 5.94 s |'
+- en: '| Interleave | 8.60 s | 5.47 s |'
+  id: totrans-61
+  prefs: []
+  type: TYPE_TB
+  zh: '| 交错 | 8.60 s | 5.47 s |'
+- en: '| Interleave + parallel map | 8.44 s | 5.23 s |'
+  id: totrans-62
+  prefs: []
+  type: TYPE_TB
+  zh: '| 交错 + 并行映射 | 8.44 s | 5.23 s |'
+- en: 'Will this performance gain carry over to machine learning models? To test this,
+    we can try training a simple linear classification model instead of using the
+    `loop_through_dataset()` function:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种性能提升是否会延续到机器学习模型？为了测试这一点，我们可以尝试训练一个简单的线性分类模型，而不是使用 `loop_through_dataset()`
+    函数：
+- en: '[PRE7]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: The result, shown in [Table 7-2](#time_taken_to_train_a_linear_ml_model_on),
+    illustrates that the performance gains do hold up—we get a 25% speedup between
+    the first and last rows. As the complexity of the model increases, the I/O plays
+    a smaller and smaller role in the overall timing, so it makes sense that the improvement
+    is less.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果显示在[表 7-2](#time_taken_to_train_a_linear_ml_model_on)中，说明性能提升是可持续的——我们在第一行和最后一行之间获得了25%的加速。随着模型复杂度的增加，I/O
+    在整体时间中的作用越来越小，因此改进的效果也就相应减少。
+- en: Table 7-2\. Time taken to train a linear ML model on a small dataset when the
+    ingestion is done in different ways
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 7-2\. 使用不同方式处理小数据集时训练线性 ML 模型所需的时间
+- en: '| Method | CPU time | Wall time |'
+  id: totrans-67
+  prefs: []
+  type: TYPE_TB
+  zh: '| 方法 | CPU 时间 | 墙上时间 |'
+- en: '| --- | --- | --- |'
+  id: totrans-68
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Plain | 9.91 s | 9.39 s |'
+  id: totrans-69
+  prefs: []
+  type: TYPE_TB
+  zh: '| 普通 | 9.91 s | 9.39 s |'
+- en: '| Parallel map | 10.7 s | 8.17 s |'
+  id: totrans-70
+  prefs: []
+  type: TYPE_TB
+  zh: '| 并行映射 | 10.7 s | 8.17 s |'
+- en: '| Interleave | 10.5 s | 7.54 s |'
+  id: totrans-71
+  prefs: []
+  type: TYPE_TB
+  zh: '| 交错 | 10.5 s | 7.54 s |'
+- en: '| Interleave + parallel map | 10.3 s | 7.17 s |'
+  id: totrans-72
+  prefs: []
+  type: TYPE_TB
+  zh: '| 交错 + 并行映射 | 10.3 s | 7.17 s |'
+- en: Looping through a dataset is faster than training an actual ML model on the
+    full training dataset. Use it as a lightweight way to exercise your ingestion
+    code for the purposes of tuning the performance of the I/O part.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 循环遍历数据集比在完整训练数据集上训练实际的 ML 模型更快。用它作为一种轻量级方式来运行您的摄取代码，以调整 I/O 部分的性能。
+- en: Maximizing GPU Utilization
+  id: totrans-74
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 最大化 GPU 利用率
+- en: Because GPUs are more efficient at doing machine learning model operations,
+    our goal should be to maximize their utilization. If we rent GPUs by the hour
+    (as we do in a public cloud), maximizing GPU utilization will allow us to take
+    advantage of their increased efficiency to get an overall lower cost per training
+    run than we would get if we were to train on CPUs.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 GPU 在执行机器学习模型操作时更有效率，我们的目标应该是最大化它们的利用率。如果我们按小时租用 GPU（就像在公共云中那样），最大化 GPU 利用率将使我们能够利用它们的增强效率，从而比在
+    CPU 上训练时获得更低的总体训练成本。
+- en: 'There are three factors that will affect our model’s performance:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有三个因素会影响我们模型的性能：
+- en: Every time we move data between the CPU and the GPU, that transfer takes time.
+  id: totrans-77
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 每次在CPU和GPU之间传输数据时，该传输都需要时间。
+- en: GPUs are efficient at matrix math. The more operations we do on single items,
+    the less we are taking advantage of the performance speedup offered by a GPU.
+  id: totrans-78
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: GPU在矩阵数学上非常高效。我们对单个项目执行的操作越多，就越少利用GPU提供的性能加速。
+- en: GPUs have limited memory.
+  id: totrans-79
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: GPU具有有限的内存。
+- en: 'These factors play a role in the optimizations that we can do to improve the
+    performance of our training loop. In this section, we will look at three core
+    ideas in maximizing GPU utilization: efficient data handling, vectorization, and
+    staying in the graph.'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些因素在优化中起到了作用，可以改善我们训练循环的性能。在本节中，我们将探讨最大化GPU利用率的三个核心思想：高效数据处理、向量化和保持在图中。
+- en: Efficient data handling
+  id: totrans-81
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 高效数据处理
+- en: When we are training our model on a GPU, the CPU will be idle while the GPU
+    is calculating gradients and doing weight updates.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们在GPU上训练模型时，CPU会处于空闲状态，而GPU则在计算梯度和进行权重更新。
+- en: 'It can be helpful to give the CPU something to do—we can ask it to *prefetch*
+    the data, so that the next batch of data is ready to pass to the GPU:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了让CPU有事可做，我们可以要求它*预取*数据，这样下一批数据就准备好传递给GPU：
+- en: '[PRE8]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'If we have a small dataset, especially one where the images or TensorFlow Records
+    have to be read across a network, it can also be helpful to cache them locally:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有一个小数据集，特别是图像或TensorFlow记录必须通过网络读取的数据集，将它们缓存在本地也可能会有所帮助：
+- en: '[PRE9]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: '[Table 7-3](#time_taken_to_train_a_linear_ml-id00014) shows the impact of prefetching
+    and caching on how long it takes to train a model.'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表格 7-3](#time_taken_to_train_a_linear_ml-id00014) 展示了预取和缓存对模型训练时间的影响。'
+- en: Table 7-3\. Time taken to train a linear ML model on a small dataset when the
+    input records are prefetched and/or cached
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格 7-3\. 在小数据集上训练线性ML模型时，当输入记录被预取和/或缓存时所花费的时间
+- en: '| Method | CPU time | Wall time |'
+  id: totrans-89
+  prefs: []
+  type: TYPE_TB
+  zh: '| 方法 | CPU时间 | 墙时间 |'
+- en: '| --- | --- | --- |'
+  id: totrans-90
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Interleave + parallel | 9.68 s | 6.37 s |'
+  id: totrans-91
+  prefs: []
+  type: TYPE_TB
+  zh: '| 交错 + 并行 | 9.68 s | 6.37 s |'
+- en: '| Cache | 6.16 s | 4.36 s |'
+  id: totrans-92
+  prefs: []
+  type: TYPE_TB
+  zh: '| 缓存 | 6.16 s | 4.36 s |'
+- en: '| Prefetch + cache | 5.76 s | 4.04 s |'
+  id: totrans-93
+  prefs: []
+  type: TYPE_TB
+  zh: '| 预取 + 缓存 | 5.76 s | 4.04 s |'
+- en: Note
+  id: totrans-94
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: In our experience, caching tends to work only for small (toy) datasets. For
+    large datasets, you are likely to run out of local storage.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据我们的经验，缓存通常只适用于小（玩具）数据集。对于大数据集，您可能会耗尽本地存储空间。
+- en: Vectorization
+  id: totrans-96
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 向量化
+- en: Because GPUs are good at matrix manipulation, we should attempt to give the
+    GPU the maximum amount of data it can handle at one time. Instead of passing images
+    one at a time, we should send in a batch of images—this is called *vectorization*.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为GPU擅长矩阵操作，我们应该尽量给GPU提供它可以处理的最大数据量。而不是一次传递一个图像，我们应该传递一个图像批次——这称为*向量化*。
+- en: 'To batch records, we can do:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要对记录进行批处理，我们可以这样做：
+- en: '[PRE10]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: It’s important to realize the entire Keras model operates on batches. Therefore,
+    the `RandomFlip` and `RandomColorDistortion` preprocessing layers that we added
+    do not process one image at a time; they process batches of images.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要意识到整个Keras模型是批处理操作。因此，我们添加的`RandomFlip`和`RandomColorDistortion`预处理层不是逐个图像处理，而是处理图像批次。
+- en: The larger the batch size is, the faster the training loop will be able to get
+    through an epoch. There are diminishing returns, however, to increasing the batch
+    size. Also, there is a limit imposed by the memory limit of the GPU. It’s worth
+    doing a cost–benefit analysis of using larger, more expensive machines with more
+    GPU memory and training for a shorter period of time versus using smaller, less
+    expensive machines and training for longer.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量大小越大，训练循环通过一个时期的速度就越快。但是，增加批量大小会带来递减的回报。此外，还受到GPU内存限制的限制。值得对使用更大、更昂贵的机器（具有更多GPU内存）进行更短时间训练的成本效益进行分析，与使用较小、更便宜的机器进行更长时间训练进行比较。
+- en: Tip
+  id: totrans-102
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: When training on Google’s Vertex AI, GPU memory usage and utilization are automatically
+    reported for every job. Azure allows you to [configure containers](https://oreil.ly/J2dhk)
+    for GPU monitoring. Amazon CloudWatch provides GPU monitoring on AWS. If you are
+    managing your own infrastructure, use GPU tools like [`nvidia-smi`](https://oreil.ly/bSEhN)
+    or [AMD System Monitor](https://oreil.ly/PIaLQ). You can use these to diagnose
+    how effectively your GPUs are being used, and whether there is headroom in GPU
+    memory to increase your batch size.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Google 的 Vertex AI 上训练时，GPU 内存使用情况和利用率会自动报告每个作业。Azure 允许您为 GPU 监控[配置容器](https://oreil.ly/J2dhk)。Amazon
+    CloudWatch 在 AWS 上提供 GPU 监控。如果您管理自己的基础设施，请使用类似 [`nvidia-smi`](https://oreil.ly/bSEhN)
+    或 [AMD 系统监视器](https://oreil.ly/PIaLQ) 的 GPU 工具。您可以使用这些工具诊断 GPU 的使用效果以及 GPU 内存是否有余地来增加批量大小。
+- en: In [Table 7-4](#time_taken_to_train_a_linear_ml_model_at), we show the impact
+    of changing the batch size on a linear model. Larger batches are faster, but there
+    are diminishing returns and we’ll run out of on-board GPU memory beyond a certain
+    point. The faster performance with increasing batch size is one of the reasons
+    why TPUs, with their large on-board memory and interconnected cores that share
+    the memory, are so cost-effective.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[表 7-4](#time_taken_to_train_a_linear_ml_model_at)中，我们展示了改变批量大小对线性模型的影响。更大的批量更快，但有递减回报，并且在某一点之后我们将耗尽板载
+    GPU 内存。增加批量大小后的更快性能是 TPU 成本效益如此高的原因之一，因为它们具有大容量的板载内存和共享内存的互联核心。
+- en: Table 7-4\. Time taken to train a linear ML model at different batch sizes
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 7-4\. 在不同批量大小下训练线性 ML 模型所需时间
+- en: '| Method | CPU time | Wall time |'
+  id: totrans-106
+  prefs: []
+  type: TYPE_TB
+  zh: '| 方法 | CPU 时间 | 墙时间 |'
+- en: '| --- | --- | --- |'
+  id: totrans-107
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Batch size 1 | 11.4 s | 8.09 s |'
+  id: totrans-108
+  prefs: []
+  type: TYPE_TB
+  zh: '| 批量大小 1 | 11.4 s | 8.09 s |'
+- en: '| Batch size 8 | 9.56 s | 6.90 s |'
+  id: totrans-109
+  prefs: []
+  type: TYPE_TB
+  zh: '| 批量大小 8 | 9.56 s | 6.90 s |'
+- en: '| Batch size 16 | 9.90 s | 6.70 s |'
+  id: totrans-110
+  prefs: []
+  type: TYPE_TB
+  zh: '| 批量大小 16 | 9.90 s | 6.70 s |'
+- en: '| Batch size 32 | 9.68 s | 6.37 s |'
+  id: totrans-111
+  prefs: []
+  type: TYPE_TB
+  zh: '| 批量大小 32 | 9.68 s | 6.37 s |'
+- en: 'A key reason that we implemented the random flip, color distortion, and other
+    preprocessing and data augmentation steps as Keras layers in [Chapter 6](ch06.xhtml#preprocessing)
+    has to do with batching. We could have done the color distortion using a `map()`
+    as follows:'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将随机翻转、颜色失真和其他预处理以及数据增强步骤作为 Keras 层在[第 6 章](ch06.xhtml#preprocessing)中实现的一个关键原因与批处理有关。我们本可以使用
+    `map()` 来进行颜色失真，如下所示：
+- en: '[PRE11]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'where `color_distort()` is:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中 `color_distort()` 是：
+- en: '[PRE12]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'But this would have been inefficient since the training pipeline would have
+    to do color distortion one image at a time. It is much more efficient if we carry
+    out preprocessing operations in Keras layers. This way, the preprocessing is done
+    on the whole batch in one step. An alternative would be to vectorize the color
+    distortion operation by writing the code as:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但这样做效率低下，因为训练流水线将不得不逐个图像进行颜色失真。如果我们在 Keras 层中执行预处理操作，则效率要高得多。这样，预处理就可以在一个步骤中对整个批次进行。另一种选择是通过编写以下代码对颜色失真操作进行向量化：
+- en: '[PRE13]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: This would also cause the color distortion to happen on a batch of data. Best
+    practice, however, is to write preprocessing code that follows the `batch()` operation
+    in a Keras layer. There are two reasons for this. First, the separation between
+    ingestion code and model code is cleaner and more maintainable if we consistently
+    make the call to `batch()` a hard boundary. Second, keeping preprocessing in a
+    Keras layer (see [Chapter 6](ch06.xhtml#preprocessing)) makes it easier to reproduce
+    the preprocessing functionality in the inference pipeline since all the model
+    layers are automatically exported.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这也会导致颜色失真发生在一批数据上。然而，最佳实践是在 Keras 层中编写遵循 `batch()` 操作的预处理代码。有两个原因支持这样做。首先，如果我们始终将对
+    `batch()` 的调用作为硬边界，则摄入代码与模型代码之间的分离更清晰且更易维护。其次，将预处理保持在 Keras 层中（见[第 6 章](ch06.xhtml#preprocessing)）使得在推断流水线中复现预处理功能更容易，因为所有模型层都会自动导出。
+- en: Staying in the graph
+  id: totrans-119
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 留在图中
+- en: Because executing mathematical functions is much more efficient  on a GPU than
+    on a CPU, TensorFlow reads the data using the CPU, transfers the data to the GPU,
+    then runs all our code that belongs to the `tf.data` pipeline (the code in the
+    `map()` calls, for example) on the GPU. It also runs all the code in the Keras
+    model layers on the GPU. Since we are sending the data directly from the `tf.data`
+    pipeline to the Keras input layer, there is no need to transfer the data—the data
+    stays within the TensorFlow graph. The data and model weights all remain in the
+    GPU memory.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为在 GPU 上执行数学函数比在 CPU 上高效得多，TensorFlow 使用 CPU 读取数据，将数据传输到 GPU，然后在 GPU 上运行属于
+    `tf.data` 管道的所有代码（例如 `map()` 调用中的代码）。它还在 GPU 上运行 Keras 模型层中的所有代码。由于我们直接将数据从 `tf.data`
+    管道发送到 Keras 输入层，因此无需传输数据——数据保留在 TensorFlow 图中。数据和模型权重都保留在 GPU 内存中。
+- en: This means that we have to be extremely careful to make sure that we don’t do
+    anything that would involve moving the data out of the TensorFlow graph once the
+    CPU has delivered the data to the GPU. Data transfers carry extra overhead, and
+    any code executed on the CPU will tend to be slower.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着我们必须非常小心，确保在 CPU 将数据传送到 GPU 后，不要做任何可能涉及移动数据出 TensorFlow 图的操作。数据传输会带来额外的开销，而且在
+    CPU 上执行的任何代码都会变慢。
+- en: Iteration
+  id: totrans-122
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 迭代
+- en: 'As an example, suppose we are reading a satellite image of California wildfires
+    and wish to apply a specific formula based on photometry to the RGB pixel values
+    to transform them into a single “grayscale” image (see [Figure 7-2](Images/#topcolon_original_images_with_three_chan)
+    and the full code in [*07b_gpumax.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/07_training/07b_gpumax.ipynb)):'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设我们正在读取加利福尼亚野火的卫星图像，并希望根据光度测定来应用特定的公式将 RGB 像素值转换为单一的“灰度”图像（见[图 7-2](Images/#topcolon_original_images_with_three_chan)），完整的代码在
+    GitHub 上的 [*07b_gpumax.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/07_training/07b_gpumax.ipynb)
+    中：
+- en: '[PRE14]'
+  id: totrans-124
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'There are three problems with this function:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个函数存在三个问题：
+- en: 'It needs to iterate through the image pixels:'
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它需要遍历图像像素：
+- en: '[PRE15]'
+  id: totrans-127
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'It needs to read individual pixel values:'
+  id: totrans-128
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它需要读取单个像素值：
+- en: '[PRE16]'
+  id: totrans-129
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'It needs to change output pixel values:'
+  id: totrans-130
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它需要更改输出像素值：
+- en: '[PRE17]'
+  id: totrans-131
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: '![](Images/pmlc_0702.png)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0702.png)'
+- en: 'Figure 7-2\. Top: original images with three channels. Bottom: transformed
+    images with only one channel. Image of wildfires in California courtesy of NOAA.'
+  id: totrans-133
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-2\. 顶部：具有三个通道的原始图像。底部：只有一个通道的转换后的图像。加利福尼亚野火图像由 NOAA 提供。
+- en: These operations cannot be done in the TensorFlow graph. Therefore, to call
+    the function, we need to bring it out of the graph using `.numpy()`, do the transformation,
+    and then push the result back into the graph as a tensor (`gray` is converted
+    into a tensor for the `reduce_mean()` operation).
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些操作无法在 TensorFlow 图中执行。因此，为了调用该函数，我们需要使用 `.numpy()` 将其从图中提取出来，进行转换，然后将结果作为张量推回图中（`gray`
+    被转换为张量以进行 `reduce_mean()` 操作）。
+- en: Slicing and conditionals
+  id: totrans-135
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 切片和条件语句
+- en: 'We can avoid the explicit iteration and pixel-wise read/write by using TensorFlow’s
+    slicing functionality:'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过使用 TensorFlow 的切片功能避免显式迭代和像素级读写：
+- en: '[PRE18]'
+  id: totrans-137
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Note that the last line of this code snippet is actually operating on tensors
+    (`red` is a tensor, not a scalar) and uses operator overloading (the `+` is actually
+    `tf.add()`) to invoke TensorFlow functions.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，此代码片段的最后一行实际上是在张量上操作的（`red` 是一个张量，不是标量），并使用操作符重载（`+` 实际上是 `tf.add()`）来调用
+    TensorFlow 函数。
+- en: But how do we do the `if` statement in the original?
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是我们如何在原始代码中执行 `if` 语句？
+- en: '[PRE19]'
+  id: totrans-140
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: The `if` statement assumes that `c_linear` is a single floating-point value,
+    whereas now `c_linear` is a 2D tensor.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`if` 语句假定 `c_linear` 是一个单一的浮点值，而现在 `c_linear` 是一个二维张量。'
+- en: 'To push a conditional statement into the graph and avoid setting pixel values
+    individually, we can use `tf.cond()` and/or `tf.where()`:'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了将条件语句推入图中并避免逐个设置像素值，我们可以使用 `tf.cond()` 和/或 `tf.where()`：
+- en: '[PRE20]'
+  id: totrans-143
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: One key thing to realize is that all the three parameters to `tf.where()` in
+    this example are actually 2D tensors. Note also the use of `tf.pow()` rather than
+    `pow()`. Given the choice between `tf.cond()` and `tf.where()`, use `tf.where()`
+    as it is faster.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一点需要注意的是，此示例中 `tf.where()` 的所有三个参数实际上都是二维张量。还要注意使用 `tf.pow()` 而不是 `pow()`。在
+    `tf.cond()` 和 `tf.where()` 之间的选择时，应优先使用 `tf.where()`，因为它更快。
+- en: This results in a more than 10x speedup.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将导致超过 10 倍的速度提升。
+- en: Matrix math
+  id: totrans-146
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 矩阵运算
+- en: 'The computation of `c_linear` can be optimized further. This is what we had:'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以进一步优化 `c_linear` 的计算。这是我们的代码：
+- en: '[PRE21]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'If we look carefully at this calculation, we’ll see that we don’t need the
+    slicing. Instead, we can write the computation as a matrix multiplication if we
+    take the constants and put them into a 3x1 tensor:'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们仔细观察这个计算，我们会发现我们不需要切片。相反，如果我们将常数放入一个3x1张量中，我们可以将计算写成矩阵乘法：
+- en: '[PRE22]'
+  id: totrans-150
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: With this optimization, we get an additional 4x speedup.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这种优化，我们额外获得4倍的加速。
+- en: Batching
+  id: totrans-152
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 批处理
+- en: Once we have written the calculation of `c_linear` using matrix math, we also
+    realize that we don’t need to process the data one image at a time. We can process
+    a batch of images all at once. We can do the calculations on a batch of images
+    using either a custom Keras layer or a `Lambda` layer.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们用矩阵数学写下了`c_linear`的计算，我们还意识到我们不需要逐个图像地处理数据。我们可以一次处理一批图像。我们可以使用自定义Keras层或`Lambda`层在一批图像上进行计算。
+- en: 'Let’s wrap the grayscale calculation into the `call()` statement of a custom
+    Keras layer:'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们将灰度计算封装到一个自定义Keras层的`call()`语句中：
+- en: '[PRE23]'
+  id: totrans-155
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: An important thing to note is that the input matrix is now a 4D tensor, with
+    the first dimension being the batch size. The result is therefore a 3D tensor.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个重要的注意事项是，输入矩阵现在是一个4D张量，第一个维度是批量大小。因此，结果是一个3D张量。
+- en: 'Clients calling this code can compute the mean of each image to get back a
+    1D tensor of means:'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调用此代码的客户端可以计算每个图像的平均值以获取一个1D张量的平均值：
+- en: '[PRE24]'
+  id: totrans-158
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 'We can combine these two layers into a Keras model, or prepend them to an existing
+    model:'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将这两层组合成一个Keras模型，或者将它们放在现有模型的前面：
+- en: '[PRE25]'
+  id: totrans-160
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: The timings of all the methods we discussed in this section are shown in [Table 7-5](#time_taken_when_the_grayscale_computatio).
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有讨论过的方法在本节中的时间显示在[表 7-5](#time_taken_when_the_grayscale_computatio)中。
+- en: Table 7-5\. Time taken when the grayscale computation is carried out in different
+    ways
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 7-5\. 不同方式进行灰度计算时所需的时间
+- en: '| Method | CPU time | Wall time |'
+  id: totrans-163
+  prefs: []
+  type: TYPE_TB
+  zh: '| 方法 | CPU时间 | 墙上时间 |'
+- en: '| --- | --- | --- |'
+  id: totrans-164
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Iterate | 39.6 s | 41.1 s |'
+  id: totrans-165
+  prefs: []
+  type: TYPE_TB
+  zh: '| 迭代 | 39.6 s | 41.1 s |'
+- en: '| Pyfunc | 39.7 s | 41.1 s |'
+  id: totrans-166
+  prefs: []
+  type: TYPE_TB
+  zh: '| Pyfunc | 39.7 s | 41.1 s |'
+- en: '| Slicing | 4.44 s | 3.07 s |'
+  id: totrans-167
+  prefs: []
+  type: TYPE_TB
+  zh: '| 切片 | 4.44 s | 3.07 s |'
+- en: '| Matmul | 1.22 s | 2.29 s |'
+  id: totrans-168
+  prefs: []
+  type: TYPE_TB
+  zh: '| Matmul | 1.22 s | 2.29 s |'
+- en: '| Batch | 1.11 s | 2.13 s |'
+  id: totrans-169
+  prefs: []
+  type: TYPE_TB
+  zh: '| 批处理 | 1.11 s | 2.13 s |'
+- en: Saving Model State
+  id: totrans-170
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 保存模型状态
+- en: So far in this book, we have been training a model and then using the trained
+    model to immediately make a few predictions. This is highly unrealistic—we will
+    want to train our model, and then keep the trained model around to continue making
+    predictions with it. We will need to save the model’s state so that we can quickly
+    read in the trained model (its structure and its final weights) whenever we want.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书中，我们一直在训练一个模型，然后立即使用训练好的模型进行一些预测。这是非常不现实的——我们将希望训练我们的模型，并保留训练好的模型以便随时进行预测。我们需要保存模型的状态，以便在需要时快速读取训练好的模型（其结构和最终权重）。
+- en: We will want to save the model not just to predict from it, but also to resume
+    training. Imagine that we have trained a model on one million images and are carrying
+    out predictions with that model. If a month later we receive one thousand new
+    images, it would be good to continue the training of the original model for a
+    few steps with the new images instead of training from scratch. This is called
+    fine-tuning (and was discussed in [Chapter 3](ch03.xhtml#image_vision)).
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不仅要保存模型以便预测，还要恢复训练。想象一下，我们已经在百万张图片上训练了一个模型，并用该模型进行预测。一个月后，我们收到一千张新图片，那么用新图片继续训练原始模型几步将是不错的选择，而不是从头开始训练。这被称为微调（在[第3章](ch03.xhtml#image_vision)中讨论过）。
+- en: 'So, there are two reasons to save model state:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，有两个原因可以保存模型状态：
+- en: To make inferences from the model
+  id: totrans-174
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从模型中进行推理
+- en: To resume training
+  id: totrans-175
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 恢复训练
+- en: What these two use cases require are quite different. It’s easiest to understand
+    the difference between the two use cases if we consider the `RandomColorDistortion`
+    data augmentation layer that is part of our model. For the purposes of inference,
+    this layer can be removed completely. However, in order to resume training, we
+    may need to know the full state of the layer (consider, for example, that we lower
+    the amount of distortion the longer we train).
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两种用例需要的是非常不同的。如果我们考虑我们模型中的`RandomColorDistortion`数据增强层，最容易理解这两种用例之间的区别。为了推断，这一层可以完全移除。然而，为了恢复训练，我们可能需要知道层的完整状态（例如，随着训练时间的增加，我们降低了扭曲的程度）。
+- en: Saving the model for inference is called *exporting* the model. Saving the model
+    in order to resume training is called *checkpointing*. Checkpoints are much larger
+    in size than exports because they include a lot more internal state.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了进行推断而保存模型称为*导出*模型。为了恢复训练而保存模型称为*检查点*。检查点的大小比导出大得多，因为它们包含了更多的内部状态。
+- en: Exporting the Model
+  id: totrans-178
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 导出模型
+- en: 'To export a trained Keras model, use the `save()` method:'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要导出一个训练好的Keras模型，请使用`save()`方法：
+- en: '[PRE26]'
+  id: totrans-180
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: The output directory will contain a protobuf file called *saved_model.pb* (which
+    is why this format is often referred to as the TensorFlow SavedModel format),
+    the variable weights, and any assets such as vocabulary files that the model needs
+    for prediction.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出目录将包含一个名为*saved_model.pb*的protobuf文件（这也是为什么这种格式经常被称为TensorFlow SavedModel格式）、变量权重以及模型预测所需的任何资源，比如词汇文件。
+- en: Tip
+  id: totrans-182
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: An alternative to SavedModel is Open Neural Network Exchange (ONNX), an open
+    source, framework-agnostic ML model format that was introduced by Microsoft and
+    Facebook. You can use the [`tf2onnx` tool](https://oreil.ly/ZXkFo) to convert
+    a TensorFlow model to ONNX.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SavedModel的一个替代方案是Open Neural Network Exchange (ONNX)，这是一个由Microsoft和Facebook引入的开源、与框架无关的ML模型格式。您可以使用[`tf2onnx`工具](https://oreil.ly/ZXkFo)将TensorFlow模型转换为ONNX格式。
+- en: Invoking the model
+  id: totrans-184
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 调用模型
+- en: 'We can interrogate the contents of a SavedModel using the command-line tool
+    `saved_model_cli` that comes with TensorFlow:'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用随TensorFlow一起提供的命令行工具`saved_model_cli`来查询SavedModel的内容：
+- en: '[PRE27]'
+  id: totrans-186
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'This shows us that the prediction signature (see the following sidebar) is:'
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这显示了预测签名（见下面的侧边栏）是：
+- en: '[PRE28]'
+  id: totrans-188
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'The given SavedModel `SignatureDef` contains the following output(s):'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定的SavedModel `SignatureDef`包含以下输出：
+- en: '[PRE29]'
+  id: totrans-190
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'Therefore, to invoke this model we can load it and call the `predict()` method,
+    passing in a 4D tensor with the shape `[num_examples, 448, 448, 3]`, where num_examples
+    is the number of examples we want to predict on at once:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，要调用这个模型，我们可以加载它并调用`predict()`方法，传入一个形状为`[num_examples, 448, 448, 3]`的4D张量，其中num_examples是我们希望一次性进行预测的示例数：
+- en: '[PRE30]'
+  id: totrans-192
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: 'The result is a 2D tensor with the shape [num_examples, 5] which represents
+    the probability for each type of flower. We can look for the maximum of these
+    probabilities to obtain the prediction:'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果是一个形状为[num_examples, 5]的2D张量，表示每种花卉的概率。我们可以查找这些概率中的最大值来获取预测结果：
+- en: '[PRE31]'
+  id: totrans-194
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: All this is still highly unrealistic, however. Do we really expect that a client
+    who needs the prediction for an image will know enough to do the `reshape()`,
+    `argmax()`, and so on? We need to provide a much simpler signature for our model
+    to be usable.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，所有这些仍然非常不现实。我们真的期望一个需要对图像进行预测的客户端会知道如何执行`reshape()`、`argmax()`等操作吗？我们需要为我们的模型提供一个更简单的签名。
+- en: Usable signature
+  id: totrans-196
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 可用签名
+- en: A more usable signature for our model is one that doesn’t expose all the internal
+    details of the training (such as the size of the images the model was trained
+    on).
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的模型来说，更易用的签名是那种不暴露训练中所有内部细节的（例如模型训练时使用的图像大小）。
+- en: 'What kind of signature would be easiest for a client to use? Instead of asking
+    them to send us a tensor with the image contents, we can simply ask them for a
+    JPEG file. And instead of returning a tensor of logits, we can send back easy-to-understand
+    information extracted from the logits (the full code is in [*07c_export.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/07_training/07c_export.ipynb)):'
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于客户端使用起来最方便的签名是什么？与其要求他们发送一个包含图像内容的张量，我们可以简单地要求他们发送一个JPEG文件。而不是返回一个logits张量，我们可以发送从logits中提取的易于理解的信息（完整代码在GitHub上的[*07c_export.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/07_training/07c_export.ipynb)中）：
+- en: '[PRE32]'
+  id: totrans-199
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: Note that while we are at it, we might as well make the function more efficient—we
+    can take a batch of filenames and do the predictions for all the images at once.
+    Vectorizing brings efficiency gains at prediction time as well, not just during
+    training!
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，顺便说一下，我们可以使函数更加高效——我们可以获取一批文件名，并一次性对所有图像进行预测。向量化不仅在训练时带来效率增益，在预测时也同样如此！
+- en: 'Given a list of filenames, we can get the input images using:'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定一个文件名列表，我们可以使用以下方式获取输入图像：
+- en: '[PRE33]'
+  id: totrans-202
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'However, this involves iterating through the list of filenames and moving data
+    back and forth from accelerated TensorFlow code to unaccelerated Python code.
+    If we have a tensor of filenames, we can achieve the effect of iteration while
+    keeping all the data in the TensorFlow graph by using `tf.map_fn()`. With that,
+    our prediction function becomes:'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这涉及遍历文件名列表，并在加速的 TensorFlow 代码与非加速的 Python 代码之间来回传递数据。如果我们有一个文件名的张量，可以通过使用`tf.map_fn()`在保持所有数据在
+    TensorFlow 图中的同时实现迭代的效果。有了这个，我们的预测函数变成了：
+- en: '[PRE34]'
+  id: totrans-204
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: 'Next, we invoke the model to get the full probability matrix:'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们调用模型以获取完整的概率矩阵：
+- en: '[PRE35]'
+  id: totrans-206
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: 'We then find the maximum probability and the index of the maximum probability:'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们找到最大概率及其索引：
+- en: '[PRE36]'
+  id: totrans-208
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: 'Note that we are being careful to specify the `axis` as 1 (`axis=0` is the
+    batch dimension) when finding the maximum probability and the argmax. Finally,
+    where in Python we could simply do:'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，在找到最大概率和 argmax 时我们小心指定了`axis`为 1（`axis=0` 是批处理维度）。最后，在 Python 中我们可以简单地执行：
+- en: '[PRE37]'
+  id: totrans-210
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: 'the TensorFlow in-graph version is to use `tf.gather()`:'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow 中图形内版本的使用是使用`tf.gather()`：
+- en: '[PRE38]'
+  id: totrans-212
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: This code converts the `CLASS_NAMES` array into a tensor and then indexes into
+    it using the `pred_label_index` tensor. The resulting values are stored in the
+    `pred_label` tensor.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码将`CLASS_NAMES`数组转换为张量，然后使用`pred_label_index`张量对其进行索引。结果值存储在`pred_label`张量中。
+- en: Tip
+  id: totrans-214
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: You can often replace Python iterations by `tf.map_fn()` and deference arrays
+    (read the *n*th element of an array) by using `tf.gather()`, as we have done here.
+    Slicing using the [:, :, 0] syntax is very useful as well. The difference between
+    `tf.gather()` and slicing is that `tf.gather()` can take a tensor as the index,
+    whereas slices are constants. In really complex situations, `tf.dynamic_stitch()`
+    can come in handy.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以经常用`tf.map_fn()`代替 Python 迭代，并使用`tf.gather()`来解引用数组（读取数组的第*n*个元素），正如我们在这里所做的那样。使用
+    [:, :, 0] 语法进行切片非常有用。`tf.gather()`与切片的区别在于，`tf.gather()`可以接受张量作为索引，而切片是常量。在非常复杂的情况下，`tf.dynamic_stitch()`会非常有用。
+- en: Using the signature
+  id: totrans-216
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用签名
+- en: 'With the signature defined, we can specify our new signature as the serving
+    default:'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义了签名后，我们可以将我们的新签名指定为服务的默认签名：
+- en: '[PRE39]'
+  id: totrans-218
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: Note that the API allows us to have multiple signatures in the model—this is
+    useful if we want to add versioning to our signature, or support different signatures
+    for different clients. We will explore this further in [Chapter 9](ch09.xhtml#model_predictions).
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，API 允许我们在模型中有多个签名——如果我们想要为签名添加版本控制，或者为不同的客户端支持不同的签名，这将非常有用。我们将在[第 9 章](ch09.xhtml#model_predictions)进一步探讨这一点。
+- en: 'With the model exported, the client code to do a prediction now becomes simplicity
+    itself:'
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 导出模型后，客户端代码进行预测现在变得非常简单：
+- en: '[PRE40]'
+  id: totrans-221
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: 'The result is a dictionary and can be used as follows:'
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果是一个字典，可以按以下方式使用：
+- en: '[PRE41]'
+  id: totrans-223
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: A few input images and their predictions are shown in [Figure 7-3](Images/#model_predictions_on_a_few_imagesdot).
+    The point to note is that the images are all different sizes. The client doesn’t
+    need to know any of the internal details of the model in order to invoke it. It’s
+    also worth noting that the “string” type in TensorFlow is only an array of bytes.
+    We have to pass these bytes into a UTF-8 decoder to get proper strings.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 展示了一些输入图像及其预测结果，见[图 7-3](Images/#model_predictions_on_a_few_imagesdot)。要注意的是，这些图像都是不同尺寸的。客户端在调用模型时不需要了解任何模型的内部细节。值得注意的是，在
+    TensorFlow 中，“string”类型只是一个字节数组。我们必须将这些字节传递到 UTF-8 解码器中，以获取正确的字符串。
+- en: '![](Images/pmlc_0703.png)'
+  id: totrans-225
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0703.png)'
+- en: Figure 7-3\. Model predictions on a few images.
+  id: totrans-226
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-3。在几幅图像上的模型预测。
+- en: Checkpointing
+  id: totrans-227
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 检查点
+- en: 'So far, we have focused on how to export the model for inference. Now, let’s
+    look at how to save the model in order to resume training. Checkpointing is typically
+    done not only at the end of training, but also in the middle of training. There
+    are two reasons for this:'
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们专注于如何导出模型以进行推理。现在，让我们看看如何保存模型以便恢复训练。检查点通常不仅在训练结束时完成，还会在训练中间完成。这样做有两个原因：
+- en: It might be helpful to go back and select the model at the point where the validation
+    accuracy is highest. Recall that the training loss keeps decreasing the longer
+    we train, but at some epoch, the validation loss starts to rise because of overfitting.
+    When we observe that, we have to pick the checkpoint of the previous epoch because
+    it had the lowest validation error.
+  id: totrans-229
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在验证准确度最高的点重新选择模型可能会有所帮助。请记住，随着训练时间的延长，训练损失会持续减少，但在某个时期，由于过拟合，验证损失开始上升。当我们观察到这一点时，我们必须选择前一个时期的检查点，因为它具有最低的验证错误。
+- en: Machine learning on production datasets can take several hours to several days.
+    The chances that a machine will crash during such a long time period are uncomfortably
+    high. Therefore, it’s a good idea to have periodic backups so that we can resume
+    training from an intermediate point rather than starting from scratch.
+  id: totrans-230
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在生产数据集上进行机器学习可能需要几个小时到几天的时间。在这么长的时间段内，机器崩溃的可能性相当高。因此，定期备份是个好主意，这样我们就可以从中间点恢复训练，而不是从头开始。
+- en: 'Checkpointing is implemented in Keras by means of *callbacks*—functionality
+    that is invoked during the training loop by virtue of being passed in as a parameter
+    to the `model.fit()` function:'
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras 通过*回调*实现检查点功能——这些功能在训练循环中被调用，通过将其作为参数传递给`model.fit()`函数来实现：
+- en: '[PRE42]'
+  id: totrans-232
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: Here, we are setting up the callback to overwrite a previous checkpoint if the
+    current validation accuracy is higher.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们正在设置回调函数，如果当前验证准确度更高，则覆盖先前的检查点。
+- en: 'While we are doing this, we might as well set up early stopping—even if we
+    initially start out thinking that we need to train for 20 epochs, we can stop
+    the training once the validation error hasn’t improved for 2 consecutive epochs
+    (specified by the `patience` parameter):'
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们进行此操作的同时，我们可以设置早停策略——即使最初我们认为需要训练 20 个时期，一旦验证误差连续 2 个时期没有改进（由`patience`参数指定），我们就可以停止训练：
+- en: '[PRE43]'
+  id: totrans-235
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: 'The callbacks list now becomes:'
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在回调列表如下：
+- en: '[PRE44]'
+  id: totrans-237
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: When we train using these callbacks, training stops after eight epochs, as shown
+    in [Figure 7-4](#with_early_stoppingcomma_model_training).
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们使用这些回调进行训练时，训练在八个时期后停止，如[图 7-4](#with_early_stoppingcomma_model_training)所示。
+- en: '![](Images/pmlc_0704.png)'
+  id: totrans-239
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0704.png)'
+- en: Figure 7-4\. With early stopping, model training stops once the validation accuracy
+    no longer increases.
+  id: totrans-240
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-4。在早停策略下，模型训练在验证准确度不再提高时停止。
+- en: 'To start from the last checkpoint in the output directory, call:'
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要从输出目录中的最后一个检查点开始，请调用：
+- en: '[PRE45]'
+  id: totrans-242
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: Full fault resilience is provided by the [`BackupAndRestore`](https://oreil.ly/JD3a1)
+    callback which, at the time of writing, was experimental.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完整的故障恢复由[`BackupAndRestore`](https://oreil.ly/JD3a1)回调提供，此时它还处于试验阶段。
+- en: Distribution Strategy
+  id: totrans-244
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 分发策略
+- en: To distribute processing among multiple threads, accelerators, or machines,
+    we need to parallelize it. We have looked at how to parallelize the ingestion.
+    However, our Keras model is not parallelized; it runs on only one processor. How
+    do we run our model code on multiple processors?
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将处理分布到多个线程、加速器或机器中，我们需要并行化处理。我们已经看过如何并行化摄入。但是，我们的 Keras 模型并没有并行化；它只在一个处理器上运行。我们如何在多个处理器上运行我们的模型代码？
+- en: 'To distribute the model training, we need to set up a *distribution strategy*.
+    There are several available, but they’re all used in a similar way—you first create
+    a strategy using its constructor, then create the Keras model within the scope
+    of that strategy (here, we’re using `MirroredStrategy`):'
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要分发模型训练，我们需要设置*分发策略*。有几种可用的策略，但它们的使用方式都相似——您首先使用其构造函数创建一个策略，然后在该策略的范围内创建 Keras
+    模型（这里我们使用`MirroredStrategy`）：
+- en: '[PRE46]'
+  id: totrans-247
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: What is `MirroredStrategy`? What other strategies are available, and how do
+    we choose between them? We will answer each of these questions in the next sections.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`MirroredStrategy`是什么？还有哪些其他策略可用，我们该如何在它们之间进行选择？我们将在接下来的章节中回答这些问题。'
+- en: Tip
+  id: totrans-249
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: What device does the code run on? All TensorFlow instructions that create trainable
+    variables (such as Keras models or layers) must be created within the `strategy.scope()`,
+    with the exception of `model.compile()`. You can call the `compile()` method wherever
+    you want. Even though this method technically creates variables such as optimizer
+    slots, it has been implemented to use the same strategy as the model. Also, you
+    can create your ingestion (`tf.data`) pipeline wherever you want. It will always
+    run on the CPU and it will always distribute data to workers appropriately.
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码运行在哪个设备上？所有创建可训练变量的TensorFlow指令（如Keras模型或层）必须在`strategy.scope()`内创建，除了`model.compile()`。您可以在任何地方调用`compile()`方法。尽管这个方法在技术上创建变量（例如优化器槽位），但它已实现为使用与模型相同的策略。此外，您可以在任何地方创建您的摄取（`tf.data`）管道。它将始终在CPU上运行，并始终适当地分发数据给工作节点。
+- en: Choosing a Strategy
+  id: totrans-251
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 选择策略
+- en: 'Image ML models tend to be deep, and the input data is dense. For such models,
+    there are three contending distribution strategies:'
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像ML模型往往很深，输入数据很密集。对于这样的模型，有三种竞争的分发策略：
+- en: '`MirroredStrategy`'
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`MirroredStrategy`'
+- en: Makes mirrors of the model structure on each of the available GPUs. Each weight
+    in the model is mirrored across all the replicas and kept in sync through identical
+    updates that happen at the end of each batch. Use `MirroredStrategy` whenever
+    you have a single machine, whether that machine has one GPU or multiple GPUs.
+    This way, your code will require no changes when you attach a second GPU.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在每个可用的GPU上创建模型结构的镜像。模型中的每个权重都在所有副本之间进行镜像，并通过在每个批次结束时发生的相同更新保持同步。无论该机器具有一个GPU还是多个GPU，都可以使用`MirroredStrategy`。这样，当您连接第二个GPU时，您的代码将无需更改。
+- en: '`MultiWorkerMirroredStrategy`'
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`MultiWorkerMirroredStrategy`'
+- en: Extends the `MirroredStrategy` idea to GPUs spread across multiple machines.
+    In order to get the multiple workers communicating, you need to [set up the `TF_CONFIG`](https://oreil.ly/m2U4N)
+    variable correctly—we recommend using a public cloud service (such as Vertex Training)
+    where this is automatically done for you.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将`MirroredStrategy`的思想扩展到分布在多台机器上的GPU。为了使多个工作节点进行通信，您需要正确设置[TF_CONFIG变量](https://oreil.ly/m2U4N)，我们建议使用公共云服务（例如Vertex
+    Training），这样可以为您自动完成设置。
+- en: '`TPUStrategy`'
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`TPUStrategy`'
+- en: Runs the training job on TPUs, which are specialized application-specific integrated
+    chips (ASICs) that are custom-designed for machine learning workloads. TPUs get
+    their speedup through a custom matrix multiplication unit, high-speed on-board
+    networking to connect up to thousands of TPU cores, and a large shared memory.
+    They are available commercially only on Google Cloud Platform. Colab offers free
+    TPUs with some limitations, and Google Research provides academic researchers
+    access to TPUs through the [TensorFlow Research Cloud program](https://oreil.ly/qdEOw).
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TPU上运行训练作业，TPU是专门为机器学习工作负载定制的专用应用特定集成电路（ASIC），通过自定义矩阵乘法单元、高速板上网络连接高达数千个TPU核心和大型共享内存获得加速。它们仅在Google
+    Cloud Platform上商业可用。Colab提供了带有一些限制的免费TPU，并且Google Research通过[TensorFlow研究云计划](https://oreil.ly/qdEOw)为学术研究人员提供访问TPU的权限。
+- en: All three of these strategies are forms of *data parallelism*, where each batch
+    is split among the workers, and then an [all-reduce operation](https://oreil.ly/0Zhcg)
+    is carried out. Other available distribution strategies, like `CentralStorage`
+    and `ParameterServer`, are designed for sparse/massive examples and are not a
+    good fit for image models where an individual image is dense and small.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这三种策略都是*数据并行*的形式，每个批次都在工作节点之间分割，然后进行[全局归约操作](https://oreil.ly/0Zhcg)。其他可用的分发策略，如`CentralStorage`和`ParameterServer`，设计用于稀疏/大型示例，不适合像个别图像密集小的图像模型。
+- en: Tip
+  id: totrans-260
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: We recommend maximizing the number of GPUs on a single machine with `MirroredStrategy`
+    before moving on to multiple workers with `MultiWorkerMirroredStrategy` (more
+    on this in the following section). TPUs are usually more cost-effective than GPUs,
+    especially when you move to larger batch sizes. The current trend in GPUs (such
+    as with the 16xA100) is to provide multiple powerful GPUs on a single machine
+    so as to make this strategy work for more and more models.
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们建议在单台机器上最大化GPU数量，使用`MirroredStrategy`，然后再转向使用多个工作节点的`MultiWorkerMirroredStrategy`（更多详细信息请参见后续章节）。特别是当您转向更大的批处理大小时，TPU通常比GPU更具成本效益。目前GPU（如16xA100）的趋势是在单台机器上提供多个强大的GPU，以便使这种策略适用于更多模型。
+- en: Creating the Strategy
+  id: totrans-262
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 创建策略
+- en: In this section, we will cover the specifics of the three strategies commonly
+    used to distribute the training of image models.
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将介绍用于分发图像模型训练的三种常用策略的具体细节。
+- en: MirroredStrategy
+  id: totrans-264
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: MirroredStrategy
+- en: 'To create a `MirroredStrategy` instance, we can simply call its constructor
+    (the full code is in [*07d_distribute.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/07_training/07d_distribute.ipynb)):'
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建`MirroredStrategy`实例，我们可以简单地调用其构造函数（完整代码在[*07d_distribute.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/07_training/07d_distribute.ipynb)中）：
+- en: '[PRE47]'
+  id: totrans-266
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: 'To verify whether we are running on a machine with GPUs set up, we can use:'
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要验证我们是否在配置了 GPU 的机器上运行，我们可以使用：
+- en: '[PRE48]'
+  id: totrans-268
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE48]'
+- en: This is not a requirement; `MirroredStrategy` will work on a machine with only
+    CPUs.
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这不是必须要求；`MirroredStrategy` 在只有 CPU 的机器上也能工作。
+- en: Starting a Jupyter notebook on a machine with two GPUs and using `MirroredStrategy`,
+    we see an immediate speedup. Where an epoch took about 100 s to process on a CPU,
+    and 55 s on a single GPU, it takes only 29 s when we have two GPUs.
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在具有两个 GPU 的机器上启动 Jupyter 笔记本，并使用`MirroredStrategy`，我们看到了显著的加速。在 CPU 上处理一个时代大约需要
+    100 秒，而在单个 GPU 上需要 55 秒，而在拥有两个 GPU 时，仅需 29 秒。
+- en: When training in a distributed manner, you must make sure to increase the batch
+    size. This is because a batch is split between the GPUs, so if a single GPU has
+    the resources to process a batch size of 32, two GPUs will be able to easily handle
+    64\. Here, 64 is the global batch size, and each of the two GPUs will have a local
+    batch size of 32\. Larger batch sizes are typically associated with better behaved
+    training curves. We will experiment with different batch sizes in [“Hyperparameter
+    tuning”](ch02.xhtml#hyperparameter_tuning).
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在分布式训练中，必须确保增加批次大小。这是因为一个批次被分割在多个 GPU 之间，因此如果单个 GPU 有资源处理批次大小为 32，那么两个 GPU 将能够轻松处理
+    64。这里，64 是全局批次大小，每个 GPU 的本地批次大小为 32。更大的批次大小通常与更好的训练曲线行为相关联。我们将在[“超参数调整”](ch02.xhtml#hyperparameter_tuning)中尝试不同的批次大小。
+- en: Note
+  id: totrans-272
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'Sometimes, it is helpful for consistency and for debugging purposes to have
+    a strategy even if you are not distributing the training code or using GPUs. In
+    such cases, use `OneDeviceStrategy`:'
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时，即使不分发训练代码或使用 GPU，为了一致性和调试目的，拥有一种策略也是有帮助的。在这种情况下，请使用`OneDeviceStrategy`：
+- en: '[PRE49]'
+  id: totrans-274
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE49]'
+- en: MultiWorkerMirroredStrategy
+  id: totrans-275
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: MultiWorkerMirroredStrategy
+- en: 'To create a `MultiWorkerMirroredStrategy` instance, we can again simply call
+    its constructor:'
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建`MultiWorkerMirroredStrategy`实例，我们可以再次简单地调用其构造函数：
+- en: '[PRE50]'
+  id: totrans-277
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE50]'
+- en: 'To verify that the `TF_CONFIG` environment variable is set up correctly, we
+    can use:'
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要验证`TF_CONFIG`环境变量是否正确设置，我们可以使用：
+- en: '[PRE51]'
+  id: totrans-279
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE51]'
+- en: and check the resulting config.
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并检查结果配置。
+- en: If we use a managed ML training system like Google’s Vertex AI or Amazon SageMaker,
+    these infrastructure details will be taken care of for us.
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果使用类似 Google 的 Vertex AI 或 Amazon SageMaker 的托管 ML 训练系统，这些基础设施细节将被照顾。
+- en: 'When using multiple workers, there are two details that we need to take care
+    of: shuffling and virtual epochs.'
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用多个工作进程时，有两个细节需要注意：洗牌和虚拟周期。
+- en: Shuffling
+  id: totrans-283
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: Shuffling
+- en: When all the devices (CPUs, GPUs) are on the same machine, each batch of training
+    examples is split among the different device workers and the resulting gradient
+    updates are made *synchronously*—each device worker returns its gradient, the
+    gradients are averaged across the device workers, and the computed weight update
+    is sent back to the device workers for the next step.
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当所有设备（CPU、GPU）都在同一台机器上时，每个训练样本批次都会分配给不同的设备工作进程，并且产生的梯度更新是*同步*的 —— 每个设备工作进程返回其梯度，这些梯度在设备工作进程之间进行平均，计算出的权重更新发送回设备工作进程用于下一步。
+- en: When the devices are spread among multiple machines, having the central loop
+    wait for all the workers on every machine to finish with a batch will lead to
+    significant wastage of compute resources, as all the workers will have to wait
+    for the slowest one. Instead, the idea is to have workers process data in parallel
+    and for gradient updates to be averaged if they are available—a late-arriving
+    gradient update is simply dropped from the calculation. Each worker receives the
+    weight update that is current as of this time.
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当设备分布在多台机器上时，让中心循环等待每台机器上的所有工作进程完成一个批次将导致计算资源的显著浪费，因为所有工作进程都必须等待最慢的一个。相反，思路是让工作进程并行处理数据，并且如果可用，平均梯度更新
+    —— 迟到的梯度更新从计算中简单丢弃。每个工作进程接收到当前时刻的权重更新。
+- en: When we apply gradient updates *asynchronously* like this, we cannot split a
+    batch across the different workers because then our batches would be incomplete,
+    and our model will want equal-sized batches. So, we will have to have each worker
+    reading full batches of data, computing the gradient, and sending in a gradient
+    update for each full batch. If we do that, there is no use having all the workers
+    reading the same data—we want every worker’s batches to contain different examples.
+    By shuffling the dataset, we can ensure that the workers are all working on different
+    training examples at any point in time.
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们像这样异步地应用梯度更新时，我们不能将一批数据跨越不同的工作器进行分割，因为这样我们的批次将是不完整的，而我们的模型将希望等大小的批次。因此，我们必须让每个工作器读取完整的数据批次，计算梯度，并为每个完整的批次发送梯度更新。如果我们这样做，那么所有工作器读取相同数据就毫无意义了——我们希望每个工作器的批次包含不同的示例。通过对数据集进行洗牌，我们可以确保工作器在任何时候都在处理不同的训练示例。
+- en: Even if we are not doing distributed training, it’s a good idea to randomize
+    the order in which the data is read by the `tf.data` pipeline. This will help
+    reduce the chances that, say, one batch contains all daisies and the next batch
+    contains all tulips. Such bad batches can play havoc with the gradient descent
+    optimizer.
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使我们不进行分布式训练，随机读取 `tf.data` 流水线中的数据顺序也是一个好主意。这将有助于减少一批数据中全是雏菊，下一批数据中全是郁金香等情况发生的可能性。这样的糟糕批次可能会对梯度下降优化器造成严重影响。
+- en: 'We can randomize the data that is read in two places:'
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以在两个地方随机读取数据：
+- en: 'When we obtain the files that match the pattern, we shuffle these files:'
+  id: totrans-289
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当我们获得与模式匹配的文件时，我们会对这些文件进行洗牌：
+- en: '[PRE52]'
+  id: totrans-290
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE52]'
+- en: 'After we preprocess the data, and just before we batch, we shuffle the records
+    within a buffer that is larger than the batch size:'
+  id: totrans-291
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在我们预处理数据之后，在批处理之前，我们将记录在比批量大小大的缓冲区内进行洗牌：
+- en: '[PRE53]'
+  id: totrans-292
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE53]'
+- en: The more ordered your dataset is, the larger your shuffle buffer needs to be.
+    If your dataset is initially sorted by label, only a buffer size covering the
+    entire dataset will work. In that case, it’s better to shuffle the data ahead
+    of time, when preparing the training dataset.
+  id: totrans-293
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您的数据集越有序，您的洗牌缓冲区就需要越大。如果您的数据集最初按标签排序，那么只有涵盖整个数据集的缓冲区大小才能工作。在这种情况下，最好是在准备训练数据集时提前洗牌数据。
+- en: Virtual epochs
+  id: totrans-294
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 虚拟时代
+- en: 'We often wish to train for a fixed number of training examples, not a fixed
+    number of epochs. Since the number of training steps in an epoch depends on the
+    batch size, it is easier to key off the total number of training examples in the
+    dataset and compute what the number of steps per epoch ought to be:'
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们通常希望对固定数量的训练示例进行训练，而不是对固定数量的时代进行训练。由于一个时代中的训练步骤数量取决于批量大小，因此更容易依据数据集中的总训练示例数计算每个时代的步数应该是多少：
+- en: '[PRE54]'
+  id: totrans-296
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE54]'
+- en: We call a training cycle consisting of this number of steps a *virtual epoch*
+    and train for the same number of epochs as before.
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们称这个步数的训练周期为 *虚拟时代* 并且与以前一样训练相同数量的时代。
+- en: 'We specify the number of steps per virtual epoch as a parameter to `model.fit()`:'
+  id: totrans-298
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将虚拟时代的步数指定为 `model.fit()` 的参数：
+- en: '[PRE55]'
+  id: totrans-299
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE55]'
+- en: 'What if we get the number of training examples in the dataset wrong? Suppose
+    we specify the number as 4,000, but there are actually 3,500 examples? We will
+    have a problem, because the dataset will finish before 4,000 examples are encountered.
+    We can prevent that from happening by making the training dataset repeat upon
+    itself indefinitely:'
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们对数据集中的训练示例数量估计错误会发生什么？假设我们将数字指定为 4,000，但实际上有 3,500 个示例？我们将遇到问题，因为数据集会在遇到
+    4,000 个示例之前完成。我们可以通过使训练数据集无限重复来防止这种情况发生：
+- en: '[PRE56]'
+  id: totrans-301
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE56]'
+- en: This also works when we underestimate the number of training examples in the
+    dataset—the next set of examples simply carry over to the next epoch. Keras knows
+    that when a dataset is infinite, it should use the number of steps per epoch to
+    decide when the next epoch starts.
+  id: totrans-302
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们低估数据集中的训练示例数量时，这也适用——下一组示例将简单地转移到下一个时代。Keras 知道当数据集是无限的时候，应该使用每个时代的步数来决定下一个时代何时开始。
+- en: TPUStrategy
+  id: totrans-303
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: TPUStrategy
+- en: While `MirroredStrategy` is meant for one or more GPUs on a single machine,
+    and `MultiWorkerMirroredStrategy` is meant for GPUs on multiple machines, `TPUStrategy`
+    allows us to distribute to a custom ASIC chip called the TPU, shown in [Figure 7-5](#a_tensor_processing_unitdot).
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然 `MirroredStrategy` 适用于单台机器上的一个或多个 GPU，而 `MultiWorkerMirroredStrategy` 适用于多台机器上的
+    GPU，`TPUStrategy` 则允许我们分布到名为 TPU 的自定义 ASIC 芯片上，如 [图 7-5](#a_tensor_processing_unitdot)
+    所示。
+- en: '![](Images/pmlc_0705.png)'
+  id: totrans-305
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0705.png)'
+- en: Figure 7-5\. A tensor processing unit.
+  id: totrans-306
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-5\. 张量处理单元。
+- en: 'To create a `TPUStrategy` instance, we can call its constructor, but we have
+    to pass a parameter to this constructor:'
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建一个`TPUStrategy`实例，我们可以调用它的构造函数，但必须向该构造函数传递一个参数：
+- en: '[PRE57]'
+  id: totrans-308
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE57]'
+- en: Because TPUs are multiuser machines, the initialization will wipe out the existing
+    memory on the TPU, so we have to make sure to initialize the TPU system before
+    we do any work in our program.
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为TPU是多用户机器，初始化将擦除TPU上的现有内存，因此在程序中进行任何工作之前，我们必须确保初始化TPU系统。
+- en: 'In addition, we add an extra parameter to `model.compile()`:'
+  id: totrans-310
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，我们在`model.compile()`中添加了额外的参数：
+- en: '[PRE58]'
+  id: totrans-311
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE58]'
+- en: This parameter instructs Keras to send multiple batches to the TPU at once.
+    In addition to lowering communication overhead, this gives the compiler the opportunity
+    to optimize TPU hardware utilization across multiple batches. With this option,
+    it is no longer necessary to push batch sizes to very high values to optimize
+    TPU performance.
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此参数指示Keras一次向TPU发送多个批次。除了降低通信开销外，这还使得编译器有机会在多个批次间优化TPU硬件利用率。有了这个选项，不再需要将批次大小推到非常高的值以优化TPU性能。
+- en: It is worth noting what the user does not need to worry about—in TensorFlow/Keras,
+    the complicated code to distribute the data is taken care of for you automatically
+    in `strategy.distribute_dataset()`. At the time of writing, this is code you have
+    to write by hand in PyTorch.
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值得注意的是，在TensorFlow/Keras中，分发数据的复杂代码会自动由`strategy.distribute_dataset()`处理，用户无需担心。在撰写本文时，这是在PyTorch中需要手动编写的代码。
+- en: It’s not enough to simply write the software, though; we also need to set up
+    the hardware. For example, to use `MultiWorkerMirroredStrategy`, we will also
+    need to launch a cluster of machines that coordinate the task of training an ML
+    model.
+  id: totrans-314
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，仅仅编写软件还不够；我们还需要设置硬件。例如，要使用`MultiWorkerMirroredStrategy`，我们还需要启动一个协调训练ML模型任务的机器集群。
+- en: 'To use `TPUStrategy`, we will need to launch a machine with a TPU attached
+    to it. We can accomplish this using:'
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用`TPUStrategy`，我们需要启动一台附有TPU的机器。我们可以通过以下方式实现：
+- en: '[PRE59]'
+  id: totrans-316
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE59]'
+- en: Distribution strategies are easier to implement if we use a service that manages
+    the hardware infrastructure for us. We’ll defer the hardware setup to the next
+    section.
+  id: totrans-317
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们使用管理硬件基础设施的服务，那么实施分发策略会更加容易。我们将把硬件设置延迟到下一节。
+- en: Serverless ML
+  id: totrans-318
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 无服务器ML
+- en: While Jupyter notebooks are good for experimentation and training, it’s a lot
+    easier for ML engineers to maintain code in production if it’s organized into
+    Python packages. It is possible to use a tool like [Papermill](https://oreil.ly/AL4I9)
+    to directly execute a notebook. We recommend, however, that you treat notebooks
+    as expendable, and keep your production-ready code in standalone Python files
+    with associated unit tests.
+  id: totrans-319
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然Jupyter笔记本适用于实验和培训，但如果将代码组织成Python包，则在生产中维护代码对于ML工程师来说更加简单。可以使用类似[Papermill](https://oreil.ly/AL4I9)的工具直接执行笔记本。但我们建议您将笔记本视为可消耗的，并将生产就绪的代码保留在带有相关单元测试的独立Python文件中。
+- en: By organizing code into Python packages, we also make it easy to submit the
+    code to a fully managed ML service such as Google’s Vertex AI, Azure ML, or Amazon
+    SageMaker.  Here, we’ll demonstrate Vertex AI, but the others are similar in concept.
+  id: totrans-320
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过将代码组织成Python包，我们还可以轻松地将代码提交到完全托管的ML服务，例如Google的Vertex AI、Azure ML或Amazon SageMaker。在这里，我们将演示Vertex
+    AI，但其他服务的概念类似。
+- en: Creating a Python Package
+  id: totrans-321
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 创建Python包
+- en: 'To create a Python package, we have to organize files in a folder structure
+    where each level is marked by an *__init__.py* file. The *__init__.py* file, which
+    runs any initialization code the package needs, is required, but it can be empty.
+    The simplest structure that would be sufficient is to have:'
+  id: totrans-322
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建一个Python包，我们必须在文件夹结构中组织文件，其中每个级别都由一个*__init__.py*文件标记。*__init__.py*文件用于运行包需要的任何初始化代码，虽然可以是空的。最简单的结构是：
+- en: '[PRE60]'
+  id: totrans-323
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE60]'
+- en: Reusable modules
+  id: totrans-324
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 可重复使用的模块
+- en: How do we get code in a notebook into the file *07b_distribute.py*? An easy
+    way to reuse code between Jupyter notebooks and the Python package is to export
+    the Jupyter notebook to a *.py* file and then remove code whose only purpose is
+    to display graphs and other output in the notebook. Another possibility is to
+    base all the code development in the standalone files and simply `import` the
+    necessary modules from the notebook cells as needed.
+  id: totrans-325
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何将笔记本中的代码导入到文件*07b_distribute.py*中？在Jupyter笔记本和Python包之间重复使用代码的简单方法是将Jupyter笔记本导出为*.py*文件，然后删除仅用于在笔记本中显示图形和其他输出的代码。另一种可能性是在独立文件中进行所有代码开发，然后根据需要从笔记本单元格中`import`所需的模块。
+- en: 'The reason that we create a Python package is that packages make it much easier
+    to make our code reusable. However, it is unlikely that this model is the only
+    one that we will train. For maintainability reasons, we suggest that you have
+    an organizational structure like this (the full code is in [*serverlessml* on
+    GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/tree/master/07_training/serverlessml)):'
+  id: totrans-326
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们创建 Python 包的原因是包使我们的代码更易于重复使用。然而，我们不太可能只训练这一个模型。出于可维护性的考虑，建议您有以下这种组织结构（完整代码在
+    GitHub 上的 [*serverlessml*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/tree/master/07_training/serverlessml)
+    中）：
+- en: '[PRE61]'
+  id: totrans-327
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE61]'
+- en: Use Jupyter notebooks for experimentation, but at some point, move the code
+    into a Python package and maintain that package going forward. From then on, if
+    you need to experiment, call the Python package from the Jupyter notebook.
+  id: totrans-328
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 Jupyter notebooks 进行实验，但最终将代码移至一个 Python 包中并维护该包。从那时起，如果需要进行实验，可以从 Jupyter
+    notebook 调用 Python 包。
+- en: Invoking Python modules
+  id: totrans-329
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 调用 Python 模块
+- en: 'Given files in the structure outlined in the previous section, we can invoke
+    the training program using:'
+  id: totrans-330
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前一节中概述的结构中给定文件，我们可以使用以下命令调用培训程序：
+- en: '[PRE62]'
+  id: totrans-331
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE62]'
+- en: 'This is also a good time at which to make all the hyperparameters to the module
+    settable as command-line parameters. For example, we will want to experiment with
+    different batch sizes, so we make the batch size a command-line parameter:'
+  id: totrans-332
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这也是使模块的所有超参数可设置为命令行参数的好时机。例如，我们将想要尝试不同的批处理大小，因此将批处理大小作为命令行参数：
+- en: '[PRE63]'
+  id: totrans-333
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE63]'
+- en: Within the entrypoint Python file, we’ll use Python’s `argparse` library to
+    pass the command-line parameters to the `create_model()` function.
+  id: totrans-334
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在入口 Python 文件中，我们将使用 Python 的 `argparse` 库将命令行参数传递给 `create_model()` 函数。
+- en: It’s best to try to make every aspect of your model configurable. Besides the
+    L1 and L2 regularizations, it’s a good idea to make data augmentation layers optional
+    as well.
+  id: totrans-335
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最好尝试使模型的每个方面都可配置。除了 L1 和 L2 正则化外，使数据增强层也成为可选项是个好主意。
+- en: 'Because the code has been split across multiple files, you will find yourself
+    needing to call functions that are now in a different file. So, you will have
+    to add import statements of this form to the caller:'
+  id: totrans-336
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于代码已分布在多个文件中，您会发现自己需要调用现在位于不同文件中的函数。因此，您将不得不向调用者添加此形式的导入语句：
+- en: '[PRE64]'
+  id: totrans-337
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE64]'
+- en: Installing dependencies
+  id: totrans-338
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 安装依赖项
+- en: 'While the package structure we’ve shown is sufficient to create and run a module,
+    it is quite likely that you will need the training service to `pip install` Python
+    packages that you need. The way to specify that is to create a *setup.py* file
+    in the same directory as the package, so that the overall structure becomes:'
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然我们展示的包结构足以创建和运行一个模块，但很可能您需要训练服务 `pip install` 您需要的 Python 包。指定的方法是在与包相同的目录中创建一个
+    *setup.py* 文件，以便整体结构变为：
+- en: '[PRE65]'
+  id: totrans-340
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE65]'
+- en: 'The *setup.py* file looks like this:'
+  id: totrans-341
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*setup.py* 文件如下所示：'
+- en: '[PRE66]'
+  id: totrans-342
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE66]'
+- en: Note
+  id: totrans-343
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'Verify that you got the packaging and imports correct by doing two things from
+    within the top-level directory (the directory that contains *setup.py*):'
+  id: totrans-344
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保在顶层目录（包含 *setup.py* 的目录）内执行两件事来验证包装和导入是否正确：
+- en: '[PRE67]'
+  id: totrans-345
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE67]'
+- en: Also look at the generated *MANIFEST.txt* file to ensure that all the desired
+    files are there. If you need ancillary files (text files, scripts, and so on),
+    you can specify them in *setup.py*.
+  id: totrans-346
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还需查看生成的 *MANIFEST.txt* 文件，确保所有所需文件都在那里。如果需要辅助文件（文本文件、脚本等），可以在 *setup.py* 中指定它们。
+- en: Submitting a Training Job
+  id: totrans-347
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 提交培训作业
+- en: Once we have a locally callable module, we can put the module source in Cloud
+    Storage (e.g., `gs://${BUCKET}/flowers-1.0.tar.gz`) and then submit jobs to Vertex
+    Training to have it run the code for us on the cloud hardware of our choice.
+  id: totrans-348
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们有一个可以本地调用的模块，我们可以将模块源代码放入 Cloud Storage（例如，`gs://${BUCKET}/flowers-1.0.tar.gz`），然后提交作业给
+    Vertex Training，让它在我们选择的云硬件上为我们运行代码。
+- en: 'For example, to run on a machine with a single CPU, we’d create a configuration
+    file (let’s call it *cpu.yaml*) specifying the CustomJobSpec:'
+  id: totrans-349
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，要在单 CPU 的机器上运行，我们将创建一个配置文件（称为 *cpu.yaml*）指定 CustomJobSpec：
+- en: '[PRE68]'
+  id: totrans-350
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE68]'
+- en: 'We’d then provide that configuration file when starting the training program:'
+  id: totrans-351
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后在启动训练程序时提供该配置文件：
+- en: '[PRE69]'
+  id: totrans-352
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE69]'
+- en: A key consideration is that if we have developed the code using Python 3.7 and
+    TensorFlow 2.4, we need to ensure that Vertex Training uses the same versions
+    of Python and TensorFlow to run our training job. We do this using the `executorImageUri`
+    setting. [Not all combinations](https://oreil.ly/PyqU2) of runtimes and Python
+    versions are supported, since some versions of TensorFlow may have had issues
+    that were subsequently fixed. If you are developing on Vertex Notebooks, there
+    will be a corresponding runtime on Vertex Training and Vertex Prediction (or an
+    upgrade path to get to a consistent state). If you are developing in a heterogeneous
+    environment, it’s worth verifying that your development, training, and deployment
+    environments support the same environment in order to prevent nasty surprises
+    down the line.
+  id: totrans-353
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个关键考虑因素是，如果我们使用Python 3.7和TensorFlow 2.4开发代码，需要确保Vertex Training使用相同版本的Python和TensorFlow来运行我们的训练作业。我们使用`executorImageUri`设置来实现这一点。[不支持](https://oreil.ly/PyqU2)所有运行时和Python版本的组合，因为某些TensorFlow版本可能存在问题，后来已修复。如果您在Vertex
+    Notebooks上开发，将在Vertex Training和Vertex Prediction上有相应的运行时（或升级路径以达到一致状态）。如果您在异构环境中开发，值得验证您的开发、训练和部署环境是否支持相同的环境，以防止后续出现问题。
+- en: 'In the training code, a `OneDeviceStrategy` should be created:'
+  id: totrans-354
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练代码中，应创建一个`OneDeviceStrategy`：
+- en: '[PRE70]'
+  id: totrans-355
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE70]'
+- en: Using the `gcloud` command to launch a training job makes it easy to incorporate
+    model training in scripts, invoke the training job from Cloud Functions, or schedule
+    the training job using Cloud Scheduler.
+  id: totrans-356
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`gcloud`命令启动训练作业可以轻松将模型训练整合到脚本中，从Cloud Functions调用训练作业，或使用Cloud Scheduler安排训练作业。
+- en: Next, let’s walk through the hardware setups corresponding to the different
+    distribution scenarios that we have covered so far. Each scenario here corresponds
+    to a different distribution strategy.
+  id: totrans-357
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们详细介绍与我们目前涵盖的不同分发方案对应的硬件设置。这里的每个场景对应于一个不同的分发策略。
+- en: Running on multiple GPUs
+  id: totrans-358
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 在多个GPU上运行
+- en: 'To run on a single machine with one, two, four, or more GPUs, we can add a
+    snippet like this to the YAML configuration file:'
+  id: totrans-359
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在单机上使用一、两、四个或更多GPU运行，可以将以下片段添加到YAML配置文件中：
+- en: '[PRE71]'
+  id: totrans-360
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE71]'
+- en: and launch the `gcloud` command as before, making sure to specify this configuration
+    file in `--config`.
+  id: totrans-361
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并像以前一样启动`gcloud`命令，确保在`--config`中指定此配置文件。
+- en: In the training code, a `MirroredStrategy` instance should be created.
+  id: totrans-362
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练代码中，应创建一个`MirroredStrategy`实例。
+- en: Distribution to multiple GPUs
+  id: totrans-363
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 分配到多个GPU
+- en: 'To run on multiple workers, each of which has several GPUs, the configuration
+    YAML file should include lines similar to the following:'
+  id: totrans-364
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在多个工作节点上运行，每个节点都有几个GPU，配置YAML文件应包含类似以下的行：
+- en: '[PRE72]'
+  id: totrans-365
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE72]'
+- en: Remember that if you are using multiple worker machines, you should use virtual
+    epochs by declaring the number of training examples that you will term as an epoch.
+    Shuffling is also required. The [code example in *serverlessml* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/tree/master/07_training/serverlessml)
+    does both these things.
+  id: totrans-366
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，如果使用多个工作机器，应通过声明将作为一个epoch的训练示例数来使用虚拟epoch。还需要进行洗牌。[GitHub上的*serverlessml*代码示例](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/tree/master/07_training/serverlessml)同时执行这两个操作。
+- en: In the training code, a `MultiWorkerMirroredStrategy` instance should be created.
+  id: totrans-367
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练代码中，应创建一个`MultiWorkerMirroredStrategy`实例。
+- en: Distribution to TPU
+  id: totrans-368
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 分配到TPU
+- en: 'To run on a Cloud TPU, the configuration file YAML looks like this (choose
+    the [version of TPU](https://oreil.ly/vHMhx) that is [most appropriate](https://oreil.ly/mVeTS)
+    at the time you are reading this):'
+  id: totrans-369
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在Cloud TPU上运行，配置文件YAML看起来像这样（选择在阅读时最合适的[TPU版本](https://oreil.ly/vHMhx)，请参考此链接中[最适当的](https://oreil.ly/mVeTS)版本）：
+- en: '[PRE73]'
+  id: totrans-370
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE73]'
+- en: In the training code, a TPUStrategy instance should be created.
+  id: totrans-371
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练代码中，应创建一个TPUStrategy实例。
+- en: 'You can use Python’s error handling mechanism to create a boilerplate method
+    for creating the distribution strategy appropriate for the hardware configuration:'
+  id: totrans-372
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以利用Python的错误处理机制来创建适合硬件配置的分发策略的样板方法：
+- en: '[PRE74]'
+  id: totrans-373
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE74]'
+- en: Now that we have looked at how to train a single model, let’s consider how to
+    train a family of models and pick the best one.
+  id: totrans-374
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经看过如何训练单个模型，让我们考虑如何训练一组模型并选择最佳模型。
+- en: Hyperparameter Tuning
+  id: totrans-375
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 超参数调整
+- en: 'In the process of creating our ML model, we have made many arbitrary choices:
+    the number of hidden nodes, the batch size, the learning rate, the L1/L2 regularization
+    amounts, and so on. The overall number of possible combinations is massive, so
+    it’s preferable to take an optimization approach where we specify a budget (e.g.,
+    “try 30 combinations”) and instead ask a hyperparameter optimization technique
+    to choose the best settings.'
+  id: totrans-376
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在创建我们的ML模型的过程中，我们已经做出了许多任意选择：隐藏节点的数量，批量大小，学习率，L1/L2正则化量等等。总的可能组合数非常庞大，因此最好采取一种优化方法，我们指定一个预算（例如，“尝试30个组合”），而后请求超参数优化技术选择最佳设置。
+- en: In [Chapter 2](ch02.xhtml#ml_models_for_vision), we looked at the in-built Keras
+    Tuner. However, that only works if your model and dataset are small enough that
+    the entire training process can be carried out wrapped within the tuner. For more
+    realistic ML datasets, it’s better to use a fully managed service.
+  id: totrans-377
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第2章](ch02.xhtml#ml_models_for_vision)中，我们看过内置的Keras调谐器。然而，仅当您的模型和数据集足够小，整个训练过程可以在调谐器内部进行时，才能正常工作。对于更实际的ML数据集，最好使用完全托管的服务。
+- en: 'Fully managed hyperparameter training services provide a combination of parameter
+    values to the training program, which then trains the model and reports on performance
+    metrics (accuracy, loss, etc.). So, the hyperparameter tuning service requires
+    that we:'
+  id: totrans-378
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完全托管的超参数训练服务向训练程序提供参数值的组合，然后训练模型并报告性能指标（准确率、损失等）。因此，超参数调整服务要求我们：
+- en: Specify the set of parameters to tune, the search space (the range of values
+    each parameter can take, for example that the learning rate has to be between
+    0.0001 and 0.1), and the search budget.
+  id: totrans-379
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 指定要调整的参数集、搜索空间（每个参数可以取值的范围，例如学习率必须在0.0001和0.1之间）、以及搜索预算。
+- en: Incorporate a given combination of parameters into the training program.
+  id: totrans-380
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将给定的参数组合纳入训练程序。
+- en: Report how well the model performed when using that combination of parameters.
+  id: totrans-381
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 报告模型使用该参数组合时的表现如何。
+- en: In this section, we’ll discuss hyperparameter tuning on Vertex AI as an example
+    of how this works.
+  id: totrans-382
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将以Vertex AI上的超参数调整为例，说明其工作原理。
+- en: Specifying the search space
+  id: totrans-383
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 指定搜索空间
+- en: 'We specify the search space in the YAML configuration provided to Vertex AI.
+    For example, we might have:'
+  id: totrans-384
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在提供给Vertex AI的YAML配置中指定搜索空间。例如，我们可能有：
+- en: '[PRE75]'
+  id: totrans-385
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE75]'
+- en: 'In this YAML listing, we are specifying (see if you can find the corresponding
+    lines):'
+  id: totrans-386
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个YAML列表中，我们正在指定（看看您能否找到相应的行）：
+- en: The goal, which is to maximize the accuracy that is reported by the trainer
+  id: totrans-387
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 目标是最大化由训练程序报告的准确性
+- en: The budget, which is a total of 50 trials carried out 2 at a time
+  id: totrans-388
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 预算，即一共50次试验，每次进行2次
+- en: That we want to stop a trial early if it looks unlikely to do better than we
+    have already seen
+  id: totrans-389
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果看起来不太可能比我们已经看到的表现更好，我们希望尽早停止试验
+- en: 'Two parameters, `l2` and `batch_size`:'
+  id: totrans-390
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 两个参数，`l2`和`batch_size`：
+- en: The possible L2 regularization strengths (between 0 and 0.2)
+  id: totrans-391
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可能的L2正则化强度（介于0和0.2之间）
+- en: The batch size, which can be one of 16, 32, or 64
+  id: totrans-392
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 批量大小，可以是16、32或64之一
+- en: The algorithm type, which if unspecified uses Bayesian Optimization
+  id: totrans-393
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 算法类型，如果未指定，则使用贝叶斯优化
+- en: Using parameter values
+  id: totrans-394
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用参数值
+- en: 'Vertex AI will invoke our trainer, passing specific values for `l2` and `batch_size`
+    as command-line parameters. So, we make sure to list them in the `argparse`:'
+  id: totrans-395
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Vertex AI将调用我们的训练器，将具体的`l2`和`batch_size`值作为命令行参数传递。因此，我们确保在`argparse`中列出它们：
+- en: '[PRE76]'
+  id: totrans-396
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE76]'
+- en: 'We have to incorporate these values into the training program. For example,
+    we’ll use the batch size as:'
+  id: totrans-397
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们必须将这些值纳入训练程序中。例如，我们将使用批量大小作为：
+- en: '[PRE77]'
+  id: totrans-398
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE77]'
+- en: 'It’s helpful at this point to step back and think carefully about all the implicit
+    choices that we have made in the model. For example, our `CenterCrop` augmentation
+    layer was:'
+  id: totrans-399
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此时，仔细思考我们在模型中做出的所有隐含选择是有帮助的。例如，我们的`CenterCrop`增强层是：
+- en: '[PRE78]'
+  id: totrans-400
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE78]'
+- en: 'The number 2 is baked in, yet the truly fixed thing is the size of the image
+    (224x224x3) that the MobileNet model requires. It’s worth experimenting with whether
+    we should center crop the images to 50% the original size, or use some other ratio.
+    So, we make `crop_ratio` one of the hyperparameters:'
+  id: totrans-401
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数字2是固定的，但真正固定的是MobileNet模型所需的图像大小（224x224x3）。值得尝试的是，我们是否应该将图像居中裁剪到原始大小的50%，或者使用其他比例。因此，我们将`crop_ratio`作为超参数之一：
+- en: '[PRE79]'
+  id: totrans-402
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE79]'
+- en: 'and use it as follows:'
+  id: totrans-403
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并按以下方式使用它：
+- en: '[PRE80]'
+  id: totrans-404
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE80]'
+- en: Reporting accuracy
+  id: totrans-405
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 报告准确性
+- en: 'After we train the model using the hyperparameters that were supplied to the
+    trainer on the command line, we need to report back to the hyperparameter tuning
+    service. What we report back is whatever we specified as the `hyperparameterMetricTag`
+    in the YAML file:'
+  id: totrans-406
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们使用在命令行上提供给训练器的超参数训练模型之后，我们需要向超参数调优服务报告。我们报告的内容是在YAML文件中指定的`hyperparameterMetricTag`：
+- en: '[PRE81]'
+  id: totrans-407
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE81]'
+- en: Result
+  id: totrans-408
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 结果
+- en: On submitting the job, hyperparameter tuning is launched and 50 trials are carried
+    out, 2 at a time. The hyperparameters for these trials are chosen using a Bayesian
+    optimization approach, and because we specified two parallel trials, the optimizer
+    starts with two random initial starting points. Whenever a trial finishes, the
+    optimizer determines which part of the input space needs further exploration and
+    a new trial is launched.
+  id: totrans-409
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在提交作业时，启动超参数调优并进行50次试验，每次2个。这些试验的超参数是使用贝叶斯优化方法选择的，因为我们指定了两个并行试验，优化器从两个随机初始点开始。每当一个试验完成时，优化器确定需要进一步探索输入空间的哪一部分，并启动新的试验。
+- en: The cost of the job is determined by the infrastructure resources used to train
+    the model 50 times. Running the 50 trials 2 at a time causes the job to finish
+    twice as fast as if we’d run them only one at a time. If we were to run the 50
+    trials 10 at a time, the job would finish 10 times faster but cost the same—however,
+    the first 10 trials wouldn’t get much of a chance to incorporate information from
+    the previously finished trials, and future trials, on average, are unable to take
+    advantage of the information from 9 already-started trials. We recommend using
+    as many total trials as your budget allows and as few prallel trials as your patience
+    allows! You can also resume an already completed hyperparameter job (specify `resumePreviousJobId`
+    in the YAML) so you can continue the search if you find more budget or more patience.
+  id: totrans-410
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作业的成本由用于训练模型的基础设施资源决定，这需要训练模型50次。同时运行50次试验，每次2个，使得作业完成的速度是如果我们一次只运行一个试验的两倍。如果我们一次运行50次试验，每次10个，作业将完成的速度是原来的10倍，但成本相同——然而，前10次试验将无法充分利用先前完成的试验的信息，未来的试验平均来看也无法利用已经启动的9次试验的信息。我们建议根据预算尽可能多地使用总试验数，并根据耐心允许的程度尽量少地进行并行试验！您还可以恢复已完成的超参数作业（在YAML中指定`resumePreviousJobId`），这样如果您找到更多预算或更多耐心，可以继续搜索。
+- en: The results are shown in the web console (see [Figure 7-6](#the_results_of_hyperparameter_tuningdot)).
+  id: totrans-411
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果显示在Web控制台中（见[图 7-6](#the_results_of_hyperparameter_tuningdot)）。
+- en: '![](Images/pmlc_0706.png)'
+  id: totrans-412
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0706.png)'
+- en: Figure 7-6\. The results of hyperparameter tuning.
+  id: totrans-413
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-6\. 超参数调优结果。
+- en: 'Based on the tuning, the highest accuracy (0.89) is obtained with the following
+    settings: `l2=0`, `batch_size=64`, `num_hidden=24`, `with_color_distort=0`, `crop_ratio=0.70706`.'
+  id: totrans-414
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据调优，使用以下设置可以获得最高的准确率（0.89）：`l2=0`，`batch_size=64`，`num_hidden=24`，`with_color_distort=0`，`crop_ratio=0.70706`。
+- en: Continuing tuning
+  id: totrans-415
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 继续调整
+- en: Looking at these results, it is striking that the optimal values for `num_hidden`
+    and `batch_size` are the highest values we tried. Given this, it might be a good
+    idea to continue the hyperparameter tuning process and explore even higher values.
+    At the same time, we can reduce the search space for the `crop_ratio` by making
+    it a set of discrete values (0.70706 should probably be just 0.7).
+  id: totrans-416
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 观察这些结果，显然`num_hidden`和`batch_size`的最佳值是我们尝试的最高值。鉴于此，继续进行超参数调优过程并探索更高的值可能是个好主意。同时，我们可以通过将`crop_ratio`设为一组离散值（0.70706可能仅需设为0.7）来减少其搜索空间。
+- en: 'This time, we don’t need Bayesian optimization. We just want the hyperparameter
+    service to carry out a grid search of 45 possible combinations (this is also the
+    budget):'
+  id: totrans-417
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一次，我们不需要贝叶斯优化。我们只希望超参数服务执行45种可能组合的网格搜索（这也是预算）：
+- en: '[PRE82]'
+  id: totrans-418
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE82]'
+- en: After this new training run, we get a report as before, and we can select the
+    best set of parameters. When we did this, it turned out that `batch_size=64`,
+    `num_hidden=24` was indeed the best—better than choosing 96 for the batch size
+    or 32 for the number of hidden nodes—but with `crop_ratio=0.8`.
+  id: totrans-419
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这次新的训练运行后，我们得到了与之前相同的报告，并可以选择最佳的参数集。当我们这样做时，结果表明`batch_size=64`，`num_hidden=24`确实是最佳的选择——比选择批量大小为96或隐藏节点数为32更好——但`crop_ratio=0.8`。
+- en: Deploying the Model
+  id: totrans-420
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 部署模型
+- en: Now that we have a trained model, let’s deploy it for online predictions. The
+    TensorFlow SavedModel format is supported by a serving system called TensorFlow
+    Serving. A [Docker container](https://oreil.ly/nS7ZA) for TensorFlow Serving is
+    available for you to deploy this in a container orchestration system like Google
+    Kubernetes Engine, Google Cloud Run, Amazon Elastic Kubernetes Service, AWS Lambda,
+    Azure Kubernetes Service, or on premises using Kubernetes. Managed versions of
+    TensorFlow Serving are available in all the major clouds. Here, we’ll show you
+    how to deploy the SavedModel into Google’s Vertex AI.
+  id: totrans-421
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经有了一个训练好的模型，让我们为在线预测部署它。TensorFlow SavedModel格式受到名为TensorFlow Serving的服务系统支持。您可以在诸如Google
+    Kubernetes Engine、Google Cloud Run、Amazon Elastic Kubernetes Service、AWS Lambda、Azure
+    Kubernetes Service或使用Kubernetes的本地系统中部署此服务的[Docker容器](https://oreil.ly/nS7ZA)。TensorFlow
+    Serving的托管版本在所有主要云中都有提供。在这里，我们将展示如何将SavedModel部署到Google的Vertex AI。
+- en: 'Vertex AI also provides model management and versioning capabilities. In order
+    to use these functionalities, we’ll create an endpoint called *flowers* to which
+    we will deploy multiple model versions:'
+  id: totrans-422
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Vertex AI还提供模型管理和版本控制功能。为了使用这些功能，我们将创建一个名为*flowers*的端点，用于部署多个模型版本：
+- en: '[PRE83]'
+  id: totrans-423
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE83]'
+- en: 'Suppose, for example, that hyperparameter tuning trial #33 was the best and
+    contains the model we want to deploy. This command will create a model called
+    `txf` (for transfer learning) and deploy it into the flowers endpoint:'
+  id: totrans-424
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设超参数调优试验#33是最佳的，并包含我们想要部署的模型。此命令将创建一个名为`txf`（用于迁移学习）的模型，并将其部署到flowers端点：
+- en: '[PRE84]'
+  id: totrans-425
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE84]'
+- en: 'Once the model is deployed, we can do an HTTP POST of a JSON request to the
+    model to obtain predictions. For example, posting:'
+  id: totrans-426
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型部署后，我们可以对模型进行HTTP POST请求，以获取预测的JSON请求。例如，发布：
+- en: '[PRE85]'
+  id: totrans-427
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE85]'
+- en: 'returns:'
+  id: totrans-428
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 返回：
+- en: '[PRE86]'
+  id: totrans-429
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE86]'
+- en: Of course, we could post this request from any program capable of sending an
+    HTTP POST request (see [Figure 7-7](#leftcolon_trying_out_the_deployed_model)).
+  id: totrans-430
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，我们可以从任何能够发送HTTP POST请求的程序中发布此请求（参见[图7-7](#leftcolon_trying_out_the_deployed_model)）。
+- en: '![](Images/pmlc_0707.png)'
+  id: totrans-431
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0707.png)'
+- en: 'Figure 7-7\. Left: trying out the deployed model from the Google Cloud Platform
+    console. Right: example code for replicating in Python.'
+  id: totrans-432
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-7\. 左侧：在Google Cloud Platform控制台中尝试部署的模型。右侧：在Python中复制示例代码。
+- en: How would someone use this model? They would have to upload an image file to
+    the cloud, and send the path to the file to the model for predictions. This process
+    is a bit onerous. Can the model not directly accept the contents of an image file?
+    We’ll look at how to improve the serving experience in [Chapter 9](ch09.xhtml#model_predictions).
+  id: totrans-433
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 某人如何使用这个模型？他们必须将图像文件上传到云端，并将文件路径发送到模型以获取预测结果。这个过程有点繁琐。模型不能直接接受图像文件的内容吗？我们将看看如何在[第9章](ch09.xhtml#model_predictions)中改进服务体验。
+- en: Summary
+  id: totrans-434
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: In this chapter, we covered various aspects of building a training pipeline.
+    We started by considering efficient storage in TFRecords files, and how to read
+    that data efficiently using a `tf.data` pipeline. This included parallel execution
+    of map functions, interleaved reading of datasets, and vectorization. The optimization
+    ideas carried over into the model itself, where we looked at how to parallelize
+    model execution across multiple GPUs, multiple workers, and on TPUs.
+  id: totrans-435
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们涵盖了构建训练流水线的各个方面。我们从考虑在TFRecords文件中进行高效存储开始，以及如何通过`tf.data`流水线高效读取数据。这包括映射函数的并行执行，数据集的交错读取以及向量化。优化思路延伸到模型本身，我们看了如何在多个GPU、多个工作节点以及TPUs上并行执行模型。
+- en: We then moved on to operationalization considerations. Rather than managing
+    infrastructure, we looked at how to carry out training in a serverless way by
+    submitting a training job to Vertex AI, and how to use this paradigm to carry
+    out distributed training. We also looked at how to use Vertex AI’s hyperparameter
+    tuning service to achieve better model performance. For predictions, we need autoscaling
+    infrastructure, so we looked at how to deploy a SavedModel into Vertex AI. Along
+    the way, you learned about signatures, how to customize them, and how to get predictions
+    out of a deployed model.
+  id: totrans-436
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接着我们转向运营化考虑。我们不再管理基础设施，而是看了如何通过向Vertex AI提交训练作业以无服务器方式进行训练，并如何使用这种范式进行分布式训练。我们还研究了如何使用Vertex
+    AI的超参数调优服务来提升模型性能。对于预测，我们需要自动扩展基础设施，因此我们看了如何将SavedModel部署到Vertex AI。在此过程中，您了解了签名的使用方法，如何自定义它们以及如何从部署的模型获取预测结果。
+- en: In the next chapter, we will look at how to monitor the deployed model.
+  id: totrans-437
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，我们将看看如何监控部署的模型。

@@ -1,0 +1,2388 @@
+- en: Chapter 4\. Data Ingestion, Preprocessing, and Descriptive Statistics
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第4章。数据摄取、预处理和描述性统计
+- en: You are most likely familiar with the phrase “garbage in, garbage out.” It captures
+    well the notion that flawed, incorrect, or nonsensical data input will always
+    produce faulty output. In the context of machine learning, it also emphasizes
+    the fact that the attention we devote to ingesting, preprocessing, and statistically
+    understanding our data (exploring and preparing it) will have an effect on the
+    success of the overall process. Faulty data ingestion has a direct impact on the
+    quality of the data, and so does faulty preprocessing. To get a feel for the data
+    in hand, and its correctness, we leverage descriptive statistics; this is a vital
+    part of the process as it helps us verify that the data we are using is of good
+    quality. Data scientists, machine learning engineers, and data engineers often
+    spend significant time working on, researching, and improving these crucial steps,
+    and I will walk you through them in this chapter.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您很可能熟悉“垃圾进、垃圾出”的说法。这很好地捕捉了错误、不正确或荒谬的数据输入将始终产生错误输出的概念。在机器学习的背景下，它还强调了我们对数据摄取、预处理和统计理解（探索和准备数据）所付出的注意将对整个过程的成功产生影响。有错误的数据摄取直接影响数据质量，而错误的预处理也是如此。为了了解手头的数据及其正确性，我们利用描述性统计；这是过程的一个重要部分，因为它帮助我们验证我们使用的数据质量良好。数据科学家、机器学习工程师和数据工程师通常会花费大量时间在这些关键步骤上工作、研究和改进，我将在本章中为您详细介绍这些步骤。
+- en: 'Before we start, let’s understand the flow. Let’s assume that at the beginning,
+    our data resides on disk, in a database, or in a cloud data lake. Here are the
+    steps we will follow to get an understanding of our data:'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们开始之前，让我们理解一下流程。假设最初，我们的数据存储在磁盘上、数据库中或云数据湖中。以下是我们将遵循的步骤，以了解我们的数据：
+- en: '*Ingestion*. We begin by moving the data in its current form into a DataFrame
+    instance. This is also called *deserialization* of the data. More accurately,
+    in Spark, in this step we define a plan for how to deserialize the data, transforming
+    it into a DataFrame. This step often provides us with a basic schema inferred
+    from the existing data.'
+  id: totrans-3
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '*摄取*。我们首先将数据以其当前形式移入DataFrame实例中。这也称为数据的*反序列化*。更准确地说，在Spark中，在这一步骤中，我们定义了一个计划来反序列化数据，将其转换为DataFrame。这一步通常会根据现有数据推断出一个基本的模式。'
+- en: '*Preprocessing*. This involves marshaling the data to fit into our desired
+    schema. If we load the data as strings and we need it as floats, we will cast
+    the data type and tweak the values as needed to fit the desired schema. This can
+    be a complex and error-prone process, especially when synchronizing data from
+    multiple sources at a multi-terabyte scale, and requires planning ahead.'
+  id: totrans-4
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '*预处理*。这涉及将数据编组以适应我们期望的模式。如果我们将数据加载为字符串，而我们需要它作为浮点数，则将转换数据类型并根据需要调整值以适应期望的模式。这可能是一个复杂且容易出错的过程，特别是在多个来源的数据以多TB规模同步时，需要提前规划。'
+- en: '*Qualifying*. This step consists of using descriptive statistics to understand
+    the data and how to work with it.'
+  id: totrans-5
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '*资格认证*。这一步骤包括使用描述性统计来理解数据及其处理方法。'
+- en: Steps 2 and 3 can overlap, as we may decide to do more preprocessing on the
+    data depending on the statistics calculated in step 3.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 步骤2和步骤3可能会重叠，因为我们可能会根据步骤3中计算出的统计信息对数据进行更多预处理。
+- en: Now that you have a general idea of what the steps are, let’s dig a bit more
+    deeply into each of them.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，您对步骤有了一个大致的了解，让我们更深入地了解每一个步骤。
+- en: Data Ingestion with Spark
+  id: totrans-8
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用Spark进行数据摄取
+- en: Apache Spark is generic enough to allow us to extend its API and develop dedicated
+    connectors to any type of store for ingesting (and persisting/sinking/saving)
+    data using the connector mechanism. Out of the box, it supports various file formats
+    such as Parquet, CSV, binary files, JSON, ORC, image files, and more.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Spark足够通用，允许我们扩展其API并开发专用连接器，以便使用连接器机制摄取（和持久化/存储）数据到任何类型的存储中。开箱即用，它支持各种文件格式，如Parquet、CSV、二进制文件、JSON、ORC、图像文件等。
+- en: Spark also enables us to work with batch and streaming data. The Spark *batch
+    API* is for processing offline data residing in a file store or database. With
+    batch data, the dataset size is fixed and does not change, and we don’t get any
+    fresh data to process. For processing streaming data, Spark has an older API called
+    DStream or simply Streaming, and a newer, improved API called *Structured Streaming*.
+    Structured Streaming provides an API for distributed continuous processing of
+    structured data streams. It allows you to process multiple data records at a time,
+    dividing the input stream into microbatches. Keep in mind that if your data is
+    not structured, or if the format varies, you will need to use the legacy DStream
+    API instead, or build a solution to automate schema changes without failures.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark 还使我们能够处理批处理和流处理数据。Spark 的*批处理 API*用于处理存储在文件存储或数据库中的离线数据。使用批处理数据时，数据集大小固定且不变化，我们不会获得任何新数据来处理。对于处理流数据，Spark
+    有一个称为 DStream 或简称 Streaming 的旧 API，以及一个更新、改进的称为*结构化流处理*的 API。结构化流处理提供了一个用于分布式连续处理结构化数据流的
+    API。它允许您一次处理多个数据记录，将输入流分成微批次。请记住，如果您的数据不是结构化的，或者格式不同，您将需要使用旧的 DStream API，或构建一个解决方案来自动化模式变化而不会失败。
+- en: In this chapter, we will focus on batch processing with offline, cold data.
+    Building machine learning models using cold data is the most common approach across
+    varied use cases such as video production, financial modeling, drug discovery,
+    genomic research, recommendation engines, and more. We will look at working with
+    streaming data in [Chapter 10](ch10.xhtml#deployment_patterns_for_machine_learnin),
+    where we discuss serving models with both kinds of data sources.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将专注于离线、冷数据的批处理。使用冷数据构建机器学习模型是各种用例中最常见的方法，例如视频制作、金融建模、药物发现、基因组研究、推荐引擎等等。我们将在[第
+    10 章](ch10.xhtml#deployment_patterns_for_machine_learnin)中讨论处理具有流数据的情况。
+- en: 'Specifying batch reading with a defined data format is done using the `format`
+    function, for example:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 `format` 函数指定具有定义数据格式的批量读取，例如：
+- en: '[PRE0]'
+  id: totrans-13
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: The class that enables this is the [`DataFrameReader class`](https://oreil.ly/NTjyk).
+    You can configure it through its `options` API to define how to load the data
+    and infer the schema if the file format doesn’t provide it already, or extract
+    the metadata if it does.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以通过[`DataFrameReader 类`](https://oreil.ly/NTjyk)来实现这一点。您可以通过其 `options` API
+    配置它，定义如何加载数据并推断模式（如果文件格式尚未提供），或者提取元数据（如果已提供）。
+- en: Different file formats may either have a schema or not, depending on whether
+    the data is *structured*, *semi-structured*, or *unstructured*, and, of course,
+    the format’s implementation itself. For example, JSON format is considered semi-structured,
+    and out of the box it doesn’t maintain metadata about the rows, columns, and features.
+    So with JSON, the schema is *inferred*.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不同的文件格式可能具有模式，也可能没有，这取决于数据是*结构化*、*半结构化*还是*非结构化*，当然也取决于格式本身的实现。例如，JSON 格式被认为是半结构化的，开箱即用时它不维护关于行、列和特征的元数据。因此，在
+    JSON 中，模式是*推断*的。
+- en: On the other hand, structured data formats such as Avro and Parquet have a metadata
+    section that describes the data schema. This enables the schema to be *extracted*.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，诸如 Avro 和 Parquet 这样的结构化数据格式具有描述数据模式的元数据部分。这使得可以*提取*模式。
+- en: Working with Images
+  id: totrans-17
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 处理图像
+- en: An image file can store data in an uncompressed, compressed, or vector format.
+    For example, JPEG is a compressed format, and TIFF is an uncompressed format.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像文件可以以未压缩、压缩或矢量格式存储数据。例如，JPEG 是一种压缩格式，TIFF 是一种未压缩格式。
+- en: We save digital data in these formats in order to easily convert them for a
+    computer display or a printer. This is the result of [*rasterization*](https://oreil.ly/ezVss).
+    Rasterization’s main task is converting the image data into a grid of pixels,
+    where each pixel has a number of bits that define its color and transparency.
+    Rasterizing an image file for a specific device takes into account the number
+    of bits per pixel (the color depth) that the device is designed to handle. When
+    we work with images, we need to attend to the file format and understand if it’s
+    compressed or uncompressed (more on that in [“Image compression and Parquet”](#image_compression_and_parquet)).
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们保存数字数据以便于将其轻松转换为计算机显示器或打印机。这是[*光栅化*](https://oreil.ly/ezVss)的结果。光栅化的主要任务是将图像数据转换为像素网格，其中每个像素具有定义其颜色和透明度的若干位。为特定设备光栅化图像文件时，需要考虑设备设计用于处理的每像素位数（颜色深度）情况。当我们处理图像时，需要关注文件格式并了解它是压缩还是未压缩（在[“图像压缩和Parquet”](#image_compression_and_parquet)中详细了解）。
+- en: 'In this chapter, we will use a Kaggle image dataset named [Caltech 256](https://oreil.ly/8Pi_w)
+    that contains image files with the JPEG compression format. Our first step will
+    be to load them into a Spark DataFrame instance. For this, we can choose between
+    two format options: image or binary.'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将使用一个名为[Caltech 256](https://oreil.ly/8Pi_w)的Kaggle图像数据集，其中包含使用JPEG压缩格式的图像文件。我们的第一步将是将它们加载到一个Spark
+    DataFrame实例中。为此，我们可以在图像或二进制两种格式选项之间进行选择。
+- en: Note
+  id: totrans-21
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: When your program processes the DataFrame `load` operation, the Spark engine
+    does not immediately load the images into memory. As described in [Chapter 2](ch02.xhtml#introduction_to_spark_and_pyspark),
+    Spark uses lazy evaluation, which means that instead of actually loading them,
+    it creates a plan of how to load them if and when that becomes necessary. The
+    plan contains information about the actual data, such as table fields/columns,
+    format, file addresses, etc.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您的程序处理DataFrame的`load`操作时，Spark引擎不会立即将图像加载到内存中。如[第2章](ch02.xhtml#introduction_to_spark_and_pyspark)所述，Spark使用惰性评估，这意味着它不会实际加载图像，而是创建一个计划，以便在必要时加载。该计划包含有关实际数据的信息，例如表字段/列、格式、文件地址等。
+- en: Image format
+  id: totrans-23
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 图像格式
+- en: Spark MLlib has a dedicated image data source that enables us to load images
+    from a directory into a DataFrame, which uses OpenCV types to read and process
+    the image data. In this section, you will learn more about it.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark MLlib具有专用的图像数据源，使我们能够从目录中加载图像到DataFrame中，并使用OpenCV类型读取和处理图像数据。在本节中，您将了解更多相关信息。
+- en: '[*OpenCV*](https://opencv.org) is a C/C++-based tool for computer vision workloads.
+    MLlib functionality allows you to convert compressed images (*.jpeg*, *.png*,
+    etc.) into the OpenCV data format. When loaded to a Spark DataFrame, each image
+    is stored as a separate row.'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[*OpenCV*](https://opencv.org)是用于计算机视觉工作负载的基于C/C++的工具。MLlib功能允许您将压缩图像（*.jpeg*、*.png*等）转换为OpenCV数据格式。加载到Spark
+    DataFrame时，每个图像都存储为单独的行。'
+- en: 'The following are the supported uncompressed OpenCV types:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下列是支持的未压缩OpenCV类型：
+- en: CV_8U
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CV_8U
+- en: CV_8UC1
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CV_8UC1
+- en: CV_8UC3
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CV_8UC3
+- en: CV_8UC4
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CV_8UC4
+- en: where `8` indicates the bit depth, `U` indicates unsigned, and `C``*x*` indicates
+    the number of channels.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中`8`表示位深度，`U`表示无符号，`C``*x*`表示通道数。
+- en: Warning
+  id: totrans-32
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: 'As of Spark 3.1.1, the limit on image size is 1 GB. Since Spark is open source,
+    you can follow the image size support updates in its source: the line `assert(imageSize
+    < 1e9, "image is too large")` in the definition of the `decode` function of the
+    `ImageSchema.scala` object tells us that the limit is 1 GB.'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自Spark 3.1.1起，图像大小限制为1 GB。由于Spark是开源的，您可以在其源代码中跟踪图像大小支持的更新：在`ImageSchema.scala`对象的`decode`函数定义中，`assert(imageSize
+    < 1e9, "image is too large")`这一行告诉我们，限制是1 GB。
+- en: To explore relatively small files, the image format Spark provides is a fantastic
+    way to start working with images and actually see the rendered output. However,
+    for the general workflow where there is no actual need to look at the images themselves
+    during the process, I advise you to use the binary format, as it is more efficient
+    and you will be able to process larger image files faster. Additionally, for larger
+    images files (≥1 GB), binary format is the only way to process them. Whereas Spark’s
+    default behavior is to partition data, images are not partitioned. With spatial
+    objects such as images, we instead refer to *tiling*, or decomposing the image
+    into a set of segments (tiles) with the desired shape. Tiling images can be part
+    of the preprocessing of the data itself. Going forward, to align the language,
+    I will refer to partitions even when discussing images or spatial objects.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要探索相对较小的文件，Spark 提供的图像格式是开始处理图像并实际查看渲染输出的绝佳方式。但是，对于通用工作流程，在处理过程中实际上不需要查看图像本身的情况下，建议使用二进制格式，因为它更高效，能够更快地处理较大的图像文件。此外，对于较大的图像文件（≥1
+    GB），二进制格式是唯一的处理方式。而 Spark 的默认行为是对数据进行分区，但图像并不分区。对于像图像这样的空间对象，我们可以使用 *tiling* 来代替分区，即将图像分解成一组具有所需形状的片段（瓦片）。图像的分瓦处理可以作为数据预处理的一部分。未来，为了与语言保持一致，即使在讨论图像或空间对象时，我也会提到分区。
+- en: Binary format
+  id: totrans-35
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 二进制格式
+- en: 'Spark began supporting a [binary file data source](https://oreil.ly/VSQ7a)
+    with version 3.0.^([1](ch04.xhtml#ch01fn10)) This enabled it to read binary files
+    and convert them into a single record in a table. The record contains the raw
+    content as `BinaryType` and a couple of metadata columns. Using binary format
+    to read the data produces a DataFrame with the following columns:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark 从版本 3.0 开始支持 [二进制文件数据源](https://oreil.ly/VSQ7a)^([1](ch04.xhtml#ch01fn10))，这使得它能够读取二进制文件并将其转换为表中的单个记录。记录包含原始内容作为
+    `BinaryType` 和一些元数据列。使用二进制格式读取数据会生成一个包含以下列的 DataFrame：
+- en: '`path: StringType`'
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`path: StringType`'
+- en: '`modificationTime: TimestampType`'
+  id: totrans-38
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`modificationTime: TimestampType`'
+- en: '`length: LongType`'
+  id: totrans-39
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`length: LongType`'
+- en: '`content: BinaryType`'
+  id: totrans-40
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`content: BinaryType`'
+- en: 'We’ll use this format to load the Caltech 256 data, as shown in the following
+    code snippet:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用这种格式来加载 Caltech 256 数据，如下面的代码片段所示：
+- en: '[PRE1]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: As discussed in [Chapter 2](ch02.xhtml#introduction_to_spark_and_pyspark), the
+    data within our dataset is in a nested folder hierarchy. `recursiveFileLookup`
+    enables us to read the nested folders*,* while the `pathGlob​Fil⁠ter` option allows
+    us to filter the files and read only the ones with a *.jpg* extension.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如 [第二章](ch02.xhtml#introduction_to_spark_and_pyspark) 中所讨论的，我们数据集中的数据位于嵌套的文件夹层次结构中。`recursiveFileLookup`
+    可以使我们读取嵌套的文件夹*，* 而 `pathGlob​Fil⁠ter` 选项允许我们过滤文件，并仅读取扩展名为 *.jpg* 的文件。
+- en: Again, note that this code does not actually load the data into the executors
+    for computing. As discussed previously, because of Spark’s lazy evaluation mechanism,
+    the execution will not start until an action is triggered—the driver accumulates
+    the various transformation requests and queries in a DAG, optimizes them, and
+    only acts when there is a specific request for an action. This allows us to save
+    on computation costs, optimize queries, and increase the overall manageability
+    of our code.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次注意，这段代码实际上并不会将数据加载到执行器中进行计算。正如之前讨论的那样，由于 Spark 的惰性评估机制，执行不会在触发动作之前开始——驱动程序会积累各种转换请求和查询，优化它们，并仅在有特定的动作请求时才执行。这使我们能够节省计算成本，优化查询，并增加代码的整体可管理性。
+- en: Working with Tabular Data
+  id: totrans-45
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 处理表格数据
+- en: Since Spark provides out-of-the-box connectors to various file format types,
+    it makes working with tabular data pretty straightforward. For example, in the
+    book’s [GitHub repository](https://oreil.ly/smls-git), under *datasets* you will
+    find the CO[2] Emission by Vehicles dataset, where the data is in CSV format.
+    With the connector function `.for⁠mat("csv")`, or directly with `.csv(*file_path*)`,
+    we can easily load this into a DataFrame instance.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 Spark 提供了各种文件格式的开箱即用连接器，因此处理表格数据变得非常简单。例如，在书籍的 [GitHub 仓库](https://oreil.ly/smls-git)
+    中，*datasets* 下你会找到 CO[2] 由车辆排放的数据集，数据以 CSV 格式存储。使用连接器函数 `.for⁠mat("csv")` 或直接使用
+    `.csv(*file_path*)`，我们可以轻松地将其加载到 DataFrame 实例中。
+- en: Do pay attention to the schema, though—even with the `Infer​Schema` option,
+    Spark tends to define columns in CSV files as containing strings even when they
+    contain integers, Boolean values, etc. Hence, at the beginning, our main job is
+    to check and correct the columns’ data types. For example, if a column in the
+    input CSV file contains JSON strings, you’ll need to write dedicated code to handle
+    this JSON.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然即使使用`Infer​Schema`选项，Spark在定义CSV文件中的列时往往会将其视为包含字符串，即使它们包含整数、布尔值等等，也需要注意模式。因此，在开始时，我们的主要工作是检查和校正列的数据类型。例如，如果输入CSV文件中的某列包含JSON字符串，则需要编写专用代码来处理此JSON。
+- en: 'Notice that each Spark data source connector has unique properties that provide
+    you with a set of options for dealing with corrupted data. For example, you can
+    control the column-pruning behavior by setting `spark.sql.csv​.parser​.column​Prun⁠ing​.enabled`
+    to `False` if you don’t wish to prune columns with a corrupted format or data,
+    or use `True` for the opposite behavior. You can also leverage the `mode` parameter
+    to make pruning more specific, with approaches such as `PERMISSIVE` to set the
+    field to `null`, `DROPMALFORMED` to ignore the whole record, or `FAILFAST` to
+    throw an exception upon processing a corrupted record. See the following code
+    snippet for an example:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，每个Spark数据源连接器都具有独特的属性，为您提供处理损坏数据的一系列选项。例如，通过将`spark.sql.csv​.parser​.column​Prun⁠ing​.enabled`设置为`False`，您可以控制列修剪行为，以避免修剪格式或数据损坏的列，或者设置为`True`以进行相反的行为。您还可以利用`mode`参数使修剪更具体，例如使用`PERMISSIVE`将字段设置为`null`，使用`DROPMALFORMED`来忽略整个记录，或使用`FAILFAST`在处理损坏记录时抛出异常。请参见以下代码片段的示例：
+- en: '[PRE2]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: After loading the data and deserializing it into a DataFrame, it is time to
+    preprocess it. Before moving on, I advise saving your data in a format that has
+    a typed schema with well-defined column names and types, such as Parquet or Avro.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加载数据并将其反序列化为DataFrame后，现在是预处理它的时候了。在继续之前，我建议将数据保存为具有类型化模式和明确定义列名和类型的格式，例如Parquet或Avro。
+- en: Preprocessing Data
+  id: totrans-51
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 数据预处理
+- en: Preprocessing is the art of transforming the data into the desired state, be
+    it a strongly typed schema or a specific data type required by the algorithm.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预处理是将数据转换为所需状态的艺术，无论是强类型模式还是算法所需的特定数据类型。
+- en: Preprocessing Versus Processing
+  id: totrans-53
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 预处理与处理对比
+- en: Differentiating between preprocessing and processing can be difficult when you’re
+    just getting started with machine learning. *Preprocessing* refers to all the
+    work we do before validating the dataset itself. This work is done before we attempt
+    to get a feel for the data using descriptive statistics or perform feature engineering,
+    both of which fall under the umbrella of *processing*. Those procedures are interlocked
+    (see [Figure 4-1](#interlocked_procedures_during_machine_l)), and we will likely
+    repeat them again and again until we get the data into the desired state. Spark
+    provides us with all the tools we need for these tasks, either through the MLlib
+    library or SQL APIs.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您刚开始学习机器学习时，区分预处理和处理可能会很困难。*预处理*指的是我们在验证数据集本身之前所做的所有工作。在尝试使用描述性统计分析数据或进行特征工程之前，这项工作已完成，而这两者都属于*处理*的范畴。这些程序是相互交织的（见[图4-1](#interlocked_procedures_during_machine_l)），我们可能会一遍又一遍地重复执行它们，直到将数据达到所需状态。Spark为我们提供了完成这些任务所需的所有工具，无论是通过MLlib库还是SQL
+    API。
+- en: '![](assets/smls_0401.png)'
+  id: totrans-55
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0401.png)'
+- en: Figure 4-1\. Interlocked procedures during machine learning
+  id: totrans-56
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图4-1\. 机器学习期间的交织过程
+- en: Why Preprocess the Data?
+  id: totrans-57
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 为什么要预处理数据？
+- en: Preprocessing the data, or wrangling it into the desired schema, is a crucial
+    step that must be completed before we can even start exploring the data, let alone
+    engineering new features. The reason it’s so important is because machine learning
+    algorithms often have dedicated input requirements, such as specific data structures
+    and/or data types. In some academic research papers, you might find this process
+    referred to as *data marshaling*.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预处理数据或将其整理成所需的模式是必不可少的步骤，在我们甚至开始探索数据之前，更别说进行特征工程了。它如此重要的原因在于，机器学习算法通常有专门的输入要求，例如特定的数据结构和/或数据类型。在一些学术研究论文中，您可能会发现这个过程被称为*数据编组*。
+- en: 'To give you an idea of what kind of preprocessing you might need to perform
+    on your data before passing it to an MLlib algorithm, let’s take a quick look
+    at the high-level requirements of the different kinds of algorithms:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了让您了解在将数据传递给MLlib算法之前可能需要执行的预处理类型，让我们快速查看不同种类算法的高级需求：
+- en: Classification and/or regression algorithms
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分类和/或回归算法
+- en: For classification and regression, you will want to transform your data into
+    one column of type `vector` (dense or sparse) with `double` or `float` values.
+    This column is often named `features`, but you have the flexibility to set the
+    input column name later.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于分类和回归，您需要将数据转换为一个类型为`vector`（密集或稀疏）且值为`double`或`float`的列。通常将此列命名为`features`，但稍后您可以灵活设置输入列的名称。
+- en: Recommendation algorithms
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 推荐算法
+- en: For recommendation, you will want to have a `userCol` column with `integer`
+    values representing the user IDs, an `itemCol` column with `integer` values representing
+    the item IDs, and a `ratingCol` column with `double` or `float` values representing
+    the items’ ratings by the users.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于推荐，您会希望有一个`userCol`列，其值为`integer`，表示用户ID；一个`itemCol`列，其值为`integer`，表示项目ID；以及一个`ratingCol`列，其值为`double`或`float`，表示用户对项目的评分。
+- en: Unsupervised learning
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无监督学习
+- en: When dealing with data that calls for an unsupervised learning approach, you
+    will often need one column of type `vector` to represent your features.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在处理需要无监督学习方法的数据时，您通常需要一个类型为`vector`的列来表示您的特征。
+- en: Data Structures
+  id: totrans-66
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据结构
+- en: 'Depending on its structure, data often requires processing before it can be
+    fully utilized. Data can be classified into three categories:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据其结构，数据通常需要处理才能完全利用。数据可分为三类：
+- en: Structured
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结构化
+- en: Structured data has a high degree of organization. It’s stored in a predefined
+    schematic format, such as a comma-separated values (*.csv*) file or a table in
+    a database. It is sometimes also referred to as *tabular* data.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结构化数据具有高度的组织性。它以预定义的模式格式存储，如逗号分隔值（*.csv*）文件或数据库中的表格。有时也称为*表格*数据。
+- en: Semi-structured
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 半结构化
+- en: Semi-structured data has some degree of organization, but the structure is less
+    rigid, and the schema is not fixed. There might be tags that separate elements
+    and enforce hierarchies, like in a JSON file. Such data might require preprocessing
+    before we can use it for machine learning algorithms.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 半结构化数据具有一定的组织性，但结构不太严格，模式不固定。可能存在标签以分隔元素并强制层次结构，例如JSON文件中的情况。这类数据可能需要在用于机器学习算法之前进行预处理。
+- en: Unstructured
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无结构化
+- en: Unstructured data has no defined organization and no specific format—think of
+    *.jpeg* images, *.mp4* video files, sound files, etc. This data often requires
+    major preprocessing before we can use it to build models. Most of the data that
+    we create today is unstructured data.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无结构化数据没有定义的组织和特定的格式——比如*.jpeg*图像、*.mp4*视频文件、音频文件等。这些数据通常需要在建模之前进行重要的预处理。今天我们创建的大多数数据都是无结构化数据。
+- en: MLlib Data Types
+  id: totrans-74
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: MLlib数据类型
+- en: 'MLlib has its own dedicated data types that it requires as input for machine
+    learning algorithms. To work with Spark MLlib, you will need to transform your
+    columns into one of these types—this is why preprocessing and transforming data
+    are processes that you will perform in an interlocked manner. Under the hood,
+    Spark uses the private objects `VectorUDT` and `MatrixUDF`, which abstract multiple
+    types of local vectors (dense, sparse, labeled point) and matrices (both local
+    and distributed). Those objects allow easy interaction with `spark.sql.Dataset`
+    functionality. At a high level, the two types of objects are as follows:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MLlib具有自己专用的数据类型，用作机器学习算法的输入。要使用Spark MLlib，您需要将列转换为这些类型之一——这就是为什么预处理和转换数据是您将以互锁方式执行的过程。在底层，Spark使用私有对象`VectorUDT`和`MatrixUDF`，这些对象抽象了多种类型的本地向量（密集、稀疏、带标签点）和矩阵（本地和分布式）。这些对象允许与`spark.sql.Dataset`功能轻松交互。从高层次来看，这两种类型的对象如下所示：
+- en: Vector
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 向量
+- en: A vector object represents a numeric vector. You can think of it as an array,
+    just like in Python, only here the index is of type `integer` and the value is
+    of type `double`.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 向量对象表示数值向量。您可以将其视为数组，就像在Python中一样，只是这里的索引类型为`integer`，值类型为`double`。
+- en: Matrix
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 矩阵
+- en: A matrix object represents a numeric matrix. It can be local to one machine
+    or distributed across multiple machines. With the local version, indices are of
+    type `integer` and values are of type `double`. With the distributed version,
+    indices are of type `long` and values are of type `double`. All matrix types are
+    represented by vectors.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 矩阵对象表示一个数值矩阵。它可以是本地的一台机器上的矩阵，也可以分布在多台机器上。本地版本中，索引类型为`integer`，值类型为`double`。分布式版本中，索引类型为`long`，值类型为`double`。所有矩阵类型都由向量表示。
+- en: Note
+  id: totrans-80
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: To simplify our work with Python tools, MLlib recognizes NumPy arrays and Python
+    lists as dense vectors and SciPy’s [`csc_matrix`](https://oreil.ly/Tw5L3) with
+    a single column as a sparse vector. This enables us to transition more easily
+    from one tool to the other. Bear it in mind when working with multiple tools.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了简化我们使用Python工具的工作，MLlib将NumPy数组和Python列表识别为密集向量，并将SciPy的[`csc_matrix`](https://oreil.ly/Tw5L3)识别为只有一列的稀疏向量。这使我们能够更轻松地在不同工具之间进行转换。在使用多个工具时请记住这一点。
+- en: It’s good to understand how sparse and dense vectors are represented in MLlib,
+    as you will encounter them in the documentation and your experiments. Spark decides
+    which kind of vector to create for a given task behind the scenes.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理解MLlib中稀疏和密集向量的表示方式是很有必要的，因为你会在文档和实验中经常遇到它们。Spark会根据任务自动决定创建哪种类型的向量。
+- en: Note
+  id: totrans-83
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The third kind of vector is a labeled point; it represents features and labels
+    of a data point and can be either dense or sparse. In MLlib, labeled points are
+    used in supervised learning algorithms.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三种向量类型是带标签的点；它表示数据点的特征和标签，可以是密集的或稀疏的。在MLlib中，带标签的点用于监督学习算法。
+- en: 'Let’s start with a dense vector. Here’s an example:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从一个密集向量开始。这里是一个例子：
+- en: '[PRE3]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: A `DenseVector` consists of a fixed-size array of values. It is considered less
+    efficient than a `SparseVector` in terms of memory consumption because it explicitly
+    creates memory space for the specified vector size, including any empty/default
+    values. In our example, there are seven values in the `DenseVector`, but four
+    of them are empty (`0.0` is the default value, so these are considered empty values).
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个`DenseVector`由一个固定大小的值数组组成。在内存消耗方面，它比`SparseVector`要低效，因为它明确地为指定的向量大小创建内存空间，包括任何空/默认值。在我们的例子中，`DenseVector`有七个值，但其中四个是空的（`0.0`是默认值，所以这些被视为空值）。
+- en: 'A `SparseVector` is an optimization of a `DenseVector` that has empty/default
+    values. Let’s take a look at how our example `DenseVector` would look translated
+    into a `SparseVector`:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个`SparseVector`是对具有空/默认值的`DenseVector`的优化。让我们看一下我们的例子`DenseVector`如何被转换成`SparseVector`：
+- en: '[PRE4]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'The first number represents the size of the vector (`7`), and the map (`{...}`)
+    represents the indices and their values. In this vector, there are only three
+    values that need to be stored: the value at index 0 is `1.2`, the value at index
+    2 is `543.5`, and the value at index 5 is `1`. The values at the other indices
+    do not need to be stored, because they are all the default value.'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个数字表示向量的大小（`7`），而映射（`{...}`）表示索引及其值。在这个向量中，只有三个值需要存储：索引0处的值为`1.2`，索引2处的值为`543.5`，索引5处的值为`1`。其他索引处的值不需要存储，因为它们都是默认值。
+- en: 'Let’s take a look at a bigger vector example:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看一个更大的向量示例：
+- en: '[PRE5]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'In this case, the vector size is 50, and we have only two values to store:
+    `9.9` for index 48 and `6.7` for index 49.'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，向量大小为50，我们只有两个值需要存储：索引48处的`9.9`和索引49处的`6.7`。
+- en: 'A `SparseVector` can also look like this:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个`SparseVector`也可以看起来像这样：
+- en: '[PRE6]'
+  id: totrans-95
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: where the first number (here, `50`) represents the size, the first array (`[48,49]`)
+    represents the indices whose values are stored in the `SparseVector`, and the
+    second array (`[9.9,6.7]`) represents the values at those indices. So in this
+    example, the value at index 48 is `9.9`, and the value at index 49 is `6.7`. The
+    rest of the vector indices all have a value of `0.0`.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中第一个数字（这里是`50`）表示大小，第一个数组（`[48,49]`）表示存储在`SparseVector`中的索引，第二个数组（`[9.9,6.7]`）表示这些索引处的值。因此，在这个例子中，索引48处的值是`9.9`，索引49处的值是`6.7`。其余的向量索引都是`0.0`。
+- en: Why do we need both kinds of vectors? In machine learning, some algorithms,
+    such as the naive Bayes classifier, work better on dense vector features and consequently
+    might perform poorly given sparse vector features.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么我们需要这两种类型的向量？在机器学习中，一些算法（例如朴素贝叶斯分类器）对密集向量特征的处理效果更好，因此可能在使用稀疏向量特征时表现较差。
+- en: What can you do if your machine learning algorithm doesn’t work well with the
+    kinds of features you have? First of all, the process described next will help
+    you get a feel for your data and adapt it to fit your machine learning goal. If
+    necessary, you can try collecting more data. You can also choose algorithms that
+    perform better on sparse vectors. After all, this is part of the process of building
+    machine learning models!
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的机器学习算法不能很好地处理你拥有的特征，你可以做些什么呢？首先，接下来描述的过程将帮助你了解数据并使其适应你的机器学习目标。如果需要，你可以尝试收集更多数据。你还可以选择在稀疏向量上表现更好的算法。毕竟，这是构建机器学习模型过程的一部分！
+- en: Tip
+  id: totrans-99
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Make sure to bookmark and use the [MLlib documentation](https://oreil.ly/DfP7R).
+    There is a community project dedicated to improving the Spark docs, which evolve
+    and get better every day.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请确保收藏并使用[MLlib文档](https://oreil.ly/DfP7R)。有一个专注于改进Spark文档的社区项目，每天都在进步变得更好。
+- en: Preprocessing with MLlib Transformers
+  id: totrans-101
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用MLlib变换器进行预处理
+- en: '*Transformers* are part of the Apache Spark MLlib library named `pyspark.ml​.fea⁠ture`.
+    In addition to transformers, it also provides *extractors* and *selectors*. Many
+    of them are based on machine learning algorithms and statistical or mathematical
+    computations. For preprocessing, we will leverage the transformers API, but you
+    might find the other APIs helpful as well in different situations.'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*变换器*是Apache Spark MLlib库中命名为`pyspark.ml.feature`的一部分。除了变换器外，它还提供*提取器*和*选择器*。其中许多基于机器学习算法以及统计或数学计算。对于预处理，我们将利用变换器API，但在不同情况下，你可能会发现其他API也很有帮助。'
+- en: 'Transformers in Spark are algorithms or functions that take a DataFrame as
+    an input and output a new DataFrame with the desired columns. In other words,
+    you can think of them as translating a given input into a corresponding output.
+    Transformers enable us to scale, convert, or modify existing columns. We can divide
+    them loosely into the following categories: *text data transformers*, *categorical
+    feature transformers*, *continuous numerical transformers*, and *others*.'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark中的变换器是接受DataFrame作为输入并输出具有所需列的新DataFrame的算法或函数。换句话说，你可以把它们看作将给定输入转换为相应输出的工具。变换器使我们能够扩展、转换或修改现有列。我们可以大致分为以下几类：*文本数据变换器*、*分类特征变换器*、*连续数值变换器*和*其他*。
+- en: The tables in the following sections will guide you on when to use each transformer.
+    You should be aware that given the statistical nature of the transformers, some
+    APIs may take longer to finish than others.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下各节的表格将指导你何时使用每个变换器。你应该知道，由于变换器的统计性质，某些API可能需要更长的时间才能完成。
+- en: Working with text data
+  id: totrans-105
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 处理文本数据
+- en: Text data typically consists of documents that represent words, sentences, or
+    any form of free-flowing text. This is inherently unstructured data, which is
+    often noisy. *Noisy* data in machine learning is irrelevant or meaningless data
+    that might significantly impact the model’s performance. Examples include stopwords
+    such as *a*, *the*, *is*, and *are*. In MLlib, you’ll find a dedicated function
+    just for extracting stopwords, and so much more! MLlib provides a rich set of
+    functionality for manipulating text data input.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 文本数据通常包括代表单词、句子或任何形式自由流动文本的文档。这是固有的非结构化数据，通常具有噪声。在机器学习中，*噪声*数据是指影响模型性能的无关或无意义数据。例如，停用词如*a*、*the*、*is*和*are*。在MLlib中，你会找到专门用于提取停用词等功能，以及更多！MLlib为处理文本数据输入提供了丰富的功能集。
+- en: With text, we want to ingest it and transform it into a format that can be easily
+    fed into a machine learning algorithm. Most of the algorithms in MLlib expect
+    structured data as input, in a tabular format with rows, columns, etc. On top
+    of that, for efficiency in terms of memory consumption, we would typically hash
+    the strings, since string values take up more space than integer, floating-point,
+    or Boolean values. Before adding text data to your machine learning project, you
+    first need to clean it up by using one of the text data transformers. To learn
+    about the common APIs and their usage, take a look at [Table 4-1](#text_data_transformers).
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于文本，我们希望将其输入并转换为可以轻松馈送到机器学习算法中的格式。MLlib中的大多数算法期望输入为结构化数据，以表格形式呈现，带有行、列等。此外，为了在内存消耗方面高效率，我们通常会对字符串进行哈希处理，因为字符串值占用的空间比整数、浮点数或布尔值多。在将文本数据添加到你的机器学习项目之前，你首先需要使用文本数据变换器清理它。要了解常见API及其用法，请查看[表格
+    4-1](#text_data_transformers)。
+- en: Table 4-1\. Text data transformers
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格4-1\. 文本数据变换器
+- en: '| API | Usage |'
+  id: totrans-109
+  prefs: []
+  type: TYPE_TB
+  zh: '| API | 用法 |'
+- en: '| --- | --- |'
+  id: totrans-110
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `Tokenizer` | Maps a column of text into a list of words by splitting on
+    whitespace. It is based on the regular expression (regex) `\\s`, which matches
+    a single whitespace character. Under the hood, the `Tokenizer` API uses the `java.lang.String.split`
+    function. |'
+  id: totrans-111
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Tokenizer` | 通过空格分割文本列为单词列表。基于正则表达式（regex）`\\s`，匹配单个空格字符。`Tokenizer` API内部使用`java.lang.String.split`函数。
+    |'
+- en: '| `Regex​Tokenizer` | Splits the text based on the input regex (the default
+    is `\\s+`, which matches one or more whitespace characters. It is typically used
+    to split on whitespace and/or commas and other supported delimiters. `RegexTokenizer`
+    is more computation-heavy than `Tokenizer` because it uses the `scala.util.matching`
+    regex function. The supplied regex should conform to Java regular expression syntax.
+    |'
+  id: totrans-112
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Regex​Tokenizer` | 根据输入的正则表达式（默认为`\\s+`，匹配一个或多个空白字符）分割文本。通常用于在空白字符和/或逗号以及其他支持的分隔符上分割。`RegexTokenizer`比`Tokenizer`更耗费计算资源，因为它使用`scala.util.matching`正则表达式函数。提供的正则表达式应符合Java正则表达式语法。
+    |'
+- en: '| `HashingTF` | Takes an array of strings and generates hashes from them. In
+    many free-text scenarios, you will need to run the `Tokenizer` function first.
+    This is one of the most widely used transformers. |'
+  id: totrans-113
+  prefs: []
+  type: TYPE_TB
+  zh: '| `HashingTF` | 接受一个字符串数组并从中生成哈希。在许多自由文本场景中，您需要先运行`Tokenizer`函数。这是最常用的转换器之一。
+    |'
+- en: '| `NGram` | Extracts a sequence of `*n*` tokens given an integer `*n*`. The
+    input column can only be an array of strings. To convert a text string into an
+    array of strings, use the `Tokenizer` function first. |'
+  id: totrans-114
+  prefs: []
+  type: TYPE_TB
+  zh: '| `NGram` | 给定整数 `*n*`，提取一个`*n*`个标记的序列。输入列只能是字符串数组。要将文本字符串转换为字符串数组，请先使用`Tokenizer`函数。
+    |'
+- en: '| `StopWordsRemover` | Takes a sequence of text and drops the default stopwords.
+    You can specify languages and case sensitivity and provide your own list of stopwords.
+    |'
+  id: totrans-115
+  prefs: []
+  type: TYPE_TB
+  zh: '| `StopWordsRemover` | 接受一系列文本并删除默认的停用词。您可以指定语言、大小写敏感性并提供自己的停用词列表。 |'
+- en: 'Before we proceed, let’s generate a synthetic dataset to use in the examples
+    that follow:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们继续之前，让我们生成一个合成数据集，用于接下来的示例：
+- en: '[PRE7]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'Our dataset has three columns: `id`, of type `int`, and `sentence` and `sentiment`,
+    of type `string`.'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的数据集有三列：`id`，类型为`int`，以及`sentence`和`sentiment`，类型为`string`。
+- en: 'The transformation includes the following steps:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 转换包括以下步骤：
+- en: Free text → list of words
+  id: totrans-120
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 自由文本 → 单词列表
+- en: List of words → list of meaningful words
+  id: totrans-121
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 单词列表 → 有意义单词列表
+- en: Select meaningful values
+  id: totrans-122
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 选择有意义的值
+- en: 'Ready? Set? Transform! Our first step is to transform the free text into a
+    list of words. For that, we can use either the `Tokenizer` or the `RegexTokenizer`
+    API, as shown here:'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 准备好了吗？开始转换吧！我们的第一步是将自由文本转换为单词列表。为此，我们可以使用`Tokenizer`或`RegexTokenizer` API，如下所示：
+- en: '[PRE8]'
+  id: totrans-124
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: This tells `Tokenizer` to take the `sentence` column as an input and generate
+    a new DataFrame, adding an output column named `words`. Notice that we used the
+    `trans⁠form` function—transformers always have this function. [Figure 4-2](#new_dataframe_with_words_column)
+    shows our new DataFrame with the added `words` column.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这告诉`Tokenizer`将`sentence`列作为输入，并生成一个新的DataFrame，添加一个名为`words`的输出列。请注意，我们使用了`transform`函数——转换器始终具有此函数。[图 4-2](#new_dataframe_with_words_column)显示了我们带有新增`words`列的新DataFrame。
+- en: '![](assets/smls_0402.png)'
+  id: totrans-126
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0402.png)'
+- en: Figure 4-2\. New DataFrame with `words` column
+  id: totrans-127
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 4-2\. 带有`words`列的新DataFrame
+- en: 'The next step is to remove stopwords, or words that are unlikely to provide
+    much value in our machine learning process. For that, we will use `StopWordsRemover`:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一步是移除停用词，即在我们的机器学习过程中可能提供的价值不大的词语。为此，我们将使用`StopWordsRemover`：
+- en: '[PRE9]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: '[Example 4-1](#new_dataframe_with_meaningful_words_col) shows the DataFrame
+    with the new `meaningful_words` column.'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 4-1](#new_dataframe_with_meaningful_words_col)显示了带有新`meaningful_words`列的DataFrame。'
+- en: Example 4-1\. New DataFrame with `meaningful_words` column
+  id: totrans-131
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 4-1\. 带有`meaningful_words`列的新DataFrame
+- en: '[PRE10]'
+  id: totrans-132
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: From nominal categorical features to indices
+  id: totrans-133
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 从名义分类特征到索引
+- en: One of the strategies we can use to speed up the machine learning process is
+    to turn discrete categorical values presented in `string` format into a numerical
+    form using indices. The values can be discrete or continuous, depending on the
+    machine learning models we plan to use. [Table 4-2](#categorical_feature_transformers)
+    lists the most common APIs and describes their usage.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用的策略之一是将以`string`格式表示的离散分类值转换为数字形式的索引，以加快机器学习过程。这些值可以是离散的或连续的，具体取决于我们计划使用的机器学习模型。[表 4-2](#categorical_feature_transformers)列出了最常见的API并描述了它们的使用情况。
+- en: Table 4-2\. Categorical feature transformers
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 4-2\. 分类特征转换器
+- en: '| API | Usage |'
+  id: totrans-136
+  prefs: []
+  type: TYPE_TB
+  zh: '| API | 使用方法 |'
+- en: '| --- | --- |'
+  id: totrans-137
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `String​Indexer` | Encodes string columns into indices, where the first one
+    (starting at index 0) is the most frequent value in the column, and so on. Used
+    for faster training with supervised data where the columns are the categories/labels.
+    |'
+  id: totrans-138
+  prefs: []
+  type: TYPE_TB
+  zh: '| `String​Indexer` | 将字符串列编码为索引，其中第一个（从索引0开始）是列中最频繁的值，依此类推。用于使用监督数据进行更快速训练，其中列是类别/标签。
+    |'
+- en: '| `IndexTo​String` | The opposite of `StringIndexer`: maps a column of label
+    indices back to a column containing the original labels as strings. Often used
+    to retrieve the label categories after the training process. |'
+  id: totrans-139
+  prefs: []
+  type: TYPE_TB
+  zh: '| `IndexTo​String` | `StringIndexer`的反向操作：将标签索引列映射回包含原始标签的列。通常在训练过程后用于检索标签类别。
+    |'
+- en: '| `OneHot​Encoder` | Maps a column of categorical features represented as label
+    indices into a column of binary vectors, with at most one 1 value per row indicating
+    the category. This allows machine learning algorithms that expect continuous features,
+    such as logistic regression, to use categorical features by mapping them into
+    continuous features. |'
+  id: totrans-140
+  prefs: []
+  type: TYPE_TB
+  zh: '| `OneHot​Encoder` | 将表示为标签索引的列的分类特征映射到二进制向量列中，每行最多有一个值为1，表示该类别。这允许期望连续特征的机器学习算法（如逻辑回归）使用分类特征，通过将其映射到连续特征中。
+    |'
+- en: '| `Vector​Indexer` | Similar to `StringIndexer`; takes a vector column as input
+    and converts it into category indices. |'
+  id: totrans-141
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Vector​Indexer` | 类似于`StringIndexer`，接受向量列作为输入并将其转换为类别索引。 |'
+- en: 'The DataFrame we generated includes a column representing the sentiment of
+    the text. Our sentiment categories are `happy`, `fulfilled`, `sad`, and `indifferent`.
+    Let’s turn them into indices using `StringIndexer`:'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们生成的DataFrame包括一个表示文本情感的列。我们的情感类别是`happy`、`fulfilled`、`sad`和`indifferent`。让我们使用`StringIndexer`将它们转换为索引：
+- en: '[PRE11]'
+  id: totrans-143
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'In this code snippet, we create a new `StringIndexer` instance that takes the
+    `sentiment` column as an input and creates a new DataFrame with a `categoryIndex`
+    column, of type `double`. We call the `fit` function first, providing it with
+    the name of our DataFrame. This step is necessary for training the indexer before
+    the transformation: it builds a map between indices and categories by scanning
+    the `sentiment` column. This function is performed by another preprocessing tool
+    called an *estimator*, which we’ll look at in more detail in [Chapter 6](ch06.xhtml#training_models_with_spark_mllib).
+    After fitting the estimator, we call `transform` to calculate the new indices.
+    [Example 4-2](#dataframe_with_categoryindex_column) shows the DataFrame with the
+    new `cate⁠gory​Index` column.'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这段代码片段中，我们创建了一个新的`StringIndexer`实例，它以`sentiment`列作为输入，并创建了一个类型为`double`的新DataFrame，其中包含一个`categoryIndex`列。我们首先调用`fit`函数，并提供我们DataFrame的名称。这一步骤是训练索引器必不可少的，它通过扫描`sentiment`列来构建索引和类别之间的映射。这个函数由另一个预处理工具执行，称为*估计器*，我们将在[第6章](ch06.xhtml#training_models_with_spark_mllib)中更详细地讨论它。在拟合估计器之后，我们调用`transform`函数来计算新的索引。[示例 4-2](#dataframe_with_categoryindex_column)展示了包含新`cate⁠gory​Index`列的DataFrame。
+- en: Example 4-2\. DataFrame with `categoryIndex` column
+  id: totrans-145
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 4-2\. 包含`categoryIndex`列的DataFrame
+- en: '[PRE12]'
+  id: totrans-146
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Structuring continuous numerical data
+  id: totrans-147
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 结构化连续数值数据
+- en: In some cases, we may have continuous numeric data that we want to structure.
+    We do this by providing a threshold, or multiple thresholds, for taking an action
+    or deciding on a classification.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，我们可能有连续的数值数据需要进行结构化。我们通过提供阈值或多个阈值来采取行动或进行分类决策。
+- en: Note
+  id: totrans-149
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Continuous numeric values are often represented in a vector, with common data
+    types being `integer`, `float`, and `double`.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 连续的数值通常以向量形式表示，常见的数据类型包括`integer`、`float`和`double`。
+- en: For example, when we have scores for specific sentiments, as shown in [Example 4-3](#dataframe_with_sentiment_score_for_each),
+    we can take an action when a given score falls into a defined range. Think about
+    a customer satisfaction system—we would like our machine learning model to recommend
+    an action that is based on customer sentiment scores. Let’s say our biggest customer
+    has a `sad` score of `0.75` and our threshold for calling the customer to discuss
+    how we can improve their experience is a `sad` score above `0.7`. In this instance,
+    we would want to call the customer. The thresholds themselves can be defined manually
+    or by using machine learning algorithms or plain statistics. Going forward, let’s
+    assume we have a DataFrame with a dedicated score for every sentiment. That score
+    is a continuous number in the range `[0,1]` specifying the relevancy of the sentiment
+    category. The business goal we want to achieve will determine the thresholds to
+    use and the structure to give the data for future recommendations.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，当我们拥有特定情感的分数时，如[示例 4-3](#dataframe_with_sentiment_score_for_each)所示，我们可以在给定分数落入定义范围时采取行动。想象一下一个客户满意度系统——我们希望我们的机器学习模型基于客户情感分数推荐一个行动。假设我们的最大客户有一个`sad`分数为`0.75`，我们调用客户讨论如何改善其体验的阈值为`sad`分数超过`0.7`。在这种情况下，我们会希望联系客户。阈值本身可以通过手动定义或使用机器学习算法或纯统计方法来定义。未来，假设我们拥有一个DataFrame，其中每种情感都有一个专门的分数。该分数是一个连续数字，范围在`[0,1]`内，指定情感类别的相关性。我们想要实现的业务目标将决定使用的阈值和为未来推荐数据指定的结构。
+- en: Example 4-3\. DataFrame with sentiment score for each category
+  id: totrans-152
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 4-3\. 每个类别的情感分数的 DataFrame
+- en: '[PRE13]'
+  id: totrans-153
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'Take into consideration the type of data you are working with and cast it when
+    necessary. You can leverage the Spark SQL API for this, as shown here:'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在处理数据类型时，请根据需要进行类型转换。您可以利用Spark SQL API，如下所示：
+- en: '[PRE14]'
+  id: totrans-155
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'The following are some common strategies for handling continuous numerical
+    data:'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是处理连续数值数据的一些常见策略：
+- en: Fixed bucketing/binning
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 固定分桶/分箱
+- en: This is done manually by either binarizing the data by providing a specific
+    threshold or providing a range of buckets. This process is similar to what we
+    discussed earlier with regard to structuring continuous data.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是通过手动方式完成的，可以通过提供特定的阈值或提供一系列桶来对数据进行二值化。这个过程类似于我们之前讨论的关于结构化连续数据的内容。
+- en: Adaptive bucketing/binning
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自适应分桶/分箱
+- en: The overall data may be skewed, with some values occurring frequently while
+    others are rare. This might make it hard to manually specify a range for each
+    bucket. Adaptive bucketing is a more advanced technique where the transformer
+    calculates the distribution of the data and sets the bucket sizes so that each
+    one contains approximately the same number of values.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 整体数据可能存在偏斜，某些值频繁出现，而其他值则较少。这可能会使得手动为每个桶指定范围变得困难。自适应分桶是一种更高级的技术，其中转换器计算数据的分布，并设置桶的大小，使得每个桶大致包含相同数量的值。
+- en: '[Table 4-3](#common_continuous_numerical_transformer) lists the most commonly
+    used continuous numerical transformers available in MLlib. Remember to pick the
+    one that fits your project based on your needs.'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 4-3](#common_continuous_numerical_transformer) 列出了MLlib中最常用的连续数值转换器。根据您的需求选择最适合项目的转换器。'
+- en: Table 4-3\. Common continuous numerical transformers
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 4-3\. 常见的连续数值转换器
+- en: '| API | Usage |'
+  id: totrans-163
+  prefs: []
+  type: TYPE_TB
+  zh: '| API | 用法 |'
+- en: '| --- | --- |'
+  id: totrans-164
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `Binarizer` | Turns a numerical feature into a binary feature, given a threshold.
+    For example, 5.1 with threshold 0.7 would turn into 1, and 0.6 would turn into
+    0. |'
+  id: totrans-165
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Binarizer` | 将数值特征转换为二进制特征，给定一个阈值。例如，当阈值为0.7时，5.1会转换为1，而0.6则会转换为0。'
+- en: '| `Bucketizer` | Takes a column of continuous numerical values and transforms
+    it into a column of buckets, where each bucket represents a part of the range
+    of values—for example, 0 to 1, 1 to 2, and so on. |'
+  id: totrans-166
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Bucketizer` | 获取一个连续数值列，并将其转换为桶的列，其中每个桶表示数值范围的一部分，例如，0到1，1到2等。'
+- en: '| `MaxAbsScaler` | Takes a vector of `float` values and divides each value
+    by the maximum absolute value in the input columns. |'
+  id: totrans-167
+  prefs: []
+  type: TYPE_TB
+  zh: '| `MaxAbsScaler` | 获取一个`float`值向量，并将每个值除以输入列中的最大绝对值。'
+- en: '| `MinMaxScaler` | Scales the data to the desired `min` and `max` values, where
+    the default range is `[0,1]`. |'
+  id: totrans-168
+  prefs: []
+  type: TYPE_TB
+  zh: '| `MinMaxScaler` | 将数据缩放到期望的`min`和`max`值，其中默认范围为`[0,1]`。'
+- en: '| `Normalizer` | Converts a vector of `double` values into normalized values
+    that are nonnegative real numbers between 0 and 1\. The default *p*-norm is 2,
+    which implements the Euclidean norm for calculating a distance and reducing the
+    `float` range to `[0,1]`. |'
+  id: totrans-169
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Normalizer` | 将`double`值的向量转换为归一化的非负实数值，范围在0到1之间。默认的*p*-范数为2，实现欧几里德范数用于计算距离并将`float`范围减少到`[0,1]`。
+    |'
+- en: '| `Quantile​Dis⁠cre⁠tizer` | Takes a column of continuous numerical values
+    and transforms it into a column with binned categorical values, with the input
+    maximum number of bins optionally determining the approximate quantile values.
+    |'
+  id: totrans-170
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Quantile​Dis⁠cre⁠tizer` | 接受连续数值值的列，并将其转换为包含分箱分类值的列，输入最大箱数可选地确定近似分位值。 |'
+- en: '| `RobustScaler` | Similar to `StandardScaler`; takes a vector of `float` values
+    and produces a vector of scaled features given the input quantile range. |'
+  id: totrans-171
+  prefs: []
+  type: TYPE_TB
+  zh: '| `RobustScaler` | 类似于`StandardScaler`，接受`float`值的向量并生成给定输入分位数范围的特征缩放后的向量。
+    |'
+- en: '| `StandardScaler` | Estimator that takes a vector of `float` values and aims
+    to center the data given the input standard deviation and mean value. |'
+  id: totrans-172
+  prefs: []
+  type: TYPE_TB
+  zh: '| `StandardScaler` | 估计器，接受`float`值的向量，并旨在根据输入的标准偏差和均值来居中数据。 |'
+- en: Additional transformers
+  id: totrans-173
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 额外的转换器
+- en: MLlib offers many additional transformers that use statistics or abstract other
+    Spark functionality. [Table 4-4](#additional_transformers) lists some of these
+    and describes their usage. Bear in mind that more are added regularly, with code
+    examples available in the *examples/src/main/python/ml/* directory of the [Apache
+    Spark GitHub repository](https://oreil.ly/SQxG9).
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MLlib提供许多额外的转换器，使用统计数据或抽象其他Spark功能。[Table 4-4](#additional_transformers)列出了其中一些并描述了它们的用途。请注意，更多转换器会定期添加，代码示例可在[Apache
+    Spark GitHub存储库](https://oreil.ly/SQxG9)的*examples/src/main/python/ml/*目录中找到。
+- en: Table 4-4\. Additional transformers
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 4-4\. 额外的转换器
+- en: '| API | Usage |'
+  id: totrans-176
+  prefs: []
+  type: TYPE_TB
+  zh: '| API | 使用 |'
+- en: '| --- | --- |'
+  id: totrans-177
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `DCT` | Implements a discrete cosine transform, taking a vector of data points
+    in the time domain and translating them to the frequency domain. Used in signal
+    processing and data compression (e.g., with images, audio, radio, and digital
+    television). |'
+  id: totrans-178
+  prefs: []
+  type: TYPE_TB
+  zh: '| `DCT` | 实现离散余弦变换，接受时间域数据点的向量，并将其转换为频率域。用于信号处理和数据压缩（例如图像、音频、无线电和数字电视）。 |'
+- en: '| `Elementwise​Product` | Takes a column with vectors of data and a transforming
+    vector of the same size and outputs a multiplication of them that is associative,
+    distributive, and commutative (based on the Hadamard product). This is used to
+    scale the existing vectors. |'
+  id: totrans-179
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Elementwise​Product` | 接受带有数据向量的列和相同大小的变换向量，并输出它们的乘积，该乘积是可结合、可分配和可交换的（基于Hadamard乘积）。用于缩放现有向量。
+    |'
+- en: '| `Imputer` | Takes a column of numeric type and completes missing values in
+    the dataset using the column mean or median value. Useful when using estimators
+    that can’t handle missing values. |'
+  id: totrans-180
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Imputer` | 接受数值类型的列，并使用列均值或中位数值来填充数据集中的缺失值。在使用不能处理缺失值的估算器时很有用。 |'
+- en: '| `Interaction` | Takes one distinct vector or `double`-valued column and outputs
+    a vector column containing the products of all the possible combinations of values.
+    |'
+  id: totrans-181
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Interaction` | 接受一个不同的向量或`double`值列，并输出一个包含所有可能值组合的向量列的乘积。 |'
+- en: '| `PCA` | Implements principal component analysis, turning a vector of potentially
+    correlated values into non-correlated ones by outputting the most important components
+    of the data (the principal components). This is useful in predictive models and
+    dimensionality reduction, with a potential cost of interpretability. |'
+  id: totrans-182
+  prefs: []
+  type: TYPE_TB
+  zh: '| `PCA` | 实现主成分分析，将潜在相关值的向量转换为非相关值，输出数据的主要组成部分（主成分）。这在预测模型和降维中很有用，但可能牺牲解释性。
+    |'
+- en: '| `Polynomial​Expansion` | Takes a vector of features and expands it into an
+    *n*-degree polynomial space. A value of 1 means no expansion. |'
+  id: totrans-183
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Polynomial​Expansion` | 接受特征向量并将其扩展为*n*次多项式空间。值为1表示不扩展。 |'
+- en: '| `SQL​Trans⁠for⁠mer` | Takes an SQL statement (any `SELECT` clause that Spark
+    supports) and transforms the input according to the statement. |'
+  id: totrans-184
+  prefs: []
+  type: TYPE_TB
+  zh: '| `SQL​Trans⁠for⁠mer` | 接受一个SQL语句（Spark支持的任何`SELECT`子句）并根据语句转换输入。 |'
+- en: '| `Vector​Assem⁠bler` | Takes a list of vector columns and concatenates them
+    into one column in the dataset. This is useful for various estimators that take
+    only one column. |'
+  id: totrans-185
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Vector​Assem⁠bler` | 接受向量列列表并将它们连接成数据集中的一列。对于仅接受单列的各种估计器很有用。 |'
+- en: Preprocessing Image Data
+  id: totrans-186
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 图像数据预处理
+- en: 'Image data is common in machine learning applications, and it also requires
+    preprocessing to move forward in the machine learning workflow. But images are
+    different from the kinds of data we’ve seen before, and they require a different
+    kind of procedure. There may be more or fewer steps involved, depending on the
+    actual data, but the most common path consists of these three actions:'
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像数据在机器学习应用中很常见，也需要预处理才能在机器学习工作流中继续前进。但图像与我们之前看到的数据类型不同，它们需要不同类型的处理过程。根据实际数据的情况，可能会涉及更多或更少的步骤，但最常见的路径包括以下三个动作：
+- en: Extract labels
+  id: totrans-188
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 提取标签
+- en: Transform labels to indices
+  id: totrans-189
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将标签转换为索引
+- en: Extract image size
+  id: totrans-190
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 提取图像大小
+- en: Let’s walk through these steps using our example dataset to see what they involve.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们使用我们的示例数据集来走一遍这些步骤，看看它们涉及到什么。
+- en: Extracting labels
+  id: totrans-192
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 提取标签
+- en: 'Our images dataset has a nested structure where the directory name indicates
+    the classification of the image. Hence, each image’s path on the filesystem contains
+    its label. We need to extract this in order to use it later on. Most raw image
+    datasets follow this pattern, and this is an essential part of the preprocessing
+    we will do with our images. After loading the images as `BinaryType`, we get a
+    table with a column called `path` of type `String`. This contains our labels.
+    Now, it’s time to leverage string manipulation to extract that data. Let’s take
+    a look at one example path: `.../256_Object​Cat⁠egories/198.spider/198_0089.jpg`.'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的图像数据集具有嵌套结构，其中目录名指示图像的分类。因此，每个图像在文件系统上的路径包含其标签。我们需要提取这些数据，以便稍后使用。大多数原始图像数据集遵循这种模式，这是我们将要对图像进行的预处理的重要部分。在将图像加载为`BinaryType`后，我们得到一个包含名为`path`的`String`类型列的表。这包含我们的标签。现在，是时候利用字符串操作来提取这些数据了。让我们看一个例子路径：`.../256_Object​Cat⁠egories/198.spider/198_0089.jpg`。
+- en: 'The label in this case is actually an index and a name: `198.spider`. This
+    is the part we need to extract from the string. Fortunately, PySpark SQL functions
+    provide us with the `regexp_extract` API that enables us to easily manipulate
+    strings according to our needs.'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，标签实际上是一个索引和一个名称：`198.spider`。这是我们需要从字符串中提取的部分。幸运的是，PySpark SQL函数为我们提供了`regexp_extract`
+    API，可以根据我们的需求轻松操作字符串。
+- en: 'Let’s define a function that will take a `path_col` and use this API to extract
+    the label, with the regex `"256_ObjectCategories/([^/]+)"`:'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们定义一个函数，它将获取`path_col`并使用正则表达式`"256_ObjectCategories/([^/]+)"`来提取标签：
+- en: '[PRE15]'
+  id: totrans-196
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'We can now create a new DataFrame with the labels by calling this function
+    from a Spark SQL query:'
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们可以通过从Spark SQL查询中调用这个函数来创建一个带有标签的新DataFrame：
+- en: '[PRE16]'
+  id: totrans-198
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'Our `images_with_label` DataFrame consists of three columns: two string columns
+    called `path` and `label` and a binary column called `content`.'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的`images_with_label` DataFrame由三列组成：两个名为`path`和`label`的字符串列，以及一个名为`content`的二进制列。
+- en: Now that we have our labels, it’s time to transform them into indices.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了标签，是时候将它们转换为索引了。
+- en: Transforming labels to indices
+  id: totrans-201
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 将标签转换为索引
+- en: 'As mentioned previously, our `label` column is a string column*.* This can
+    pose a challenge for machine learning models, as strings tend to be heavy on memory
+    usage. Ideally, every string in our table should be transformed into a more efficient
+    representation before being ingested into a machine learning algorithm, unless
+    it is a true necessity not to. Since our labels are of the format `*{index.name}*`,
+    we have three options:'
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，我们的`label`列是一个字符串列*。这对于机器学习模型可能构成挑战，因为字符串在内存使用上较重。理想情况下，我们表中的每个字符串在被输入机器学习算法之前都应转换为更高效的表示，除非这是真正必要的。由于我们的标签的格式是`*{index.name}*`，我们有三个选项：
+- en: Extract the index from the string itself, leveraging string manipulation.
+  id: totrans-203
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从字符串本身中提取索引，利用字符串操作。
+- en: Provide a new index using Spark’s `StringIndexer`, as discussed in [“From nominal
+    categorical features to indices”](#from_nominal_categorical_features_to_in).
+  id: totrans-204
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用Spark的`StringIndexer`提供一个新的索引，如[“从名义分类特征到索引”](#from_nominal_categorical_features_to_in)中所讨论的。
+- en: Use Python to define an index (in the Caltech 256 dataset, there are only 257
+    indices, in the range `[1,257]`).
+  id: totrans-205
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用Python定义一个索引（在Caltech 256数据集中，只有257个索引，范围在`[1,257]`内）。
+- en: In our case, the first option is the cleanest way to handle this. This approach
+    will allow us to avoid maintaining a mapping between the indices in the original
+    files and the indices in the dataset.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的情况下，第一种选项是处理这个问题最干净的方式。这种方法将允许我们避免在原始文件的索引和数据集中的索引之间维护映射。
+- en: Extracting image size
+  id: totrans-207
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 提取图像大小
+- en: The final step is to extract the image size. We do this as part of our preprocessing
+    because we know for sure that our dataset contains images of different sizes,
+    but it’s often a useful operation to get a feel for the data and provide us with
+    information to help us decide on an algorithm. Some machine learning algorithms
+    will require us to have a unified size for images, and knowing in advance what
+    image sizes we’re working with can help us make better optimization decisions.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一步是提取图像大小。我们在预处理过程中执行此操作，因为我们确切地知道我们的数据集包含不同大小的图像，但了解数据并为我们决定算法提供信息通常是有用的操作。某些机器学习算法需要我们对图像有一个统一的大小，提前知道我们正在处理的图像大小可以帮助我们做出更好的优化决策。
+- en: Since Spark doesn’t yet provide this functionality out of the box, we’ll use
+    [Pillow](https://oreil.ly/kfoQR) (aka PIL), a friendly Python library for working
+    with images. To efficiently extract the width and height of all of our images,
+    we will define a pandas user-defined function (UDF) that can run in a distributed
+    fashion on our Spark executors. pandas UDFs, defined using `pandas_udf` as a decorator,
+    are optimized with Apache Arrow and are faster for grouped operations (e.g., when
+    applied after a `groupBy`).
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于Spark尚未提供此功能，我们将使用[Pillow](https://oreil.ly/kfoQR)（也称为PIL），这是一个友好的Python库，用于处理图像。为了高效地提取所有图像的宽度和高度，我们将定义一个pandas用户定义的函数（UDF），可以在我们的Spark执行器上以分布方式运行。使用`pandas_udf`作为装饰器定义的pandas
+    UDF使用Apache Arrow进行了优化，并且对于分组操作（例如，在`groupBy`之后应用时）更快。
+- en: Grouping allows pandas to perform vectorized operations. For these kinds of
+    use cases, a pandas UDF on Spark will be more efficient. For simple operations
+    like `a*b`, a Spark UDF will suffice and will be faster because it has less overhead.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分组允许pandas执行向量化操作。对于这些用例，Spark上的pandas UDF会更高效。对于像`a*b`这样的简单操作，Spark UDF就足够了，并且会更快，因为它的开销更少。
+- en: 'Our UDF will take a series of rows and operate on them in parallel, making
+    it much faster than the traditional one-row-at-a-time approach:'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的UDF将接收一系列行并并行操作它们，使其比传统的逐行操作快得多：
+- en: '[PRE17]'
+  id: totrans-212
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'Now that we have the function, we can pass it to Spark’s `select` function
+    to extract the image size information:'
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了这个函数，我们可以将它传递给Spark的`select`函数来提取图像大小信息：
+- en: '[PRE18]'
+  id: totrans-214
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'The image size data will be extracted into a new DataFrame with a `size` column
+    of type `struct` containing the `width` and `height`:'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像大小数据将被提取到一个新的DataFrame中，该DataFrame包含一个`size`列，其类型为`struct`，包含`width`和`height`：
+- en: '[PRE19]'
+  id: totrans-216
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Warning
+  id: totrans-217
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Note that using the `extract_size_udf` function will transfer all of the images
+    from the JVM (Spark uses Scala under the hood) to the Python runtime using Arrow,
+    compute the sizes, and then transfer the sizes back to the JVM. For efficiency
+    when working with large datasets, especially if you are not using grouping, it
+    might be worth implementing the extraction of the sizes at the JVM/Scala level
+    instead. Keep considerations like this in mind when implementing data preprocessing
+    for the various stages of machine learning.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，使用`extract_size_udf`函数将所有图像从JVM（Spark在内部使用Scala）传输到Python运行时使用Arrow计算大小，然后将大小再传输回JVM。在处理大型数据集时尤其如此，特别是如果您不使用分组时，可能值得在JVM/Scala级别实现大小的提取。在实现各个阶段的机器学习数据预处理时，请牢记这样的考虑因素。
+- en: Save the Data and Avoid the Small Files Problem
+  id: totrans-219
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 保存数据并避免小文件问题
+- en: 'When you’ve completed all of your preprocessing, it can be a good idea to save
+    the data to cold or hot storage before continuing to the next step. This is sometimes
+    referred to as a *checkpoint*, or a point in time where we save a version of the
+    data we are happy with. One reason to save the data is to enable *fast recovery*:
+    if our Spark cluster breaks completely, instead of needing to recalculate everything
+    from scratch, we can recover from the last checkpoint. The second reason is to
+    facilitate collaboration. If your preprocessed data is persisted to storage and
+    available for your colleagues to use, they can leverage it to develop their own
+    flows. This is especially useful when working with large datasets and on tasks
+    requiring extensive computation resources and time. Spark provides us with functionality
+    to both ingest and save data in numerous formats. Note that if you decide to save
+    the data for collaboration purposes, it’s important to document all the steps
+    that you took: the preprocessing you carried out, the code you used to implement
+    it, the current use cases, any tuning you performed, and any external resources
+    you created, like stopword lists.'
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你完成所有预处理工作后，将数据保存到冷热存储可能是个好主意，然后再继续下一步。有时这被称为*检查点*，或者在我们对数据版本满意时保存数据的时间点。保存数据的一个原因是为了实现*快速恢复*：如果我们的Spark集群彻底崩溃，而不是需要从头开始重新计算一切，我们可以从上次的检查点恢复。第二个原因是促进协作。如果您的预处理数据持久保存在存储中并可供同事使用，他们可以利用它开发自己的流程。在处理大型数据集和需要大量计算资源和时间的任务时，这尤为有用。Spark为我们提供了在多种格式中接收和保存数据的功能。请注意，如果决定保存数据用于协作目的，重要的是记录所有步骤：您进行的预处理、用于实施它的代码、当前的用例、执行的任何调整以及创建的任何外部资源，例如停用词列表。
+- en: Avoiding small files
+  id: totrans-221
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 避免小文件
+- en: A *small file* is any file that is significantly smaller than the storage block
+    size. Yes, there is a minimum block size, even with object stores such as Amazon
+    S3, Azure Blob, etc.! Having files that are significantly smaller than the block
+    size can result in wasted space on the disk, since the storage will use the whole
+    block to save that file, no matter how small it is. This is an overhead that we
+    should avoid. On top of that, storage is optimized to support fast reading and
+    writing by block size. But don’t worry—Spark API to the rescue! We can easily
+    avoid wasting precious space and paying a high price for storing small files using
+    Spark’s `repartition` or `coalesce` functions.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*小文件*指的是明显小于存储块大小的任何文件。是的，在像Amazon S3、Azure Blob等对象存储中，都有最小块大小！由于存储会使用整个块来保存该文件，无论它有多小，因此比块大小显著小的文件可能会导致磁盘空间浪费。这是一种我们应该避免的额外开销。此外，存储优化为按块大小支持快速读写。但别担心——Spark
+    API来帮忙！我们可以利用Spark的`repartition`或`coalesce`函数轻松避免浪费宝贵空间并支付高额的小文件存储成本。'
+- en: In our case, because we are operating on offline data without a specific requirement
+    to finish computation on the millisecond, we have more flexibility in which one
+    to choose. `repartition` creates entirely new partitions, shuffling the data over
+    the network with the goal of distributing it evenly over the specified number
+    of partitions (which can be higher or lower than the existing number). It therefore
+    has a high cost up front, but down the road, Spark functionality will execute
+    faster because the data will be distributed optimally—in fact, executing a `repartition`
+    operation can be useful in any stage of the machine learning workflow when we
+    notice that computation is relatively slow and want to speed it up. The `coalesce`
+    function, on the other hand, first detects the existing partitions and then shuffles
+    only the necessary data. It can only be used to reduce the number of partitions,
+    not to add partitions, and is known to run faster than `repartition` as it minimizes
+    the amount of data shuffled over the network. In some cases, `coalesce` might
+    not shuffle at all and will default to batch local partitions, which makes it
+    super efficient for reduce functionality.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的情况下，由于我们正在处理离线数据，没有特定要求需要在毫秒级完成计算，我们在选择使用哪种方法时更具灵活性。`repartition`创建全新的分区，通过网络对数据进行重分布，目的是均匀分布在指定数量的分区上（可以高于或低于现有数量）。因此，它的初始成本很高，但后续，Spark功能将因数据的最佳分布而执行得更快——实际上，在机器学习工作流的任何阶段执行`repartition`操作时，可以帮助加快计算速度，特别是当我们注意到计算相对缓慢时。另一方面，`coalesce`函数首先检测现有的分区，然后仅重分布必要的数据。它只能用于减少分区数量，而不能用于增加分区数量，并且因最小化通过网络进行数据传输量而被认为比`repartition`运行得更快。在某些情况下，`coalesce`可能根本不会进行数据重分布，并且会默认为批处理本地分区，这使得它对于减少功能非常高效。
+- en: 'Since we want to be in control of the exact number of partitions and we don’t
+    require extremely fast execution, in our case it’s okay to use the slower `repartition`
+    function, as shown here:'
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们希望精确控制分区的确切数量，并且不需要极快的执行速度，在我们的情况下使用较慢的`repartition`函数是可以接受的，如下所示：
+- en: '[PRE20]'
+  id: totrans-225
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Bear in mind that if time, efficiency, and minimizing network load are of the
+    essence, you should opt for the `coalesce` function instead.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，如果时间、效率和最小化网络负载至关重要，则应选择`coalesce`函数。
+- en: Image compression and Parquet
+  id: totrans-227
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 图像压缩和Parquet
+- en: Suppose we want to save our image dataset in Parquet format (if you’re not familiar
+    with it, Parquet is an open source, column-oriented data file format designed
+    for efficient storage and retrieval). When saving to this format, by default Spark
+    uses a compression codec named Snappy. However, since images are already compressed
+    (e.g., with JPEG, PNG, etc.), it wouldn’t make sense to compress them again. How
+    can we avoid this?
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们想要将图像数据集保存为Parquet格式（如果您对此不熟悉，Parquet是一种开源的面向列的数据文件格式，旨在实现高效的存储和检索）。在保存为此格式时，默认情况下Spark使用名为Snappy的压缩编解码器。然而，由于图像已经经过压缩（例如，使用JPEG、PNG等），再次压缩它们就没有意义了。我们该如何避免这种情况？
+- en: 'We save the existing configured compression codec in a string instance, configure
+    Spark to write to Parquet with the *uncompressed* codec, save the data in Parquet
+    format, and assign the codec instance back to the Spark configuration for future
+    work. The following code snippet demonstrates:'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们保存现有配置的压缩编解码器为字符串实例，将Spark配置为使用*未压缩*编解码器写入Parquet，保存数据以Parquet格式，并将编解码器实例重新分配给Spark配置以供未来使用。以下代码片段示例：
+- en: '[PRE21]'
+  id: totrans-230
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'Descriptive Statistics: Getting a Feel for the Data'
+  id: totrans-231
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 描述性统计：了解数据的感觉
+- en: Machine learning is not magic—you will need to understand your data in order
+    to work with it efficiently and effectively. Getting a solid understanding of
+    the data before you start training your algorithms will save you much time and
+    effort down the road. Fortunately, MLlib provides a dedicated library named `pyspark.ml.stat`
+    that contains all the functionality you need for extracting basic statistics out
+    of the data.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习并非魔法——您需要深入了解数据，以便有效地处理它。在开始训练算法之前对数据有扎实的理解，将为您节省大量的时间和精力。幸运的是，MLlib提供了一个名为`pyspark.ml.stat`的专用库，其中包含从数据中提取基本统计信息所需的所有功能。
+- en: Don’t worry if that sounds intimidating—you don’t need to fully understand statistics
+    to use MLlib, although some level of familiarity will definitely help you in your
+    machine learning journey. Understanding the data using statistics enables us to
+    better decide on which machine learning algorithm to use, identify biases, and
+    estimate the quality of the data—as mentioned previously, if you put garbage in,
+    you get garbage out. Ingesting low-quality data into a machine learning algorithm
+    will result in a low-performing model. As a result, this part is a must!
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果这听起来令人生畏，不要担心——您不需要完全理解统计学就能使用 MLlib，尽管一定程度上的熟悉肯定会在您的机器学习之旅中有所帮助。使用统计数据了解数据使我们能够更好地决定选择哪种机器学习算法，识别偏差，并估计数据的质量——如前所述，如果你输入的是垃圾数据，那么输出也将是垃圾。将低质量数据输入到机器学习算法中将导致性能低下的模型。因此，这部分内容是必不可少的！
+- en: Having said that, as long as we build conscious assumptions about what the data
+    looks like, what we can accept, and what we cannot, we can conduct much better
+    experiments and have a better idea of what to remove, what to input, and what
+    we can be lenient about. Take into consideration that those assumptions and any
+    data cleansing operations we perform can have big consequences in production,
+    especially if they are aggressive (like dropping all nulls in a large number of
+    rows or imputing too many default values, which screws up the entropy completely).
+    Watch out for mismatches in assumptions made during the exploratory stages about
+    the data input, quality measurements, and what constitutes “bad” or low-quality
+    data.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 话虽如此，只要我们对数据的外观建立有意识的假设，知道我们可以接受什么，不能接受什么，我们就能进行更好的实验，并更好地了解需要去除什么，需要输入什么，以及我们可以对什么宽容。请考虑，在数据探索阶段对数据输入、质量测量和构成“坏”或低质量数据的假设的不匹配可能会产生重大后果，尤其是在生产中（例如，在大量行中丢弃所有空值或填充太多默认值，这将完全破坏熵）。要警惕假设之间的不匹配！
+- en: Tip
+  id: totrans-235
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: For deeper statistical analysis of a given dataset, many data scientists use
+    the [pandas](https://oreil.ly/eZ8o9) library. As mentioned in [Chapter 2](ch02.xhtml#introduction_to_spark_and_pyspark),
+    pandas is a Python analysis library for working with relatively small data that
+    can fit in one machine’s memory (RAM). Its counterpart in the Apache Spark ecosystem
+    is [Koalas](https://oreil.ly/HVzc9), which has evolved into a pandas API on Spark.
+    There is not 100% feature parity between the original pandas and pandas on Spark,
+    but this API expands Spark’s capabilities and takes them even further, so it’s
+    worth checking out.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于给定数据集的深入统计分析，许多数据科学家使用 [pandas](https://oreil.ly/eZ8o9) 库。如 [第 2 章](ch02.xhtml#introduction_to_spark_and_pyspark)
+    所述，pandas 是一个用于处理能够放入一台机器内存（RAM）中相对较小数据的 Python 分析库。在 Apache Spark 生态系统中的对应物是
+    [Koalas](https://oreil.ly/HVzc9)，它已经演变成了 Spark 上的 pandas API。虽然原始 pandas 和 Spark
+    上的 pandas API 并非完全特性对齐，但这个 API 扩展了 Spark 的能力，使其更加强大，因此值得一试。
+- en: In this section, we will shift gears from straightforward processes and will
+    focus on getting a feel for the data with the Spark MLlib functionality for computing
+    statistics*.*
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一部分，我们将从直接的流程转向使用 Spark MLlib 功能来计算统计数据，以便对数据有一个感性的了解。
+- en: Calculating Statistics
+  id: totrans-238
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 计算统计数据
+- en: Welcome to the Machine Learning Zoo Project!
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 欢迎来到机器学习动物园项目！
+- en: 'For learning about MLlib’s statistics functions, we’ll use the Zoo Animal Classification
+    dataset from the [Kaggle repository](https://oreil.ly/RHuSJ). This dataset, created
+    in 1990, consists of 101 examples of zoo animals described by 16 Boolean-valued
+    attributes capturing various traits. The animals can be classified into seven
+    types: Mammal, Bird, Reptile, Fish, Amphibian, Bug, and Invertebrate.'
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要学习 MLlib 的统计功能，我们将使用来自 [Kaggle 仓库](https://oreil.ly/RHuSJ) 的动物分类数据集。这个数据集创建于
+    1990 年，包含了 101 个动物示例，由 16 个布尔值属性描述，捕捉了各种特征。这些动物可以被分类为七种类型：哺乳动物、鸟类、爬行动物、鱼类、两栖动物、昆虫和无脊椎动物。
+- en: The first thing you need to do to get a feel for the data to better plan your
+    machine learning journey is calculate the feature statistics. Knowing how the
+    data itself is distributed will provide you with valuable insights to determine
+    which algorithms to select, how to evaluate the model, and overall how much effort
+    you need to invest in the project.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解数据并更好地规划机器学习之旅的第一步是计算特征统计信息。知道数据的分布情况将为您提供宝贵的见解，帮助您确定选择哪些算法、如何评估模型，以及整体需要投入多少工作。
+- en: Descriptive Statistics with Spark Summarizer
+  id: totrans-242
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用 Spark Summarizer 进行描述性统计
+- en: A [*descriptive statistic*](https://oreil.ly/Y174f) is a [summary statistic](https://oreil.ly/6RFxO)
+    that quantitatively describes or summarizes features from a collection of [information](https://oreil.ly/iINTU).
+    MLlib provides us with a dedicated `Summarizer` object for computing statistical
+    metrics from a specific column. This functionality is part of the MLlib `LinearRegression`
+    algorithm for building the `Line⁠ar​Regression​Summary`. When building the `Summarizer`,
+    we need to specify the desired metrics. [Table 4-5](#summarizer_metric_options)
+    lists the functionality available in the Spark API.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[*描述统计*](https://oreil.ly/Y174f)是[摘要统计](https://oreil.ly/6RFxO)，它定量描述或总结了来自一组[信息](https://oreil.ly/iINTU)的特征。MLlib为我们提供了一个专用的`Summarizer`对象，用于从特定列计算统计指标。这个功能是MLlib的`LinearRegression`算法用于构建`Line​ar​Regression​Summary`的一部分。在构建Summarizer时，我们需要指定所需的指标。[表 4-5](#summarizer_metric_options)列出了Spark
+    API中可用的功能。'
+- en: Table 4-5\. Summarizer metric options
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表4-5\. Summarizer指标选项
+- en: '| Metric | Description |'
+  id: totrans-245
+  prefs: []
+  type: TYPE_TB
+  zh: '| 指标 | 描述 |'
+- en: '| --- | --- |'
+  id: totrans-246
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `mean` | Calculates the average value of a given numerical column |'
+  id: totrans-247
+  prefs: []
+  type: TYPE_TB
+  zh: '| `mean` | 计算给定数值列的平均值 |'
+- en: '| `sum` | Calculates the sum of the numerical column |'
+  id: totrans-248
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sum` | 计算数值列的总和 |'
+- en: '| `variance` | Calculates the variance of the column (how far the set of numbers
+    in the column are spread out from its mean value, on average) |'
+  id: totrans-249
+  prefs: []
+  type: TYPE_TB
+  zh: '| `variance` | 计算列的方差（列中一组数字平均偏离其均值的程度） |'
+- en: '| `std` | Calculates the standard deviation of the column (the square root
+    of the variance value), to provide more weight to outliers in the column |'
+  id: totrans-250
+  prefs: []
+  type: TYPE_TB
+  zh: '| `std` | 计算列的标准差（方差值的平方根），以更加重视列中的异常值 |'
+- en: '| `count` | Calculates the number of items/rows in the dataset |'
+  id: totrans-251
+  prefs: []
+  type: TYPE_TB
+  zh: '| `count` | 计算数据集中项目/行的数量 |'
+- en: '| `numNonZeros` | Finds the number of nonzero values in the column |'
+  id: totrans-252
+  prefs: []
+  type: TYPE_TB
+  zh: '| `numNonZeros` | 找到列中非零值的数量 |'
+- en: '| `max` | Finds the maximum value in the column |'
+  id: totrans-253
+  prefs: []
+  type: TYPE_TB
+  zh: '| `max` | 在列中找到最大值 |'
+- en: '| `min` | Finds the minimum value in the column |'
+  id: totrans-254
+  prefs: []
+  type: TYPE_TB
+  zh: '| `min` | 在列中找到最小值 |'
+- en: '| `normL1` | Calculates the L1 norm (similarity between the numeric values)
+    of the column |'
+  id: totrans-255
+  prefs: []
+  type: TYPE_TB
+  zh: '| `normL1` | 计算列的L1范数（数值之间的相似性） |'
+- en: '| `normL2` | Calculates the Euclidean norm of the column |'
+  id: totrans-256
+  prefs: []
+  type: TYPE_TB
+  zh: '| `normL2` | 计算列的欧几里得范数 |'
+- en: Note
+  id: totrans-257
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The L1 and L2 (aka Euclidean) norms are tools for calculating the distance between
+    numeric points in an *N*-dimensional space. They are commonly used as metrics
+    to measure the similarity between data points in fields such as geometry, data
+    mining, and deep learning.
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: L1和L2（也称为欧几里得）范数是计算*N*维空间中数值点之间距离的工具。它们通常作为度量衡量数据点之间相似性的指标，在几何学、数据挖掘和深度学习等领域中广泛使用。
+- en: 'This code snippet illustrates how to create a `Summarizer` instance with metrics:'
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这段代码片段说明了如何创建具有指标的`Summarizer`实例：
+- en: '[PRE22]'
+  id: totrans-260
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: Like the other MLlib functions, the Summarizer.metrics function expects a vector
+    of numeric features as input. You can use MLlib’s `Vector​Assem⁠bler` function
+    to assemble the vector.
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与MLlib的其他功能类似，Summarizer.metrics函数期望将数值特征的向量作为输入。您可以使用MLlib的`Vector​Assembler`函数来组装向量。
+- en: 'Although there are many features in the Zoo Animal Classification dataset,
+    we are going to examine just the following columns:'
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管动物园动物分类数据集中有许多特征，我们将仅检查以下列：
+- en: '`feathers`'
+  id: totrans-263
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`羽毛`'
+- en: '`milk`'
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`牛奶`'
+- en: '`fins`'
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`鳍`'
+- en: '`domestic`'
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`国内的`'
+- en: As discussed in [“Data Ingestion with Spark”](#data_ingestion_with_spark), we’ll
+    load the data into a DataFrame instance named `zoo_data_for_statistics`.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如在[“使用Spark进行数据摄取”](#data_ingestion_with_spark)中讨论的那样，我们将数据加载到名为`zoo_data_for_statistics`的DataFrame实例中。
+- en: 'In the next code sample, you can see how to build the vector. Notice how we
+    set the output column name to `features`, as expected by the summarizer:'
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一个代码示例中，您可以看到如何构建向量。请注意，我们将输出列名设置为`features`，正如摘要器所预期的那样：
+- en: '[PRE23]'
+  id: totrans-269
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'Our vector is leveraging Apache Spark’s Dataset functionality. A Dataset in
+    Spark is a strongly typed collection of objects encapsulating the DataFrame. You
+    can still call the DataFrame from a Dataset if needed, but the Dataset API enables
+    you to access a specific column without the dedicated column functionality:'
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的向量利用了Apache Spark的Dataset功能。在Spark中，Dataset是一种强类型的对象集合，封装了DataFrame。如果需要，您仍然可以从Dataset中调用DataFrame，但Dataset
+    API使您能够访问特定列，而无需专门的列功能：
+- en: '[PRE24]'
+  id: totrans-271
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 'Now that we have a dedicated vector column and a summarizer, let’s extract
+    some statistics. We can call the `summarizer.summary` function to plot all the
+    metrics or to compute a specific metric, as shown in the following example:'
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了一个专用的向量列和一个汇总器，让我们提取一些统计数据。我们可以调用`summarizer.summary`函数来绘制所有指标或计算特定指标，如下例所示：
+- en: '[PRE25]'
+  id: totrans-273
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: '[Example 4-4](#std_of_the_features_column) shows the output of calling `std`
+    on the vector of features.'
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[例子 4-4](#std_of_the_features_column)显示了在特征向量上调用`std`的输出。'
+- en: Example 4-4\. `std` of the `features` column
+  id: totrans-275
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 例子 4-4\. `features`列的`std`
+- en: '[PRE26]'
+  id: totrans-276
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: The standard deviation (STD) is an indicator of the variation in a set of values.
+    A low STD indicates that the values tend to be close to the mean (also called
+    the expected value) of the set, while a high STD indicates that the values are
+    spread out over a wider range.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标准差（STD）是一组值变化的指示器。低STD表明值倾向于接近集合的均值（也称为期望值），而高STD表明值分布在更广的范围内。
+- en: Note
+  id: totrans-278
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: '`Summarizer.std` is a global function that you can use without creating a `Summarizer`
+    instance.'
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Summarizer.std`是一个全局函数，你可以在不创建`Summarizer`实例的情况下使用。'
+- en: 'Since the features `feathers`, `milk`, `fins`, and `domestic` are inherently
+    of type Boolean—`milk` can be `1` for true or `0` for false, and the same for
+    `fins` and so on—calculating the STD doesn’t provide us with much insight—the
+    result will always be a decimal number between 0 and 1\. That misses the value
+    of STD in calculating how “spread out” the data is. Instead, let’s try the `sum`
+    function. This function will tell us *how many* animals in the dataset have feathers,
+    milk, or fins or are domestic animals:'
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于`feathers`、`milk`、`fins`和`domestic`特征本质上是布尔类型——`milk`可以是`1`表示真或`0`表示假，`fins`也是如此——计算STD并不会为我们提供太多见解——结果总是在0到1之间的小数。这忽略了在计算数据“分布”程度时STD的价值。相反，让我们尝试使用`sum`函数。此函数将告诉我们数据集中有多少只动物具有羽毛、牛奶或鳍，或者是家养动物：
+- en: '[PRE27]'
+  id: totrans-281
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: Take a look at the output of `sum`, shown in [Example 4-5](#sum_of_the_features_column).
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查看`sum`的输出，示例见[例子 4-5](#sum_of_the_features_column)。
+- en: '[PRE28]'
+  id: totrans-283
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: This tells us that there are 20 animals with feathers (the vector’s first value),
+    41 animals that provide milk (the vector’s second value), 17 animals with fins
+    (the third value), and 13 domestic animals (the final value). The `sum` function
+    provides us with more insights about the data itself than the `std` function,
+    due to the Boolean nature of the data. However, the more complicated/diverse the
+    dataset is, the more looking at all of the various metrics will help.
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这告诉我们，有20只带羽毛的动物（向量的第一个值），41只能提供牛奶的动物（向量的第二个值），17只有鳍的动物（第三个值），以及13只家养动物（最后一个值）。由于数据的布尔特性，`sum`函数为我们提供了关于数据本身更多的见解，胜过于`std`函数。然而，数据集越复杂/多样化，查看各种指标将会更有帮助。
+- en: Data Skewness
+  id: totrans-285
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据偏斜
+- en: '*Skewness* in statistics is a measure of the asymmetry of a probability distribution.
+    Think of a bell curve where the data points are not distributed symmetrically
+    on the left and right sides of the curve’s mean value. Assuming the dataset follows
+    a normal distribution curve, skewness means it has a short tail on one end and
+    a long tail on the other. The higher the skewness value is, the less evenly distributed
+    the data is, and the more data points will fall on one side of the bell curve.'
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*偏斜度* 在统计学中是概率分布不对称性的一种度量。想象一个钟形曲线，其中数据点不对称地分布在曲线均值的左右两侧。假设数据集遵循正态分布曲线，偏斜度意味着它在一端有短尾巴，在另一端有长尾巴。偏斜度值越高，数据分布越不均匀，数据点越多会落在钟形曲线的一侧。'
+- en: 'To measure skewness, or the asymmetry of the values around the mean, we need
+    to extract the mean value and calculate the standard deviation. A statistical
+    equation to accomplish this has already been implemented in Spark for us; check
+    out the next code snippet to see how to take advantage of it:'
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要衡量偏斜或围绕均值的值的不对称性，我们需要提取均值并计算标准差。已经在Spark中为我们实现了完成此操作的统计方程；看看下一个代码片段，看看如何利用它：
+- en: '[PRE29]'
+  id: totrans-288
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: This code returns a new DataFrame with a dedicated column that measures the
+    skewness of the column we requested. Spark also implements other statistical functions,
+    such as *kurtosis*, which measures the tail of the data. Both are important when
+    building a model based on the distribution of random variables and the assumption
+    that the data follows a normal distribution; they can help you detect biases,
+    data topology changes, and even data drift. We’ll discuss data drift in more detail
+    in [Chapter 10](ch10.xhtml#deployment_patterns_for_machine_learnin), when we look
+    at monitoring machine learning models in production).
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码返回一个新的 DataFrame，其中有一个专用列来测量我们请求的列的偏斜度。Spark 还实现了其他统计函数，例如 *峰度*，它测量数据的尾部。在基于随机变量分布构建模型时，这两者都很重要，并且假设数据遵循正态分布；它们可以帮助您检测偏差、数据拓扑变化，甚至数据漂移。我们将在
+    [第 10 章](ch10.xhtml#deployment_patterns_for_machine_learnin) 中更详细地讨论数据漂移，当我们查看在生产环境中监控机器学习模型时。
+- en: Correlation
+  id: totrans-290
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 相关性
+- en: A *correlation* between two features means that if feature A increases or decreases,
+    feature B does the same (a *positive* correlation) or does the exact opposite
+    (a *negative* correlation). Determining correlation therefore involves measuring
+    the linear relationship between the two variables/features. Since a machine learning
+    algorithm’s goal is to learn from data, perfectly correlated features are less
+    likely to provide insights to improve model accuracy. This is why filtering them
+    out can significantly improve our algorithm’s performance while maintaining the
+    quality of the results. The `test` method of the [`ChiSquareTest` class](https://oreil.ly/SmC6A)
+    in MLlib is a statistical test that helps us assess categorical data and labels
+    by running a Pearson correlation on all pairs and outputting a matrix with correlation
+    scores.
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两个特征之间的 *相关性* 意味着如果特征 A 增加或减少，特征 B 也会同样变化（*正相关*），或者完全相反（*负相关*）。因此，确定相关性涉及测量两个变量/特征之间的线性关系。由于机器学习算法的目标是从数据中学习，因此完全相关的特征不太可能提供改进模型精度的见解。这就是为什么在保持结果质量的同时，过滤这些特征可以显著提高我们算法的性能。MLlib
+    中 [`ChiSquareTest` 类](https://oreil.ly/SmC6A) 的 `test` 方法是一个统计测试，通过对所有成对进行 Pearson
+    相关性分析来帮助我们评估分类数据和标签，并输出具有相关性分数的矩阵。
+- en: Warning
+  id: totrans-292
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Be mindful that correlation doesn’t necessarily imply causation. When the values
+    of two variables change in a correlated way, there is no guarantee that the change
+    in one variable causes the change in the other. It takes more effort to prove
+    a causative relationship.
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要注意相关性并不一定意味着因果关系。当两个变量的值以相关方式变化时，并不能保证一个变量的变化导致另一个变量的变化。证明因果关系需要更多的努力。
+- en: In this section, you will learn about Pearson and Spearman correlations in Spark
+    MLlib.
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，您将学习有关 Spark MLlib 中 Pearson 和 Spearman 相关性的内容。
+- en: Pearson correlation
+  id: totrans-295
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Pearson 相关性
+- en: 'When looking into correlation, we look for positive or negative associations.
+    Pearson correlation measures the strength of linear association between two variables.
+    It produces a coefficient `r` that indicates how far away the data points are
+    from a descriptive line. The range of `r` is `[–1,1]`, where:'
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在研究相关性时，我们寻找正向或负向关联。Pearson 相关性度量两个变量之间线性关系的强度。它生成一个系数 `r`，表示数据点与描述线的距离。`r`
+    的范围是 `[–1, 1]`，其中：
+- en: '`r=1` is a perfect positive correlation. Both variables act in the same way.'
+  id: totrans-297
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`r=1` 是完全正相关。两个变量以相同的方式行动。'
+- en: '`r=–1` is perfect negative/inverse correlation, which means that when one variable
+    increases, the other decreases.'
+  id: totrans-298
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`r=–1` 表示完全负相关/反相关，这意味着当一个变量增加时，另一个变量减少。'
+- en: '`r=0` means no correlation.'
+  id: totrans-299
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`r=0` 表示没有相关性。'
+- en: '[Figure 4-3](#pearson_correlation_examples_on_a_graph) shows some examples
+    on a graph.'
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 4-3](#pearson_correlation_examples_on_a_graph) 在图表上展示了一些示例。'
+- en: '![](assets/smls_0403.png)'
+  id: totrans-301
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Figure 4-3](assets/smls_0403.png)'
+- en: Figure 4-3\. Pearson correlation examples on a graph
+  id: totrans-302
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 4-3\. Pearson 相关性图表示例
+- en: 'Pearson is the default correlation test with the MLlib `Correlation` object.
+    Let’s take a look at some example code and its results:'
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pearson 是 MLlib 中 `Correlation` 对象的默认相关性测试。让我们看一些示例代码及其结果：
+- en: '[PRE30]'
+  id: totrans-304
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: The output is a row where the first value is a `DenseMatrix`, as shown in [Example 4-6](#pearson_correlation_matrix).
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出是一个行，其中第一个值是 `DenseMatrix`，如示例 [4-6](#pearson_correlation_matrix) 所示。
+- en: Example 4-6\. Pearson correlation matrix
+  id: totrans-306
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 4-6\. Pearson 相关性矩阵
+- en: '[PRE31]'
+  id: totrans-307
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'Each line represents the correlation of a feature with all the other features,
+    in a pairwise way: for example, `r1[0][0,1]` represents the correlation of `feathers`
+    with `milk`, which is a negative value (`-0.41076061`) that indicates a negative
+    correlation between animals that produce milk and animals with feathers.'
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每行代表一个特征与其他特征的相关性，成对出现：例如，`r1[0][0,1]`代表`feathers`与`milk`之间的相关性，这是一个负值（`-0.41076061`），表明产奶动物和有羽毛动物之间存在负相关。
+- en: '[Table 4-6](#pearson_correlation_table) shows what the correlation table looks
+    like, to make this clearer.'
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 4-6](#pearson_correlation_table)显示了相关性表的外观，以便更清楚地了解。'
+- en: Table 4-6\. Pearson correlation table
+  id: totrans-310
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 4-6\. 皮尔逊相关性表
+- en: '|   | `feathers` | `milk` | `fins` | `domestic` |'
+  id: totrans-311
+  prefs: []
+  type: TYPE_TB
+  zh: '|   | `feathers` | `milk` | `fins` | `domestic` |'
+- en: '| --- | --- | --- | --- | --- |'
+  id: totrans-312
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- |'
+- en: '| `feathers` | `1` | `-.41076061` | `-0.22354106` | `0.03158624` |'
+  id: totrans-313
+  prefs: []
+  type: TYPE_TB
+  zh: '| `feathers` | `1` | `-.41076061` | `-0.22354106` | `0.03158624` |'
+- en: '| `milk` | `-0.41076061` | `1` | `-0.15632771` | `0.16392762` |'
+  id: totrans-314
+  prefs: []
+  type: TYPE_TB
+  zh: '| `milk` | `-0.41076061` | `1` | `-0.15632771` | `0.16392762` |'
+- en: '| `fins` | `-0.22354106` | `-0.15632771` | `1` | `-0.09388671` |'
+  id: totrans-315
+  prefs: []
+  type: TYPE_TB
+  zh: '| `fins` | `-0.22354106` | `-0.15632771` | `1` | `-0.09388671` |'
+- en: '| `domestic` | `0.03158624` | `0.16392762` | `-0.09388671` | `1` |'
+  id: totrans-316
+  prefs: []
+  type: TYPE_TB
+  zh: '| `domestic` | `0.03158624` | `0.16392762` | `-0.09388671` | `1` |'
+- en: 'This table makes it easy to spot negative and positive correlations: for example,
+    `fins` and `milk` have a negative correlation, while `domestic` and `milk` have
+    a positive correlation.'
+  id: totrans-317
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个表格可以轻松地发现负相关和正相关：例如，`fins`和`milk`之间有负相关，而`domestic`和`milk`之间有正相关。
+- en: Spearman correlation
+  id: totrans-318
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 斯皮尔曼相关性
+- en: 'Spearman correlation, also known as Spearman rank correlation, measures the
+    strength and direction of the monotonic relationship between two variables. In
+    contrast to Pearson, which measures the linear relationship, this is a curvilinear
+    relationship, which means the association between the two variables changes as
+    the values change (increase or decrease). Spearman correlation should be used
+    when the data is discrete and the relationships between the data points are not
+    necessarily linear, as shown in [Figure 4-4](#a_spearman_correlation_plot_does_not_cr),
+    as well as when ranking is of interest. To decide which approach fits your data
+    better, you need to understand the nature of the data itself: if it’s on an ordinal
+    scale,^([2](ch04.xhtml#ch01fn11)) use Spearman, and if it’s on an interval scale,^([3](ch04.xhtml#ch01fn12))
+    use Pearson. To learn more about this, I recommend reading [*Practical Statistics
+    for Data Scientists*](https://oreil.ly/prac-stats) by Peter Bruce, Andrew Bruce,
+    and Peter Gedeck (O’Reilly).'
+  id: totrans-319
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 斯皮尔曼相关性，也称为斯皮尔曼等级相关，衡量了两个变量之间单调关系的强度和方向。与皮尔逊相反，后者衡量线性关系，这是一种曲线关系，这意味着两个变量之间的关联随着值的变化（增加或减少）而变化。斯皮尔曼相关性应用于数据离散且数据点之间的关系不一定是线性的情况，如[图 4-4](#a_spearman_correlation_plot_does_not_cr)所示，并且在排名时特别有用。要确定哪种方法更适合您的数据，您需要了解数据本身的性质：如果数据在顺序尺度上，^([2](ch04.xhtml#ch01fn11))
+    使用斯皮尔曼；如果数据在区间尺度上，^([3](ch04.xhtml#ch01fn12)) 使用皮尔逊。要进一步了解这一点，建议阅读Peter Bruce、Andrew
+    Bruce和Peter Gedeck的《*数据科学实战*》（[O’Reilly](https://oreil.ly/prac-stats)）。
+- en: '![](assets/smls_0404.png)'
+  id: totrans-320
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0404.png)'
+- en: 'Figure 4-4\. An example showing that Spearman correlation plots do not create
+    a linear graph (image source: [Wikipedia](https://oreil.ly/p0lFT), CC BY-SA 3.0)'
+  id: totrans-321
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 4-4\. 一个示例表明斯皮尔曼相关性图不会生成线性图（图片来源：[维基百科](https://oreil.ly/p0lFT)，CC BY-SA 3.0）
+- en: 'Notice that to use Spearman, you have to specify it (the default is Pearson):'
+  id: totrans-322
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，要使用斯皮尔曼，您必须指定它（默认是皮尔逊）：
+- en: '[PRE32]'
+  id: totrans-323
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: As before, the output is a row where the first value is a `DenseMatrix`, and
+    it follows the same rules and order described previously (see [Example 4-7](#spearman_correlation_matri)).
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与之前一样，输出是一行，其中第一个值是`DenseMatrix`，并且遵循先前描述的相同规则和顺序（参见[示例 4-7](#spearman_correlation_matri)）。
+- en: Example 4-7\. Spearman correlation matrix
+  id: totrans-325
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 4-7\. 斯皮尔曼相关性矩阵
+- en: '[PRE33]'
+  id: totrans-326
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: Tip
+  id: totrans-327
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: 'Spark has an automation for feature selectors based on correlation and hypothesis
+    tests, such as chi-squared, ANOVA F-test, and F-value (the `UnivariateFeatureSelector`;
+    see [Table 5-2](ch05.xhtml#spark_mllib_selector_apis) in [Chapter 5](ch05.xhtml#feature_engineering)).
+    To speed up the process, it is best to use existing, implemented tests instead
+    of calculating every hypothesis by yourself. If after the feature selection process
+    you identify an insufficient set of features, you should use hypothesis tests
+    such as `ChiSquareTest` to evaluate whether you need to enrich your data or find
+    a larger set of data. I’ve provided you with a code example in the book’s [GitHub
+    repository](https://oreil.ly/smls-git) demonstrating how to do this. Statistical
+    hypothesis tests have a null hypothesis (H0) and alternative hypothesis (H1),
+    where:'
+  id: totrans-328
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark具有基于相关性和假设检验（如卡方检验、ANOVA F检验和F值）的特征选择器的自动化功能（`UnivariateFeatureSelector`；见[表 5-2](ch05.xhtml#spark_mllib_selector_apis)
+    在[第5章](ch05.xhtml#feature_engineering)）。 为了加快进程，最好使用现有的、已实现的测试，而不是自己计算每个假设。 如果在特征选择过程中确定了不足的特征集，应使用假设检验，如`ChiSquareTest`，来评估是否需要丰富数据或找到更大的数据集。
+    我在书的[GitHub存储库](https://oreil.ly/smls-git)中为您提供了一个代码示例，演示如何做到这一点。 统计假设检验具有零假设（H0）和备择假设（H1），其中：
+- en: 'H0: The sample data follows the hypothesized distribution.'
+  id: totrans-329
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: H0：样本数据符合假设分布。
+- en: 'H1: The sample data does not follow the hypothesized distribution.'
+  id: totrans-330
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: H1：样本数据不符合假设分布。
+- en: The outcome of the test is the *p*-value, which demonstrates the likelihood
+    of H0 being true.
+  id: totrans-331
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试的结果是*p*-值，它显示了H0为真的可能性。
+- en: Summary
+  id: totrans-332
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: 'In this chapter, we discussed three crucial steps in the machine learning workflow:
+    ingesting data, preprocessing text and images, and gathering descriptive statistics.
+    Data scientists and machine learning engineers typically spend a significant portion
+    of their time on these tasks, and executing them mindfully sets us up for greater
+    success and a better machine learning model that can meet the business goal in
+    a much more profound way. As a rule of thumb, it’s best to collaborate with your
+    peers to validate and engineer these steps to ensure the resulting insights and
+    data can be reused in multiple experiments. The tools introduced in this chapter
+    will accompany us again and again throughout the machine learning process. In
+    the next chapter, we will dive into feature engineering and build upon the outcomes
+    from this chapter.'
+  id: totrans-333
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们讨论了机器学习工作流程中的三个关键步骤：数据摄取、预处理文本和图像，以及收集描述性统计数据。 数据科学家和机器学习工程师通常会在这些任务上花费大量时间，认真执行这些任务可以为我们带来更大的成功和更深刻地满足业务目标的机器学习模型。
+    作为一个经验法则，最好与同事合作验证和工程这些步骤，以确保生成的洞察和数据可以在多个实验中重复使用。 本章介绍的工具将在整个机器学习过程中再次伴随我们。 在下一章中，我们将深入研究特征工程，并建立在本章的成果基础上。
+- en: ^([1](ch04.xhtml#ch01fn10-marker)) The binary data source schema may change
+    with new releases of Apache Spark or when using Spark in managed environments
+    such as Databricks.
+  id: totrans-334
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch04.xhtml#ch01fn10-marker)) 二进制数据源架构可能会随着Apache Spark的新版本发布或在使用诸如Databricks之类的托管环境中发生变化。
+- en: ^([2](ch04.xhtml#ch01fn11-marker)) An ordinal scale has all its variables in
+    a specific order, beyond just naming them.
+  id: totrans-335
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch04.xhtml#ch01fn11-marker)) 顺序等级标度将所有变量按特定顺序排列，而不仅仅是命名它们。
+- en: ^([3](ch04.xhtml#ch01fn12-marker)) An interval scale labels and orders its variables
+    and specifies a defined, evenly spaced interval between them.
+  id: totrans-336
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch04.xhtml#ch01fn12-marker)) 区间标度标签和顺序其变量，并指定它们之间的定义、均匀间隔。

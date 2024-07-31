@@ -1,0 +1,1340 @@
+- en: Chapter 11\. Using Custom Models in iOS
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 11 章。在 iOS 中使用自定义模型
+- en: 'In [Chapter 9](ch09.html#creating_custom_models), you looked at various scenarios
+    for creating custom models using TensorFlow Lite Model Maker, Cloud AutoML Vision
+    Edge, and TensorFlow using transfer learning. In this chapter, you’ll take a look
+    at how to integrate these into an iOS app. We’ll focus on two scenarios: image
+    recognition and text classification. If you’ve landed here after reading [Chapter 10](ch10.html#using_custom_models_in_android),
+    our discussions will be very similar, because it’s not always as easy as just
+    dropping a model into your app and it just works. With Android, models created
+    with TensorFlow Lite Model Maker shipped with metadata and a task library that
+    made integration much easier. With iOS, you don’t have the same level of support,
+    and passing data into a model and parsing the results back will involve you getting
+    very low level in dealing with converting your internal datatypes into the underlying
+    tensors the model understands. After you’re done with this chapter, you’ll understand
+    the basics on how to do that, but your scenarios may differ greatly, depending
+    on your data! One exception to this will be if you are using a custom model type
+    that is supported by ML Kit; we’ll explore how to use the ML Kit APIs in iOS to
+    handle a custom model.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第 9 章](ch09.html#creating_custom_models)中，您已经查看了使用 TensorFlow Lite Model Maker、Cloud
+    AutoML Vision Edge 和 TensorFlow 使用迁移学习创建自定义模型的各种场景。在本章中，您将看看如何将这些集成到 iOS 应用程序中。我们将专注于两种场景：图像识别和文本分类。如果您在阅读完[第
+    10 章](ch10.html#using_custom_models_in_android)后来到这里，我们的讨论将非常相似，因为只需将模型放入应用程序中并不总是那么简单并且一切顺利。在
+    Android 中，使用 TensorFlow Lite Model Maker 创建的模型随附元数据和任务库，使集成变得更加容易。在 iOS 中，您没有同样级别的支持，并且将数据传递到模型并解析其结果将需要您以非常低级的方式处理将内部数据类型转换为模型理解的底层张量。完成本章后，您将了解如何基本完成这一操作，但是您的场景可能因数据而异！唯一的例外是，如果您正在使用
+    ML Kit 支持的自定义模型类型；我们将探讨如何在 iOS 中使用 ML Kit API 处理自定义模型。
+- en: Bridging Models to iOS
+  id: totrans-2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 将模型桥接到 iOS
+- en: When you train a model and convert it into TensorFlow Lite’s TFLite format,
+    you’ll have a binary blob that you add to your app as an asset. Your app will
+    load this into the TensorFlow Lite interpreter, and you’ll have to code for input
+    and output tensors at a binary level. So, for example, if your model accepts a
+    float, you’ll use a `Data` type that has the four bytes of that float. To make
+    it easier, I’ve created some Swift extensions that are available in the code for
+    this book. The pattern will look like [Figure 11-1](#using_a_model_in_an_ios_app).
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您训练模型并将其转换为 TensorFlow Lite 的 TFLite 格式时，您将获得一个二进制 blob，将其添加到您的应用程序作为资产。您的应用程序将加载这个二进制
+    blob 到 TensorFlow Lite 解释器中，您将需要在二进制级别为输入和输出张量编码。因此，例如，如果您的模型接受一个浮点数，您将使用具有该浮点数四个字节的
+    `Data` 类型。为了更轻松一些，我已经为本书的代码创建了一些 Swift 扩展。模式看起来会像[图 11-1](#using_a_model_in_an_ios_app)。
+- en: '![](assets/aiml_1101.png)'
+  id: totrans-4
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1101.png)'
+- en: Figure 11-1\. Using a model in an iOS app
+  id: totrans-5
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-1。在 iOS 应用程序中使用模型
+- en: 'So, for example, if you consider the simple model that we used in [Chapter 8](ch08.html#going_deeper_understanding_tensorflow_l),
+    where the model learned that the relationship between numbers was y = 2x − 1,
+    you pass it a single float, and it will infer a result. So, for example, if you
+    pass it the value 10, it will return the value 18.98 or close to it. The value
+    going in will be a float, but you’ll actually need to load the four bytes of the
+    float into a buffer that is passed into the model. So, for example, if your input
+    is in the variable data, you’ll use code like this to turn it into a buffer:'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以，例如，如果您考虑在[第 8 章](ch08.html#going_deeper_understanding_tensorflow_l)中使用的简单模型，该模型学习到数字之间的关系是
+    y = 2x − 1，您将传递一个单个浮点数，它将推断出一个结果。例如，如果您传递值 10，它将返回值 18.98 或接近它。进入的值将是一个浮点数，但实际上，您需要将浮点数的四个字节加载到一个传递给模型的缓冲区中。因此，例如，如果您的输入在变量
+    data 中，您将使用以下代码将其转换为缓冲区：
+- en: '[PRE0]'
+  id: totrans-7
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: This will create a pointer to the memory where the data is stored, and given
+    that the generic `<Float>` was used and that you said the count was 1, the buffer
+    will be the four bytes from the address of the data onwards. See what I mean about
+    getting low level into bytes in memory!
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将创建一个指针，指向存储数据的内存，并且由于使用了通用的 `<Float>` 并且您说数目是 1，因此缓冲区将是从数据地址起始的四个字节。看到我所说的关于将内存中的字节变得非常底层！
+- en: 'You copy that buffer to the interpreter as a `Data` type to the first input
+    tensor like this:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将该缓冲区作为 `Data` 类型复制到第一个输入张量的解释器中，就像这样：
+- en: '[PRE1]'
+  id: totrans-10
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'The inference will happen when you invoke the interpreter:'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你调用解释器时，推断将会发生：
+- en: '[PRE2]'
+  id: totrans-12
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'And, if you want to get the results, you’ll have to look at the output tensor:'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 而且，如果您想要获取结果，您需要查看输出张量：
+- en: '[PRE3]'
+  id: totrans-14
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'You know that the `outputTensor` contains a `Float32` as the result, so you’ll
+    have to cast the data in the `outputTensor` into a `Float32`:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你知道`outputTensor`包含一个`Float32`作为结果，所以你必须将`outputTensor`中的数据转换为`Float32`：
+- en: '[PRE4]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: And now you can access the results. It’s a single value in this case, which
+    is easy. Later you’ll see what it looks like for multiple neuron outputs, such
+    as with an image classifier.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您可以访问结果了。在本例中，这是一个单一的值，非常简单。稍后，您将看到多个神经元输出的情况，例如在图像分类器中。
+- en: While this sample is really simple, it is the same pattern that you’ll use for
+    more complex scenarios, so keep it in mind as you go through this chapter.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这个示例非常简单，但对于更复杂的场景，您将使用相同的模式，所以在阅读本章时请牢记这一点。
+- en: You’ll convert your input data into a buffer of the underlying data. You’ll
+    copy this buffer to the input tensor of the interpreter. You’ll invoke the interpreter.
+    You’ll then read the data as a memory stream out of the output tensor, which you’ll
+    have to convert into a usable datatype. If you want to explore a mini app that
+    uses the y = 2x − 1 model from [Chapter 8](ch08.html#going_deeper_understanding_tensorflow_l),
+    you can find it in the repo for this book. Next we’ll look at a more sophisticated
+    example—using images. And while that scenario is more complex than the single
+    float input you just discussed, much of the pattern is the same because the data
+    in an image is still quite structured, and the conversion to read the underlying
+    memory isn’t too difficult. The last pattern you’ll explore will be towards the
+    end of this chapter when you create an app that uses a model trained on natural
+    language processing (NLP). In that case the input data to the model—a string—is
+    vastly different from the tensor that the model recognizes—a list of tokenized
+    words—so you’ll explore the methodology of data conversion in more detail there.
+    But first, let’s look at an image classifier that recognizes images based on a
+    custom model.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您将把输入数据转换为底层数据的缓冲区。您将复制此缓冲区到解释器的输入张量中。您将调用解释器。然后，您将从输出张量中作为内存流读取数据，您将需要将其转换为可用的数据类型。如果您想要探索一个使用来自[第8章](ch08.html#going_deeper_understanding_tensorflow_l)中y
+    = 2x − 1模型的迷你应用程序，您可以在本书的存储库中找到它。接下来，我们将看一个更复杂的例子——使用图像。虽然这种情况比您刚讨论的单浮点输入更复杂，但大部分模式是相同的，因为图像中的数据仍然非常结构化，并且读取底层内存的转换并不太困难。您将在本章末尾探索的最后一种模式是创建一个应用程序，该应用程序使用在自然语言处理（NLP）上训练的模型。在这种情况下，模型的输入数据——一个字符串——与模型识别的张量——一组标记化单词列表——完全不同，因此您将在那里更详细地探讨数据转换的方法论。但首先，让我们看一个基于自定义模型识别图像的图像分类器。
+- en: A Custom Model Image Classifier
+  id: totrans-20
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 自定义模型图像分类器
+- en: Earlier in this book ([Chapter 6](ch06.html#computer_vision_apps_with_ml_kit_on_ios)),
+    you saw how to build an image classifier on iOS using ML Kit. This had a base
+    model that was pretrained to recognize hundreds of classes of image, and it worked
+    really well to show you that there might be a cat in an image, or, as in the case
+    of the image we used of a dog, the model recognized it as both a cat and a dog!
+    But for most cases you probably don’t want the ability to recognize generic images;
+    you need to get more specific. You want to build an app that recognizes different
+    types of crop disease on a leaf. You want one that can take a picture of a bird
+    and tell you what type of bird it is, etc.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本书前面（[第6章](ch06.html#computer_vision_apps_with_ml_kit_on_ios)）已经介绍了如何在iOS上使用ML
+    Kit构建图像分类器。该基础模型预训练用于识别数百类图像，并且它表现良好，可以显示出图像中可能有猫的情况，或者，就像我们用来的狗的图像一样，模型将其同时识别为猫和狗！但对于大多数情况，您可能不希望能够识别通用图像；您需要更具体的内容。您想要构建一个应用程序，可以识别叶子上不同类型的作物疾病。您想要构建一个可以拍摄鸟类并告诉您其鸟类类型的应用程序，等等。
+- en: So, in [Chapter 8](ch08.html#going_deeper_understanding_tensorflow_l), you saw
+    how to use TensorFlow Lite Model Maker in Python to quickly train a model that
+    recognizes five different species of flower from a photo. We’ll use that as a
+    template for any kind of app that will recognize a custom model.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，在[第8章](ch08.html#going_deeper_understanding_tensorflow_l)中，您了解了如何使用Python中的TensorFlow
+    Lite Model Maker快速训练一个模型，该模型可以从照片中识别五种不同种类的花。我们将以此作为模板，用于识别自定义模型的任何类型的应用程序。
+- en: As this is an image-based model, there’s an easy solution to building an app
+    with it using ML Kit’s custom image loading capabilities, but before we get to
+    that, I think it’s good to see how you will need to use models in iOS and Swift
+    where ML Kit isn’t available. You’re going to get low level over the next few
+    steps, so let’s buckle up!
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这是一个基于图像的模型，使用 ML Kit 的自定义图像加载功能来构建应用程序有一个简单的解决方案，但在我们深入讨论之前，我认为看看在 iOS 和
+    Swift 中使用 ML Kit 不可用时如何使用模型是很好的。接下来的几个步骤中，您将会接触到低级别的内容，所以让我们做好准备吧！
+- en: 'Step 1: Create the App and Add the TensorFlow Lite Pod'
+  id: totrans-24
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 步骤 1：创建应用程序并添加 TensorFlow Lite Pod
+- en: 'Using Xcode, create a simple app using the usual flow. If you’re starting the
+    book at this chapter, take a look back to [Chapter 3](ch03.html#introduction_to_ml_kit)
+    for the process. When you’re done creating the app, close Xcode, and in the folder
+    where you created it, add a text file called *podfile* (no extension) that contains
+    this content:'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 Xcode，使用通常的流程创建一个简单的应用程序。如果您从本章开始阅读本书，请回顾一下 [第 3 章](ch03.html#introduction_to_ml_kit)
+    的过程。创建完应用程序后，关闭 Xcode，并在创建它的文件夹中添加一个名为 *podfile*（无扩展名）的文本文件，其中包含以下内容：
+- en: '[PRE5]'
+  id: totrans-26
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: In this case my app was called *Chapter11Flowers*, and as you can see we’re
+    adding a pod to that called *TensorFlowLiteSwift*. Run `**pod install**` to have
+    CocoaPods install the dependencies for you. When it’s done, you can reopen Xcode
+    and load the *.xcworkspace* file that was created for you (not the *.xcproject*!).
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，我的应用程序名称为 *Chapter11Flowers*，正如您所看到的，我们正在为其添加一个名为 *TensorFlowLiteSwift*
+    的 Pod。运行 `**pod install**` 让 CocoaPods 为您安装依赖项。完成后，您可以重新打开 Xcode 并加载为您创建的 *.xcworkspace*
+    文件（不是 *.xcproject*！）。
+- en: 'Step 2: Create the UI and Image Assets'
+  id: totrans-28
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 步骤 2：创建 UI 和图像资产
+- en: You can see how custom image classification works in an app with a really simple
+    UI. In [Figure 11-2](#an_app_with_a_custom_image_model), we have a snippet of
+    a screenshot of the app while it’s running.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以看到自定义图像分类在一个具有非常简单用户界面的应用程序中是如何工作的。在 [图 11-2](#an_app_with_a_custom_image_model)
+    中，我们有一个应用程序运行时的屏幕截图片段。
+- en: '![](assets/aiml_1102.png)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1102.png)'
+- en: Figure 11-2\. An app with a custom image model
+  id: totrans-31
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-2\. 带有自定义图像模型的应用程序
+- en: The app comes preloaded with a few different types of flower, and by pressing
+    the Previous and Next buttons you can navigate between them. Press the Classify
+    button and it will tell you what type of flower the model inferred from the image.
+    It should be a pretty easy update to this to get it to read the camera or a photo
+    from your collection, but to keep the app simple, I just preloaded it with a few
+    images of flowers. To design this, you can open *Main.storyboard* and design the
+    storyboard to look like [Figure 11-3](#designing_the_app_storyboard).
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该应用程序预装了几种不同类型的花朵，通过按“上一个”和“下一个”按钮，您可以在它们之间导航。按“分类”按钮，它将告诉您模型从图像中推断出的花朵类型。要使应用程序保持简单，我只是预装了一些花朵图像。要设计此内容，您可以打开
+    *Main.storyboard* 并设计故事板，使其看起来像 [图 11-3](#designing_the_app_storyboard)。
+- en: '![](assets/aiml_1103.png)'
+  id: totrans-33
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1103.png)'
+- en: Figure 11-3\. Designing the app storyboard
+  id: totrans-34
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-3\. 设计应用程序的故事板
+- en: Using Ctrl+drag, you can drag the controls onto *ViewController.swift* to create
+    outlets and actions.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 Ctrl+拖动，您可以将控件拖到 *ViewController.swift* 上创建输出和操作。
+- en: For the three buttons, create actions called `prevButton`, `nextButton`, and
+    `classifyButton`.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于三个按钮，请创建名为 `prevButton`、`nextButton` 和 `classifyButton` 的操作。
+- en: You should create an outlet for the UIImageView that you call `imageView`. You
+    should create an outlet for the UILabel that you call `lblOutput`.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您应该为名为 `imageView` 的 UIImageView 创建一个输出。您应该为名为 `lblOutput` 的 UILabel 创建一个输出。
+- en: The custom model is designed to recognize five types of flower—daisy, dandelion,
+    rose, sunflower, or tulip. So you can download any images of these flowers to
+    embed within your app. To make the coding easier, make sure you rename the images
+    to *1.jpg*, *2.jpg*, etc., before putting them in the app. You can also use the
+    images I provide in the GitHub repo.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定制模型设计用于识别五种花朵——雏菊、蒲公英、玫瑰、向日葵或郁金香。因此，您可以下载这些花朵的任何图像并嵌入到您的应用程序中。为了简化编码，请确保在将它们放入应用程序之前将图像重命名为
+    *1.jpg*、*2.jpg* 等。您还可以使用我在 GitHub 仓库中提供的图像。
+- en: To add an image to your app, open the *Assets.xcassets* folder, and drag the
+    image to the asset navigator. So, for example, take a look at [Figure 11-4](#adding_assets_to_your_app).
+    To add an image as an asset, simply drag it to the area beneath where it currently
+    says AppIcon, and Xcode will do the rest.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要向应用程序添加图像，请打开 *Assets.xcassets* 文件夹，并将图像拖动到资源导航器中。例如，查看[图 11-4](#adding_assets_to_your_app)。要将图像添加为资产，只需将其拖动到当前显示为
+    AppIcon 下方的区域，Xcode 将完成其余工作。
+- en: '![](assets/aiml_1104.png)'
+  id: totrans-40
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1104.png)'
+- en: Figure 11-4\. Adding assets to your app
+  id: totrans-41
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-4\. 将资产添加到您的应用程序
+- en: You can see where I had six images that I named *1.jpg*, *2.jpg*, etc., and
+    after adding them they became named assets 1, 2, etc. You’re now ready to begin
+    coding.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以看到，我有六张图像，我将它们命名为 *1.jpg*、*2.jpg* 等等，添加后它们变成了命名为资产 1、2 等等的资产。现在，您已经准备好开始编码了。
+- en: 'Step 3: Load and Navigate Through the Image Assets'
+  id: totrans-43
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '步骤 3: 加载并浏览图像资产'
+- en: 'As the image assets are numbered, it now becomes easy to load and navigate
+    through them with the Previous and Next buttons. With a class-level variable called
+    `currentImage` that is changed by the previous and next buttons, and a function
+    called `loadImage` that is also called from `viewDidLoad`, you can navigate between
+    the images in your assets and render them:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于图像资产是编号的，现在通过上一张和下一张按钮加载和浏览它们变得很容易。通过一个称为 `currentImage` 的类级变量，它由上一张和下一张按钮更改，并且一个名为
+    `loadImage` 的函数也从 `viewDidLoad` 调用，您可以在资产中导航并渲染这些图像：
+- en: '[PRE6]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'The `loadImage` function will then just load the image asset that has the same
+    name as `currentImage`:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`loadImage` 函数将只加载与 `currentImage` 同名的图像资产：'
+- en: '[PRE7]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'Step 4: Load the Model'
+  id: totrans-48
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '步骤 4: 加载模型'
+- en: At this point, you need a model. You can create one yourself by following the
+    steps in [Chapter 8](ch08.html#going_deeper_understanding_tensorflow_l) to build
+    a flowers model, or if you prefer, just use the one I created for you, which you
+    can find in the repo. It’ll be in the folder for this app, which I called *Chapter11Flowers*.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此时，您需要一个模型。您可以按照[第 8 章](ch08.html#going_deeper_understanding_tensorflow_l)中的步骤自己创建一个花朵模型，或者如果您愿意，只需使用我为您创建的一个模型，您可以在此应用的存储库中找到它。它将在此应用程序的文件夹中，我称之为
+    *Chapter11Flowers*。
+- en: 'To load a model, you’ll first need to tell the interpreter where it can find
+    it. The model should be included in your app bundle, so you can use code like
+    this to specify it:'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要加载模型，您首先需要告诉解释器可以在哪里找到它。模型应包含在您的应用程序包中，因此您可以使用如下代码指定它：
+- en: '[PRE8]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'The TensorFlow Lite interpreter was part of the pods you installed earlier,
+    and you’ll need to import its libraries to use it:'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow Lite 解释器是您之前安装的 pods 的一部分，您需要导入其库以使用它：
+- en: '[PRE9]'
+  id: totrans-53
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'Then, to instantiate an interpreter and have it load the model you specified
+    earlier, you can use code like this:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，要实例化一个解释器，并让它加载您之前指定的模型，您可以使用这样的代码：
+- en: '[PRE10]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: You now have an interpreter loaded into memory and ready to go. So the next
+    thing you need to do is provide an image it can interpret for you!
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您现在已经加载了一个解释器到内存中并准备就绪。所以下一步您需要做的是提供一个它可以解释的图像！
+- en: 'Step 5: Convert an Image to an Input Tensor'
+  id: totrans-57
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '步骤 5: 将图像转换为输入张量'
+- en: This step is pretty complex, so before diving into the code, let’s explore the
+    concepts visually. Refer back to [Figure 11-1](#using_a_model_in_an_ios_app),
+    and you’ll notice that iOS can store an image as a UIImage, which is very different
+    from the tensors that a model will be trained to recognize. So first, let’s understand
+    how an image is typically stored in memory.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一步骤非常复杂，因此在深入研究代码之前，让我们通过可视化的方式来探索这些概念。参考[图 11-1](#using_a_model_in_an_ios_app)，您会注意到
+    iOS 可以将图像存储为 UIImage，这与模型训练识别的张量非常不同。因此，首先让我们了解一下图像通常如何存储在内存中。
+- en: Every pixel in the image is represented by 32 bits, or 4 bytes. These bytes
+    are the intensities of red, green, blue and alpha. See [Figure 11-5](#how_an_image_is_stored_in_memory).
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像中的每个像素由 32 位或 4 字节表示。这些字节是红色、绿色、蓝色和 alpha 通道的强度。参见[图 11-5](#how_an_image_is_stored_in_memory)。
+- en: '![](assets/aiml_1105.png)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1105.png)'
+- en: Figure 11-5\. How an image is stored in memory
+  id: totrans-61
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-5\. 图像如何存储在内存中
+- en: So, if your image is 1000 × 1000 pixels, for example, then the memory to store
+    it will be one million concurrent sets of 4 bytes. The first set of 4 bytes in
+    this block will be the upper left pixel, the next pixel will be the next set of
+    bytes, and so on.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，例如，如果您的图像是 1000 × 1000 像素，那么用于存储它的内存将是一百万组并发的 4 字节。此块中的第一组 4 字节将是左上角的像素，下一个像素将是下一组字节，依此类推。
+- en: When you train a model (in Python with TensorFlow) to recognize images, you
+    train a model using tensors that represent the image. These tensors typically
+    only contain the red, green, and blue channels, and not the alpha. Additionally,
+    these red, green, and blue channels are *not* the byte contents, but *normalized*
+    byte contents. So, for example, in [Figure 11-4](#adding_assets_to_your_app),
+    the red channel for the highlighted pixel is 11011011, which is 219\. There are
+    many ways that this could be normalized, but we’ll choose the easiest, which is
+    just to divide it by 255, as the range of values in a byte is between 0 to 255,
+    so if we want to map that to a range between 0 and 1, we simply divide by 255\.
+    So the red channel in this pixel would be represented by a float with the value
+    of 219/255\. Similarly, the green and blue ones would be represented by 4/255
+    and 5/255, respectively. (Take a look at [Figure 11-4](#adding_assets_to_your_app),
+    and you’ll see that the green channel is 100 and the blue channel is 101, which
+    are binary for 4 and 5)
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您用TensorFlow（Python中）训练模型以识别图像时，您会使用代表图像的张量来训练模型。这些张量通常仅包含红、绿和蓝通道，而不包含alpha通道。此外，这些红、绿和蓝通道不是字节内容，而是*归一化*的字节内容。例如，在[Figure 11-4](#adding_assets_to_your_app)中，突出显示的像素的红通道是11011011，即219。有许多方法可以进行归一化处理，但我们选择最简单的方法，即将其除以255，因为字节的值范围在0到255之间，因此如果我们希望将其映射到0到1的范围内，我们只需除以255。因此，这个像素的红通道将由值为219/255的浮点数表示。类似地，绿色和蓝色通道分别由4/255和5/255表示。（查看[Figure 11-4](#adding_assets_to_your_app)，您会看到绿色通道是100，蓝色通道是101，这分别是4和5的二进制表示）
+- en: But iOS doesn’t let us structure data into tensors like TensorFlow, so instead
+    we have to write the values of the tensors into raw memory and map them using
+    a [`Data` value type](https://oreil.ly/BOO2S). So, for an image, you would have
+    to go through it pixel by pixel, extract the red/green/blue channels as bytes,
+    and create three concurrent floats that contain the values of these bytes divided
+    by 255\. You’d do this for each pixel in the image, and pass the resulting `Data`
+    blob to the interpreter, which it will then slice into the appropriate tensors!
+    One other thing that you’ll likely have to do before this is to make sure that
+    the image is the correct size for the model. So, for our hypothetical 1000 × 1000
+    image, we’d need to resize it to the size the model recognizes. For mobile models,
+    this is often 224 × 224.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是iOS不允许我们像TensorFlow那样将数据结构化为张量，因此我们必须将张量的值写入原始内存，并使用[`Data`值类型](https://oreil.ly/BOO2S)进行映射。因此，对于图像，您需要逐像素地提取红/绿/蓝通道作为字节，并创建三个并发的浮点数，这些浮点数包含这些字节除以255的值。您将对图像中的每个像素执行此操作，并将生成的`Data`块传递给解释器，然后解释器将把它切片成适当的张量！在此之前，您还需要做的一件事是确保图像是模型所识别的正确尺寸。因此，对于我们的假设性1000
+    × 1000图像，我们需要将其调整大小为模型识别的大小。对于移动模型，通常是224 × 224。
+- en: 'Let’s now get back to the code! First, you can create a `UIImage` from the
+    `currentImage` variable:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们回到代码！首先，您可以从`currentImage`变量创建一个`UIImage`：
+- en: '[PRE11]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'The `UIImage` type exposes a `CVPixelBuffer` property that will let you do
+    things like cropping the image, which you can get like this:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`UIImage`类型暴露了一个`CVPixelBuffer`属性，可以让您执行诸如裁剪图像之类的操作，您可以像这样获取它：'
+- en: '[PRE12]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'There are lots of ways you could change your current image into 224 × 224,
+    including scaling it, but to keep things simple, I’m going to use the `centerThumbnail`
+    property of the pixel buffer, which will find the biggest square at the center
+    of the image, and then rescale that to 224 × 224:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有很多种方法可以将当前图像转换为224 × 224，包括缩放它，但为了保持简单，我将使用像素缓冲区的`centerThumbnail`属性，它将在图像中找到最大的正方形，并将其重新缩放为224
+    × 224：
+- en: '[PRE13]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'At this point we have a 224 × 224 image, but it’s still 32 bits per pixel.
+    We want to split that out into the red, green, and blue channels and load them
+    into a data buffer. The size of this buffer will be 224 × 224 × 3 bytes, so in
+    the next step you’ll create a helper function called `rgbDataFromBuffer` that
+    takes in the pixel buffer and slices the channels out, laying them out as a series
+    of bytes. You’ll call that function and have it return a `Data` like this:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了一个224 × 224的图像，但每像素仍然是32位。我们希望将其拆分为红色、绿色和蓝色通道，并将它们加载到数据缓冲区中。这个缓冲区的大小将是224
+    × 224 × 3字节，因此在下一步中，您将创建一个名为`rgbDataFromBuffer`的辅助函数，该函数接受像素缓冲区并切片通道，将它们排列为一系列字节。您将调用该函数，并让它返回一个类似于`Data`的对象：
+- en: '[PRE14]'
+  id: totrans-72
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Here’s where we’re going to get really low level, so buckle up! The signature
+    of the helper function that takes in a `CVPixelBuffer` and returns a Data should
+    look like this:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们将进入非常低级的地方，请做好准备！接收 `CVPixelBuffer` 并返回 `Data` 的辅助函数的签名应如下所示：
+- en: '[PRE15]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: It returns a `Data?`, because that’s what the interpreter will expect us to
+    send it. You’ll see that a little later.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它返回一个 `Data?`，因为这是解释器希望我们发送的。稍后您将看到这一点。
+- en: 'First, you’ll need to get a pointer (in this case called `mutableRawPointer`)
+    to the address in memory where the buffer is kept. Remember from earlier that
+    this buffer is the 224 × 224 cropping of the image that you created:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，您需要获取一个指向内存地址的指针（在本例中称为 `mutableRawPointer`），该内存地址存放缓冲区。请记住，此缓冲区是您创建的图像的
+    224 × 224 裁剪部分：
+- en: '[PRE16]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'You’ll also need the size of the buffer, which we will call `count`. It might
+    seem odd to call it `count` instead of `size` or something like that, but as you’ll
+    see in the next line of code, when you create a `Data` object, it expects a parameter
+    called `count`, which is the count of bytes! Anyway, to get the size of the buffer
+    you can use `CVPixelBufferGetDataSize` like this:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还需要缓冲区的大小，我们将其称为 `count`。称其为 `count` 而不是 `size` 或类似名称可能看起来有点奇怪，但是正如您将在代码的下一行中看到的，当您创建
+    `Data` 对象时，它期望一个名为 `count` 的参数，这个 `count` 是字节的计数！无论如何，要获取缓冲区的大小，您可以像这样使用 `CVPixelBufferGetDataSize`：
+- en: '[PRE17]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'Now that you have a pointer to the location of the pixel buffer, and the size
+    of it, you can create a `Data` object like this:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您有了指向像素缓冲区位置的指针以及其大小，您可以像这样创建一个 `Data` 对象：
+- en: '[PRE18]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'Each of the 8-bit channels will need to be extracted from this, converted into
+    a float, and then divided by 255 to normalize it. So, for our `rgbData`, let’s
+    first create an array of `Float`s of the same size as the number of bytes in the
+    image (recall that it was 224 × 244 × 3 and this is stored in the `byteCount`
+    parameter):'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个8位通道都需要从中提取出来，并转换为浮点数，然后除以 255 进行归一化。因此，对于我们的 `rgbData`，让我们首先创建一个与图像中的字节数相同大小的
+    `Float` 数组（记住它存储在 `byteCount` 参数中的 224 × 224 × 3 中）：
+- en: '[PRE19]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'So now you can go through the buffer data byte by byte. Every fourth one will
+    be the alpha channel component, so you can ignore it. Otherwise, you can read
+    the byte, divide its value by 255 to normalize it, and then store the normalized
+    value in `rgbBytes` at the current index:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您可以逐字节查看缓冲区数据。每四个字节中的一个将是 alpha 通道组件，因此您可以忽略它。否则，您可以读取字节，将其值除以 255 进行归一化，然后将归一化后的值存储在当前索引的
+    `rgbBytes` 中：
+- en: '[PRE20]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'Now that you have your sequence of normalized bytes that, to the interpreter
+    will look like a tensor containing the image, you can return it as a `Data` like
+    this:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您有了一系列归一化字节序列，对解释器来说看起来像包含图像的张量，您可以像这样返回它作为 `Data`：
+- en: '[PRE21]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: The next step will be to pass this `Data` object to the interpreter and get
+    an inference back.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一步将是将此 `Data` 对象传递给解释器并获得推理结果。
+- en: 'Step 6: Get Inference for the Tensor'
+  id: totrans-89
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第六步：获取张量的推理结果
+- en: 'At this point we have formatted our data from our image into a `Data` that
+    contains the red, green, and blue channels as `Float`s containing the normalized
+    data for each channel for each pixel. When the interpreter reads this `Data`,
+    it will recognize it as an input tensor and read it float by float. To start,
+    let’s initialize the interpreter and allocate memory for the input and output
+    tensors. You’ll find this code in the `getLabelForData` function within the app:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到此为止，我们已经将来自图像的数据格式化为一个 `Data`，其中包含每个像素的红色、绿色和蓝色通道作为包含每个通道归一化数据的 `Float`。当解释器读取此
+    `Data` 时，它将把它识别为输入张量，并逐浮点数读取。首先，让我们初始化解释器并为输入和输出张量分配内存。您将在应用程序中的 `getLabelForData`
+    函数中找到此代码：
+- en: '[PRE22]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'The interpreter will read the raw data, so we have to copy the data to the
+    memory location that the interpreter has allocated to its input tensor:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解释器将读取原始数据，因此我们必须将数据复制到解释器为其输入张量分配的内存位置：
+- en: '[PRE23]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: Note that we’re just dealing with single image input and single inference output
+    here, which is why we have it at input 0\. It’s possible to do batch inference,
+    where you load in a bunch of images at once to get inference on them all, so you’d
+    change the 0 here to *n* for the *n*th image.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们在这里只处理单个图像输入和单个推理输出，这就是为什么我们将其放在输入 0 上的原因。您可以执行批量推理，一次加载多个图像以对它们进行推理，因此您可以将此处的
+    0 改为第 *n* 张图像的 *n*。
+- en: 'Now if we invoke the interpreter, it will load the data, classify it, and write
+    the result to its output tensor:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在如果我们调用解释器，它将加载数据，对其进行分类，并将结果写入其输出张量：
+- en: '[PRE24]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: We can access the interpreter’s output tensor using its `.output` property.
+    Similar to the input, in this case we’re doing one image at a time, so its output
+    is at index 0\. If we were batching images in, then the inference for image *n*
+    will be at index *n.*
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过其`.output`属性访问解释器的输出张量。与输入类似，在这种情况下，我们一次处理一张图像，因此其输出位于索引0。如果我们批量处理图像，则第*n*张图像的推理将位于索引*n*处。
+- en: '[PRE25]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: Recall that this model was trained on five different types of flower, so the
+    output of the model will be five values, with each being the probability that
+    the image contains a particular flower. The order is alphabetical, so as our recognized
+    flowers are daisy, dandelion, rose, sunflower, and tulip, the five values will
+    correspond to those. So, for example, the first output value will be the likelihood
+    the image contains a daisy, and so on.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，这个模型是在五种不同类型的花上训练的，因此模型的输出将是五个值，每个值表示图像包含特定花的概率。按字母顺序排列，我们识别的花包括雏菊、蒲公英、玫瑰、向日葵和郁金香，因此这五个值将对应于这些花的概率。例如，第一个输出值将是图像包含雏菊的可能性，依此类推。
+- en: 'These values are *probabilities*, so they will be between 0 and 1, and as such
+    are represented as a float. You can read the output tensor and convert it to an
+    array like this:'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些值是*概率*，因此它们的取值范围在0到1之间，并且被表示为浮点数。你可以读取输出张量并将其转换为数组，就像这样：
+- en: '[PRE26]'
+  id: totrans-101
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: Now if you want to determine the most likely flower that is contained in the
+    image, you can get back into pure Swift, getting the maximum value, finding the
+    index of that value, and looking up the label that corresponds to that index!
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，如果你想确定图像中包含的最可能的花卉，你可以回到纯Swift，获取最大值，找到该值的索引，并查找与该索引对应的标签！
+- en: '[PRE27]'
+  id: totrans-103
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: You can then render the output string in the user interface to show the inference
+    like I did back in [Figure 11-2](#an_app_with_a_custom_image_model).
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，你可以在用户界面中呈现输出字符串，以展示推理结果，就像我在[图 11-2](#an_app_with_a_custom_image_model)中所做的那样。
+- en: And that’s it! That was a lot of messing around in low-level memory with pointers
+    and buffers, but it was a good exercise in understanding the complexities in converting
+    data between native types and tensors.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就是这样！虽然在低级内存中使用指针和缓冲区处理起来有些复杂，但这是一个理解在原生类型和张量之间转换数据复杂性的好练习。
+- en: If you don’t want to go so low, but are still using images, there’s another
+    alternative, and that is to use ML Kit and have it use your custom model instead
+    of its standard one. It’s pretty easy to do, too! You’ll see that next.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你不想做得那么底层，但仍在使用图像，还有另一种选择，即使用ML Kit并让其使用你的自定义模型而不是其标准模型。这也很容易做到！接下来你将看到。
+- en: Use a Custom Model in ML Kit
+  id: totrans-107
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在ML Kit中使用自定义模型
+- en: In [Chapter 6](ch06.html#computer_vision_apps_with_ml_kit_on_ios), you saw how
+    to build a simple app that used MLvKit’s image labeling APIs to build an app that
+    could recognize a few hundred classes of image, but, as in the preceding example,
+    couldn’t handle more specific things like types of a flower. For that you’d need
+    a custom model. ML Kit can support this, and with just a few minor adjustments
+    you can have it load your custom model and run inference with that, instead of
+    using its base model. The repo for this book has the original app (in the [Chapter 6](ch06.html#computer_vision_apps_with_ml_kit_on_ios)
+    folder) as well as one that is updated for a custom model (in the [Chapter 11](#using_custom_models_in_ios)
+    folder).
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第 6 章](ch06.html#computer_vision_apps_with_ml_kit_on_ios)中，你看到了如何构建一个简单的应用程序，该应用程序使用MLvKit的图像标签API来识别数百种图像类别，但与前面的例子一样，无法处理更具体的事物，如花的类型。为此，你需要一个自定义模型。ML
+    Kit可以支持这一点，只需进行一些小的调整，你就可以让它加载你的自定义模型并运行推理，而不是使用其基础模型。本书的存储库包含原始应用程序（在[第 6 章](ch06.html#computer_vision_apps_with_ml_kit_on_ios)文件夹中）以及更新为自定义模型的应用程序（在[第 11 章](#using_custom_models_in_ios)文件夹中）。
+- en: 'First of all, update your Podfile to use *GoogleMLKit/ImageLabelingCustom*
+    instead of *GoogleMLKit/ImageLabeling*:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，更新你的Podfile以使用*GoogleMLKit/ImageLabelingCustom*而不是*GoogleMLKit/ImageLabeling*：
+- en: '[PRE28]'
+  id: totrans-110
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'After running `**pod install**`, your app will now use the `ImageLabelingCustom`
+    libraries instead of the generic `ImageLabeling` ones. To use these, you’ll need
+    to import them, so at the top of your view controller you can add:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行`**pod install**`之后，你的应用程序现在将使用`ImageLabelingCustom`库而不是通用的`ImageLabeling`库。要使用这些库，你需要导入它们，因此在你的视图控制器顶部，你可以添加：
+- en: '[PRE29]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'For a custom model, you can use MLKit’s `LocalModel` type. You’ll load this
+    from the bundle with your custom model (*flowers_model.tflite* as in the previous
+    walkthrough) with this code:'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于自定义模型，你可以使用MLKit的`LocalModel`类型。你可以使用以下代码从包中加载你的自定义模型（*flowers_model.tflite*，如前面的演示）：
+- en: '[PRE30]'
+  id: totrans-114
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: 'With the base model, you had an `ImageLabelerOptions` object that you set up.
+    For a custom model, you’ll have to use `CustomImageLabelOptions` instead:'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用基础模型，你需要设置一个`ImageLabelerOptions`对象。对于自定义模型，你将需要使用`CustomImageLabelOptions`：
+- en: '[PRE31]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'Now you’ll create the `ImageLabeler` object with custom options, which in turn
+    load the local model:'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你将使用自定义选项创建`ImageLabeler`对象，该对象将加载本地模型：
+- en: '[PRE32]'
+  id: totrans-118
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: Everything else will work as before! You are using a lot less code than in the
+    previous example where you had to hand-convert the raw image into a `Data` to
+    represent it as tensors, and you had to read the output memory that you recast
+    into an array to get the results. So if you are building an image classifier,
+    I highly recommend using ML Kit if you can to prevent this. If you can’t, I hope
+    that presenting both methods is useful to you!
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他一切都与之前一样！与以前必须手动将原始图像转换为`Data`并将其表示为张量的示例相比，你现在使用的代码要少得多，并且你不必读取重新转换为数组以获取结果的输出内存。因此，如果你正在构建图像分类器，我强烈建议你使用
+    ML Kit（如果可以的话）。如果不能，我希望提供两种方法对你有用！
+- en: You can see a screenshot from the updated app in [Figure 11-6](#the_ml_kiten_dashbased_app_with_a_custo).
+    Here I used a picture of a daisy, and ML Kit’s engine, using my custom model,
+    reported back an inference of a 0.96 probability that the image is a daisy!
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在[图 11-6](#the_ml_kiten_dashbased_app_with_a_custo)中看到更新后的应用程序的屏幕截图。这里我使用了雏菊的图片，ML
+    Kit 的引擎使用我的自定义模型返回了雏菊的推断，概率为 0.96！
+- en: '![](assets/aiml_1106.png)'
+  id: totrans-121
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1106.png)'
+- en: Figure 11-6\. The ML Kit-based app with a custom flowers model
+  id: totrans-122
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-6\. 使用自定义花卉模型的 ML Kit 应用程序
+- en: It’s always a useful exercise to understand the underlying data structures when
+    building ML-based models that run on mobile. We’ll explore one more scenario for
+    an app that uses natural language processing, so you can dig a little deeper into
+    using models in Swift. We’ll again go with the raw data approach like we used
+    for the image example, but this time we’ll explore a model that is designed to
+    recognize text and sentiment in text!
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当在移动设备上构建基于 ML 的模型时，理解底层数据结构总是很有用的。我们将探索另一个使用自然语言处理的应用程序场景，这样你就可以更深入地了解如何在 Swift
+    中使用模型。我们将再次采用原始数据的方法，就像我们在图像示例中使用的那样，但这次我们将探索一个设计用于识别文本和文本情感的模型！
+- en: Building an App for Natural Language Processing in Swift
+  id: totrans-124
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用 Swift 构建自然语言处理应用程序
+- en: Before looking at building the app, it’s good to understand the fundamentals
+    of how natural language processing models work, so you can see how the data interchange
+    between the on-device string for your text and the in-model tensors will work.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在着手构建应用程序之前，理解自然语言处理模型的基础工作是很有用的，这样你就能看到在设备上处理文本字符串和模型张量之间的数据交换如何工作。
+- en: First of all, when you train a model on a set of text, called a corpus, you
+    will limit the vocabulary that the model understands to *at most* the words that
+    are in that corpus. So, for example, the model that you’ll use in this app was
+    trained back in [Chapter 8](ch08.html#going_deeper_understanding_tensorflow_l)
+    using text from several thousand tweets. Only the words used in that set of tweets
+    will be recognized by the model. So for example, if you want to classify a sentence
+    using the word “antidisestablishmentarianism” in your app, that word doesn’t exist
+    in the corpus, so your model will ignore it. The first thing you will need is
+    the vocabulary that the model was trained with—i.e., the set of words that it
+    *does* recognize. The notebook in [Chapter 8](ch08.html#going_deeper_understanding_tensorflow_l)
+    had code in it to export that vocabulary so it could be downloaded and used in
+    your app. Also, I said *at most* it would be this set of words, because, if you
+    think about it, there’ll be many words used in the corpus only once or twice.
+    You can typically tweak your model to be smaller, better, and faster by ignoring
+    those words. That’s a little beyond the scope of what we’re doing here, so assume
+    in this case that the vocabulary will be the entire set of words in the corpus,
+    which, of course should be a small subset of all the words in existence!
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，当你在一组文本（称为语料库）上训练模型时，你会将模型理解的词汇限制在*最多*这些语料库中的单词。因此，例如，在这个应用程序中使用的模型是在[第 8
+    章](ch08.html#going_deeper_understanding_tensorflow_l) 中使用数千条推文的文本进行训练的。只有这些推文集中使用的单词才会被模型识别。所以，例如，如果你想在你的应用程序中使用“反教会主义”的词来分类一个句子，那么这个词在语料库中并不存在，因此你的模型会忽略它。你需要的第一件事是模型训练时使用的词汇表，即它*确实*识别的单词集。[第
+    8 章](ch08.html#going_deeper_understanding_tensorflow_l) 中的笔记本中有代码来导出这个词汇表，以便可以下载并在你的应用程序中使用。此外，我说*最多*是指这些单词，因为如果你考虑一下，语料库中可能只有一两次使用的单词。你通常可以通过忽略那些单词来调整模型，使其更小、更好、更快。这超出了我们在这里所做的范围，因此在这种情况下，请假设词汇表将是语料库中所有单词的整体集合，当然，这应该是所有单词的一个小子集！
+- en: Second, a model isn’t trained on *words* but on *tokens that represent those
+    words*. These tokens are numbers, because neural networks work on numbers! They
+    are indexed in the vocabulary, and TensorFlow will sort the vocabulary into the
+    frequency order of a word. So, for example, in the Twitter corpus, the word “today”
+    is the 42nd most popular. It will be represented by the number 44, because tokens
+    0 through 2 are reserved for padding and out-of-vocabulary tokens. Thus, when
+    you are trying to classify a string that your user enters, you will have to convert
+    each word in the string into its relevant token. Again, for this you’ll need the
+    dictionary.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，模型不是在*单词*上训练的，而是在*代表这些单词的标记*上训练的。这些标记是数字，因为神经网络使用数字！它们在词汇表中进行索引，并且 TensorFlow
+    将按照单词的频率对词汇表进行排序。因此，例如，在 Twitter 语料库中，“今天”这个词是第 42 个最流行的。它将由数字 44 表示，因为标记 0 到
+    2 保留用于填充和超出词汇表范围的标记。因此，当你试图对用户输入的字符串进行分类时，你将需要将字符串中的每个单词转换为其相关的标记。同样，为此你将需要词典。
+- en: Third, as your words will be represented by tokens, you won’t pass a string
+    of words to the model, but a list of tokens, often called a *sequence*. Your model
+    is trained on a fixed sequence length, so if your sentence is shorter than that,
+    you’ll have to pad it to fit. Or if your sentence is longer, you’ll have to truncate
+    it to fit.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三，由于你的单词将由标记表示，因此你不会向模型传递一个单词字符串，而是一个称为*序列*的标记列表。你的模型是在固定序列长度上进行训练的，因此如果你的句子比该长度短，你将不得不进行填充以适应。或者如果你的句子更长，你将不得不截断以适应。
+- en: And all this is before you convert the sequence of tokens into an underlying
+    tensor! There’s a lot of steps here, so we’ll explore them bit by bit as we build
+    the app.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一切都发生在你将标记序列转换为底层张量之前！这里有很多步骤，所以我们将逐步探索它们，当我们构建应用程序时。
+- en: '[Figure 11-7](#parsing_sentiment) shows what the app will look like in practice.
+    There’s an edit text field where the user can type in text like “Today was a really
+    fun day! I’m feeling great! :),” and when the user touches the Classify button,
+    the model will parse the text for sentiment. The results are rendered—in this
+    case you can see the probability of negative sentiment is around 7%, where positive
+    sentiment is around 93%.'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 11-7](#parsing_sentiment) 展示了实际应用程序的外观。有一个编辑文本字段，用户可以输入类似“今天是一个真正有趣的一天！我感觉很棒！:)”的文本，当用户触摸“分类”按钮时，模型将解析文本以获取情感。结果呈现——在这种情况下，你可以看到负面情感的概率约为
+    7%，而正面情感约为 93%。'
+- en: Let’s look at what’s necessary to build an app like this! I’ll assume you’ve
+    created an app, added the TensorFlow Lite pod as shown earlier, and created a
+    storyboard with a UITextView for the input (with an outlet called `txtInput`),
+    a UILabel for the output (with an outlet called `txtOutput`), and an action on
+    the button called `classifySentence`. The full app is in this book’s repo, so
+    I’m just going to go over the NLP-specific coding you’ll need to do.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看构建这样一个应用程序所需的必要步骤！我假设您已经创建了一个应用程序，像前面展示的那样添加了 TensorFlow Lite pod，并为输入添加了一个
+    UITextView（带有名为 `txtInput` 的 outlet），为输出添加了一个 UILabel（带有名为 `txtOutput` 的 outlet），并在按钮上创建了一个名为
+    `classifySentence` 的操作。完整的应用程序位于本书的仓库中，所以我只会回顾您需要执行的 NLP 特定编码工作。
+- en: '![](assets/aiml_1107.png)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1107.png)'
+- en: Figure 11-7\. Parsing sentiment
+  id: totrans-133
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-7\. 解析情感
+- en: 'Step 1: Load the Vocab'
+  id: totrans-134
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第 1 步：加载词汇表
+- en: When you created the model using Model Maker (refer back to [Chapter 8](ch08.html#going_deeper_understanding_tensorflow_l)),
+    you were able to download the model as well as a vocab file from the Colab environment.
+    The vocab file was just called *vocab* with no extension, so rename it to *vocab.txt*
+    and add it to your app. Make sure it’s included in the bundle, or your app won’t
+    be able to read it at runtime.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您使用 Model Maker 创建模型时（请参阅 [第 8 章](ch08.html#going_deeper_understanding_tensorflow_l)），您能够从
+    Colab 环境中下载模型以及一个名为 *vocab* 的词汇文件。将该词汇文件重命名为 *vocab.txt* 并添加到您的应用中。确保它包含在包中，否则您的应用在运行时将无法读取它。
+- en: 'Then, to use the vocab, you’ll need a dictionary which is a set of key-value
+    pairs. The key is a string (containing the word) and the value is an `int` (containing
+    the index of the word) like this:'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，要使用词汇表，您需要一个包含键-值对的字典。键是一个字符串（包含单词），值是一个`int`（包含单词的索引），如下所示：
+- en: '[PRE33]'
+  id: totrans-137
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'Then to load the dictionary, you can write a helper function called `loadVocab()`.
+    Let’s explore what it does. First, specify *vocab.txt* as the file you want to
+    load by defining a `filePath`:'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，要加载字典，您可以编写一个名为 `loadVocab()` 的辅助函数。让我们探讨它的功能。首先，通过定义 `filePath`，将 *vocab.txt*
+    指定为您要加载的文件：
+- en: '[PRE34]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: 'If it is found, then the code within the braces will execute, so you can load
+    the entire file into a `String`:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果找到了，那么括号内的代码将执行，所以您可以将整个文件加载到一个 `String` 中：
+- en: '[PRE35]'
+  id: totrans-141
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: 'You can then split this by new line constants into a set of lines:'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，您可以按换行符分割这些行以获取一组行：
+- en: '[PRE36]'
+  id: totrans-143
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: 'You can iterate through this to split each line by a space. Within the file
+    you’ll see that the vocab has a word followed by its token, separated by a space,
+    on each line. This can give you your key and value, so you can load `words_dictionary`
+    with them:'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过此进行迭代，以每行空格分割。在文件中，您将看到词汇表中每行都有一个单词和其后跟随的标记，用空格分隔。这可以为您提供键和值，因此您可以用它们加载
+    `words_dictionary`：
+- en: '[PRE37]'
+  id: totrans-145
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: 'For convenience, here’s the full function:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了方便起见，这里是完整的函数：
+- en: '[PRE38]'
+  id: totrans-147
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: Now that the dictionary is loaded into memory, the next step will be to convert
+    the user’s input string into a sequence of tokens. You’ll see that next.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在字典已加载到内存中，下一步是将用户的输入字符串转换为一系列标记。您将在接下来看到这一步。
+- en: Note
+  id: totrans-149
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The next few steps will use some sophisticated Swift extensions for handling
+    low-level memory with unsafe data buffers. It’s beyond the scope of this book
+    to go into detail about how these extensions work, and in general they are code
+    that you can reuse in your own apps with little or no modification.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来的几个步骤将使用一些用于处理低级内存的复杂 Swift 扩展。详细介绍这些扩展如何工作已超出本书的范围，通常情况下，这些是您可以在自己的应用程序中以几乎不需要修改的代码进行重用的代码。
+- en: 'Step 2: Convert the Sentence to a Sequence'
+  id: totrans-151
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第 2 步：将句子转换为序列
+- en: As discussed earlier, when creating a language model, you train it on a sequence
+    of tokens. This sequence is fixed length, so if your sentence is longer, you’ll
+    trim it to that length. If it’s shorter, you’ll pad it to that length.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如前面讨论的，在创建语言模型时，您需要对一系列标记进行训练。此序列长度固定，因此如果您的句子更长，您将对其进行修剪至该长度。如果较短，则填充至该长度。
+- en: 'The input tensors to the language model will be a sequence of 4-byte integers,
+    so to begin creating it, you’ll initialize your sequence to be `Int32`s, all of
+    which are 0, where in the vocab, 0 is a not-found word indicated by `<Pad>` in
+    the dictionary (for padding!). (Note: you’ll see this code in the `convert_sentence`
+    function in the app if you cloned it from the repo.)'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 语言模型的输入张量将是一系列 4 字节整数，因此，为了开始创建它，您将初始化您的序列为`Int32`，所有这些整数都是 0，在词汇表中，0 表示一个未找到的单词，在字典中用
+    `<Pad>` 表示（用于填充！）（注：如果您从仓库克隆了它，您将在应用的 `convert_sentence` 函数中看到此代码。）
+- en: '[PRE39]'
+  id: totrans-154
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: 'Here is some Swift code to split a string into words, while removing punctuation
+    and multiple spaces:'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一些 Swift 代码，可以将一个字符串拆分为单词，同时去除标点符号和多个空格：
+- en: '[PRE40]'
+  id: totrans-156
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: 'This will give you a list of words in a data structure called `words`. It’s
+    pretty easy to loop through this, and if the word exists as a key in `words_dictionary`,
+    you can add its value to the sequence. Note that you add it as an `Int32`:'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将给你一个称为 `words` 的单词列表数据结构。循环遍历这个数据结构非常简单，如果单词作为 `words_dictionary` 中的键存在，你可以将它的值添加到序列中。请注意将其添加为
+    `Int32`：
+- en: '[PRE41]'
+  id: totrans-158
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: Once you’re done here, `sequence` will contain your words encoded as a sequence
+    of `Int32`s.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你完成这里，`sequence` 将会包含你的单词编码为 `Int32` 的序列。
+- en: 'Step 3: Extend Array to Handle Unsafe Data'
+  id: totrans-160
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 步骤 3：扩展数组以处理不安全数据
+- en: 'Your sequence is an array of `Int32`s, but Swift will have some structure around
+    this. For TensorFlow Lite to read it, it needs to read the raw bytes in sequence,
+    and the easiest way for you to do this is to extend the `Array` type to handle
+    the unsafe data. It’s one of the nice features of Swift that you can extend types.
+    Here’s the full code:'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你的序列是一个 `Int32` 数组，但是 Swift 会围绕这个做一些结构。为了让 TensorFlow Lite 能够读取它，需要按顺序读取原始字节，你可以通过扩展
+    `Array` 类型来处理这些不安全的数据。这是 Swift 的一个很好的特性，你可以扩展类型。下面是完整的代码：
+- en: '[PRE42]'
+  id: totrans-162
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: I won’t go into detail on what this function does, but ultimately the idea is
+    that it will use the `init` functionality of Swift to initialize a new array with
+    the `unsafeBytes` within the `Data` constructor. In Swift 5.0+, you can use `bindMemory`
+    to copy the underlying memory to the new array; otherwise, you’ll use `unsafeData.withUnsafeBytes`
+    to copy from the start of the original buffer with a count of the amount of `unsafeData`.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我不会详细说明这个函数做了什么，但最终的想法是它将使用 Swift 的 `init` 功能来初始化一个新的数组，其中包含 `Data` 构造函数中的 `unsafeBytes`。在
+    Swift 5.0+ 中，你可以使用 `bindMemory` 将底层内存复制到新数组；否则，你将使用 `unsafeData.withUnsafeBytes`
+    从原始缓冲区的开头复制，以及 `unsafeData` 的数量。
+- en: 'To create an input tensor using this from the sequence you created earlier,
+    you can just use:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用你之前创建的序列创建一个输入张量，你可以简单地使用：
+- en: '[PRE43]'
+  id: totrans-165
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: This will be used to create the `Data` type that’s passed to the interpreter.
+    You’ll see that in the next step.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将用于创建传递给解释器的 `Data` 类型。你将在下一步中看到这个。
+- en: 'Step 4: Copy the Array to a Data Buffer'
+  id: totrans-167
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 步骤 4：将数组复制到数据缓冲区
+- en: 'You now have an array of `Int32`s using just the underlying bytes of the `Int32`s;
+    it’s called `tSequence`. This needs to be copied to a `Data` for TensorFlow to
+    be able to parse it. The easiest way to do this is to extend `Data` to handle
+    a buffer you’ll copy from. Here’s the extension:'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你有了一个 `Int32` 数组，仅使用 `Int32` 的底层字节；它称为 `tSequence`。这需要复制到一个 `Data` 中，以便 TensorFlow
+    能够解析它。最简单的方法是扩展 `Data` 来处理你将从中复制的缓冲区。以下是扩展代码：
+- en: '[PRE44]'
+  id: totrans-169
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: 'This will just initialize the `Data` by copying the unsafe buffer data from
+    the input array (called `array`). To use this to create a new `Data`, you can
+    use code like this:'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将仅通过从输入数组（称为 `array`）复制不安全的缓冲区数据来初始化 `Data`。要使用此数据创建新的 `Data`，可以使用以下代码：
+- en: '[PRE45]'
+  id: totrans-171
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: As you can see, this will create `myData` by mapping `tSequence`, using the
+    `Int32` type. You now have data that TensorFlow Lite can interpret!
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你所见，这将通过映射 `tSequence`，使用 `Int32` 类型来创建 `myData`。现在你有了 TensorFlow Lite 可以解释的数据！
+- en: 'Step 5: Run Inference on the Data and Process the Results'
+  id: totrans-173
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 步骤 5：对数据进行推理并处理结果
+- en: 'After step 4, you have `myData`, which is a raw data buffer containing the
+    `Int32`s for the tokens that make up the sequence that represents your sentence.
+    So you can now initialize your interpreter by allocating tensors and then copying
+    `myData` to the first input tensor. You’ll find this code in the `classify` function
+    if you use the code from the book’s repo:'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第 4 步之后，你将得到 `myData`，它是一个包含组成表示你的句子的序列的 `Int32` 的原始数据缓冲区。因此，你现在可以通过分配张量来初始化解释器，然后将
+    `myData` 复制到第一个输入张量。如果你使用书中的代码，你将在 `classify` 函数中找到这段代码：
+- en: '[PRE46]'
+  id: totrans-175
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: 'You’ll then invoke the interpreter, and get the `outputTensor`:'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后你将调用解释器，并获取 `outputTensor`：
+- en: '[PRE47]'
+  id: totrans-177
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: 'The tensor will output an array of two values, one for the negative sentiment,
+    and one for the positive sentiment. These are values between 0 and 1, so you’ll
+    need to cast the array to `Float32` to access them:'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 张量将输出一个包含两个值的数组，一个用于负面情感，一个用于正面情感。这些值在 0 到 1 之间，因此你需要将数组转换为 `Float32` 类型来访问它们：
+- en: '[PRE48]'
+  id: totrans-179
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE48]'
+- en: 'Now it’s relatively easy (finally!) to access the values, simply by reading
+    the first two entries in the array:'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在相对容易（终于！）通过读取数组中的前两个条目来访问这些值：
+- en: '[PRE49]'
+  id: totrans-181
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE49]'
+- en: These values can then be processed, or simply output, like I did in this app;
+    you can see that in [Figure 11-7](#parsing_sentiment).
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些数值随后可以被处理，或者简单输出，就像我在这个应用中所做的那样；你可以在 [图 11-7](#parsing_sentiment) 中看到。
+- en: Summary
+  id: totrans-183
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概要
+- en: Using machine learning models from TensorFlow on iOS with Swift requires you
+    to get pretty low level and manage the memory in and memory out when it comes
+    to loading your data into a model to get an inference and then parse it. In this
+    chapter, you explored that with respect to images, where you had to slice the
+    channel bytes for red, green, and blue from the underlying image, normalize them,
+    and write them out as float values using unsafe `Data` buffers loaded into the
+    TensorFlow Lite Interpreter. You also saw how to parse the output from the model—and
+    why it’s vital to understand the model architecture, which in this case had five
+    output neurons containing the probabilities that the image was one of five different
+    flowers. In comparison, you saw that ML Kit made this scenario a lot easier by
+    using its higher level APIs for a custom model, and I’d strongly recommend that
+    if you are building models that are covered by ML Kit scenarios this would be
+    the way to go, instead of dealing with the raw bits and bytes yourself! For another
+    exercise in data management, you also saw a simple NLP app, where you want to
+    classify a string, and how you would first tokenize that string, then turn it
+    into a sequence, and then map the types of that sequence into a raw buffer that
+    you’d pass to the engine. This scenario isn’t supported in ML Kit, or any other
+    high-level APIs, so it’s important to get hands-on and explore how to do it! I
+    hope that these two walkthroughs, and the extensions created to make them possible,
+    will make your life easier as you create apps yourself. In the next chapter, we’ll
+    switch gears away from TensorFlow Lite towards the iOS-specific APIs of Core ML
+    and Create ML.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 iOS 上使用 TensorFlow 的机器学习模型需要你在加载数据到模型进行推断并解析时，进行相当低层次的内存管理。在本章中，你探索了如何处理图像，需要从底层图像中切片通道字节的红、绿和蓝色，对它们进行归一化，并将它们写入作为浮点值的
+    `Data` 缓冲区，使用 TensorFlow Lite 解释器加载。你还看到了如何解析模型的输出——以及为什么理解模型架构至关重要，在本例中，该模型具有五个输出神经元，包含了图像是五种不同花卉的概率。相比之下，你看到
+    ML Kit 通过使用其更高级别的 API，使这种场景变得更加容易，如果你正在构建被 ML Kit 场景覆盖的模型，我强烈推荐这种方法，而不是自己处理原始的位和字节！在另一个数据管理练习中，你还看到了一个简单的自然语言处理应用程序，其中你想要对字符串进行分类，以及如何首先对该字符串进行标记化，然后将其转换为序列，并将该序列的类型映射到一个原始缓冲区，然后将其传递给引擎。ML
+    Kit 或任何其他高级 API 不支持这种情况，因此重要的是要动手探索如何实现！我希望这两个实例及为其创建的扩展能够使你在创建应用程序时更加轻松。在下一章中，我们将摆脱
+    TensorFlow Lite 转向 Core ML 和 Create ML 的 iOS 特定 API。

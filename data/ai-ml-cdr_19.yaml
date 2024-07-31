@@ -1,0 +1,737 @@
+- en: Chapter 16\. Coding Techniques for Computer Vision in TensorFlow.js
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 16 章\. TensorFlow.js 中的计算机视觉编码技术
+- en: In Chapters [2](ch02.xhtml#introduction_to_computer_vision) and [3](ch03.xhtml#going_beyond_the_basics_detecting_featu)
+    you saw how TensorFlow can be used to create models for computer vision, which
+    can be trained to recognize the content in images. In this chapter you’ll do the
+    same, but with JavaScript. You’ll build a handwriting recognizer that runs in
+    the browser and is trained on the MNIST dataset. You can see it in [Figure 16-1](#a_handwriting_classifier_in_the_browser).
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第2章](ch02.xhtml#introduction_to_computer_vision)和[第3章](ch03.xhtml#going_beyond_the_basics_detecting_featu)中，您看到
+    TensorFlow 如何用于创建计算机视觉模型，可以训练识别图像内容。本章中，您将使用 JavaScript 完成同样的任务。您将构建一个在浏览器中运行并基于
+    MNIST 数据集训练的手写识别器。您可以在[图 16-1](#a_handwriting_classifier_in_the_browser)中看到它。
+- en: '![A handwriting classifier in the browser](Images/aiml_1601.png)'
+  id: totrans-2
+  prefs: []
+  type: TYPE_IMG
+  zh: '![浏览器中的手写识别器](Images/aiml_1601.png)'
+- en: Figure 16-1\. A handwriting classifier in the browser
+  id: totrans-3
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 16-1\. 浏览器中的手写识别器
+- en: There are a few crucial implementation details to be aware of when you’re working
+    with TensorFlow.js, particularly if you are building applications in the browser.
+    Perhaps the biggest and most important of these is how training data is handled.
+    When using a browser, every time you open a resource at a URL, you’re making an
+    HTTP connection. You use this connection to pass commands to a server, which will
+    then dispatch the results for you to parse. When it comes to machine learning,
+    you generally have a lot of training data—for example, in the case of MNIST and
+    Fashion MNIST, even though they are small learning datasets they still each contain
+    70,000 images, which would be 70,000 HTTP connections! You’ll see how to deal
+    with this later in this chapter.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您使用 TensorFlow.js 工作时，特别是在浏览器中构建应用程序时，有一些关键的实施细节需要注意。其中可能最大且最重要的是如何处理训练数据。在浏览器中，每次打开
+    URL 的资源时，都会进行一次 HTTP 连接。您可以使用此连接传递命令到服务器，服务器会返回结果供您解析。在机器学习中，通常会有大量的训练数据，例如在 MNIST
+    和 Fashion MNIST 的情况下，即使它们是小型学习数据集，每个仍包含 70,000 张图像，这将产生 70,000 次 HTTP 连接！您将在本章后面看到如何处理这些情况。
+- en: Additionally, as you saw in the last chapter, even for a very simple scenario
+    like training for Y = 2X – 1, nothing appeared to happen during the training cycle
+    unless you opened the debug console, where you could see the epoch-by-epoch loss.
+    If you’re training something much more sophisticated, which takes longer, it can
+    be difficult to understand what’s going on during training. Fortunately there
+    are built-in visualization tools that you can use, as seen on the right side of
+    [Figure 16-1](#a_handwriting_classifier_in_the_browser); you’ll also explore them
+    in this chapter.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，正如您在上一章节看到的那样，即使对于像 Y = 2X – 1 这样非常简单的情况，除非您打开调试控制台，否则在训练周期中似乎没有任何操作。在调试控制台中，您可以看到逐个周期的损失情况。如果您在训练需要较长时间的更复杂的任务时，很难理解正在进行的情况。幸运的是，有内置的可视化工具可供使用，如[图 16-1](#a_handwriting_classifier_in_the_browser)右侧所示；您还将在本章中探索它们。
+- en: There are also syntactical differences to be aware of when defining a convolutional
+    neural network in JavaScript, some of which we touched on in the previous chapter.
+    We’ll start by considering these. If you need a refresher on CNNs, see [Chapter 3](ch03.xhtml#going_beyond_the_basics_detecting_featu).
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 JavaScript 中定义卷积神经网络时，也需要注意一些语法上的差异，我们在前一章中已经提到了一些。我们将从考虑这些方面开始。如果您需要关于 CNN
+    的复习，请参阅[第3章](ch03.xhtml#going_beyond_the_basics_detecting_featu)。
+- en: JavaScript Considerations for TensorFlow Developers
+  id: totrans-7
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: TensorFlow 开发人员的 JavaScript 考虑事项
+- en: When building a full (or close to it) application in JavaScript like you will
+    in this chapter, there are a number of things that you’ll have to take into account.
+    JavaScript is very different from Python, and, as such, while the TensorFlow.js
+    team has worked hard to keep the experience as close to “traditional” TensorFlow
+    as possible, there are some changes.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在构建类似于本章节中的 JavaScript 应用程序时，有一些需要考虑的重要事项。JavaScript 与 Python 非常不同，因此，尽管 TensorFlow.js
+    团队努力使体验尽可能接近“传统”TensorFlow，但还是存在一些变化。
+- en: First is the *syntax*. While in many respects TensorFlow code in JavaScript
+    (especially Keras code) is quite similar to that in Python, there are a few syntactic
+    differences—most notably, as mentioned in the previous chapter, the use of JSON
+    in parameter lists.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一点是*语法*。虽然在许多方面，JavaScript 中的 TensorFlow 代码（特别是 Keras 代码）与 Python 中的非常相似，但在参数列表中使用
+    JSON 是一个显著的语法差异，正如前一章中提到的那样。
+- en: Next is *synchronicity*. Especially when running in the browser, you can’t lock
+    up the UI thread when training and instead need to perform many operations asynchronously,
+    using JavaScript `Promise`s and `await` calls. It’s not the intention of this
+    chapter to go into depth teaching these concepts; if you aren’t already familiar
+    with them, you can think of them as asynchronous functions that, instead of waiting
+    to finish executing before returning, will go off and do their own thing and “call
+    you back” when they’re done. The `tfjs-vis` library was created to help you debug
+    your code when training models asynchronously with TensorFlow.js. The visualization
+    tools give you a separate sidebar in the browser, not interfering with your current
+    page, in which visualizations like training progress can be plotted; we’ll talk
+    more about them in [“Using Callbacks for Visualization”](#using_callbacks_for_visualization).
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来是*同步性*。特别是在浏览器中运行时，当训练时不能锁定UI线程，而是需要异步执行许多操作，使用JavaScript的`Promise`和`await`调用。本章不打算深入教授这些概念；如果你还不熟悉它们，可以将它们视为异步函数，这些函数在返回之前不会等待执行完毕，而是会自行执行并在完成后“回调”你。`tfjs-vis`库被创建来帮助你调试使用TensorFlow.js异步训练模型时的代码。可视化工具在浏览器中提供了一个独立的侧边栏，不会干扰当前页面，在其中可以绘制诸如训练进度之类的可视化内容；我们将在[“使用回调进行可视化”](#using_callbacks_for_visualization)中进一步讨论它们。
+- en: '*Resource usage* is also an important consideration. As the browser is a shared
+    environment, you may have multiple tabs open in which you’re doing different things,
+    or you might be performing multiple operations within the same web app. Therefore,
+    it’s important to control how much memory you use. ML training can be memory-intensive,
+    as lots of data is required to understand and distinguish the patterns that map
+    features to labels. As a result, you should take care to tidy up after yourself.
+    The `tidy` API is designed for just that and should be used as much as possible:
+    wrapping a function in `tidy` ensures that all tensors not returned by the function
+    will be cleaned up and released from memory.'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*资源使用*也是一个重要的考虑因素。因为浏览器是一个共享环境，你可能同时打开多个标签页进行不同的操作，或者在同一个Web应用中执行多个操作。因此，控制你使用的内存量是很重要的。ML训练可能会消耗大量内存，因为需要大量数据来理解和区分将特征映射到标签的模式。因此，你应该注意在使用后进行整理。`tidy`
+    API就是为此设计的，并且应该尽可能使用：将一个函数包装在`tidy`中确保所有未被函数返回的张量都将被清理并释放内存。'
+- en: 'While not a TensorFlow API, the `arrayBuffer` in JavaScript is another handy
+    construct. It’s analogous to a `ByteBuffer` for managing data like it was low-level
+    memory. In the case of machine learning applications, it’s often easiest to use
+    very sparse encoding, as you’ve seen already with one-hot encoding. Remembering
+    that processing in JavaScript can be thread-intensive and you don’t want to lock
+    up the browser, it can be easier to have a sparse encoding of data that doesn’t
+    require processor power to decode. In the example from this chapter, the labels
+    are encoded in this way: for each of the 10 classes, 9 of them will have a 0 ×
+    00 byte and the other, representing the matching class for that feature, will
+    have a 0 × 01 byte. This means 10 bytes, or 80 bits, are used for each label,
+    where as a coder you might think that only 4 bits would be necessary to encode
+    a number between 1 and 10\. But of course, if you did it that way you would have
+    to decode the results—65,000 times for that many labels. Thus, having a sparsely
+    encoded file that’s easily represented in bytes by an `arrayBuffer` can be quicker,
+    albeit with a larger file size.'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然不是TensorFlow API，但JavaScript中的`arrayBuffer`是另一个方便的构造。它类似于`ByteBuffer`，用于像低级内存一样管理数据。在机器学习应用中，通常最容易使用非常稀疏的编码，就像你已经在one-hot编码中看到的那样。记住，在JavaScript中处理可能是线程密集型的，你不希望锁定浏览器，所以更容易使用不需要处理器解码的稀疏数据编码。在本章的示例中，标签是以这种方式编码的：对于每个10个类别，其中9个将具有一个0
+    × 00字节，另一个表示该特征的匹配类将具有一个0 × 01字节。这意味着每个标签使用了10字节，或80位，作为编码人员，你可能认为只需要4位来编码1到10之间的数字。但当然，如果你这样做，你将不得不解码结果——对于这么多的标签，解码将会进行65000次。因此，使用`arrayBuffer`轻松表示的稀疏编码文件可能更快，尽管文件大小较大。
+- en: Also worthy of mention are the `tf.browser` APIs, which are helpful for dealing
+    with images. At the time of writing there are two methods, `tf.browser.toPixels`
+    and `tf.browser.fromPixels`, which, as their names suggest, are used for translating
+    pixels between browser-friendly formats and tensor formats. You’ll use these later
+    when you want to draw a picture and have it interpreted by the model.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还值得一提的是`tf.browser`的API，用于处理图像非常有用。在撰写时，有两种方法，`tf.browser.toPixels`和`tf.browser.fromPixels`，顾名思义，用于在浏览器友好格式和张量格式之间转换像素。稍后当您想要绘制一幅图并让模型解释时，将会用到这些。
+- en: Building a CNN in JavaScript
+  id: totrans-14
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在JavaScript中构建CNN
+- en: 'When building any neural network with TensorFlow Keras, you define a number
+    of layers. In the case of a convolutional neural network, you’ll typically have
+    a series of convolutional layers followed by pooling layers, whose output is flattened
+    and fed into a dense layer. For example, here’s an example of a CNN that was defined
+    for classifying the MNIST dataset back in [Chapter 3](ch03.xhtml#going_beyond_the_basics_detecting_featu):'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当使用TensorFlow Keras构建任何神经网络时，您定义了许多层。对于卷积神经网络，通常会有一系列卷积层，然后是池化层，其输出被展平并馈入密集层。例如，这是为分类MNIST数据集而定义的CNN示例，回到[第三章](ch03.xhtml#going_beyond_the_basics_detecting_featu)：
+- en: '[PRE0]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Let’s break down line by line how this could be implemented in JavaScript.
+    We’ll start by defining the model as a `sequential`:'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们逐行分解如何在JavaScript中实现这一点。我们将首先将模型定义为`sequential`：
+- en: '[PRE1]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'Next, we’ll define the first layer as a 2D convolution that learns 64 filters,
+    with a kernel size of 3 × 3 and an input shape of 28 × 28 × 1\. The syntax here
+    is very different from Python, but you can see the similarity:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将第一层定义为学习64个滤波器的2D卷积，核大小为3×3，输入形状为28×28×1。这里的语法与Python非常不同，但您可以看到相似之处：
+- en: '[PRE2]'
+  id: totrans-20
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'The following layer was a `MaxPooling2D`, with a pool size of 2 × 2\. In JavaScript
+    it’s implemented like this:'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一层是一个`MaxPooling2D`，池大小为2×2。在JavaScript中实现如下：
+- en: '[PRE3]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'This was followed by another convolutional layer and max pooling layer. The
+    difference here is that there is no input shape, as it isn’t an input layer. In
+    JavaScript this looks like this:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随后是另一个卷积层和最大池化层。区别在于这里没有输入形状，因为它不是一个输入层。在JavaScript中看起来像这样：
+- en: '[PRE4]'
+  id: totrans-24
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'After this, the output was flattened, and in JavaScript the syntax for that
+    is:'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此之后，输出被展平，在JavaScript中的语法如下：
+- en: '[PRE5]'
+  id: totrans-26
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'The model was then completed by two dense layers, one with 128 neurons activated
+    by `relu`, and the output layer of 10 neurons activated by `softmax`:'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型随后由两个密集层完成，一个具有128个神经元，激活函数为`relu`，输出层有10个神经元，激活函数为`softmax`：
+- en: '[PRE6]'
+  id: totrans-28
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'As you can see, the JavaScript APIs look very similar to the Python ones, but
+    there are syntactical differences that can be gotchas: the names of APIs follow
+    camel case convention but start with a lowercase letter, as expected in JavaScript
+    (i.e., `maxPooling2D` instead of `MaxPooling2D`), parameters are defined in JSON
+    instead of comma-separated lists, etc. Keep an eye on these differences as you
+    code your neural networks in JavaScript.'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您所见，JavaScript的API看起来与Python非常相似，但存在语法上的差异，这可能是陷阱：API的名称遵循驼峰命名约定，但以小写字母开头，正如JavaScript所期望的那样（即`maxPooling2D`而不是`MaxPooling2D`），参数在JSON中定义，而不是以逗号分隔的列表等等。在编写JavaScript中的神经网络时，请注意这些差异。
+- en: 'For convenience, here’s the complete JavaScript definition of the model:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了方便起见，这里是模型的完整JavaScript定义：
+- en: '[PRE7]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'Similarly, when compiling the model, consider the differences between Python
+    and JavaScript. Here’s the Python:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样地，当编译模型时，请考虑Python和JavaScript之间的差异。这是Python的示例：
+- en: '[PRE8]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'And the equivalent JavaScript:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相应的JavaScript如下：
+- en: '[PRE9]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'While they’re very similar, keep in mind the JSON syntax for the parameters
+    (`*parameter*: *value*`, not `*parameter*=*value*`) and that the list of parameters
+    is enclosed in curly braces (`{}`).'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管它们非常相似，但请记住参数的JSON语法（*参数*：*值*，而不是*参数*=*值*）以及参数列表用大括号（{}）括起来。
+- en: Using Callbacks for Visualization
+  id: totrans-37
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用回调进行可视化
+- en: In [Chapter 15](ch15.xhtml#an_introduction_to_tensorflowdotjs), when you were
+    training the simple neural network, you logged the loss to the console when each
+    epoch ended. You then used the browser’s developer tools to view the progress
+    in the console, looking at the changes in the loss over time. A more sophisticated
+    approach is to use the [TensorFlow.js visualization tools](https://oreil.ly/VJ3t5),
+    created specifically for in-browser development. These include tools for reporting
+    on training metrics, model evaluation, and more. The visualization tools appear
+    in a separate area of the browser window that doesn’t interfere with the rest
+    of your web page. The term used for this is a *visor*. It will default to showing
+    at the very least the model architecture.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [Chapter 15](ch15.xhtml#an_introduction_to_tensorflowdotjs) 中，当您训练简单的神经网络时，每个
+    epoch 结束时将损失记录到控制台。然后，您可以使用浏览器的开发者工具查看控制台中损失随时间的变化。更高级的方法是使用专为浏览器开发而创建的 [TensorFlow.js
+    可视化工具](https://oreil.ly/VJ3t5)。这些工具包括用于报告训练指标、模型评估等的工具。可视化工具显示在浏览器窗口的另一个区域，不会干扰页面的其余部分。这个区域的术语叫做*视觉器*。它默认显示模型架构。
+- en: 'To use the `tfjs-vis` library in your page, you can include it with a script:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在页面中使用 `tfjs-vis` 库，您可以通过以下脚本引入它：
+- en: '[PRE10]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'Then, to see visualizations while training, you need to specify a callback
+    in your `model.fit` call. Here’s an example:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，在训练时查看可视化，您需要在 `model.fit` 调用中指定一个回调。以下是一个示例：
+- en: '[PRE11]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'The callbacks are defined as a `const`, using `tfvis.show.fitCallbacks`. This
+    takes two parameters—a container and the desired metrics. These are also defined
+    using `const`s, as shown here:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回调函数被定义为 `const`，使用 `tfvis.show.fitCallbacks`。它接受两个参数——一个容器和所需的度量标准。这些也是使用 `const`
+    定义的，如下所示：
+- en: '[PRE12]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: The `container const` has parameters that define the visualization area. All
+    visualizations are shown in a single tab by default. By using a `tab` parameter
+    (set to “Training Progress” here), you can split the training progress out into
+    a separate tab. [Figure 16-2](#using_the_visualization_tools) illustrates what
+    the preceding code will show in the visualization area at runtime.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`container const` 包含定义可视化区域的参数。所有可视化默认显示在单个选项卡中。通过使用 `tab` 参数（此处设置为“训练进度”），您可以将训练进度分割到单独的选项卡中。[Figure 16-2](#using_the_visualization_tools)
+    展示了运行时可视化区域中前述代码的效果。'
+- en: Next, let’s explore how to manage the training data. As mentioned earlier, handling
+    thousands of images through URL connections is bad for the browser because it
+    will lock up the UI thread. But there are some tricks that you can use from the
+    world of game development!
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们探讨如何管理训练数据。如前所述，通过 URL 连接处理成千上万的图像会导致浏览器冻结 UI 线程，这是不好的。但在游戏开发领域有一些技巧可以借鉴！
+- en: '![Using the visualization tools](Images/aiml_1602.png)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用可视化工具](Images/aiml_1602.png)'
+- en: Figure 16-2\. Using the visualization tools
+  id: totrans-48
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 16-2\. 使用可视化工具
+- en: Training with the MNIST Dataset
+  id: totrans-49
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用 MNIST 数据集进行训练
+- en: Instead of downloading every image one by one, a useful way to handle training
+    of data in TensorFlow.js is to append all the images together into a single image,
+    often called a *sprite sheet*. This technique is commonly used in game development,
+    where the graphics of a game are stored in a single file instead of multiple smaller
+    ones for file storage efficiency. If we were to store all the images for training
+    in a single file, we’d just need to open one HTTP connection to it in order to
+    download them all in a single shot.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 TensorFlow.js 中处理数据训练的一个有用方法是将所有图像合并成一个单独的图像，通常称为*精灵表*。这种技术在游戏开发中常用，游戏的图形存储在单个文件中，而不是多个较小的文件，以提高文件存储效率。如果我们将所有训练图像存储在单个文件中，只需打开一个
+    HTTP 连接即可一次性下载它们。
+- en: For the purposes of learning, the TensorFlow team has created sprite sheets
+    from the MNIST and Fashion MNIST datasets that we can use here. For example, the
+    MNIST images are available in a file called [*mnist_images.png*](https://oreil.ly/8-Cgl)
+    (see [Figure 16-3](Images/#an_excerpt_from_mnist_imagesdotpng_in_a)).
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 出于学习目的，TensorFlow 团队已经从 MNIST 和 Fashion MNIST 数据集创建了精灵表，我们可以在这里使用。例如，MNIST 图像可在名为
+    [*mnist_images.png*](https://oreil.ly/8-Cgl) 的文件中找到（参见 [Figure 16-3](Images/#an_excerpt_from_mnist_imagesdotpng_in_a)）。
+- en: '![An excerpt from mnist_images.png in an image viewer](Images/aiml_1603.png)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在图像查看器中查看 mnist_images.png 的一部分](Images/aiml_1603.png)'
+- en: Figure 16-3\. An excerpt from mnist_images.png in an image viewer
+  id: totrans-53
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 16-3\. mnist_images.png 的一部分，通过图像查看器查看
+- en: If you explore the dimensions of this image, you’ll see that it has 65,000 lines,
+    each with 784 (28 × 28) pixels in it. If those dimensions look familiar, you might
+    recall that MNIST images are 28 × 28 monochrome. So, you can download this image,
+    read it line by line, and then take each of the lines and separate it into a 28
+    × 28-pixel image.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你探索这幅图像的尺寸，你会发现它有65,000行，每行有784（28 × 28）个像素。如果这些尺寸看起来很熟悉，你可能会记得MNIST图像是28
+    × 28的单色图像。因此，你可以下载这幅图像，逐行读取它，然后将每行分割成一个28 × 28像素的图像。
+- en: You can do this in JavaScript by loading the image, and then defining a canvas
+    on which you can draw the individual lines after extracting them from the original
+    image. The bytes from these canvases can then be extracted into a dataset that
+    you’ll use for training. This might seem a bit convoluted, but given that JavaScript
+    is an in-browser technology, it wasn’t really designed for data and image processing
+    like this. That said, it works really well, and runs really quickly! Before we
+    get into the details of that, however, you should also look at the labels and
+    how they’re stored.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以通过加载图像的方式在JavaScript中完成这一操作，然后定义一个画布，在这个画布上你可以绘制从原始图像中提取出的单独的行。然后，这些画布中的字节可以被提取到一个数据集中，你将用它来进行训练。这可能看起来有点复杂，但考虑到JavaScript是一种在浏览器中使用的技术，它并不是真正为这样的数据和图像处理而设计的。话虽如此，它的工作效果非常好，而且运行速度非常快！然而，在我们深入讨论之前，你还应该看一下标签以及它们是如何存储的。
+- en: 'First, set up constants for the training and test data, bearing in mind that
+    the MNIST image has 65,000 lines, one for each image. The ratio of training to
+    testing data can be defined as 5:1, and from this you can calculate the number
+    of elements for training and the number for testing:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，设置训练和测试数据的常量，记住MNIST图像有65,000行，每行一个图像。训练数据和测试数据的比例可以定义为5:1，由此可以计算出训练元素的数量和测试元素的数量：
+- en: '[PRE13]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Note that all of this code is in the [repo](https://github.com/lmoroney/tfbook)
+    for this book, so please feel free to adapt it from there!
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，所有这些代码都在这本书的[repo](https://github.com/lmoroney/tfbook)中，所以请随意从那里进行调整！
+- en: 'Next up, you need to create some constants for the image control that will
+    hold the sprite sheet and the canvas that can be used for slicing it up:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，你需要为将用于保存雪碧表的图像控件和用于切片的画布创建一些常量：
+- en: '[PRE14]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'To load the image, you simply set the `img` control to the path of the sprite
+    sheet:'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要加载图像，你只需将`img`控件设置为雪碧表的路径：
+- en: '[PRE15]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'Once the image is loaded, you can set up a buffer to hold the bytes in it.
+    The image is a PNG file, which has 4 bytes per pixel, so you’ll need to reserve
+    65,000 (number of images) × 768 (number of pixels in a 28 × 28 image) × 4 (number
+    of bytes in a PNG per pixel) bytes for the buffer. You don’t need to split the
+    file image by image, but can split it in chunks. Take five thousand images at
+    a time by specifying the `chunkSize` as shown here:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像加载后，你可以设置一个缓冲区来保存其中的字节。图像是一个PNG文件，每个像素有4个字节，因此你需要为缓冲区预留65,000（图像数量）× 768（28
+    × 28图像中的像素数）× 4（每个像素的PNG字节数）个字节。你不需要逐个图像分割文件，而是可以分块处理。像这样指定`chunkSize`来一次取五千个图像：
+- en: '[PRE16]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'Now you can create a loop to go through the image in chunks, creating a set
+    of bytes for each chunk and drawing it to the canvas. This will decode the PNG
+    into the canvas, giving you the ability to get the raw bytes from the image. As
+    the individual images in the dataset are monochrome, the PNG will have the same
+    levels for the R, G, and B bytes, so you can just take any of them:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在可以创建一个循环来逐个处理图像的块，为每个块创建一组字节并将其绘制到画布上。这将把PNG解码到画布中，使你能够从图像中获取原始字节。由于数据集中的单个图像是单色的，PNG将具有相同级别的R、G和B字节，因此你可以任意取其中的一个：
+- en: '[PRE17]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'The images can now be loaded into a dataset with:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在可以将这些图像加载到一个数据集中：
+- en: '[PRE18]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Similar to the images, the labels are stored in [a single file](https://oreil.ly/l4Erh).
+    This is a binary file with a sparse encoding of the labels. Each label is represented
+    by 10 bytes, with one of those bytes having the value 01 to represent the class.
+    This is easier to understand with a visualization, so take a look at [Figure 16-4](#exploring_the_labels_file).
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与图像类似，标签存储在[单个文件](https://oreil.ly/l4Erh)中。这是一个具有标签稀疏编码的二进制文件。每个标签由10个字节表示，其中一个字节的值为01，表示该类别。这更容易通过可视化进行理解，请看一下[图16-4](#exploring_the_labels_file)。
+- en: This shows a hex view of the file with the first 10 bytes highlighted. Here,
+    byte 8 is 01, while the rest are all 00\. This indicates that the label for the
+    first image is 8\. Given that MNIST has 10 classes, for the digits 0 through 9,
+    we know that the eighth label is for the number 7.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这显示了文件的十六进制视图，并突出显示了前 10 个字节。在这里，第 8 字节是 01，而其他全部为 00。这表明第一个图像的标签为 8。考虑到 MNIST
+    具有 10 个类别，表示数字 0 到 9，我们知道第八个标签对应数字 7。
+- en: '![Exploring the labels file](Images/aiml_1604.png)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_IMG
+  zh: '![探索标签文件](Images/aiml_1604.png)'
+- en: Figure 16-4\. Exploring the labels file
+  id: totrans-72
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 16-4\. 探索标签文件
+- en: 'So, as well as downloading and decoding the bytes for the images line by line,
+    you’ll also need to decode the labels. You download these alongside the image
+    by fetching the URL, and then decode the labels into integer arrays using `arrayBuffer`:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，除了逐行下载和解码图像的字节之外，您还需要解码标签。通过获取 URL 并解码标签成整数数组，可以将这些标签与图像一起下载，并使用 `arrayBuffer`
+    完成解码：
+- en: '[PRE19]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'The sparseness of the encoding of the labels greatly simplifies the code—with
+    this one line you can get all the labels into a buffer. If you were wondering
+    why such an inefficient storage method was used for the labels, that was the trade-off:
+    more complex storage but simpler decoding!'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标签编码的稀疏性极大简化了代码—通过这一行代码，您可以将所有标签获取到缓冲区中。如果您想知道为什么标签使用这种低效的存储方法，那是一种权衡：更复杂的存储方法但更简单的解码！
+- en: 'The images and labels can then be split into training and test sets:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，可以将图像和标签拆分为训练集和测试集：
+- en: '[PRE20]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'For training, the data can also be batched. The images will be in `Float32Array`s
+    and the labels in `UInt8Array`s. They’re then converted into `tensor2d` types
+    called `xs` and `labels`:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于训练，数据也可以进行批处理。图像将以 `Float32Array` 的形式存在，而标签则以 `UInt8Array` 的形式存在。然后将它们转换为称为
+    `xs` 和 `labels` 的 `tensor2d` 类型：
+- en: '[PRE21]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'The training data can then use this batch function to return shuffled training
+    batches of the desired batch size:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练数据可以使用此批处理函数返回所需批处理大小的随机训练批次：
+- en: '[PRE22]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: Test data can be batched and shuffled in exactly the same way.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试数据可以像训练数据一样进行批处理和洗牌。
+- en: 'Now, to get ready for training, you can set up some parameters for the metrics
+    you want to capture, what the visualization will look like, and details like the
+    batch sizes. To get the batches for training, call `nextTrainBatch` and reshape
+    the Xs to the correct tensor size. You can then do exactly the same for the test
+    data:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，为了准备训练，您可以设置一些要捕获的指标参数，可视化效果的外观，以及批处理大小等细节。要获取用于训练的批次，请调用 `nextTrainBatch`
+    并将 Xs 重塑为正确的张量大小。然后可以对测试数据做完全相同的操作：
+- en: '[PRE23]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: Note the [`tf.tidy`](https://oreil.ly/Q3xlz) call. With TensorFlow.js this will,
+    as its name suggests, tidy up, cleaning up all intermediate tensors except those
+    that the function returns. It’s essential when using TensorFlow.js to prevent
+    memory leaks in the browser.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意 [`tf.tidy`](https://oreil.ly/Q3xlz) 调用。在 TensorFlow.js 中，这将像其名称所示地整理，清除除了函数返回的所有中间张量。在浏览器中使用
+    TensorFlow.js 时，这是非常重要的，以防止内存泄漏。
+- en: 'Now that you have everything set up, it’s easy to do the training, giving it
+    your training Xs and Ys (labels) as well as the validation Xs and Ys:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，一切都设置好了，可以很容易地进行训练，提供训练数据 Xs 和 Ys（标签），以及验证数据 Xs 和 Ys：
+- en: '[PRE24]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: As you train, the callbacks will give you visualizations in the visor, as you
+    saw back in [Figure 16-1](#a_handwriting_classifier_in_the_browser).
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练过程中，回调函数会在监控器中为您提供可视化效果，就像您在 [图 16-1](#a_handwriting_classifier_in_the_browser)
+    中看到的那样。
+- en: Running Inference on Images in TensorFlow.js
+  id: totrans-89
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在 TensorFlow.js 中对图像进行推断
+- en: 'To run inference, you’ll first need an image. In [Figure 16-1](#a_handwriting_classifier_in_the_browser),
+    you saw an interface where an image could be drawn by hand and have inference
+    performed on it. This uses a 280 × 280 canvas that is set up like this:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要运行推断，您首先需要一张图像。在 [图 16-1](#a_handwriting_classifier_in_the_browser) 中，您看到了一个界面，用户可以手绘图像并进行推断。这使用了一个设置为
+    280 × 280 的画布：
+- en: '[PRE25]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'Note that the canvas is called `rawImage`. After the user has drawn in the
+    image (code for that is in the GitHub repo for this book), you can then run inference
+    on it by grabbing its pixels using the `tf.browser.fromPixels` API:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，画布被称为 `rawImage`。用户绘制图像后（相关代码在本书的 GitHub 存储库中），可以使用 `tf.browser.fromPixels`
+    API 获取其像素，然后在其上运行推断：
+- en: '[PRE26]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'It’s 280 × 280, so it needs to be resized to 28 × 28 for inference. This is
+    done using the `tf.image.resize` APIs:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它是 280 × 280 的图像，所以需要调整大小为 28 × 28 以进行推断。可以使用 `tf.image.resize` API 完成这项工作：
+- en: '[PRE27]'
+  id: totrans-95
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'The input tensor to the model is 28 × 28 × 1, so you need to expand the dimensions:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型的输入张量为 28 × 28 × 1，因此需要扩展维度：
+- en: '[PRE28]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'Now you can predict, using `model.predict` and passing it the tensor. The output
+    of the model is a set of probabilities, so you can pick the biggest one using
+    TensorFlow’s `argMax` function:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你可以使用`model.predict`并传递张量来进行预测。模型的输出是一组概率值，因此你可以使用TensorFlow的`argMax`函数选择最大的一个：
+- en: '[PRE29]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: The full code, including all the HTML for the page, the JavaScript for the drawing
+    functions, as well as the TensorFlow.js model training and inference, is available
+    in the book’s [GitHub repository](https://github.com/lmoroney/tfbook).
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 包括页面所有的HTML、绘图函数的JavaScript以及TensorFlow.js模型的训练和推断的全部代码都可以在该书的[GitHub存储库](https://github.com/lmoroney/tfbook)中找到。
+- en: Summary
+  id: totrans-101
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: JavaScript is a very powerful browser-based language that can be used for many
+    scenarios. In this chapter you took a tour of what it takes to train an image-based
+    classifier in the browser, and then put that together with a canvas on which the
+    user could draw. The input could then be parsed into a tensor that could be classified,
+    with the results returned to the user. It’s a useful demonstration that puts together
+    many of the pieces of programming in JavaScript, illustrating some of the constraints
+    that you might encounter in training, such as needing to reduce the number of
+    HTTP connections, and how to take advantage of built-in decoders to handle data
+    management, like you saw with the sparsely encoded labels.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: JavaScript是一种非常强大的基于浏览器的语言，可以用于许多场景。在本章中，你已经了解了在浏览器中训练基于图像的分类器所需的步骤，然后将其与用户可以绘制的画布结合在一起。然后可以将输入解析为可以进行分类的张量，并将结果返回给用户。这是一个有用的演示，整合了JavaScript编程的许多要素，展示了在训练中可能遇到的一些约束，例如需要减少HTTP连接数，并且如何利用内置解码器处理数据管理，正如你在稀疏编码标签中看到的那样。
+- en: You may not always want to train a new model in the browser, but instead want
+    to reuse existing ones that you’ve created in TensorFlow using Python. You’ll
+    explore how to do that in the next chapter.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能并不总是想在浏览器中训练新模型，而是想重用你在Python中使用TensorFlow创建的现有模型。在下一章中，你将探索如何做到这一点。

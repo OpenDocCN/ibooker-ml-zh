@@ -1,0 +1,688 @@
+- en: Chapter 10\. Using Custom Models in Android
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第10章\. 在Android中使用自定义模型
+- en: In [Chapter 9](ch09.html#creating_custom_models), you looked at various scenarios
+    for creating custom models using TensorFlow Lite Model Maker, Cloud AutoML Vision
+    Edge, and TensorFlow with transfer learning. In this chapter, you’ll explore how
+    you can use and integrate these into your Android app. Unfortunately, it’s rarely
+    as simple as dropping a model into an app, and as a result, it just “works.” Often
+    there are complications with handling data, as Android will represent things like
+    images and strings differently from TensorFlow, and indeed, the output of the
+    model will need to be parsed from the Tensor-based output to something more representative
+    in Android. We’ll explore this first, then go into some examples of how to use
+    image and language models in Android.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第9章](ch09.html#creating_custom_models)中，您看到了使用TensorFlow Lite Model Maker、Cloud
+    AutoML Vision Edge和带有迁移学习的TensorFlow创建自定义模型的各种场景。在本章中，您将探讨如何在您的Android应用程序中使用和集成这些模型。不幸的是，将模型简单地放入应用程序中并使其“正常工作”通常并不简单。处理数据时经常会出现复杂情况，因为Android会以不同于TensorFlow的方式表示诸如图像和字符串等内容，而且模型的输出通常需要从基于张量的输出解析为Android中更具代表性的内容。我们将首先探讨这一点，然后再介绍如何在Android中使用图像和语言模型的一些示例。
+- en: Bridging Models to Android
+  id: totrans-2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 将模型桥接到Android
+- en: When creating an app that uses a machine learning model, you’ll have a binary
+    blob with the extension *.tflite* that you’ll incorporate into your app. This
+    binary expects inputs as tensors (or some emulation of them) and will give you
+    outputs as tensors. That’ll be the first challenge. Additionally, the model only
+    works well when there’s associated metadata. So, for example, if you build a flower
+    classifier, as in [Chapter 9](ch09.html#creating_custom_models), the model will
+    give you an output of five probabilities, and the idea is that each probability
+    matches a particular flower type. However, the model doesn’t output a flower type—such
+    as rose. It simply gives you a set of numbers, so you need the associated metadata
+    to know which output value matches which flower. Additionally, if you’re using
+    language models for text classification, you’ll also need to understand the dictionary
+    of words that the model was trained on. We’ll also explore that in this chapter!
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建使用机器学习模型的应用程序时，您将拥有一个扩展名为*.tflite*的二进制blob，您将将其合并到您的应用程序中。此二进制期望输入为张量（或其某种仿真），并将输出作为张量给出。这将是第一个挑战。此外，仅当存在关联的元数据时，模型才能正常工作。例如，如果您构建像[第9章](ch09.html#creating_custom_models)中的花卉分类器，模型将输出五个概率值，每个概率值与特定的花卉类型相匹配。然而，模型并不会输出像"玫瑰"这样的花卉类型，而是简单地给出一组数字，因此您需要相关的元数据来确定哪个输出值与哪种花卉相匹配。此外，如果您正在使用文本分类的语言模型，还需要理解模型训练时使用的单词字典。我们在本章中也将探讨这一点！
+- en: Consider the use of models in an Android app to look a little like [Figure 10-1](#high_level_architecture_of_using_a_mode).
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑在Android应用程序中使用模型的方式，看起来有点像[图10-1](#high_level_architecture_of_using_a_mode)。
+- en: '![](assets/aiml_1001.png)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图像](assets/aiml_1001.png)'
+- en: Figure 10-1\. High-level architecture of using a model in an Android app
+  id: totrans-6
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-1\. 在Android应用程序中使用模型的高级架构
+- en: So, for example, let’s consider the simple model we used in [Chapter 8](ch08.html#going_deeper_understanding_tensorflow_l),
+    where the model learned that the relationship between numbers was y = 2x − 1=2X-1,
+    and explore the code.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，例如，让我们考虑我们在[第8章](ch08.html#going_deeper_understanding_tensorflow_l)中使用的简单模型，该模型学习了数字之间的关系为y
+    = 2x − 1=2X-1，并探索代码。
+- en: 'First, let’s look at the input to the model. It wasn’t as simple as putting
+    a number in and getting a number out. For the input, the model expected a NumPy
+    array, but NumPy isn’t available in Android. Thankfully you can use low-level
+    basic primitive types in an array instead, and when using Kotlin, the `FloatArray`
+    type can be parsed by the interpreter as a primitive array of floats. So, you
+    could use this code, where `userVal` is the value to input to the model:'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们看看模型的输入。并不像将一个数字输入并得到一个数字输出那样简单。对于输入，模型期望一个NumPy数组，但在Android中并没有NumPy。幸运的是，您可以使用低级基本类型的数组替代，并且在使用Kotlin时，`FloatArray`类型可以被解释器解析为浮点数的基本数组。因此，您可以使用以下代码，其中`userVal`是要输入到模型中的值：
+- en: '[PRE0]'
+  id: totrans-9
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Then, once the model provided an inference, it returned it as a stream of bytes.
+    As the Android developer, you had to realize that these four bytes represented
+    a float, and that you had to turn these into a float. Remember that the output
+    of the model in its rawest form isn’t a float; it’s up to you to reinterpret the
+    raw bytes as a float:'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，一旦模型提供了推断，它将其作为一串字节返回。作为安卓开发者，你必须意识到这四个字节代表一个浮点数，并且你需要将它们转换为浮点数。记住，模型的输出在其最原始的形式下并不是一个浮点数；需要你将原始字节重新解释为一个浮点数：
+- en: '[PRE1]'
+  id: totrans-11
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: So, when using models in Android, you’ll have to consider this, and of course
+    with more complex input data, like images and strings, you’ll have to handle low-level
+    details like this. There’s one exception and that’s if you use TensorFlow Lite
+    Model Maker with scenarios where it generates metadata; you can use this metadata
+    when you import the model into Android Studio, and it will generate much of the
+    wrapper code for you. We’ll look into that first.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，在安卓中使用模型时，你需要考虑到这一点，当然，对于像图片和字符串这样的更复杂的输入数据，你需要处理这样的低级细节。有一个例外情况，那就是当你使用
+    TensorFlow Lite 模型制造器生成元数据时，你可以在将模型导入到 Android Studio 时使用这些元数据，它将为你生成大部分包装器代码。我们将首先研究这一点。
+- en: Building an Image Classification App from a Model Maker Output
+  id: totrans-13
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 从模型制造器输出构建图像分类应用程序
+- en: In [Chapter 9](ch09.html#creating_custom_models), you explored creating an image
+    classifier for five different types of flowers using TensorFlow Lite Model Maker.
+    Because you used this, it generated metadata for you—which in this case was quite
+    simple—because it was just the associated labels for the five flowers. Make sure
+    you download the model that you created using that Colab and have that available
+    before continuing.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [第 9 章](ch09.html#creating_custom_models) 中，你探索了使用 TensorFlow Lite 模型制造器为五种不同类型的花创建图像分类器。因为你使用了这个工具，它为你生成了元数据——在这种情况下非常简单——因为它只是五种花的相关标签。确保在继续之前下载你使用
+    Colab 创建的模型并将其可用。
+- en: To see how to integrate this into an Android app, launch Android Studio and
+    create a new app. Just use a simple single activity app.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要查看如何将其集成到安卓应用程序中，请启动 Android Studio 并创建一个新应用程序。只需使用一个简单的单活动应用程序即可。
+- en: Once you’ve created your app, you can add a new module by right-clicking on
+    the *Java* folder (it will be called this even if you’re using Kotlin) and selecting
+    New → Other → TensorFlow Lite Model. See [Figure 10-2](#figure_onezero_two_adding_a_new_module).
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建完应用程序后，可以通过右键单击 *Java* 文件夹（即使使用 Kotlin 也是这样命名）并选择 New → Other → TensorFlow
+    Lite Model 添加一个新模块。参见 [Figure 10-2](#figure_onezero_two_adding_a_new_module)。
+- en: '![](assets/aiml_1002.png)'
+  id: totrans-17
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1002.png)'
+- en: Figure 10-2\. Adding a new module
+  id: totrans-18
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-2\. 添加一个新模块
+- en: This will give you the Import TensorFlow Lite Model dialog, where you’ll specify
+    the location of the model. Pick the one you downloaded, and keep everything else
+    at default, except the bottom checkbox about adding TensorFlow Lite GPU dependencies.
+    Make sure that is checked. See [Figure 10-3](#figure_onezero_three_importing_a_tensor).
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将弹出导入 TensorFlow Lite 模型对话框，在其中你需要指定模型的位置。选择你下载的那个，并保持其他所有设置为默认，除了关于添加 TensorFlow
+    Lite GPU 依赖项的底部复选框。确保勾选此项。参见 [Figure 10-3](#figure_onezero_three_importing_a_tensor)。
+- en: '![](assets/aiml_1003.png)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1003.png)'
+- en: Figure 10-3\. Importing a TensorFlow Lite model
+  id: totrans-21
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-3\. 导入 TensorFlow Lite 模型
+- en: Click Finish and the model will be imported, your Gradle file will be updated,
+    and it will sync. When it’s done, you’ll see some sample code that was created
+    for you. You’ll use this a little later. This saves you a number of steps, such
+    as editing the Gradle file, creating the assets folder, copying the model, and
+    a lot more.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 点击完成，模型将被导入，Gradle 文件将被更新并进行同步。完成后，你将看到为你创建的一些示例代码。稍后会用到这些代码。这样可以为你节省许多步骤，例如编辑
+    Gradle 文件、创建资产文件夹、复制模型等等。
+- en: 'Next you can create a simple layout file that contains a number of images of
+    flowers. I’ve put an example in the download that has six images loaded from resources.
+    Here’s a snippet:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，你可以创建一个简单的布局文件，其中包含几张花的图片。我在下载中放了一个示例，其中包含了六张从资源加载的图片。以下是一个片段：
+- en: '[PRE2]'
+  id: totrans-24
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The ImageView controls are called `iv_1` through `iv_6`. Note the source of
+    the images are `@drawable/<*something*>`, for example `@drawable/daisy`. The UI
+    will load the image with that name from the *drawable* directory. The GitHub for
+    this book contains the full sample app, including several images. You can see
+    them in the *drawable* folder in [Figure 10-4](#adding_images_as_drawables).
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ImageView 控件被称为 `iv_1` 到 `iv_6`。请注意，图像的源是 `@drawable/<*something*>`，例如 `@drawable/daisy`。UI
+    将从 *drawable* 目录加载具有该名称的图像。本书的 GitHub 包含完整的示例应用程序，包括几张图片。您可以在 *drawable* 文件夹中查看它们的
+    [Figure 10-4](#adding_images_as_drawables)。
+- en: '![](assets/aiml_1004.png)'
+  id: totrans-26
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1004.png)'
+- en: Figure 10-4\. Adding images as drawables
+  id: totrans-27
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 10-4\. 将图像添加为可绘制对象
+- en: 'Now in your code you can initialize the ImageView controls and set an on-click
+    listener for each of them. The same method can be used for each:'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，在您的代码中，您可以初始化 ImageView 控件并为每个控件设置点击监听器。同一方法可以用于每一个：
+- en: '[PRE3]'
+  id: totrans-29
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'This method can then implement a modified version of the code that you were
+    provided when you input the model. Here’s the entire method, and we’ll then look
+    at it piece by piece:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您输入模型时，此方法可以实现代码的修改版本。这是整个方法，我们将逐步查看它：
+- en: '[PRE4]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'First, notice that the `onClick` method takes a view as a parameter. This will
+    be a reference to the ImageView control that the user touched on. It will then
+    create a `bitmap` variable containing the contents of the selected view with this:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，请注意 `onClick` 方法接受一个视图作为参数。这将是用户触摸的 ImageView 控件的引用。然后，它将创建一个 `bitmap` 变量，其中包含所选视图的内容，如下所示：
+- en: '[PRE5]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'The process of converting the bitmap to a tensor is encapsulated in the helper
+    APIs with the `TensorImage` class—all you have to do is this:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将位图转换为张量的过程封装在 `TensorImage` 类的辅助 API 中，您只需这样做：
+- en: '[PRE6]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'Now that we have the image loaded into a tensor, it’s as simple as instantiating
+    a model, and passing the image to it:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们将图像加载到张量中后，初始化一个模型并将图像传递给它就是这么简单：
+- en: '[PRE7]'
+  id: totrans-37
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Recall that the model will return five outputs—these are the probabilities that
+    the image contains a flower of each particular type. It’s in alphabetical order,
+    so the first value will be the probability that the image contains a daisy. In
+    order to get the classification, you have to find the neuron with the highest
+    value, and then use its respective label.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，模型将返回五个输出——这些是图像包含每种特定类型花朵的概率。它们按字母顺序排列，因此第一个值将是图像包含雏菊的概率。为了得到分类，您必须找到值最高的神经元，然后使用其相应的标签。
+- en: 'The model had the labels encoded into it by Model Maker, so you can take the
+    outputs of the model as a list of probabilities, sort that list with the maximum
+    value at the top, and then take the label of the top value with this code:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型通过 Model Maker 对标签进行了编码，因此您可以将模型的输出作为概率列表，将该列表排序，使最大值位于顶部，然后使用以下代码获取顶部值的标签：
+- en: '[PRE8]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'You now have the label, so displaying it is as easy as using a `Toast` like
+    this:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您有了标签，所以显示它就像使用 `Toast` 一样简单：
+- en: '[PRE9]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: And it’s really as easy as that. I strongly recommend using Model Maker for
+    image-based apps like this where possible due to the fact that it makes your apps
+    much easier to code up!
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 真的就这么简单。我强烈建议在可能的情况下使用 Model Maker 来开发基于图像的应用程序，因为这样可以大大简化您的应用程序编码！
+- en: Note that this approach using Android Studio’s input will *only* work with image-based
+    models built using TensorFlow Lite Model Maker. If you want to use other models,
+    such as text-based ones, you’ll use the TensorFlow Lite Task Libraries instead.
+    We’ll explore these later.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，此方法仅适用于使用 TensorFlow Lite Model Maker 构建的基于图像的模型。如果要使用其他模型，例如基于文本的模型，则应改用
+    TensorFlow Lite 任务库。我们稍后会探讨这些内容。
+- en: Using a Model Maker Output with ML Kit
+  id: totrans-45
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用 ML Kit 输出的模型制造者
+- en: In [Chapter 4](ch04.html#computer_vision_apps_with_ml_kit_on_and), you saw how
+    to use ML Kit’s image labeling API as an easy solution for computer vision. It
+    gave you a general image classifier, so that if you showed it a picture of a flower,
+    it would give you some details about that image. See [Figure 10-5](#running_the_general_image_classifier).
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [Chapter 4](ch04.html#computer_vision_apps_with_ml_kit_on_and) 中，您看到了如何使用
+    ML Kit 的图像标记 API 作为计算机视觉的简易解决方案。它提供了一个通用的图像分类器，因此如果您向它展示一张花朵的图片，它将为您提供关于该图像的一些详细信息。请参见
+    [Figure 10-5](#running_the_general_image_classifier)。
+- en: As you can see, this told us that we’re looking at a petal, a flower, a plant,
+    and the sky! While all accurate, it would be nice if we had a drop-in solution
+    for the custom model we just created that recognizes specific flowers and would
+    tag this as a daisy!
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你所看到的，这告诉我们我们正在看一朵花瓣、一朵花、一棵植物和天空！虽然都准确无误，但如果我们有一个针对刚刚创建的自定义模型的即插即用解决方案，它能识别特定的花并将其标记为雏菊，那就太好了！
+- en: Thankfully, it’s not too difficult, and we can update that app with just a few
+    lines of code. You can get it from this book’s GitHub page.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，这并不太困难，我们只需几行代码就可以更新该应用程序。你可以从本书的 GitHub 页面获取它。
+- en: 'First, you’ll need to add the ML Kit custom labeling API. So, in addition to
+    the image-labeling libraries being added via build.gradle, simply add the image-labeling-custom
+    libraries:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，你需要添加 ML Kit 自定义标注 API。所以，除了通过 build.gradle 添加图像标注库外，还简单地添加图像标注自定义库：
+- en: '[PRE10]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: '![](assets/aiml_1005.png)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1005.png)'
+- en: Figure 10-5\. Running the general image classifier
+  id: totrans-52
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-5\. 运行通用图像分类器
+- en: Your app will have an assets directory where some of the sample images you were
+    using in [Chapter 4](ch04.html#computer_vision_apps_with_ml_kit_on_and) were added.
+    Add the *model.tflite* file that you created using TensorFlow Lite Model Maker
+    there. You can also add some pictures of flowers. (The app is also in the [Chapter 10](#using_custom_models_in_android)
+    directory of this book’s [GitHub page](https://oreil.ly/iXFmG).)
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你的应用程序中会有一个资产目录，其中添加了一些你在[第四章](ch04.html#computer_vision_apps_with_ml_kit_on_and)中使用的示例图像。在那里添加使用
+    TensorFlow Lite Model Maker 创建的*model.tflite*文件。你也可以添加一些花的图片。（该应用程序也位于本书的[第十章](#using_custom_models_in_android)目录下的[GitHub
+    页面](https://oreil.ly/iXFmG)。）
+- en: 'Next, in your activity’s `onCreate` function, you’ll use `LocalModel.Builder()`
+    to create a local model that you’ll use instead of the default ML Kit one:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，在你的活动的`onCreate`函数中，你将使用`LocalModel.Builder()`来创建一个本地模型，你将使用它来替代默认的 ML Kit
+    模型：
+- en: '[PRE11]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'The final change to the code is to use `ImageLabeling.getClient()` with the
+    options you just created. This was done in `btn.setOnClickListener` in the original
+    app, so you can just update it to this:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对代码的最终更改是使用`ImageLabeling.getClient()`与你刚刚创建的选项。这在原始应用程序的`btn.setOnClickListener`中完成，因此你可以直接更新为以下内容：
+- en: '[PRE12]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'Then everything is the same as the original app—you’ll call `labeler.process`
+    on the image and capture the output in its `onSuccessListener`:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后一切与原始应用程序相同——你将在图像上调用`labeler.process`并在其`onSuccessListener`中捕获输出：
+- en: '[PRE13]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Now when you run the app with the same daisy image, you’ll see in [Figure 10-6](#classifying_a_daisy_with_the_custom_mod)
+    that it classifies the image as a daisy with a high level of probability—almost
+    97%.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，当你使用相同的雏菊图像运行应用程序时，你会看到在[图 10-6](#classifying_a_daisy_with_the_custom_mod)中它以接近
+    97% 的概率将图像分类为雏菊。
+- en: '![](assets/aiml_1006.png)'
+  id: totrans-61
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1006.png)'
+- en: Figure 10-6\. Classifying a daisy with the custom model
+  id: totrans-62
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-6\. 使用自定义模型对雏菊进行分类
+- en: Using Language Models
+  id: totrans-63
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用语言模型
+- en: When building models that use language, the pattern is very similar to what
+    you saw in [Figure 10-1](#high_level_architecture_of_using_a_mode); this is shown
+    in [Figure 10-7](#using_a_model_in_an_app_for_nlp).
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当构建使用语言的模型时，模式与你在[图 10-1](#high_level_architecture_of_using_a_mode)中看到的非常相似；这在[图
+    10-7](#using_a_model_in_an_app_for_nlp)中展示。
+- en: One major difference is that your app using an natural language processing (NLP)-based
+    model needs the same dictionary of words that the underlying model was trained
+    on. Recall from [Chapter 9](ch09.html#creating_custom_models) that sentences are
+    broken into lists of words, and words are given numeric tokens. Vectors are learned
+    for these tokens that establish the sentiment for that word. For example, the
+    word “dog” might be given the token 4, and a multidimensional vector like [0,
+    1, 0, 1] could be learned for token 4\. The dictionary can then be used to map
+    the word “dog” to 4 in your app. The model is also trained on fixed-length sentences,
+    and your app will also need to know that data.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个主要区别是，使用基于自然语言处理（NLP）的模型的你的应用程序需要与底层模型训练时使用的单词字典相同。回想一下[第九章](ch09.html#creating_custom_models)中，句子被分解为单词列表，而单词被赋予数值标记。为这些标记学习到向量以建立该单词的情感。例如，“dog”这个词可能被赋予标记
+    4，并且像[0, 1, 0, 1]这样的多维向量可以用于标记 4。字典然后可以用来将“dog”映射到你的应用程序中的 4。模型还在固定长度的句子上进行了训练，你的应用程序还需要知道这些数据。
+- en: '![](assets/aiml_1007.png)'
+  id: totrans-66
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1007.png)'
+- en: Figure 10-7\. Using a model in an app for NLP
+  id: totrans-67
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-7\. 在应用程序中使用模型进行 NLP
+- en: If you built your model using TensorFlow Lite Model Maker, the metadata and
+    dictionary are actually compiled into the *.tflite* file to make your life a little
+    easier.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您使用TensorFlow Lite Model Maker构建模型，则元数据和字典实际上已编译到*.tflite*文件中，以使您的生活更加轻松。
+- en: For the rest of this section, I’m assuming you have an NLP model, trained using
+    Model Maker, like the emotion classifier that was demonstrated in [Chapter 9](ch09.html#creating_custom_models).
+    You can also find one in the repo for this chapter, where the full app, including
+    the model, has been implemented for you.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节的其余部分中，假设您有一个使用Model Maker训练的NLP模型，如在[第9章](ch09.html#creating_custom_models)中演示的情感分类器。您还可以在本章的存储库中找到一个示例，其中包含已为您实现的完整应用程序，包括模型。
+- en: Creating an Android App for Language Classification
+  id: totrans-70
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 创建用于语言分类的Android应用程序
+- en: 'Create a new Android app using Android Studio. Just make it a simple one with
+    an empty activity. When you’re done, edit the build.gradle file to include TensorFlow
+    Lite as well as the TensorFlow Lite Task Libraries for handling text:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Android Studio创建一个新的Android应用程序。只需将其制作成一个空活动即可。完成后，编辑build.gradle文件以包括TensorFlow
+    Lite以及处理文本的TensorFlow Lite任务库：
+- en: '[PRE14]'
+  id: totrans-72
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: After a Gradle sync, you can then import the model. Use the same technique shown
+    in [Figure 10-2](#figure_onezero_two_adding_a_new_module) by right-clicking on
+    your package name in the project explorer and selecting New → Other → TensorFlow
+    Lite Model. Accept all the default options and if needed do another Gradle sync
+    when you’re done.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Gradle同步后，您可以导入模型。通过右键单击项目资源管理器中的包名，然后选择新建 → 其他 → TensorFlow Lite模型来使用与[图10-2](#figure_onezero_two_adding_a_new_module)中显示的相同技术。接受所有默认选项，并在完成后如有必要再次进行Gradle同步。
+- en: Create a layout file
+  id: totrans-74
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 创建布局文件
+- en: 'The app will have a super simple user interface—an EditText with text for the
+    user to enter, a button that will trigger the inference, and a TextView to display
+    the results of the inference. Here’s the code:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序将具有非常简单的用户界面——一个带有用户输入文本的EditText，一个触发推断的按钮，以及一个显示推断结果的TextView。以下是代码：
+- en: '[PRE15]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: Note the names of the three controls—the output is called `result_text_view`,
+    the input is called `input_text,` and the button is `ok_button`.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意三个控件的名称——输出被称为`result_text_view`，输入被称为`input_text`，按钮被称为`ok_button`。
+- en: Code the activity
+  id: totrans-78
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 编写活动代码
+- en: 'In your main activity, writing the code is pretty straightforward. Start by
+    adding variables for the controls, the classifier, and the model:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在您的主活动中，编写代码非常简单。首先添加用于控制、分类器和模型的变量：
+- en: '[PRE16]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'Then, within your `onCreate`, you will initialize the variables that were set
+    up as `lateinit`:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，在您的`onCreate`中，您将初始化设置为`lateinit`的变量：
+- en: '[PRE17]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'When the user clicks the button, you want to read the input text and pass it
+    to the classifier. Note there is no dictionary management being done, as it’s
+    all built into the model. You simply get a string, and pass it to `classifier.classify()`:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当用户点击按钮时，您希望读取输入文本并将其传递给分类器。请注意，没有进行字典管理，因为所有内容都已内置到模型中。您只需获取一个字符串，并将其传递给`classifier.classify()`：
+- en: '[PRE18]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: The model will return a `List` of `Category` objects. These objects contain
+    data about the classification, such as the score and the label. In this case 0
+    is the label for negative sentiment, and 1 for positive sentiment. These will
+    be mapped to a `Category` object in the label property, and the likelihood of
+    each is in the score property. As there are two labels, there are two outputs,
+    so you can inspect the likelihood of each.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型将返回一个`Category`对象的列表。这些对象包含有关分类的数据，例如分数和标签。在这种情况下，0是负情绪的标签，1是正情绪的标签。这些将映射到`Category`对象中的标签属性，并且每个标签的可能性在分数属性中。由于有两个标签，因此有两个输出，因此您可以检查每个的可能性。
+- en: 'So, to display the results, we can iterate through the list and print them
+    out. This is in the `showResult` method:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，为了显示结果，我们可以遍历列表并将它们打印出来。这在`showResult`方法中实现：
+- en: '[PRE19]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: And it’s really as simple as that. By using Model Maker, you have the dictionary
+    embedded within the model, and by using the Android APIs for Model Maker (included
+    in your build.gradle file), the complexity of managing the conversion to and from
+    tensors is also handled for you, so you can focus on simple code for your Android
+    app.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就是这么简单。通过使用Model Maker，您已将字典嵌入到模型中，并通过使用Model Maker的Android API（包含在您的build.gradle文件中），还为您处理了转换到和从张量的复杂性，因此您可以专注于简化您的Android应用程序代码。
+- en: To see it in action, see [Figure 10-8](#text_input_with_positive_sentiment),
+    where I entered the text, “Today was a wonderful day, I had a great time, and
+    I feel happy!”
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要看它如何运作，请参见 [图 10-8](#text_input_with_positive_sentiment)，在那里我输入了“今天过得很美好，我玩得很开心，感觉很愉快！”这段文本。
+- en: '![](assets/aiml_1008.png)'
+  id: totrans-90
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1008.png)'
+- en: Figure 10-8\. Text input with positive sentiment
+  id: totrans-91
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-8\. 具有正面情绪的文本输入
+- en: As you can see, the sentence was positive, and the value for neuron 0 (negative)
+    was very low, while the output from neuron 1 (positive) scored very highly. If
+    you were to enter negative text, such as, “Today was an awful day, I had a terrible
+    time, and I feel sad,” then the output would be inverted. See [Figure 10-9](#output_with_negative_sentiment).
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，这句话是积极的，神经元 0（负面）的值非常低，而神经元 1（正面）的输出得分非常高。如果您输入负面文本，比如，“今天真糟糕，我过得很糟糕，感觉很难过”，那么输出将被反转。参见
+    [图 10-9](#output_with_negative_sentiment)。
+- en: '![](assets/aiml_1009.png)'
+  id: totrans-93
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1009.png)'
+- en: Figure 10-9\. Output with negative sentiment
+  id: totrans-94
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-9\. 带有负面情绪的输出
+- en: Admittedly, this is a very simple example, but it demonstrates the power of
+    what’s possible with Model Maker and language models, and how it can make them
+    much easier to use in Android.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 诚然，这只是一个非常简单的例子，但它展示了使用 Model Maker 和语言模型的潜力，以及如何使它们在 Android 中更易于使用。
+- en: If you were to use a BERT-based spec when training your model with Model Maker,
+    the code will work with very little modification—simply use the `BERTNLClassifier`
+    class in place of `NLClassifier` in your Android code! BERT will give you much
+    better text classification, where it could, for example, have fewer false positives
+    and false negatives. But it will be at the cost of having a much larger model.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您在训练模型时使用基于 BERT 的规范来使用 Model Maker，那么代码将几乎不需要修改——只需在 Android 代码中使用`BERTNLClassifier`类代替`NLClassifier`！BERT
+    将为您提供更好的文本分类，例如可以减少假阳性和假阴性。但这将以使用更大的模型为代价。
+- en: Summary
+  id: totrans-97
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概要
+- en: In this chapter you looked at the considerations for using custom models in
+    your Android apps. You saw how it’s not quite as simple as just dropping a model
+    into your app and using it, and how you have to manage the translation between
+    Android data structures and the tensors used within a model. For the common scenarios
+    of image and NLP models, the recommendation for Android developers is to use Model
+    Maker to create your models, and its associated APIs to handle data conversion.
+    Unfortunately, iOS developers don’t have this luxury, so they’ll need to get a
+    bit lower level. We’ll look into this in [Chapter 11](ch11.html#using_custom_models_in_ios).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您了解了在 Android 应用程序中使用自定义模型的考虑因素。您看到了它并不像简单地将模型放入应用程序并使用那样简单，以及如何管理 Android
+    数据结构与模型内部使用的张量之间的转换。对于图像和自然语言处理模型的常见场景，Android 开发者的建议是使用 Model Maker 创建您的模型，并使用其关联的
+    API 处理数据转换。不幸的是，iOS 开发者没有这样的便利，因此他们需要更深入地进行研究。我们将在 [第 11 章](ch11.html#using_custom_models_in_ios)
+    中深入探讨这一点。

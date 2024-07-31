@@ -1,0 +1,1403 @@
+- en: Chapter 6\. Making Sentiment Programmable Using Embeddings
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第六章。利用嵌入使情感可编程
+- en: In [Chapter 5](ch05.xhtml#introduction_to_natural_language_proces) you saw how
+    to take words and encode them into tokens. You then saw how to encode sentences
+    full of words into sequences full of tokens, padding or truncating them as appropriate
+    to end up with a well-shaped set of data that can be used to train a neural network.
+    In none of that was there any type of modeling of the *meaning* of a word. While
+    it’s true that there’s no absolute numeric encoding that could encapsulate meaning,
+    there are relative ones. In this chapter you’ll learn about them, and in particular
+    the concept of *embeddings*, where vectors in high-dimensional space are created
+    to represent words. The directions of these vectors can be learned over time based
+    on the use of the words in the corpus. Then, when you’re given a sentence, you
+    can investigate the directions of the word vectors, sum them up, and from the
+    overall direction of the summation establish the sentiment of the sentence as
+    a product of its words.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第五章](ch05.xhtml#introduction_to_natural_language_proces)中，您看到如何将单词编码为标记。然后，您看到如何将充满单词的句子编码为充满标记的序列，根据需要进行填充或截断，以得到一个形状良好的数据集，可以用来训练神经网络。在所有这些过程中，都没有对单词的*含义*进行任何建模。虽然确实不存在能够完全数值化包含意义的编码，但存在相对的编码。在本章中，您将学习到这些内容，特别是*嵌入*的概念，其中在高维空间中创建向量以表示单词。这些向量的方向可以随着单词在语料库中的使用而学习。然后，当您获得一个句子时，您可以研究单词向量的方向，将它们加起来，并从总体方向中确定句子的情感作为其单词的产品。
+- en: In this chapter we’ll explore how that works. Using the Sarcasm dataset from
+    [Chapter 5](ch05.xhtml#introduction_to_natural_language_proces), you’ll build
+    embeddings to help a model detect sarcasm in a sentence. You’ll also see some
+    cool visualization tools that help you understand how words in a corpus get mapped
+    to vectors so you can see which words determine the overall classification.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将探讨它的工作原理。使用来自[第五章](ch05.xhtml#introduction_to_natural_language_proces)的讽刺数据集，您将构建嵌入以帮助模型检测句子中的讽刺。您还将看到一些很酷的可视化工具，帮助您理解语料库中的单词如何映射到向量，以便您可以看到哪些单词决定了整体分类。
+- en: Establishing Meaning from Words
+  id: totrans-3
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 从单词中建立意义
+- en: 'Before we get into the higher-dimensional vectors for embeddings, let’s try
+    to visualize how meaning can be derived from numerics with some simple examples.
+    Consider this: using the Sarcasm dataset from [Chapter 5](ch05.xhtml#introduction_to_natural_language_proces),
+    what would happen if you encoded all of the words that make up sarcastic headlines
+    with positive numbers and those that make up realistic headlines with negative
+    numbers?'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在深入探讨用于嵌入的高维向量之前，让我们尝试通过一些简单的例子来可视化如何从数字中推导出含义。考虑这个：使用来自[第五章](ch05.xhtml#introduction_to_natural_language_proces)的讽刺数据集，如果您将组成讽刺标题的所有单词编码为正数，而将组成现实标题的单词编码为负数，会发生什么？
+- en: 'A Simple Example: Positives and Negatives'
+  id: totrans-5
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 一个简单的例子：积极与消极
+- en: 'Take, for example, this sarcastic headline from the dataset:'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 举例来说，数据集中的这则讽刺性标题：
+- en: '[PRE0]'
+  id: totrans-7
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Assuming that all words in our vocabulary start with a value of 0, we could
+    add 1 to the values for each of the words in this sentence, and we would end up
+    with this:'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们词汇表中的所有单词都以值0开始，我们可以为这个句子中的每个单词的值添加1，那么我们将得到这样：
+- en: '[PRE1]'
+  id: totrans-9
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Note
+  id: totrans-10
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that this isn’t the same as the *tokenization* of words that you did in
+    the last chapter. You could consider replacing each word (e.g., “christian”) with
+    the token representing it that is encoded from the corpus, but I’ll leave the
+    words in for now to make it easier to read.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，这与您在上一章中进行的单词*标记化*不同。您可以考虑用表示它的标记替换每个单词（例如，“christian”），该标记从语料库编码而来，但我现在保留这些单词以便阅读。
+- en: 'Then, in the next step, consider an ordinary headline, not a sarcastic one,
+    like this:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，在下一步中，考虑一个普通的标题，而不是一个讽刺的标题，比如这个：
+- en: '[PRE2]'
+  id: totrans-13
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'Because this is a different sentiment we could instead subtract 1 from the
+    current value of each word, so our value set would look like this:'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为这是一种不同的情感，我们可以从当前每个单词的值中减去1，所以我们的值集将如下所示：
+- en: '[PRE3]'
+  id: totrans-15
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Note that the sarcastic “bale” (from “christian bale”) has been offset by the
+    nonsarcastic “bale” (from “gareth bale”), so its score ends up as 0\. Repeat this
+    process thousands of times and you’ll end up with a huge list of words from your
+    corpus scored based on their usage.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，讽刺的“bale”（来自“christian bale”）通过非讽刺的“bale”（来自“gareth bale”）进行了偏移，因此其分数最终为0。重复这个过程成千上万次，您将得到一个巨大的单词列表，根据它们在语料库中的使用得分。
+- en: 'Now imagine we want to establish the sentiment of this sentence:'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在想象一下，我们想要确定这句话的情感：
+- en: '[PRE4]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Using our existing value set, we could look at the scores of each word and add
+    them up. We would get a score of 2, indicating (because it’s a positive number)
+    that this is a sarcastic sentence.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用我们现有的价值集，我们可以查看每个单词的分数并将它们加起来。我们将得到一个分数为2，这表明（因为它是正数）这是一个讽刺性的句子。
+- en: Note
+  id: totrans-20
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: For what it’s worth, “bale” is used five times in the Sarcasm dataset, twice
+    in a normal headline and three times in a sarcastic one, so in a model like this
+    the word “bale” would be scored –1 across the whole dataset.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于“bale”，在Sarcasm数据集中出现了五次，其中两次出现在普通标题中，三次出现在讽刺标题中，因此在这样的模型中，“bale”一词在整个数据集中得分为-1。
+- en: 'Going a Little Deeper: Vectors'
+  id: totrans-22
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 深入一点：向量
+- en: Hopefully the previous example has helped you understand the mental model of
+    establishing some form of *relative* meaning for a word, through its association
+    with other words in the same “direction.” In our case, while the computer doesn’t
+    understand the meanings of individual words, it can move labeled words from a
+    known sarcastic headline in one direction (by adding 1) and labeled words from
+    a known normal headline in another direction (by subtracting 1). This gives us
+    a basic understanding of the meaning of the words, but it does lose some nuance.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 希望前面的例子帮助您理解建立一种单词*相对*含义的心理模型，通过其与同一“方向”中其他单词的关联。在我们的例子中，虽然计算机不理解单词的含义，但它可以将已知讽刺标题中的标记单词向一个方向移动（通过添加1），并将已知普通标题中的标记单词向另一个方向移动（通过减去1）。这给我们带来了对单词含义的基本理解，但是它丢失了一些细微差别。
+- en: What if we increased the dimensionality of the direction to try to capture some
+    more information? For example, suppose we were to look at characters from the
+    Jane Austen novel *Pride and Prejudice*, considering the dimensions of gender
+    and nobility. We could plot the former on the x-axis and the latter on the y-axis,
+    with the length of the vector denoting each character’s wealth ([Figure 6-1](#characters_in_pride_and_prejudice_as_ve)).
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们增加方向的维度以捕获更多信息会怎么样？例如，假设我们查看简·奥斯汀小说*傲慢与偏见*中的字符，考虑性别和贵族的维度。我们可以将前者绘制在x轴上，将后者绘制在y轴上，向量的长度表示每个字符的财富（[图6-1](#characters_in_pride_and_prejudice_as_ve)）。
+- en: '![Characters in Pride and Prejudice as vectors](Images/aiml_0601.png)'
+  id: totrans-25
+  prefs: []
+  type: TYPE_IMG
+  zh: '![傲慢与偏见中的字符作为向量](Images/aiml_0601.png)'
+- en: Figure 6-1\. Characters in Pride and Prejudice as vectors
+  id: totrans-26
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-1\. 傲慢与偏见中的字符作为向量
+- en: From an inspection of the graph, you can derive a fair amount of information
+    about each character. Three of them are male. Mr. Darcy is extremely wealthy,
+    but his nobility isn’t clear (he’s called “Mister,” unlike the less wealthy but
+    apparently more noble Sir William Lucas). The other “Mister,” Mr. Bennet, is clearly
+    not nobility and is struggling financially. Elizabeth Bennet, his daughter, is
+    similar to him, but female. Lady Catherine, the other female character in our
+    example, is nobility and incredibly wealthy. The romance between Mr. Darcy and
+    Elizabeth causes tension—*prejudice* coming from the noble side of the vectors
+    toward the less-noble.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从图表的检查中，您可以推断出关于每个字符的相当多的信息。其中三个是男性。达西先生非常富有，但他的贵族身份不清楚（他被称为“先生”，不像较少富裕但显然更高贵的威廉·卢卡斯爵士）。另一个“先生”本内特先生显然不是贵族，经济上有困难。他的女儿伊丽莎白·本内特与他相似，但是女性。在我们的例子中，另一个女性角色凯瑟琳夫人是贵族，极其富有。达西先生和伊丽莎白之间的浪漫引发了紧张局势——*偏见*来自向较不贵族的向量的贵族一侧。
+- en: As this example shows, by considering multiple dimensions we can begin to see
+    real meaning in the words (here, character names). Again, we’re not talking about
+    concrete definitions, but more a *relative* meaning based on the axes and the
+    relation between the vector for one word and the other vectors.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如这个例子所示，通过考虑多个维度，我们可以开始看到单词（这里是角色名称）中的真实含义。再次强调，我们不是谈论具体的定义，而是基于轴线和单词向量之间关系的*相对*含义。
+- en: This leads us to the concept of an *embedding*, which is simply a vector representation
+    of a word that is learned while training a neural network. We’ll explore that
+    next.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这导致我们引入了*嵌入*的概念，它仅仅是在训练神经网络时学习到的一个单词的向量表示。接下来我们将深入探讨这一点。
+- en: Embeddings in TensorFlow
+  id: totrans-30
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: TensorFlow中的嵌入
+- en: As you’ve seen with `Dense` and `Conv2D`, `tf.keras` implements embeddings using
+    a layer. This creates a lookup table that maps from an integer to an embedding
+    table, the contents of which are the coefficients of the vector representing the
+    word identified by that integer. So, in the *Pride and Prejudice* example from
+    the previous section, the *x* and *y* coordinates would give us the embeddings
+    for a particular character from the book. Of course, in a real NLP problem, we’ll
+    use far more than two dimensions. Thus, the direction of a vector in the vector
+    space could be seen as encoding the “meaning” of a word, and words with similar
+    vectors—i.e., pointing in roughly the same direction—could be considered related
+    to that word.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您在`Dense`和`Conv2D`中看到的那样，`tf.keras`使用层来实现嵌入。这创建了一个查找表，将从整数映射到嵌入表，表中的内容是表示由该整数标识的单词的向量的系数。因此，在前一节中的*傲慢与偏见*示例中，*x*和*y*坐标将为我们提供书中特定字符的嵌入。当然，在真实的NLP问题中，我们将使用远比两个维度多得多。因此，向量空间中向量的方向可以被视为编码单词的“含义”，具有类似向量的单词——即大致指向同一方向的单词——可以被认为与该单词相关。
+- en: The embedding layer will be initialized randomly—that is, the coordinates of
+    the vectors will be completely random to start and will be learned during training
+    using backpropagation. When training is complete, the embeddings will roughly
+    encode similarities between words, allowing us to identify words that are somewhat
+    similar based on the direction of the vectors for those words.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 嵌入层将被随机初始化——也就是说，向量的坐标将完全随机起始，并将在训练过程中使用反向传播进行学习。训练完成后，嵌入将大致编码单词之间的相似性，使我们能够根据这些单词的向量方向识别出某种程度相似的单词。
+- en: This is all quite abstract, so I think the best way to understand how to use
+    embeddings is to roll your sleeves up and give them a try. Let’s start with a
+    sarcasm detector using the Sarcasm dataset from [Chapter 5](ch05.xhtml#introduction_to_natural_language_proces).
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些都非常抽象，所以我认为理解如何使用嵌入的最佳方法是动手尝试一下。我们从使用来自[第5章](ch05.xhtml#introduction_to_natural_language_proces)的Sarcasm数据集的讽刺检测器开始。
+- en: Building a Sarcasm Detector Using Embeddings
+  id: totrans-34
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 构建使用嵌入的讽刺检测器
+- en: 'In [Chapter 5](ch05.xhtml#introduction_to_natural_language_proces) you loaded
+    and did some preprocessing on a JSON dataset called the News Headlines Dataset
+    for Sarcasm Detection (Sarcasm, for short). By the time you were done you had
+    lists of training and testing data and labels. These can be converted to Numpy
+    format, used by TensorFlow for training, with code like this:'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第5章](ch05.xhtml#introduction_to_natural_language_proces)中，您加载并对称为讽刺检测的新闻标题数据集进行了一些预处理（简称为Sarcasm）。到最后，您已经得到了训练数据、测试数据和标签的列表。这些可以像这样转换为TensorFlow训练使用的Numpy格式：
+- en: '[PRE5]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'These were created using a tokenizer with a specified maximum vocabulary size
+    and out-of-vocabulary token:'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些是使用具有指定最大词汇量和词汇表外标记的标记器创建的：
+- en: '[PRE6]'
+  id: totrans-38
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'To initialize the embedding layer, you’ll need the vocab size and a specified
+    number of embedding dimensions:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要初始化嵌入层，您需要词汇量和指定的嵌入维度：
+- en: '[PRE7]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: This will initialize an array with `embedding_dim` points for each word. So,
+    for example, if `embedding_dim` is `16`, every word in the vocabulary will be
+    assigned a 16-dimensional vector.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将为每个单词初始化一个`embedding_dim`点的数组。例如，如果`embedding_dim`为`16`，则词汇表中的每个单词将被分配一个16维向量。
+- en: Over time, the dimensions will be learned through backpropagation as the network
+    learns by matching the training data to its labels.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着网络通过将训练数据与其标签匹配进行学习，这些维度将随时间通过反向传播进行学习。
+- en: An important next step is then feeding the output of the embedding layer into
+    a dense layer. The easiest way to do this, similar to how you would when using
+    a convolutional neural network, is to use pooling. In this instance, the dimensions
+    of the embeddings are averaged out to produce a fixed-length output vector.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来的重要步骤是将嵌入层的输出馈送到密集层中。与使用卷积神经网络时类似，最简单的方法是使用池化。在这种情况下，将嵌入的维度平均化以生成一个固定长度的输出向量。
+- en: 'As an example, consider this model architecture:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，考虑这个模型架构：
+- en: '[PRE8]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'Here an embedding layer is defined, and it’s given the vocab size (`10000`)
+    and an embedding dimension of `16`. Let’s take a look at the number of trainable
+    parameters in the network, using `model.summary`:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里定义了一个嵌入层，并给出了词汇量（`10000`）和嵌入维度`16`。让我们通过`model.summary`查看网络中的可训练参数数量：
+- en: '[PRE9]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: As the embedding has a 10,000-word vocabulary, and each word will be a vector
+    in 16 dimensions, the total number of trainable parameters will be 160,000.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于嵌入层的词汇量为10,000个词，并且每个词都将成为一个16维的向量，所以可训练的参数总数将为160,000。
+- en: The average pooling layer has 0 trainable parameters, as it’s just averaging
+    the parameters in the embedding layer before it, to get a single 16-value vector.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 平均池化层没有可训练的参数，因为它只是对其前的嵌入层的参数进行平均，得到一个单一的16值向量。
+- en: This is then fed into the 24-neuron dense layer. Remember that a dense neuron
+    effectively calculates using weights and biases, so it will need to learn (24
+    × 16) + 16 = 408 parameters.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后将其馈送到24神经元的密集层中。请记住，密集神经元实际上是使用权重和偏差来计算的，因此它将需要学习(24 × 16) + 16 = 408个参数。
+- en: The output of this layer is then passed to the final single-neuron layer, where
+    there will be (1 × 24) + 1 = 25 parameters to learn.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，该层的输出被传递到最终的单神经元层，那里将会有(1 × 24) + 1 = 25个需要学习的参数。
+- en: If we train this model, we’ll get a pretty decent accuracy of 99+% after 30
+    epochs—but our validation accuracy will only be about 81% ([Figure 6-2](#training_accuracy_versus_validation_acc)).
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们训练这个模型，在30个epoch之后，我们将会得到一个相当不错的准确率，超过99%—但是我们的验证准确率只会约为81%（[图6-2](#training_accuracy_versus_validation_acc)）。
+- en: '![Training accuracy versus validation accuracy](Images/aiml_0602.png)'
+  id: totrans-53
+  prefs: []
+  type: TYPE_IMG
+  zh: '![训练准确率与验证准确率](Images/aiml_0602.png)'
+- en: Figure 6-2\. Training accuracy versus validation accuracy
+  id: totrans-54
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-2\. 训练准确率与验证准确率
+- en: That might seem to be a reasonable curve given that the validation data likely
+    contains many words that aren’t present in the training data. However, if you
+    examine the loss curves for training versus validation over the 30 epochs, you’ll
+    see a problem. Although you would expect to see that the training accuracy is
+    higher than the validation accuracy, a clear indicator of overfitting is that
+    while the validation accuracy is dropping a little over time (in [Figure 6-2](#training_accuracy_versus_validation_acc)),
+    its loss is increasing sharply as shown in [Figure 6-3](#training_loss_versus_validation_loss).
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到验证数据很可能包含训练数据中不存在的许多词，这个曲线看起来是合理的。然而，如果你查看30个epoch中的训练与验证损失曲线，你会发现一个问题。尽管你会期望看到训练准确率高于验证准确率，但一个明显的过拟合指标是，虽然验证准确率随时间略有下降（在[图6-2](#training_accuracy_versus_validation_acc)中），但其损失却急剧增加，如[图6-3](#training_loss_versus_validation_loss)所示。
+- en: '![Training loss versus validation loss](Images/aiml_0603.png)'
+  id: totrans-56
+  prefs: []
+  type: TYPE_IMG
+  zh: '![训练损失与验证损失](Images/aiml_0603.png)'
+- en: Figure 6-3\. Training loss versus validation loss
+  id: totrans-57
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-3\. 训练损失与验证损失
+- en: Overfitting like this is common with NLP models due to the somewhat unpredictable
+    nature of language. In the next sections, we’ll look at how to reduce this effect
+    using a number of techniques.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似这样的过拟合在NLP模型中很常见，这是由于语言的某种不可预测性质导致的。在接下来的几节中，我们将探讨如何使用多种技术来减少这种影响。
+- en: Reducing Overfitting in Language Models
+  id: totrans-59
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 减少语言模型的过拟合
+- en: Overfitting happens when the network becomes overspecialized to the training
+    data, and one part of this is that it has become very good at matching patterns
+    in “noisy” data in the training set that doesn’t exist anywhere else. Because
+    this particular noise isn’t present in the validation set, the better the network
+    gets at matching it, the worse the loss of the validation set will be. This can
+    result in the escalating loss that you saw in [Figure 6-3](#training_loss_versus_validation_loss).
+    In this section, we’ll explore several ways to generalize the model and reduce
+    overfitting.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 过拟合发生在网络过于专注于训练数据时，其中一部分原因是网络变得非常擅长匹配训练集中存在但验证集中不存在的“噪声”数据中的模式。由于这种特定的噪声在验证集中不存在，网络越擅长匹配它，验证集的损失就会越严重。这可能导致你在[图6-3](#training_loss_versus_validation_loss)中看到的损失不断升高。在本节中，我们将探讨几种泛化模型和减少过拟合的方法。
+- en: Adjusting the learning rate
+  id: totrans-61
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 调整学习率
+- en: 'Perhaps the biggest factor that can lead to overfitting is if the learning
+    rate of your optimizer is too high. This means that the network learns *too quickly*.
+    For this example, the code to compile the model was as follows:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可能导致过拟合的最大因素是优化器的学习率过高。这意味着网络学习得*太快*。例如，对于这个例子，编译模型的代码如下：
+- en: '[PRE10]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'The optimizer is simply declared as `adam`, which invokes the Adam optimizer
+    with default parameters. This optimizer, however, supports multiple parameters,
+    including learning rate. You can change the code to this:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优化器简单地声明为`adam`，这将调用具有默认参数的Adam优化器。然而，该优化器支持多个参数，包括学习率。你可以将代码修改为以下内容：
+- en: '[PRE11]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: where the default value for learning rate, which is typically 0.001, has been
+    reduced by 90%, to 0.0001\. The `beta_1` and `beta_2` values stay at their defaults,
+    as does `amsgrad`. `beta_1` and `beta_2` must be between 0 and 1, and typically
+    both are close to 1\. Amsgrad is an alternative implementation of the Adam optimizer,
+    introduced in the paper [“On the Convergence of Adam and Beyond”](https://arxiv.org/abs/1904.09237)
+    by Sashank Reddi, Satyen Kale, and Sanjiv Kumar.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认学习率的数值通常为 0.001，但现在已经降低了 90%，变为 0.0001。`beta_1` 和 `beta_2` 的值保持它们的默认值，`amsgrad`
+    也是如此。`beta_1` 和 `beta_2` 必须介于 0 和 1 之间，通常都接近于 1。Amsgrad 是 Adam 优化器的另一种实现方式，由 Sashank
+    Reddi、Satyen Kale 和 Sanjiv Kumar 在论文 [“On the Convergence of Adam and Beyond”](https://arxiv.org/abs/1904.09237)
+    中介绍。
+- en: This much lower learning rate has a profound impact on the network. [Figure 6-4](#accuracy_with_a_lower_learning_rate)
+    shows the accuracy of the network over 100 epochs. The lower learning rate can
+    be seen in the first 10 epochs or so, where it appears that the network isn’t
+    learning, before it “breaks out” and starts to learn quickly.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种显著降低的学习率对网络产生了深远影响。[图 6-4](#accuracy_with_a_lower_learning_rate)展示了网络在 100
+    个时期内的准确率。可以在前 10 个时期中看到较低的学习率，网络似乎没有学习，直到它“突破”并开始快速学习。
+- en: '![Accuracy with a lower learning rate](Images/aiml_0604.png)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用较低学习率的准确率](Images/aiml_0604.png)'
+- en: Figure 6-4\. Accuracy with a lower learning rate
+  id: totrans-69
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-4\. 使用较低学习率的准确率
+- en: Exploring the loss (as illustrated in [Figure 6-5](#loss_with_a_lower_learning_rate))
+    we can see that even while the accuracy wasn’t going up for the first few epochs,
+    the loss was going down, so you could be confident that the network would start
+    to learn eventually if you were watching it epoch by epoch.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 探索损失（如[图 6-5](#loss_with_a_lower_learning_rate)所示），我们可以看到，即使在前几个时期准确率没有提升的情况下，损失却在下降，因此如果你逐个时期观察，可以确信网络最终会开始学习。
+- en: '![Loss with a lower learning rate](Images/aiml_0605.png)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用较低学习率的损失](Images/aiml_0605.png)'
+- en: Figure 6-5\. Loss with a lower learning rate
+  id: totrans-72
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-5\. 使用较低学习率的损失
+- en: And while the loss does start to show the same curve of overfitting that you
+    saw in [Figure 6-3](#training_loss_versus_validation_loss), note that it happens
+    much later, and at a much lower rate. By epoch 30 the loss is at about 0.45, whereas
+    with the higher learning rate in [Figure 6-3](#training_loss_versus_validation_loss)
+    it was more than double that amount. And while it takes the network longer to
+    get to a good accuracy rate, it does so with less loss, so you can be more confident
+    in the results. With these hyperparameters, the loss on the validation set started
+    to increase at about epoch 60, at which point the training set had 90% accuracy
+    and the validation set about 81%, showing that we have quite an effective network.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然损失确实开始显示与 [图 6-3](#training_loss_versus_validation_loss) 中看到的过拟合曲线相同的情况，但发生的时间要晚得多，并且速率要低得多。到了第
+    30 个时期，损失约为 0.45，而在 [图 6-3](#training_loss_versus_validation_loss) 中使用较高学习率时，损失超过了这个数值的两倍。尽管网络花费更长的时间才能达到良好的准确率，但损失更少，因此你对结果更有信心。在这些超参数下，验证集上的损失在大约第
+    60 个时期开始增加，此时训练集达到了 90% 的准确率，而验证集约为 81%，显示出我们有一个非常有效的网络。
+- en: Of course, it’s easy to just tweak the optimizer and then declare victory, but
+    there are a number of other methods you can use to improve your model, which you’ll
+    see in the next few sections. For these, I reverted back to using the default
+    Adam optimizer so the effects of tweaking the learning rate don’t hide the benefits
+    offered by these other techniques.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，仅仅调整优化器然后宣布胜利是很容易的，但你可以使用一些其他方法来改进模型，你将在接下来的几节中看到。因此，我重新使用默认的 Adam 优化器，以便调整学习率不会掩盖这些其他技术带来的好处。
+- en: Exploring vocabulary size
+  id: totrans-75
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 探索词汇量
+- en: The Sarcasm dataset deals with words, so if you explore the words in the dataset,
+    and in particular their frequency, you might get a clue that helps fix the overfitting
+    issue.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “讽刺数据集”处理的是单词，因此如果你探索数据集中的单词，特别是它们的频率，你可能会找到一些有助于解决过拟合问题的线索。
+- en: 'The tokenizer gives you a way of doing this with its `word_counts` property.
+    If you were to print it you’d see something like this, an `OrderedDict` containing
+    tuples of word and word count:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标记器通过其`word_counts`属性为你提供了一种方法。如果你打印它，你会看到类似于这样的内容，一个包含单词和单词计数元组的`OrderedDict`：
+- en: '[PRE12]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: The order of the words is determined by their order of appearance within the
+    dataset. If you look at the first headline in the training set, it’s a sarcastic
+    one about a former Versace store clerk. Stopwords have been removed; otherwise
+    you’d see a high volume of words like “a” and “the.”
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单词的顺序是根据它们在数据集中出现的顺序确定的。如果查看训练集中的第一个标题，它是关于一名前凡赛斯店员的讽刺性标题。停用词已被移除；否则你会看到大量像
+    "a" 和 "the" 这样的单词。
+- en: 'Given that it’s an `OrderedDict`, you can sort it into descending order of
+    word volume:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴于它是一个 `OrderedDict`，你可以按单词体积的降序对其进行排序：
+- en: '[PRE13]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'If you want to plot this, you can iterate through each item in the list and
+    make the *x* value the ordinal of where you are (1 for the first item, 2 for the
+    second item, etc.). The *y* value will then be `newlist[item]`. This can then
+    be plotted with `matplotlib`. Here’s the code:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想绘制这个图，可以迭代列表中的每个项目，并将 *x* 值设为当前的序数（第一个项目为 1，第二个项目为 2，依此类推）。然后 *y* 值将是 `newlist[item]`。然后可以使用
+    `matplotlib` 绘制出来。以下是代码：
+- en: '[PRE14]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: The result is shown in [Figure 6-6](#exploring_the_frequency_of_words).
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果显示在 [图 6-6](#exploring_the_frequency_of_words) 中。
+- en: '![Exploring the frequency of words](Images/aiml_0606.png)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_IMG
+  zh: '![探索词频](Images/aiml_0606.png)'
+- en: Figure 6-6\. Exploring the frequency of words
+  id: totrans-86
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-6\. 探索词频
+- en: This “hockey stick” curve shows us that very few words are used many times,
+    whereas most words are used very few times. But every word is effectively weighted
+    equally because every word has an “entry” in the embedding. Given that we have
+    a relatively large training set in comparison with the validation set, we’re ending
+    up in a situation where there are many words present in the training set that
+    aren’t present in the validation set.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个“曲棍球”曲线向我们展示，很少有单词被多次使用，而大多数单词很少使用。但每个单词的权重是相等的，因为每个单词在嵌入中都有一个“入口”。考虑到我们相对较大的训练集与验证集相比，我们最终处于这样一种情况：训练集中存在许多在验证集中不存在的单词。
+- en: 'You can zoom in on the data by changing the axis of the plot just before calling
+    `plt.show`. For example, to look at the volume of words 300 to 10,000 on the x-axis
+    with the scale from 0 to 100 on the y-axis, you can use this code:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在调用 `plt.show` 前，可以通过改变绘图的坐标轴来放大数据。例如，为了查看 x 轴上单词 300 到 10,000 的体积，以及 y 轴上从
+    0 到 100 的比例，可以使用以下代码：
+- en: '[PRE15]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: The result is in [Figure 6-7](#frequency_of_words_threezerozeroen_dash).
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果显示在 [图 6-7](#frequency_of_words_threezerozeroen_dash) 中。
+- en: '![Frequency of words 300–10,000](Images/aiml_0607.png)'
+  id: totrans-91
+  prefs: []
+  type: TYPE_IMG
+  zh: '![单词 300 到 10,000 的频率](Images/aiml_0607.png)'
+- en: Figure 6-7\. Frequency of words 300–10,000
+  id: totrans-92
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-7\. 单词 300 到 10,000 的频率
+- en: While there are over 20,000 words in the corpus, the code is set up to only
+    train for 10,000\. But if we look at the words in positions 2,000–10,000, which
+    is over 80% of our vocabulary, we see that they’re each used less than 20 times
+    in the entire corpus.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管语料库中有超过 20,000 个单词，但代码仅设置为训练 10,000 个。但如果我们看一下位置在 2,000 到 10,000 的单词，这些单词占我们词汇量的超过
+    80%，我们会发现它们在整个语料库中的使用次数少于 20 次。
+- en: This could explain the overfitting. Now consider what happens if you change
+    the vocab size to two thousand and retrain. [Figure 6-8](#accuracy_with_a_twocommazerozerozero_wo)
+    shows the accuracy metrics. Now the training set accuracy is ~82% and the validation
+    accuracy is about 76%. They’re closer to each other and not diverging, which is
+    a good sign that we’ve gotten rid of most of the overfitting.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可能解释了过拟合的原因。现在考虑如果将词汇量改为两千并重新训练会发生什么。[图 6-8](#accuracy_with_a_twocommazerozerozero_wo)
+    显示了准确度指标。现在训练集的准确率约为 82%，验证集的准确率约为 76%。它们之间更接近，没有发散，这表明我们已经成功减少了大部分过拟合。
+- en: '![Accuracy with a two thousand-word vocabulary](Images/aiml_0608.png)'
+  id: totrans-95
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用两千词汇量的准确率](Images/aiml_0608.png)'
+- en: Figure 6-8\. Accuracy with a two thousand–word vocabulary
+  id: totrans-96
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-8\. 使用两千词汇量的准确率
+- en: This is somewhat reinforced by the loss plot in [Figure 6-9](#loss_with_a_twocommazerozerozero_word_v).
+    The loss on the validation set is rising, but much slower than before, so reducing
+    the size of the vocabulary to prevent the training set from overfitting on low-frequency
+    words that were possibly only present in the training set appears to have worked.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这在 [图 6-9](#loss_with_a_twocommazerozerozero_word_v) 的损失图中有所体现。验证集上的损失在上升，但比之前缓慢得多，因此减少词汇量的大小，以防止训练集过拟合低频词，似乎是有效的。
+- en: '![Loss with a two thousand–word vocabulary](Images/aiml_0609.png)'
+  id: totrans-98
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用两千词汇量的损失](Images/aiml_0609.png)'
+- en: Figure 6-9\. Loss with a two thousand–word vocabulary
+  id: totrans-99
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-9\. 使用两千词汇量的损失
+- en: It’s worth experimenting with different vocab sizes, but remember that you can
+    also have too small a vocab size and overfit to that. You’ll need to find a balance.
+    In this case, my choice of taking words that appear 20 times or more was purely
+    arbitrary.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值得尝试不同的词汇大小，但记住你也可能会有过小的词汇量并且对此过拟合。你需要找到一个平衡点。在这种情况下，我选择了选择出现20次或更多次的单词纯属随意。
+- en: Exploring embedding dimensions
+  id: totrans-101
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 探索嵌入维度
+- en: For this example, an embedding dimension of 16 was arbitrarily chosen. In this
+    instance words are encoded as vectors in 16-dimensional space, with their directions
+    indicating their overall meaning. But is 16 a good number? With only two thousand
+    words in our vocabulary it might be on the high side, leading to a high degree
+    of sparseness of direction.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，这个例子中，嵌入维度选择了16。在这种情况下，单词被编码为16维空间中的向量，它们的方向表示它们的整体含义。但是16是一个好的数字吗？我们的词汇表中只有两千个单词，这可能稍微偏高，导致方向的稀疏性较高。
+- en: Best practice for embedding size is to have it be the fourth root of the vocab
+    size. The fourth root of 2,000 is 6.687, so let’s explore what happens if we change
+    the embedding dimension to 7 and retrain the model for 100 epochs.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 嵌入大小的最佳实践是使其成为词汇大小的四次方根。2000的四次方根是6.687，因此让我们看看如果将嵌入维度改为7并重新训练100个时期会发生什么。
+- en: You can see the result on the accuracy in [Figure 6-9](#loss_with_a_twocommazerozerozero_word_v).
+    The training set’s accuracy stabilized at about 83% and the validation set’s at
+    about 77%. Despite some jitters, the lines are pretty flat, showing that the model
+    has converged. This isn’t much different from the results in [Figure 6-6](#exploring_the_frequency_of_words),
+    but reducing the embedding dimensionality allows the model to train over 30% faster.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在 [图 6-9](#loss_with_a_twocommazerozerozero_word_v) 中看到准确性的结果。训练集的准确性稳定在约83%，验证集在约77%。尽管有些波动，线条仍然相当平坦，显示模型已经收敛。这与
+    [图 6-6](#exploring_the_frequency_of_words) 中的结果并没有太大不同，但减少嵌入维度允许模型训练速度提高30%。
+- en: '![Training versus validation accuracy for seven dimensions](Images/aiml_0610.png)'
+  id: totrans-105
+  prefs: []
+  type: TYPE_IMG
+  zh: '![七维度的训练与验证准确率](Images/aiml_0610.png)'
+- en: Figure 6-10\. Training versus validation accuracy for seven dimensions
+  id: totrans-106
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-10\. 七维度的训练与验证准确率
+- en: '[Figure 6-11](#training_versus_validation_loss_for_sev) shows the loss in training
+    and validation. While it initially appeared that the loss was climbing at about
+    epoch 20, it soon flattened out. Again, a good sign!'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 6-11](#training_versus_validation_loss_for_sev) 显示了训练和验证的损失。虽然最初似乎在第20个时期损失正在上升，但很快就趋于平稳。再次，这是一个好的迹象！'
+- en: '![Training versus validation loss for seven dimensions](Images/aiml_0611.png)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_IMG
+  zh: '![七维度的训练与验证损失](Images/aiml_0611.png)'
+- en: Figure 6-11\. Training versus validation loss for seven dimensions
+  id: totrans-109
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-11\. 七维度的训练与验证损失
+- en: Now that the dimensionality has been reduced, we can do a bit more tweaking
+    of the model architecture.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在维度已经降低，我们可以稍微调整模型架构。
+- en: Exploring the model architecture
+  id: totrans-111
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 探索模型架构
+- en: 'After the optimizations in the previous sections, the model architecture now
+    looks like this:'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前几节的优化之后，模型架构现在如下所示：
+- en: '[PRE16]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: One thing that jumps to mind is the dimensionality—the `GlobalAveragePooling1D`
+    layer is now emitting just seven dimensions, but they’re being fed into a dense
+    layer of 24 neurons, which is overkill. Let’s explore what happens when this is
+    reduced to just eight neurons and trained for one hundred epochs.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个值得注意的事情是维度——`GlobalAveragePooling1D` 层现在仅发出七个维度，但它们被馈送到具有24个神经元的密集层，这有些过度。让我们看看当这减少到仅有八个神经元并训练一百个时期时会发生什么。
+- en: You can see the training versus validation accuracy in [Figure 6-12](#reduced_dense_architecture_accuracy_res).
+    When compared to [Figure 6-7](#frequency_of_words_threezerozeroen_dash), where
+    24 neurons were used, the overall result is quite similar, but the fluctuations
+    have been smoothed out (visible in the lines being less jaggy). It’s also somewhat
+    faster to train.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以看到在 [图 6-12](#reduced_dense_architecture_accuracy_res) 中的训练与验证准确率。与使用24个神经元的
+    [图 6-7](#frequency_of_words_threezerozeroen_dash) 相比，总体结果相似，但波动已经被平滑处理（可以从线条的不那么崎岖看出）。训练速度也有所提升。
+- en: '![Reduced dense architecture accuracy results](Images/aiml_0612.png)'
+  id: totrans-116
+  prefs: []
+  type: TYPE_IMG
+  zh: '![降低密集架构的准确性结果](Images/aiml_0612.png)'
+- en: Figure 6-12\. Reduced dense architecture accuracy results
+  id: totrans-117
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-12\. 降低密集架构的准确性结果
+- en: Similarly, the loss curves in [Figure 6-13](#reduced_dense_architecture_loss_results)
+    show similar results, but with the jagginess reduced.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样地，[图 6-13](#reduced_dense_architecture_loss_results) 中的损失曲线显示了类似的结果，但是凹凸性降低了。
+- en: '![Reduced dense architecture loss results ](Images/aiml_0613.png)'
+  id: totrans-119
+  prefs: []
+  type: TYPE_IMG
+  zh: '![减少的密集架构损失结果](Images/aiml_0613.png)'
+- en: Figure 6-13\. Reduced dense architecture loss results
+  id: totrans-120
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-13\. 减少的密集架构损失结果
+- en: Using dropout
+  id: totrans-121
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用 dropout
+- en: A common technique for reducing overfitting is to add dropout to a dense neural
+    network. We explored this for convolutional neural networks back in [Chapter 3](ch03.xhtml#going_beyond_the_basics_detecting_featu).
+    It’s tempting to go straight to that to see its effects on overfitting, but in
+    this case I wanted to wait until the vocabulary size, embedding size, and architecture
+    complexity had been addressed. Those changes can often have a much larger impact
+    than using dropout, and we’ve already seen some nice results.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种常见的减少过拟合的技术是向密集神经网络添加 dropout。我们在[第 3 章](ch03.xhtml#going_beyond_the_basics_detecting_featu)中探讨过卷积神经网络的这一方法。虽然直接看看它对过拟合的影响是很诱人的，但在这种情况下，我想等到词汇量、嵌入大小和架构复杂性得到解决。这些变化通常会比使用
+    dropout 更大地影响结果，并且我们已经看到了一些不错的结果。
+- en: 'Now that our architecture has been simplified to have only eight neurons in
+    the middle dense layer, the effect of dropout may be minimized but let’s explore
+    it anyway. Here’s the updated code for the model architecture adding a dropout
+    of 0.25 (which equates to two of our eight neurons):'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们的架构已经简化为中间密集层仅有八个神经元，dropout 的效果可能会被最小化，但让我们仍然探讨一下。这是模型架构的更新代码，添加了 0.25
+    的 dropout（相当于我们八个神经元中的两个）：
+- en: '[PRE17]'
+  id: totrans-124
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: '[Figure 6-14](#accuracy_with_added_dropout) shows the accuracy results when
+    trained for one hundred epochs.'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 6-14](#accuracy_with_added_dropout) 显示了在训练了一百个 epochs 后的准确性结果。'
+- en: This time we see that the training accuracy is climbing above its previous threshold,
+    while the validation accuracy is slowly dropping. This is a sign that we are entering
+    overfitting territory again. This is confirmed by exploring the loss curves in
+    [Figure 6-15](#loss_with_added_dropout).
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一次我们看到训练准确率正在超过先前的阈值，而验证准确率正在缓慢下降。这表明我们正在进入过拟合的领域。通过探索图 6-15 中的损失曲线，这一点得到了确认。
+- en: '![Accuracy with added dropout](Images/aiml_0614.png)'
+  id: totrans-127
+  prefs: []
+  type: TYPE_IMG
+  zh: '![添加了 dropout 的准确率](Images/aiml_0614.png)'
+- en: Figure 6-14\. Accuracy with added dropout
+  id: totrans-128
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-14\. 添加了 dropout 的准确率
+- en: '![Loss with added dropout](Images/aiml_0615.png)'
+  id: totrans-129
+  prefs: []
+  type: TYPE_IMG
+  zh: '![添加了 dropout 的损失](Images/aiml_0615.png)'
+- en: Figure 6-15\. Loss with added dropout
+  id: totrans-130
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-15\. 添加了 dropout 的损失
+- en: Here you can see that the model is heading back to its previous pattern of increasing
+    validation loss over time. It’s not nearly as bad as before, but it’s heading
+    in the wrong direction.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里你可以看到模型正在回到先前随时间增加的验证损失模式。虽然情况没有以前那么糟糕，但它正在朝着错误的方向发展。
+- en: In this case, when there were very few neurons, introducing dropout probably
+    wasn’t the right idea. It’s still good to have this tool in your arsenal though,
+    so be sure to keep it in mind for more sophisticated architectures than this one.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，当神经元很少时，引入 dropout 可能不是一个正确的想法。但是对于比这个更复杂的架构，仍然有必要考虑它，所以一定要记住它。
+- en: Using regularization
+  id: totrans-133
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用正则化
+- en: '*Regularization* is a technique that helps prevent overfitting by reducing
+    the polarization of weights. If the weights on some of the neurons are too heavy,
+    regularization effectively punishes them. Broadly speaking, there are two types
+    of regularization: *L1* and *L2*.'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*正则化* 是一种技术，通过减少权重的极化来帮助防止过拟合。如果某些神经元的权重过重，正则化会有效地对其进行惩罚。总体来说，正则化主要有两种类型：*L1*
+    和 *L2*。'
+- en: L1 regularization is often called *lasso* (least absolute shrinkage and selection
+    operator) regularization. It effectively helps us ignore the zero or close-to-zero
+    weights when calculating a result in a layer.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: L1 正则化通常被称为*套索*（最小绝对收缩和选择算子）正则化。它有效地帮助我们在计算层结果时忽略零或接近零的权重。
+- en: L2 regularization is often called *ridge* regression because it pushes values
+    apart by taking their squares. This tends to amplify the differences between nonzero
+    values and zero or close-to-zero ones, creating a ridge effect.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: L2 正则化通常被称为*岭*回归，因为它通过取平方来使值分离。这倾向于放大非零值与零或接近零值之间的差异，产生了岭效应。
+- en: The two approaches can also be combined into what is sometimes called *elastic*
+    regularization.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两种方法也可以结合起来，有时被称为*弹性*正则化。
+- en: For NLP problems like the one we’re considering, L2 is most commonly used. It
+    can be added as an attribute to the `Dense` layer using the `kernel_regularizers`
+    property, and takes a floating-point value as the regularization factor. This
+    is another hyperparameter that you can experiment with to improve your model!
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于像我们考虑的这种NLP问题，L2正则化最常用。它可以作为`Dense`层的一个属性添加，使用`kernel_regularizers`属性，并采用浮点值作为正则化因子。这是另一个可以实验以改进模型的超参数！
+- en: 'Here’s an example:'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一个例子：
+- en: '[PRE18]'
+  id: totrans-140
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: The impact of adding regularization in a simple model like this isn’t particularly
+    large, but it does smooth out our training loss and validation loss somewhat.
+    It might be overkill for this scenario, but like dropout, it’s a good idea to
+    understand how to use regularization to prevent your model from getting overspecialized.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在像这样简单的模型中添加正则化的影响并不特别大，但它确实在一定程度上平滑了我们的训练损失和验证损失。这可能对于这种情况来说有点过度，但是像dropout一样，了解如何使用正则化来防止模型过度特化是个好主意。
+- en: Other optimization considerations
+  id: totrans-142
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 其他优化考虑
+- en: 'While the modifications we’ve made have given us a much improved model with
+    less overfitting, there are other hyperparameters that you can experiment with.
+    For example, we chose to make the maximum sentence length one hundred, but this
+    was purely arbitrary and probably not optimal. It’s a good idea to explore the
+    corpus and see what a better sentence length might be. Here’s a snippet of code
+    that looks at the sentences and plots the lengths of each one, sorted from low
+    to high:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管我们所做的修改大大改进了模型并减少了过拟合，但还有其他超参数可以进行实验。例如，我们选择将最大句子长度设置为一百，但这纯粹是任意选择，可能并不是最优的。探索语料库并查看更好的句子长度是个好主意。这里有一段代码片段，它查看句子的长度并按从低到高排序进行绘制：
+- en: '[PRE19]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: The results of this are shown in [Figure 6-16](#exploring_sentence_length).
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个结果显示在[图6-16](#exploring_sentence_length)中。
+- en: '![Exploring sentence length](Images/aiml_0616.png)'
+  id: totrans-146
+  prefs: []
+  type: TYPE_IMG
+  zh: '![探索句子长度](Images/aiml_0616.png)'
+- en: Figure 6-16\. Exploring sentence length
+  id: totrans-147
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-16. 探索句子长度
+- en: Less than 200 sentences in the total corpus of 26,000+ have a length of 100
+    words or greater, so by choosing this as the max length, we’re introducing a lot
+    of padding that isn’t necessary, and affecting the model’s performance. Reducing
+    it to 85 would still keep 26,000 of the sentences (99%+) without any padding at
+    all.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在总语料库中，少于200个句子的长度超过100个单词，所以通过选择这个作为最大长度，我们引入了很多不必要的填充，并影响了模型的性能。将其减少到85仍将保持26000个句子（99%+）完全没有填充。
+- en: Using the Model to Classify a Sentence
+  id: totrans-149
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用模型进行句子分类
+- en: 'Now that you’ve created the model, trained it, and optimized it to remove a
+    lot of the problems that caused the overfitting, the next step is to run the model
+    and inspect its results. To do this, create an array of new sentences. For example:'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经创建了模型，对其进行了训练并对其进行了优化，以消除引起过度拟合的许多问题，下一步是运行模型并检查其结果。为此，请创建一个新句子的数组。例如：
+- en: '[PRE20]'
+  id: totrans-151
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: These can then be encoded using the same tokenizer that was used when creating
+    the vocabulary for training. It’s important to use that because it has the tokens
+    for the words that the network was trained on!
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，这些可以使用创建词汇表时使用的相同标记器进行编码。使用这个很重要，因为它包含了网络训练时使用的单词的标记！
+- en: '[PRE21]'
+  id: totrans-153
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'The output of the print statement will be the sequences for the preceding sentences:'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 打印语句的输出将是前面句子的序列：
+- en: '[PRE22]'
+  id: totrans-155
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: There are a lot of `1` tokens here (“<OOV>”), because stopwords like “in” and
+    “the” have been removed from the dictionary, and words like “granny” and “spiders”
+    don’t appear in the dictionary.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有很多`1`个标记（“<OOV>”），因为像“in”和“the”这样的停用词已从字典中删除，而“granny”和“spiders”之类的词并不在字典中出现。
+- en: 'Before you can pass the sequences to the model, they’ll need to be in the shape
+    that the model expects—that is, the desired length. You can do this with `pad_sequences`
+    in the same way you did when training the model:'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在您可以将序列传递给模型之前，它们需要在模型期望的形状中——即所需的长度中。您可以像训练模型时那样使用`pad_sequences`来做到这一点：
+- en: '[PRE23]'
+  id: totrans-158
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'This will output the sentences as sequences of length `100`, so the output
+    for the first sequence will be:'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将输出长度为`100`的句子序列，因此第一个序列的输出将是：
+- en: '[PRE24]'
+  id: totrans-160
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: It was a very short sentence!
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个非常短的句子！
+- en: 'Now that the sentences have been tokenized and padded to fit the model’s expectations
+    for the input dimensions, it’s time to pass them to the model and get predictions
+    back. This is as easy as doing this:'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在句子已经被分词并填充以适应模型对输入维度的期望，是时候将它们传递给模型并获得预测结果了。这样做就像这样简单：
+- en: '[PRE25]'
+  id: totrans-163
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'The results will be passed back as a list and printed, with high values indicating
+    likely sarcasm. Here are the results for our sample sentences:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果将以列表形式返回并打印出来，高值表示可能是讽刺。这是我们示例句子的结果：
+- en: '[PRE26]'
+  id: totrans-165
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: The high score for the first sentence (“granny starting to fear spiders in the
+    garden might be real”), despite it having a lot of stopwords and being padded
+    with a lot of zeros, indicates that there is a high level of sarcasm here. The
+    other two sentences scored much lower, indicating a lower likelihood of sarcasm
+    within.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一句的高分（“granny starting to fear spiders in the garden might be real”），尽管有很多停用词并被填充了大量零，表明这里有很高的讽刺水平。另外两个句子的分数要低得多，表明其中讽刺的可能性较低。
+- en: Visualizing the Embeddings
+  id: totrans-167
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 可视化嵌入
+- en: To visualize embeddings you can use a tool called the [Embedding Projector](http://projector.tensorflow.org).
+    It comes preloaded with many existing datasets, but in this section you’ll see
+    how to take the data from the model you’ve just trained and visualize it using
+    this tool.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要可视化嵌入，您可以使用一个名为[嵌入投影仪](http://projector.tensorflow.org)的工具。它预装有许多现有数据集，但在本节中，您将看到如何使用刚刚训练的模型数据来使用这个工具进行可视化。
+- en: 'First, you’ll need a function to reverse the word index. It currently has the
+    word as the token and the key as the value, but this needs to be inverted so we
+    have word values to plot on the projector. Here’s the code to do this:'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，您需要一个函数来反转单词索引。当前它以单词作为标记，以键作为值，但需要反转以便我们有单词值来在投影仪上绘制。以下是实现此操作的代码：
+- en: '[PRE27]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'You’ll also need to extract the weights of the vectors in the embeddings:'
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还需要提取嵌入向量中的权重：
+- en: '[PRE28]'
+  id: totrans-172
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'The output of this will be `(2000,7)` if you followed the optimizations in
+    this chapter—we used a 2,000 word vocabulary, and 7 dimensions for the embedding.
+    If you want to explore a word and its vector details, you can do so with code
+    like this:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您遵循本章节中的优化，输出将是`(2000,7)`—我们使用了一个包含 2000 个单词的词汇表，并且嵌入的维度为 7。如果您想探索一个单词及其向量细节，可以使用如下代码：
+- en: '[PRE29]'
+  id: totrans-174
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'This will produce the following output:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将产生以下输出：
+- en: '[PRE30]'
+  id: totrans-176
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: So, the word “new” is represented by a vector with those seven coefficients
+    on its axes.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，“new”这个词由一个具有这七个系数的向量表示在其轴上。
+- en: 'The Embedding Projector uses two tab-separated values (TSV) files, one for
+    the vector dimensions and one for metadata. This code will generate them for you:'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 嵌入投影仪使用两个制表符分隔值（TSV）文件，一个用于向量维度，一个用于元数据。此代码将为您生成它们：
+- en: '[PRE31]'
+  id: totrans-179
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'If you are using Google Colab, you can download the TSV files with the following
+    code or from the Files pane:'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您正在使用 Google Colab，您可以使用以下代码或从文件窗格下载 TSV 文件：
+- en: '[PRE32]'
+  id: totrans-181
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: Once you have them you can press the Load button on the projector to visualize
+    the embeddings, as shown in [Figure 6-17](#using_the_embeddings_projector).
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您拥有它们，您可以按下投影仪上的“加载”按钮来可视化嵌入，如[图 6-17](#using_the_embeddings_projector)所示。
+- en: Use the vectors and meta TSV files where recommended in the resulting dialog,
+    and then click Sphereize Data on the projector. This will cause the words to be
+    clustered on a sphere and will give you a clear visualization of the binary nature
+    of this classifier. It’s only been trained on sarcastic and nonsarcastic sentences,
+    so words tend to cluster toward one label or another ([Figure 6-18](#visualizing_the_sarcasm_embeddings)).
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生成的对话框中建议使用向量和元数据 TSV 文件，然后单击投影仪上的“球化数据”。这将导致单词在球体上聚类，并清晰地显示此分类器的二元特性。它仅在讽刺和非讽刺句子上进行了训练，因此单词倾向于朝向一个标签或另一个聚类（[图
+    6-18](#visualizing_the_sarcasm_embeddings)）。
+- en: '![Using the Embeddings Projector](Images/aiml_0617.png)'
+  id: totrans-184
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用嵌入投影仪](Images/aiml_0617.png)'
+- en: Figure 6-17\. Using the Embeddings Projector
+  id: totrans-185
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-17\. 使用嵌入投影仪
+- en: '![Visualizing the sarcasm embeddings](Images/aiml_0618.png)'
+  id: totrans-186
+  prefs: []
+  type: TYPE_IMG
+  zh: '![可视化讽刺嵌入](Images/aiml_0618.png)'
+- en: Figure 6-18\. Visualizing the sarcasm embeddings
+  id: totrans-187
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-18\. 可视化讽刺嵌入
+- en: Screenshots don’t do it justice; you should try it for yourself! You can rotate
+    the center sphere and explore the words on each “pole” to see the impact they
+    have on the overall classification. You can also select words and show related
+    ones in the righthand pane. Have a play and experiment.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 屏幕截图无法真实展示其效果；您应该亲自尝试！您可以旋转中心球体并探索每个“极点”上的单词，以查看它们对整体分类的影响。您还可以选择单词并在右侧窗格中显示相关单词。玩得开心，进行实验。
+- en: Using Pretrained Embeddings from TensorFlow Hub
+  id: totrans-189
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用来自 TensorFlow Hub 的预训练嵌入
+- en: An alternative to training your own embeddings is to use ones that have been
+    pretrained and packaged into Keras layers for you. There are many of these on
+    [TensorFlow Hub](https://tfhub.dev) that you can explore. One thing to note is
+    that they can also contain the tokenization logic for you, so you don’t have to
+    handle the tokenization, sequencing, and padding yourself as you have been doing
+    so far.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练自己的嵌入的另一种选择是使用已经预训练并打包为 Keras 层的嵌入。在[TensorFlow Hub](https://tfhub.dev)上有许多这样的资源供你探索。需要注意的是，它们还可以为你包含分词逻辑，因此你不必像之前那样处理分词、序列化和填充。
+- en: TensorFlow Hub is preinstalled in Google Colab, so the code in this chapter
+    will work as is. If you want to install it as a dependency on your machine, you’ll
+    need to follow the [instructions](https://oreil.ly/_mvxY) to install the latest
+    version.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow Hub 在 Google Colab 中预安装，因此本章中的代码将直接运行。如果你想在自己的机器上安装它作为依赖项，你需要按照[说明](https://oreil.ly/_mvxY)安装最新版本。
+- en: 'For example, with the Sarcasm data, instead of all the logic for tokenization,
+    vocab management, sequencing, padding, etc., you could just do something like
+    this once you have your full set of sentences and labels. First, split them into
+    training and test sets:'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，对于讽刺数据，你可以省去所有的分词、词汇管理、序列化、填充等逻辑，只需在拥有完整句子集和标签后执行如下操作。首先，将它们分为训练集和测试集：
+- en: '[PRE33]'
+  id: totrans-193
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'Once you have these, you can download a pretrained layer from TensorFlow Hub
+    like this:'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你拥有这些，你可以像这样从 TensorFlow Hub 下载一个预训练层：
+- en: '[PRE34]'
+  id: totrans-195
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: This takes the embeddings from the Swivel dataset, trained on 130 GB of Google
+    News. Using this layer will encode your sentences, tokenize them, use the words
+    from them with the embeddings learned as part of Swivel, and then *encode your
+    sentences into a single embedding*. It’s worth remembering that final part. The
+    technique we’ve been using to date is to just use the word encodings and classify
+    the content based on all of them. When using a layer like this, you’re getting
+    the full sentence aggregated into a new encoding.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将使用从 Swivel 数据集中提取的嵌入，该数据集在 130 GB 的 Google News 上训练。使用这一层将编码你的句子，对它们进行分词，并使用从
+    Swivel 学习的单词嵌入进行编码，然后*将你的句子编码成一个单一的嵌入*。值得记住这最后一部分。到目前为止，我们一直使用的技术是仅使用单词编码，并基于它们来分类内容。使用这样的层时，你将获得整个句子聚合成一个新编码的效果。
+- en: 'You can then create a model architecture by using this layer instead of an
+    embedding one. Here’s a simple model that uses it:'
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，你可以通过使用这一层而不是嵌入层来创建模型架构。这里有一个使用它的简单模型：
+- en: '[PRE35]'
+  id: totrans-198
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: This model will rapidly reach peak accuracy in training, and will not overfit
+    as much as we saw previously. The accuracy over 50 epochs shows training and validation
+    very much in step with each other ([Figure 6-19](#accuracy_metrics_using_swivel_embedding)).
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个模型将在训练中迅速达到峰值准确度，并且不会像我们之前看到的那样过拟合。50 个 epochs 中的准确度显示训练和验证非常一致（[图 6-19](#accuracy_metrics_using_swivel_embedding)）。
+- en: '![Accuracy metrics using Swivel embeddings](Images/aiml_0619.png)'
+  id: totrans-200
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用 Swivel 嵌入的准确度指标](Images/aiml_0619.png)'
+- en: Figure 6-19\. Accuracy metrics using Swivel embeddings
+  id: totrans-201
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-19\. 使用 Swivel 嵌入的准确度指标
+- en: The loss values are also in step, showing that we are fitting very nicely ([Figure 6-20](#loss_metrics_using_swivel_embeddings)).
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 损失值也是一致的，显示我们拟合得非常好（[图 6-20](#loss_metrics_using_swivel_embeddings)）。
+- en: '![Loss metrics using Swivel embeddings](Images/aiml_0620.png)'
+  id: totrans-203
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用 Swivel 嵌入的损失指标](Images/aiml_0620.png)'
+- en: Figure 6-20\. Loss metrics using Swivel embeddings
+  id: totrans-204
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-20\. 使用 Swivel 嵌入的损失指标
+- en: It is worth noting, however, that the overall accuracy (at about 67%) is quite
+    low, considering a coin flip would have a 50% chance of getting it right! This
+    is caused by the encoding of all of the word-based embeddings into a sentence-based
+    one—in the case of sarcastic headlines, it appears that individual words can have
+    a huge effect on the classification (see [Figure 6-18](#visualizing_the_sarcasm_embeddings)).
+    So, while using pretrained embeddings can make for much faster training with less
+    overfitting, you should also understand what it is that they’re useful for, and
+    that they may not always be best for your scenario.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，值得注意的是，总体准确率（约为 67%）相对较低，考虑到硬币翻转的几率为 50%！这是由于所有基于单词的嵌入被编码成基于句子的嵌入所导致的——在讽刺标题的情况下，似乎单个单词对分类有很大影响（见[图 6-18](#visualizing_the_sarcasm_embeddings)）。因此，虽然使用预训练的嵌入可以实现更快的训练且减少过拟合，你也应理解它们的实际用途，并且它们并不总是适合你的场景。
+- en: Summary
+  id: totrans-206
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: In this chapter, you built your first model to understand sentiment in text.
+    It did it by taking the tokenized text from [Chapter 5](ch05.xhtml#introduction_to_natural_language_proces)
+    and mapping it to vectors. Then, using backpropagation, it learned the appropriate
+    “direction” for each vector based on the label for the sentence containing it.
+    Finally, it was able to use all of the vectors for a collection of words to build
+    up an idea of the sentiment within the sentence. You also explored ways to optimize
+    your model to avoid overfitting and saw a neat visualization of the final vectors
+    representing your words. While this was a nice way to classify sentences, it simply
+    treated each sentence as a bunch of words. There was no inherent sequence involved,
+    and as the order of appearance of words is very important in determining the real
+    meaning of a sentence, it’s a good idea to see if we can improve our models by
+    taking sequence into account. We’ll explore that in the next chapter with the
+    introduction of a new layer type—a *recurrent* layer, which is the foundation
+    of recurrent neural networks. You’ll also see another pretrained embedding, called
+    GloVe, which allows you to use word-based embeddings in a transfer learning scenario.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你建立了第一个模型来理解文本中的情感。它通过获取来自[第五章](ch05.xhtml#introduction_to_natural_language_proces)的分词文本并将其映射到向量来实现这一目标。然后，利用反向传播，它学习了每个向量的适当“方向”，根据包含该向量的句子的标签。最后，它能够利用所有单词集合的向量来建立对句子情感的理解。你还探索了优化模型以避免过拟合的方法，并看到了表示单词的最终向量的清晰可视化。虽然这是分类句子的一个不错的方法，但它仅仅把每个句子视为一堆单词。没有固有的序列参与其中，而单词出现的顺序在确定句子真实含义方面非常重要，因此我们可以看看是否可以通过考虑序列来改进我们的模型是个好主意。在下一章中，我们将探索引入一种新的层类型——*循环*层，这是循环神经网络的基础。你还将看到另一个预训练嵌入，称为GloVe，它允许你在迁移学习场景中使用基于单词的嵌入。

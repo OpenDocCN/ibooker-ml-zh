@@ -1,0 +1,1412 @@
+- en: Chapter 11\. Advanced Vision Problems
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第11章. 高级视觉问题
+- en: 'So far in this book, we have looked primarily at the problem of classifying
+    an entire image. In [Chapter 2](ch02.xhtml#ml_models_for_vision) we touched on
+    image regression, and in [Chapter 4](ch04.xhtml#object_detection_and_image_segmentation)
+    we discussed object detection and image segmentation. In this chapter, we will
+    look at more advanced problems that can be solved using computer vision: measurement,
+    counting, pose estimation, and image search.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，本书主要关注整个图像分类的问题。在[第2章](ch02.xhtml#ml_models_for_vision)中，我们提到了图像回归，在[第4章](ch04.xhtml#object_detection_and_image_segmentation)中讨论了目标检测和图像分割。在本章中，我们将探讨可以使用计算机视觉解决的更高级别的问题：测量、计数、姿态估计和图像搜索。
+- en: Tip
+  id: totrans-2
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: The code for this chapter is in the *11_adv_problems* folder of the book’s [GitHub
+    repository](https://github.com/GoogleCloudPlatform/practical-ml-vision-book).
+    We will provide file names for code samples and notebooks where applicable.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的代码位于书籍的[GitHub仓库](https://github.com/GoogleCloudPlatform/practical-ml-vision-book)的*11_adv_problems*文件夹中。我们将在适当的地方提供代码样本和笔记本的文件名。
+- en: Object Measurement
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 对象测量
+- en: Sometimes we want to know the measurements of an object within an image (e.g.,
+    that a sofa is 180 cm long). While we can simply use pixel-wise regression to
+    measure something like ground precipitation using aerial images of cloud cover,
+    we will need to do something more sophisticated for the object measurement scenario.
+    We can’t simply count the number of pixels and infer a size from that, because
+    the same object could be represented by a different number of pixels due to where
+    it is within the image, its rotation, aspect ratio, etc. Let’s walk through the
+    four steps needed to measure an object from a photograph of it, following an approach
+    suggested by [Imaginea Labs](https://oreil.ly/FEaPn).
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时我们想知道图像中对象的尺寸（例如，沙发长180厘米）。尽管我们可以简单地使用像素回归来测量像云层覆盖的空中图像中地面降水这样的东西，但是我们需要为对象测量场景做一些更复杂的事情。我们不能简单地数像素的数量并从中推断尺寸，因为同一对象可能由于其在图像中的位置、旋转、长宽比等而用不同数量的像素表示。让我们按照[Imaginea
+    Labs](https://oreil.ly/FEaPn)建议的方法，步骤步骤地测量对象的照片。
+- en: Reference Object
+  id: totrans-6
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 参考对象
+- en: Suppose we’re an online shoe store, and we want to help customers find the best
+    shoe size by using photographs of their footprints. We ask customers to get their
+    feet wet and step onto a paper material, then upload a photo of their footprint
+    like the one shown in [Figure 11-1](#leftcolon_photograph_of_wet_footprint_on).
+    We can then obtain the appropriate shoe size (based on length and width) and arch
+    type from the footprint using an ML model.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们是一家在线鞋店，我们想通过客户上传的脚印照片来帮助他们找到最合适的鞋码。我们要求顾客把脚弄湿，踏在纸上，然后上传像[图 11-1](#leftcolon_photograph_of_wet_footprint_on)中展示的脚印照片。然后我们可以使用机器学习模型从脚印中获取适当的鞋码（基于长度和宽度）和脚弓类型。
+- en: '![](Images/pmlc_1101.png)'
+  id: totrans-8
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1101.png)'
+- en: 'Figure 11-1\. Left: Photograph of wet footprint on paper. Right: Photograph
+    of the same footprint taken with the camera a few inches closer to the paper.
+    Identifying the high-pressure areas is helpful to identify the type of arch the
+    person has. Photographs in this section are by the author.'
+  id: totrans-9
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-1. 左：纸上湿脚印的照片。右：与纸稍微靠近几英寸的相同脚印的照片。识别高压区域有助于识别人的脚型。本节中的照片由作者提供。
+- en: The ML model should be trained using different paper types, different lighting,
+    rotations, flips, etc. to anticipate all of the possible variations of footprint
+    images the model might receive at inference time to predict foot measurements.
+    But an image of the footprint alone is insufficient to create an effective measurement
+    solution, because (as you can see in [Figure 11-1](#leftcolon_photograph_of_wet_footprint_on))
+    the size of foot in the image will vary depending on factors such as the distance
+    between the camera and the paper.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习模型应该使用不同的纸张类型、不同的光照、旋转、翻转等来训练，以预测脚印图像在推断时可能接收到的所有可能变化。但是，仅仅通过脚印图像本身是不足以创建有效的测量解决方案的，因为（正如您在[图 11-1](#leftcolon_photograph_of_wet_footprint_on)中所见）图像中的脚的大小将取决于诸如摄像机与纸之间距离等因素。
+- en: A simple way to address the scale problem is to include a reference object that
+    virtually all customers should have. Most customers have credit cards, which have
+    standard dimensions, so this can be used as a reference or calibration object
+    to help the model determine the relative size of the foot in the image. As shown
+    in [Figure 11-2](#leftcolon_photograph_of_a_credit_card_ne), we simply ask each
+    customer to place a credit card next to their footprint before taking the photo.
+    Having a reference object simplifies the measurement task to one of comparing
+    the foot against that object.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决尺度问题的一个简单方法是包含几乎所有客户都会有的参考对象。大多数客户都有标准尺寸的信用卡，因此可以将其用作参考或校准对象，以帮助模型确定图像中脚的相对大小。如图
+    [Figure 11-2](#leftcolon_photograph_of_a_credit_card_ne) 所示，我们只需要求每位客户在拍照前将信用卡放在其脚印旁边。有一个参考对象可以将测量任务简化为与该对象进行比较。
+- en: '![](Images/pmlc_1102.png)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1102.png)'
+- en: 'Figure 11-2\. Left: Photograph of a credit card next to a wet footprint. Right:
+    Photograph of the same objects, taken with the camera a few inches closer to the
+    paper.'
+  id: totrans-13
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-2\. 左：信用卡旁边湿脚印的照片。右：同一物体的照片，相机离纸稍近了几英寸。
+- en: Building our training dataset of different footprints on various backgrounds
+    of course may require some cleaning, such as rotating the images to have all footprints
+    oriented the same way. Otherwise, for some images we would be measuring the projected
+    length and not the true length. As for the reference credit card, we won’t perform
+    any corrections before training and will align the generated foot and reference
+    masks at prediction time.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 建立我们的训练数据集，包含各种背景上的不同脚印，当然可能需要一些清理，如旋转图像使所有脚印都朝向相同方向。否则，对于某些图像，我们将测量投影长度而不是真实长度。至于参考信用卡，在训练之前我们不会进行任何修正，并在预测时对齐生成的脚印和参考面具。
+- en: At the beginning of the training we can perform data augmentation, such as rotating,
+    blurring, and changing the brightness, scaling, and contrast, as shown in [Figure 11-3](#footprint_image_data_augmentation_perfor).
+    This can help us increase the size of our training dataset as well as teaching
+    the model to be flexible enough to receive many different real-world variations
+    of the data.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练开始时，我们可以执行数据增强，如旋转、模糊、改变亮度、缩放和对比度，如 [Figure 11-3](#footprint_image_data_augmentation_perfor)
+    所示。这可以帮助我们增加训练数据集的大小，同时教导模型足够灵活以接收许多不同的真实世界数据变化。
+- en: '![](Images/pmlc_1103.png)'
+  id: totrans-16
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1103.png)'
+- en: Figure 11-3\. Footprint image data augmentation performed at the beginning of
+    training.
+  id: totrans-17
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-3\. 在训练开始时执行的脚印图像数据增强。
+- en: Segmentation
+  id: totrans-18
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 分割
+- en: The machine learning model first needs to segment out the footprint from the
+    credit card in the image and identify those as the two correct objects extracted.
+    For this we will be using the Mask R-CNN image segmentation model, as discussed
+    in [Chapter 4](ch04.xhtml#object_detection_and_image_segmentation) and depicted
+    in [Figure 11-4](#the_mask_r-cnn_architecturedot_image_ada).
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习模型首先需要在图像中分割出脚印和信用卡，并将它们识别为两个正确提取的对象。为此，我们将使用 Mask R-CNN 图像分割模型，如 [第 4 章](ch04.xhtml#object_detection_and_image_segmentation)
+    中讨论的，并在 [Figure 11-4](#the_mask_r-cnn_architecturedot_image_ada) 中描述。
+- en: '![](Images/pmlc_1104.png)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1104.png)'
+- en: Figure 11-4\. The Mask R-CNN architecture. Image adapted from [He et al., 2017](https://arxiv.org/abs/1703.06870).
+  id: totrans-21
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-4\. Mask R-CNN 架构。图片取自 [He et al., 2017](https://arxiv.org/abs/1703.06870)。
+- en: Through the mask branch of the architecture we will predict a mask for the footprint
+    and a mask for the credit card, obtaining a result similar to that on the right
+    in [Figure 11-4](#the_mask_r-cnn_architecturedot_image_ada).
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过架构的面具分支，我们将预测脚印的面具和信用卡的面具，获得类似于 [Figure 11-4](#the_mask_r-cnn_architecturedot_image_ada)
+    右侧的结果。
+- en: 'Remember our mask branch’s output has two channels: one for each object, footprint
+    and credit card. Therefore, we can look at each mask individually, as shown in
+    [Figure 11-5](#individual_masks_of_footprint_and_credit).'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住我们面具分支的输出有两个通道：一个用于每个对象，脚印和信用卡。因此，我们可以单独查看每个面具，如图 [Figure 11-5](#individual_masks_of_footprint_and_credit)
+    所示。
+- en: '![](Images/pmlc_1105.png)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1105.png)'
+- en: Figure 11-5\. Individual masks of footprint and credit card.
+  id: totrans-25
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-5\. 脚印和信用卡的单独面具。
+- en: Next, we have to align the masks so that we can obtain the correct measurements.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们必须对齐面具，以便获得正确的测量结果。
+- en: Rotation Correction
+  id: totrans-27
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 旋转校正
+- en: Once we have obtained the masks of the footprint and the credit card, they have
+    to be normalized with respect to rotation, for users who may have placed the credit
+    card in slightly different orientations when taking the photograph.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们获得了脚印和信用卡的掩模，它们必须根据可能在拍摄照片时以略微不同的方向放置信用卡的用户进行归一化处理。
+- en: To correct for the rotation, we can use principal component analysis (PCA) on
+    each of the masks to get the *eigenvectors*—the size of the object in the direction
+    of the largest eigenvector, for example, is the length of the object (see [Figure 11-6](#the_credit_card_may_have_been_placed_in)).
+    The eigenvectors obtained from PCA are orthogonal to each other and each subsequent
+    component’s eigenvector has a smaller and smaller contribution to the variance.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要纠正旋转，我们可以对每个掩模应用主成分分析（PCA），以获取*特征向量* ——例如，物体在最大特征向量方向上的大小是物体的长度（见[图 11-6](#the_credit_card_may_have_been_placed_in)）。从PCA获得的特征向量彼此正交，每个后续分量的特征向量对方差的贡献越来越小。
+- en: '![](Images/pmlc_1106.png)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1106.png)'
+- en: Figure 11-6\. The credit card may have been placed in slightly different orientations
+    with respect to the foot. The directions of the two largest eigenvectors in each
+    object are marked by the axes.
+  id: totrans-31
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-6\. 信用卡可能相对于脚放置在稍有不同的方向上。每个对象中两个最大特征向量的方向由轴标记。
+- en: Before PCA, the mask dimensions were in a vector space that had dimension axes
+    with respect to the original image, as shown on the left side of [Figure 11-6](#the_credit_card_may_have_been_placed_in).
+    Using the fact that the eigenvectors are in a different vector space basis after
+    PCA, with the axes now along the direction of greatest variance (as shown on the
+    right in [Figure 11-6](#the_credit_card_may_have_been_placed_in)), we can use
+    the angle between the original coordinate axis and the first eigenvector to determine
+    how much of a rotation correction to make.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在PCA之前，掩模的尺寸位于一个向量空间中，该空间的维度轴是相对于原始图像的，如[图 11-6](#the_credit_card_may_have_been_placed_in)左侧所示。利用事实，即在PCA之后特征向量位于不同的向量空间基础上，现在的轴沿着最大方差的方向（如[图 11-6](#the_credit_card_may_have_been_placed_in)右侧所示），我们可以利用原始坐标轴与第一个特征向量之间的角度来确定需要进行多少旋转校正。
+- en: Ratio and Measurements
+  id: totrans-33
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 比率和测量
+- en: With our rotation-corrected masks, we can now calculate the footprint measurements.
+    We first project our masks onto a two-dimensional space and look along the x-
+    and y-axes. The length is found by measuring the pixel distance between the smallest
+    and largest *y*-coordinate values, and likewise for the width in the *x*-dimension.
+    Remember, the measurements for both the footprint and the credit card are in units
+    of pixels, not centimeters or inches.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了我们校正旋转后的掩模，现在可以计算脚印的测量值。我们首先将我们的掩模投影到二维空间，并沿x和y轴观察。长度通过测量最小和最大*y*坐标值之间的像素距离来确定，宽度则类似于*x*维度。请记住，脚印和信用卡的测量单位均为像素，而不是厘米或英寸。
+- en: Next, knowing the precise measurements of the credit card, we can find the ratio
+    between the pixel dimensions and the real dimensions of the card. This ratio can
+    then be applied to the pixel dimensions of the footprint to ascertain its true
+    measurements.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，通过了解信用卡的精确尺寸，我们可以找到像素尺寸与卡片实际尺寸之间的比率。然后，可以将此比率应用于脚印的像素尺寸，以确定其真实尺寸。
+- en: Determining the arch type is slightly more complicated, but it still requires
+    counting in pixels after finding high-pressure areas (see [Su et al., 2015](https://oreil.ly/AlUIu),
+    and [Figure 11-1](#leftcolon_photograph_of_wet_footprint_on)). With the correct
+    measurements, as shown in [Figure 11-7](#we_can_obtain_the_final_measurements_of),
+    our store will be able to find the perfect shoe to fit each customer.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确定拱型类型略微更复杂，但仍需要在找到高压区域后进行像素计数（见[苏等人，2015](https://oreil.ly/AlUIu)，以及[图 11-1](#leftcolon_photograph_of_wet_footprint_on)）。通过正确的测量值，如[图 11-7](#we_can_obtain_the_final_measurements_of)所示，我们的商店将能够为每位顾客找到最适合的鞋子。
+- en: '![](Images/pmlc_1107.png)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1107.png)'
+- en: Figure 11-7\. We can obtain the final measurements of the PCA-corrected masks
+    using the reference pixel/centimeter ratio.
+  id: totrans-38
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-7\. 我们可以使用参考像素/厘米比率来获得经过PCA校正的掩模的最终测量。
+- en: Counting
+  id: totrans-39
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 计数
+- en: Counting the number of objects in an image is a problem with widespread applications,
+    from estimating crowd sizes to identifying the potential yield of a crop from
+    drone imagery. How many berries are in the photograph shown in [Figure 11-8](#berries_on_a_plantdot_photograph_by_the)?
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 计算图像中物体的数量是一个具有广泛应用的问题，从估计人群规模到从无人机图像中识别作物潜在产量。请问[图 11-8](#berries_on_a_plantdot_photograph_by_the)
+    中的照片中有多少浆果？
+- en: '![](Images/pmlc_1108.png)'
+  id: totrans-41
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1108.png)'
+- en: Figure 11-8\. Berries on a plant. Photograph by the author.
+  id: totrans-42
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-8\. 植物上的浆果。照片作者提供。
+- en: 'Based on the techniques we have covered so far, you might choose one of the
+    following approaches:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于我们目前所涵盖的技术，您可以选择以下的方法之一：
+- en: Train an object detection classifier to detect berries, and count the number
+    of bounding boxes. However, the berries tend to overlap one another, and detection
+    approaches might miss or combine berries.
+  id: totrans-44
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 训练一个物体检测分类器来检测浆果，并计算边界框的数量。然而，浆果往往会彼此重叠，检测方法可能会错过或结合浆果。
+- en: Treat this as a segmentation problem. Find segments that contain berries and
+    then, based on the properties of each cluster (for example, its size), determine
+    the number of berries in each. The problem with this method is that it is not
+    scale-invariant, and will fail if our berries are smaller or larger than typical.
+    Unlike the foot-size measurement scenario discussed in the previous section, a
+    reference object is difficult to incorporate into this problem.
+  id: totrans-45
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 把这视为分割问题。找出包含浆果的各个分段，然后根据每个群集的特性（例如大小），确定每个浆果的数量。这种方法的问题在于它不具有尺度不变性，如果我们的浆果比典型的更小或更大，则会失败。与前一节讨论的脚尺寸测量场景不同，难以将参考物体整合到这个问题中。
+- en: Treat this as a regression problem, and estimate the number of berries from
+    the entire image itself. This method has the same scale problems as the segmentation
+    approach and it is difficult to find enough labeled images, although it has been
+    successfully employed in the past for counting [crowds](https://arxiv.org/abs/1703.09393)
+    and [wildlife](https://oreil.ly/1qdvm).
+  id: totrans-46
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 把这看作一个回归问题，从整个图像估计浆果的数量。这种方法与分割方法一样存在尺度问题，难以找到足够的标记图像，尽管过去已成功用于计数[人群](https://arxiv.org/abs/1703.09393)和[野生动物](https://oreil.ly/1qdvm)。
+- en: There are additional drawbacks to these approaches. For example, the first two
+    methods require us to correctly classify berries, and the regression method ignores
+    location, which we know is a significant source of information about the contents
+    of images.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些方法还存在其他缺点。例如，前两种方法要求我们正确分类浆果，而回归方法忽略了位置信息，而我们知道位置信息是图像内容的重要信息来源。
+- en: A better approach is to use density estimation on simulated images. In this
+    section, we will discuss the technique and step through the method.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更好的方法是在模拟图像上使用密度估计。在本节中，我们将讨论这种技术并逐步介绍该方法。
+- en: Density Estimation
+  id: totrans-49
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 密度估计
+- en: For counting in situations like this where the objects are small and overlapping,
+    there is an alternative approach, introduced in a 2010 [paper](https://oreil.ly/EW2J4)
+    by Victor Lempitsky and Andrew Zisserman, that avoids having to do object detection
+    or segmentation and does not lose the location information. The idea is to teach
+    the network to estimate the *density* of objects (here, berries) in patches of
+    the image.^([1](ch11.xhtml#ch11fn01))
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于像这样物体小且重叠的情况下的计数，有一种替代方法，由 Victor Lempitsky 和 Andrew Zisserman 在 2010 年的[论文](https://oreil.ly/EW2J4)中介绍，避免了需要进行物体检测或分割，并且不会丢失位置信息。其想法是教会网络估计图像区域（这里是浆果）的密度^([1](ch11.xhtml#ch11fn01))。
+- en: In order to do density estimation, we need to have labels that indicate density.
+    So, we take the original image and break it into smaller nonoverlapping patches,
+    and we label each patch by the number of berry centers that lie in it, as shown
+    in [Figure 11-9](#the_model_is_trained_on_patches_of_the_o). It is this value
+    that the network will learn to estimate. In order to make sure that the total
+    number of berries in the patches equals the number of berries in the image, we
+    make sure to count a berry as being in a patch only if its center point is in
+    the patch. Because some berries may be only partially in a patch, the grid input
+    to the model has to be larger than a patch. The input is shown by the dashed lines.
+    Obviously, this makes the border of the image problematic, but we can simply pad
+    the images as shown on the right in [Figure 11-9](#the_model_is_trained_on_patches_of_the_o)
+    to deal with this.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了进行密度估计，我们需要具有指示密度的标签。因此，我们将原始图像分解为较小的非重叠块，并且我们通过浆果中心点的数量标记每个块，如[图11-9](#the_model_is_trained_on_patches_of_the_o)所示。正是这个值，网络将学会估计。为了确保块中的浆果总数等于图像中的浆果数量，我们确保只有浆果中心点在块中才算浆果在块中。因为某些浆果可能只部分在块中，所以模型的网格输入必须比块大。输入由虚线表示。显然，这使得图像的边界问题变得棘手，但是我们可以像[图11-9](#the_model_is_trained_on_patches_of_the_o)右侧所示一样简单地填充图像来处理这个问题。
+- en: '![](Images/pmlc_1109.png)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1109.png)'
+- en: 'Figure 11-9\. The model is trained on patches of the original image: the inputs
+    and labels for three such patches are shown in the left panel. The labels consist
+    of the number of berries whose center points lie within the inner square of each
+    patch. The input patches require “same” padding on all sides whereas the label
+    patches consist of valid pixels only.'
+  id: totrans-53
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-9。模型是在原始图像的块上进行训练：左侧面板显示了三个这样的块的输入和标签。标签包含那些中心点位于每个块内部正方形内的浆果数量。输入块需要在所有边上进行“same”填充，而标签块只包含有效像素。
+- en: This method is applicable beyond just counting berries, of course—it tends to
+    work better than the alternatives at estimating crowd sizes, counting cells in
+    biological images, and other such applications where there are lots of objects
+    and some objects may be partially occluded by others. This is just like image
+    regression, except that by using patches we increase the dataset size and teach
+    the model to focus on density.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，这种方法不仅适用于浆果计数——它在估计人群规模、计算生物图像中的细胞数量以及其他一些应用中通常比替代方法效果更好。这与图像回归类似，只是通过使用块增加了数据集大小，并教会模型关注密度。
+- en: Extracting Patches
+  id: totrans-55
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 提取块
+- en: 'Given an image of berries and a label image consisting of 1s corresponding
+    to the center point of each berry, the easiest way to generate the necessary input
+    and label patches is to employ the TensorFlow function `tf.image.extract_patches()`.
+    This function requires us to pass in a batch of images. If we have only one image,
+    then we can expand the dimension by adding a batch size of 1 using `tf.expand_dims()`.
+    The label image will have only one channel since it is Boolean, so we’ll also
+    have to add a depth dimension of 1 (the full code is in [*11a_counting.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/11_adv_problems/11a_counting.ipynb)):'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定一个包含浆果图像和一个标签图像的问题，其中每个浆果的中心点对应于1s，生成所需的输入和标签块的最简单方法是使用 TensorFlow 函数 `tf.image.extract_patches()`。这个函数要求我们传入一个图像批次。如果我们只有一张图像，那么我们可以通过使用
+    `tf.expand_dims()` 添加一个批次大小为1的维度。由于标签图像只有一个通道，因为它是布尔型的，所以我们还必须添加深度维度为1（完整的代码在
+    [*11a_counting.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/11_adv_problems/11a_counting.ipynb)
+    中）：
+- en: '[PRE0]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Now we can call `tf.image.extract_patches()` on the input image. Notice in
+    the following code that we ask for patches of the size of the dashed box (`INPUT_WIDTH`)
+    but stride by the size of the smaller label patch (`PATCH_WIDTH`). If the dashed
+    boxes are 64x64 pixels, then each of the boxes will have 64 * 64 * 3 pixel values.
+    These values will be 4D, but we can reshape the patch values to a flattened array
+    for convenience:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们可以在输入图像上调用 `tf.image.extract_patches()`。请注意下面的代码中，我们要求获取大小为虚线框 (`INPUT_WIDTH`)
+    的块，但是步长是较小的标签块 (`PATCH_WIDTH`) 的大小。如果虚线框是64x64像素，那么每个框将有64 * 64 * 3像素值。这些值将是4D的，但我们可以将块值重新整形为平坦数组以便于使用：
+- en: '[PRE1]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'Next, we repeat the same operation on the label image:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们在标签图像上重复相同的操作：
+- en: '[PRE2]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: There are two key differences in the code for the label patches versus that
+    for the image patches. First, the size of the label patches is the size of the
+    inner box only. Note also the difference in the padding specification. For the
+    input image, we specify `padding=SAME`, asking TensorFlow to pad the input image
+    with zeros and then extract all patches of the larger box size from it (see [Figure 11-9](#the_model_is_trained_on_patches_of_the_o)).
+    For the label image we ask only for fully valid boxes, so the image will not be
+    padded. This ensures that we get the corresponding outer box of the image for
+    every valid label patch.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标签补丁的代码与图像补丁的代码有两个关键差异。首先，标签补丁的大小仅为内部框的大小。还要注意填充规格的差异。对于输入图像，我们指定`padding=SAME`，要求
+    TensorFlow 用零填充输入图像，然后从中提取所有较大框大小的补丁（见[图 11-9](#the_model_is_trained_on_patches_of_the_o)）。对于标签图像，我们只要求完全有效的框，因此不会进行填充。这确保我们对于每个有效的标签补丁都得到相应的外框图像。
+- en: 'The label image will now have 1s corresponding to the centers of all the objects
+    we want to count. We can find the total number of such objects, which we will
+    call the density, by summing up the pixel values of the label patch:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标签图像现在将1对应于我们要计数的所有对象的中心。我们可以通过对标签补丁的像素值求和找到这些对象的总数，我们将其称为密度：
+- en: '[PRE3]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Simulating Input Images
+  id: totrans-65
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模拟输入图像
+- en: In their 2017 [paper](https://oreil.ly/CTRLA) on yield estimation, Maryam Rahnemoor
+    and Clay Sheppard showed that it is not even necessary to have real labeled photographs
+    to train a neural network to count. To train their neural network to count tomatoes
+    on a vine, the authors simply fed it simulated images consisting of red circles
+    on a brown and green background. Because the method requires only simulated data,
+    it is possible to quickly create a large dataset. The resulting trained neural
+    network performed well on actual tomato plants. It is this approach, called *deep
+    simulated learning*, that we show next. Of course, if you actually have labeled
+    data where each berry (or person in a crowd, or antibody in a sample) is marked,
+    you can use that instead.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在他们2017年的[论文](https://oreil.ly/CTRLA)中，Maryam Rahnemoor 和 Clay Sheppard 表明，甚至不需要真实的标记照片就可以训练神经网络进行计数。为了训练他们的神经网络在藤上计数番茄，作者们简单地输入了由红色圆圈组成的模拟图像，背景为棕色和绿色。由于这种方法只需要模拟数据，因此可以快速创建大型数据集。结果训练好的神经网络在实际的番茄植物上表现良好。接下来，我们将展示这种称为*深度模拟学习*的方法。当然，如果您确实有标记数据，其中每个浆果（或人群中的人，或样本中的抗体）都被标记，那么您可以使用那些数据。
+- en: We will generate a blurred green background, simulate 25–75 “berries,” and add
+    them to the image (see [Figure 11-10](Images/#simulating_input_images_for_counting_quo)).
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将生成一个模糊的绿色背景，模拟 25 到 75 个“浆果”，并将它们添加到图像中（见[图 11-10](Images/#simulating_input_images_for_counting_quo)）。
+- en: '![](Images/pmlc_1110.png)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1110.png)'
+- en: Figure 11-10\. Simulating input images for counting “berries” on a green background.
+    The first image is the background, the second the simulated berries, and the third
+    the actual input image.
+  id: totrans-69
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-10\. 在绿色背景上模拟用于计数“浆果”的输入图像。第一幅图是背景，第二幅是模拟的浆果，第三幅是实际输入图像。
+- en: 'The key pieces of code are to randomly position a few berries:'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关键代码部分是随机放置几个浆果：
+- en: '[PRE4]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'At each berry location in the label image, a red circle is drawn:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在标签图像的每个浆果位置上，画一个红色圆圈：
+- en: '[PRE5]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'The berries are then added to the green background:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后将浆果添加到绿色背景中：
+- en: '[PRE6]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Once we have an image, we can generate image patches from it and obtain the
+    density by adding up the berry centers that fall within the label patch. A few
+    example patches and the corresponding densities are shown in [Figure 11-11](#a_few_of_the_patches_and_the_correspondi).
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们有了图像，我们可以从中生成图像补丁，并通过将落入标签补丁内的浆果中心相加来获得密度。一些示例补丁及其相应的密度显示在[图 11-11](#a_few_of_the_patches_and_the_correspondi)中。
+- en: '![](Images/pmlc_1111.png)'
+  id: totrans-77
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1111.png)'
+- en: Figure 11-11\. A few of the patches and the corresponding densities. Note that
+    the label patch consists only of the center 50% of the input patch, and only red
+    circles whose centers are in the label patch are counted in the density calculation.
+  id: totrans-78
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-11\. 几个补丁和相应的密度。请注意，标签补丁仅包含输入补丁的中心50%，并且只有其中心位于标签补丁内的红色圆圈才会被计入密度计算。
+- en: Regression
+  id: totrans-79
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 回归
+- en: 'Once we have the patch creation going, we can train a regression model on the
+    patches to predict the density. First, we set up our training and evaluation datasets
+    by generating simulated images:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们开始创建补丁，我们就可以在补丁上训练回归模型来预测密度。首先，通过生成模拟图像来设置我们的训练和评估数据集：
+- en: '[PRE7]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'We can use any of the models we discussed in [Chapter 3](ch03.xhtml#image_vision).
+    For illustration purposes, let’s use a simple ConvNet (the full code is available
+    in [*11a_counting.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/11_adv_problems/11a_counting.ipynb)):'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用我们在[第3章](ch03.xhtml#image_vision)讨论过的任何模型。为了说明，让我们使用一个简单的ConvNet（完整的代码可以在[*GitHub上的11a_counting.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/11_adv_problems/11a_counting.ipynb)中找到）：
+- en: '[PRE8]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'The key aspects to note about the architecture shown here are:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里展示的架构的关键方面有：
+- en: The output is a single numeric value (density).
+  id: totrans-85
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 输出是一个单一的数值（密度）。
+- en: The output node is a linear layer (so that the density can take any numeric
+    value).
+  id: totrans-86
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 输出节点是一个线性层（因此密度可以取任何数值）。
+- en: The loss is mean square error.
+  id: totrans-87
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 损失是均方误差。
+- en: These aspects make the model a regression model capable of predicting the density.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些方面使得该模型成为能够预测密度的回归模型。
+- en: Prediction
+  id: totrans-89
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 预测
+- en: 'Remember that the model takes a patch and predicts the density of berries in
+    the patch. Given an input image, we have to break it into patches exactly as we
+    did during training and carry out model prediction on all the patches, then sum
+    up the predicted densities, as shown below:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，模型接受一个补丁，并预测补丁中的浆果密度。给定输入图像，我们必须像在训练期间那样将其分成补丁，并对所有补丁进行模型预测，然后总结预测的密度，如下所示：
+- en: '[PRE9]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: Predictions on some independent images are shown in [Figure 11-12](#predicted_values_from_the_modelcomma_com).
+    As you can see, the predictions are within 10% of the actual numbers.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些独立图像的预测结果显示在[图11-12](#predicted_values_from_the_modelcomma_com)中。如您所见，预测值与实际数值相差不超过10%。
+- en: '![](Images/pmlc_1112.png)'
+  id: totrans-93
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1112.png)'
+- en: Figure 11-12\. Predicted values from the model, compared with the actual number
+    of objects in each image.
+  id: totrans-94
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-12\. 模型预测值与每个图像中实际对象数量的比较。
+- en: When we tried this on the real berry image with which we started this section,
+    however, the estimate was considerably off. Addressing this might require simulating
+    berries of different sizes, not just placing equally sized berries at random positions.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，当我们在实际的浆果图像上尝试时，估计结果相差很大。解决这个问题可能需要模拟不同大小的浆果，而不仅仅是在随机位置放置大小相同的浆果。
+- en: Pose Estimation
+  id: totrans-96
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 姿势估计
+- en: There are a variety of situations where we may desire to identify key parts
+    of an object. A very common situation is to identify elbows, knees, face, and
+    so on in order to identify the pose of a person. Therefore, this problem is termed
+    *pose estimation* or *pose detection*. Pose detection can be useful to identify
+    whether a subject is sitting, standing, dancing, or lying down or to provide advice
+    on posture in sports and medical settings.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有多种情况我们可能希望识别物体的关键部位。非常常见的情况是识别肘部、膝盖、面部等，以便识别人物的姿势。因此，这个问题被称为*姿势估计*或*姿势检测*。姿势检测可以用于识别被拍摄主体是坐着、站着、跳舞、躺下或者为运动和医疗环境提供姿势建议。
+- en: Given a photograph like the one in [Figure 11-13](#identifying_the_relative_position_of_key),
+    how can we identify the feet, knees, elbows, and hands in the image?
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 针对像[Figure 11-13](#identifying_the_relative_position_of_key)中的照片，我们如何识别图像中的脚、膝盖、肘部和手部？
+- en: '![](Images/pmlc_1113.png)'
+  id: totrans-99
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1113.png)'
+- en: Figure 11-13\. Identifying the relative position of key body parts is useful
+    to provide coaching on improving a player’s form. Photograph by the author.
+  id: totrans-100
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-13\. 识别关键身体部位的相对位置对提供关于改进球员姿态建议是有用的。照片由作者拍摄。
+- en: In this section, we will discuss the technique and point you toward an already
+    trained implementation. It is rarely necessary to train a pose estimation model
+    from scratch—instead, you will use the output of an already trained pose estimation
+    model to determine what the subjects in the images are doing.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将讨论该技术，并指向一个已经训练好的实现。几乎不需要从头开始训练姿势估计模型——相反，您将使用已经训练好的姿势估计模型的输出来确定图像中的主体正在做什么。
+- en: PersonLab
+  id: totrans-102
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: PersonLab
+- en: 'The state-of-the-art approach was suggested in a 2018 [paper](https://arxiv.org/pdf/1803.08225.pdf)
+    by George Papandreou et al. They called it PersonLab, but the models that implement
+    their approach now go by the name *PoseNet*. Conceptually, PoseNet consists of
+    the steps depicted in [Figure 11-14](#identifying_the_relative_positio-id00025):'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种最先进的方法是由George Papandreou等人在2018年提出的[论文](https://arxiv.org/pdf/1803.08225.pdf)中建议的。他们称之为PersonLab，但现在实施他们方法的模型被称为*PoseNet*。从概念上讲，PoseNet包括在[Figure 11-14](#identifying_the_relative_positio-id00025)中描述的步骤：
+- en: Use an object detection model to identify a heatmap of all the points of interest
+    in the skeleton. These typically include the knees, elbows, shoulders, eyes, nose,
+    and so on. For simplicity, we’ll refer to these as *joints*. The heatmap is the
+    score that is output from the classification head of the object detection model
+    (i.e., before thresholding).
+  id: totrans-104
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用对象检测模型来识别骨架中所有感兴趣点的热图。这些通常包括膝盖、肘部、肩部、眼睛、鼻子等。为简单起见，我们将这些称为*关节*。热图是对象检测模型分类头部输出的分数（即阈值化之前）。
+- en: Anchored at each detected joint, identify the most likely location of nearby
+    joints. The offset location of the elbow given a detected wrist is shown in the
+    figure.
+  id: totrans-105
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 锚定在每个检测到的关节处，识别附近关节最可能的位置。图中显示了检测到手腕时肘部的偏移位置。
+- en: Use a voting mechanism to detect human poses based on the joints chosen based
+    on steps 1 and 2.
+  id: totrans-106
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用投票机制来检测基于步骤 1 和 2 选择的人体姿势的关节。
+- en: In reality, steps 1 and 2 are carried out simultaneously by means of an object
+    detection model (any of the models discussed in [Chapter 4](ch04.xhtml#object_detection_and_image_segmentation)
+    may be used) that predicts a joint, its location, and the offset to nearby joints.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，步骤 1 和 2 是通过对象检测模型（可以使用[第 4 章](ch04.xhtml#object_detection_and_image_segmentation)讨论的任何模型）同时进行的，该模型预测一个关节及其位置以及与附近关节的偏移。
+- en: '![](Images/pmlc_1114.png)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1114.png)'
+- en: Figure 11-14\. Identifying the relative position of key joints is useful to
+    identify human poses. Image adapted from [Papandreou et al., 2018](https://arxiv.org/pdf/1803.08225.pdf).
+  id: totrans-109
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-14\. 识别关键关节的相对位置有助于识别人体姿势。图片修改自[Papandreou et al., 2018](https://arxiv.org/pdf/1803.08225.pdf)。
+- en: We need steps 2 and 3 because it is not sufficient to simply run an object detection
+    model to detect the various joints—it is possible that the model will miss some
+    joints and identify spurious joints. That’s why the PoseNet model also predicts
+    offsets to nearby joints from the detected joints. For example, if the model detects
+    a wrist, the wrist detection comes with an offset prediction for the location
+    of the elbow joint. This helps in cases where, for some reason, the elbow was
+    not detected. If the elbow was detected, we might now have three candidate locations
+    for that joint—the elbow location from the heatmap and the elbow locations from
+    the offset predictions of the wrist and the shoulder. Given all these candidate
+    locations, a weighted voting mechanism called the Hough transform is used to determine
+    the final location of the joint.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要步骤 2 和 3 是因为仅仅运行对象检测模型来检测各种关节是不够的—模型可能会漏掉一些关节并识别虚假的关节。这就是为什么 PoseNet 模型还预测从检测到的关节到附近关节的偏移。例如，如果模型检测到手腕，手腕检测会带有肘部关节位置的偏移预测。这有助于在某些情况下，例如肘部未被检测到的情况下。如果检测到了肘部，我们现在可能有三个该关节的候选位置—来自热图的肘部位置和手腕和肩部偏移预测的肘部位置。考虑到所有这些候选位置，使用称为霍夫变换的加权投票机制确定关节的最终位置。
+- en: The PoseNet Model
+  id: totrans-111
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: PoseNet 模型
+- en: PoseNet implementations are available in [TensorFlow for Android](https://oreil.ly/rGzZh)
+    and for the web browser. The [TensorFlow JS implementation](https://oreil.ly/X1RVj)
+    runs in a web browser and uses MobileNet or ResNet as the underlying architecture,
+    but continues to refer to itself as PoseNet. An alternate implementation is provided
+    by [OpenPose](https://oreil.ly/EHSMY).
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PoseNet 实现可用于[Android 上的 TensorFlow](https://oreil.ly/rGzZh)和 Web 浏览器。[TensorFlow
+    JS 实现](https://oreil.ly/X1RVj)在 Web 浏览器中运行，并使用 MobileNet 或 ResNet 作为底层架构，但继续称其为
+    PoseNet。[OpenPose](https://oreil.ly/EHSMY)提供了另一种实现方式。
+- en: The TensorFlow JS PoseNet model was trained to identify 17 body parts that include
+    facial features (nose, leftEye, rightEye, leftEar, rightEar) and key limb joints
+    (shoulder, elbow, wrist, hip, knee, and ankle) on both the left and the right
+    side.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow JS PoseNet 模型经过训练，可以识别包括面部特征（鼻子、左眼、右眼、左耳、右耳）和关键肢体关节（肩部、肘部、手腕、臀部、膝盖和踝部）在内的
+    17 个身体部位，分别位于左侧和右侧。
+- en: 'To try it out, you’ll need to run a local web server—[*11b_posenet.html* in
+    the GitHub repository](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/11_adv_problems/11b_posenet.html)
+    provides details. Load the `posenet` package and ask it to estimate a single pose
+    (as opposed to an image with multiple people in it):'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要尝试它，您需要运行一个本地网络服务器—[*GitHub 仓库中的 11b_posenet.html*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/11_adv_problems/11b_posenet.html)
+    提供了详细信息。加载`posenet`包并要求它估算单个姿势（而不是一张图中的多个人）：
+- en: '[PRE10]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: Note that we ask that the image not be flipped. However, if you are processing
+    selfie images, you might want to flip them horizontally to match the user experience
+    of seeing mirrored images.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们要求图像不要翻转。但是，如果您处理自拍图像，您可能希望水平翻转它们以匹配用户体验的镜像图像。
+- en: 'We can display the returned value as a JSON element using:'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用以下方法直接显示返回的 JSON 元素：
+- en: '[PRE11]'
+  id: totrans-118
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'The JSON has the key points identified, along with their positions in the image:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: JSON 中标识的关键点及其在图像中的位置：
+- en: '[PRE12]'
+  id: totrans-120
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: We can use these to directly annotate the image as shown in [Figure 11-15](#an_annotated_imagecomma_with_the_annotat).
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以像在[图 11-15](#an_annotated_imagecomma_with_the_annotat)中展示的那样，直接注释图像。
+- en: '![](Images/pmlc_1115.png)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1115.png)'
+- en: Figure 11-15\. An annotated image, with the annotations derived from the output
+    of PoseNet. Each of the light gray boxes contains a marker (e.g., rightWrist),
+    and they have been connected by the skeleton.
+  id: totrans-123
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-15\. 一个带注释的图像，注释来自 PoseNet 的输出。每个浅灰色框中包含一个标记（例如，rightWrist），它们由骨架连接。
+- en: The accuracy of PoseNet is determined by the accuracy of the underlying classification
+    model (ResNet tends to be both larger and slower but more accurate than MobileNet,
+    for example) and by the size of the output strides—the larger the stride, the
+    larger the patches, so the precision of the output locations suffers.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PoseNet 的准确性由底层分类模型的准确性（例如，相比于 MobileNet，ResNet 往往更大且速度更慢但更准确）和输出步幅的大小决定——步幅越大，补丁越大，因此输出位置的精度受到影响。
+- en: 'These factors can be changed when PoseNet is loaded:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当 PoseNet 被加载时，这些因素可以被改变：
+- en: '[PRE13]'
+  id: totrans-126
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: A smaller output stride results in a more accurate model, at the expense of
+    speed. The input resolution specifies the size the image is resized and padded
+    to before it is fed into the PoseNet model. The larger the value, the more accurate
+    it is, again at the cost of speed.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 较小的输出步幅会导致更精确的模型，但速度会降低。输入分辨率指定图像在输入 PoseNet 模型之前调整大小和填充的大小。该值越大，准确性越高，但速度越慢。
+- en: The MobileNet architecture takes a parameter called `multiplier` that specifies
+    the depth multiplier for convolution operations. The larger the multiplier, the
+    more accurate but slower the model is. The `quantBytes` parameter in ResNet specifies
+    the number of bytes used for weight quantization. Using a value of `4` leads to
+    a higher accuracy and larger models than using `1`.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MobileNet 架构有一个称为`multiplier`的参数，用于指定卷积操作的深度乘数。乘数越大，模型的准确性就越高，但速度更慢。ResNet 中的`quantBytes`参数指定了用于权重量化的字节数。使用`4`会比使用`1`得到更高的准确性和更大的模型。
+- en: Identifying Multiple Poses
+  id: totrans-129
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 识别多个姿势
+- en: 'To estimate the poses of multiple people in a single image, we use the same
+    technique outlined in the previous section, with a few additional steps:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了估计单个图像中多人的姿势，我们使用与前一节中概述的相同技术，并添加了一些额外的步骤：
+- en: Use an image segmentation model to identify all the pixels that correspond to
+    persons in the image.
+  id: totrans-131
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用图像分割模型识别在图像中对应于人物的所有像素。
+- en: Using the combination of joints, identify the most likely location of a specific
+    body part, such as the nose.
+  id: totrans-132
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用关节的组合，识别特定身体部位（例如鼻子）最可能的位置。
+- en: Using the pixels from the segmentation mask found in step 1, and the likely
+    connections identified in step 2, assign the person pixels to individual persons.
+  id: totrans-133
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用步骤 1 中找到的分割蒙版中的像素以及步骤 2 中确定的可能连接，将人物像素分配给各自的人物。
+- en: An example is shown in [Figure 11-16](#identifying_the_poses_of_multiple_people).
+    Again, any of the image segmentation models discussed in [Chapter 4](ch04.xhtml#object_detection_and_image_segmentation)
+    may be used here.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，在[图 11-16](#identifying_the_poses_of_multiple_people)中显示了一个示例。同样，可以在[第 4
+    章](ch04.xhtml#object_detection_and_image_segmentation)讨论的任何图像分割模型中使用。
+- en: '![](Images/pmlc_1116.png)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1116.png)'
+- en: Figure 11-16\. Identifying the poses of multiple people in the image. Adapted
+    from [Papandreou et al., 2018](https://arxiv.org/pdf/1803.08225.pdf).
+  id: totrans-136
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-16\. 在图像中识别多人的姿势。改编自[Papandreou 等人，2018](https://arxiv.org/pdf/1803.08225.pdf)。
+- en: 'When running PoseNet, you can ask it to estimate multiple poses using:'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行 PoseNet 时，您可以要求它使用以下方法估计多个姿势：
+- en: '[PRE14]'
+  id: totrans-138
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: The key parameters here are the maximum number of people in the image (`maxDetections`),
+    the confidence threshold for a person detection (`scoreThreshold`), and the distance
+    within which two detections should suppress each other (`nmsRadius`, in pixels).
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的关键参数包括图像中的最大人数(`maxDetections`)、人物检测的置信度阈值(`scoreThreshold`)，以及两个检测之间应该抑制的距离(`nmsRadius`，以像素为单位)。
+- en: Next, let’s look at the problem of supporting image search.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们看一下支持图像搜索的问题。
+- en: Image Search
+  id: totrans-141
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 图像搜索
+- en: '[eBay uses image search](https://oreil.ly/JVE2J) to improve the shopping experience
+    (e.g., find the eyeglasses that a specific celebrity is wearing) and the listing
+    experience (e.g., here are all the relevant technical specifications of this gadget
+    you are trying to sell).'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[eBay使用图像搜索](https://oreil.ly/JVE2J)来改善购物体验（例如，找到特定名人所穿眼镜的款式）和列表体验（例如，这是你正在尝试出售的小工具的所有相关技术规格）。'
+- en: The crux of the problem in both cases is to find the image in the dataset that
+    is most similar to a newly uploaded image. To provide this capability, we can
+    use embeddings. The idea is that two images that are similar to each other will
+    have embeddings that are also close to each other. So, to search for a similar
+    image, we can simply search for a similar embedding.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这两种情况下的关键问题是找到数据集中与新上传图像最相似的图像。为了提供这种能力，我们可以使用嵌入。其核心思想是两张相似的图像会有接近的嵌入。因此，要搜索类似的图像，我们可以简单地搜索相似的嵌入。
+- en: Distributed Search
+  id: totrans-144
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 分布式搜索
+- en: To enable searching for similar embeddings, we will have to create a search
+    index of embeddings of the images in our dataset. Suppose we store this embedding
+    index in a large-scale, distributed data warehouse such as Google BigQuery.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使搜索相似嵌入成为可能，我们将不得不在数据集中创建嵌入的搜索索引。假设我们将此嵌入索引存储在像Google BigQuery这样的大规模分布式数据仓库中。
+- en: 'If we have embeddings of weather images in the data warehouse, then it becomes
+    easy to search for “similar” weather situations in the past to some scenario in
+    the present. Here’s a [SQL query](https://oreil.ly/IxTn1) that would do it:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们在数据仓库中有天气图像的嵌入，那么就能够轻松地搜索与当前某些场景类似的“相似”天气情况。这里是可以执行的[SQL查询](https://oreil.ly/IxTn1)：
+- en: '[PRE15]'
+  id: totrans-147
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'We are computing the Euclidean distance between the embedding at the specified
+    timestamp (`refl1`) and every other embedding, and displaying the closest matches.
+    The result, shown here:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们正在计算在指定时间戳（`refl1`）处的嵌入与其他每个嵌入之间的欧氏距离，并显示最接近的匹配项。结果如下所示：
+- en: '| <0xa0> | time | sqdist |'
+  id: totrans-149
+  prefs: []
+  type: TYPE_TB
+  zh: '| <0xa0> | time | sqdist |'
+- en: '| --- | --- | --- |'
+  id: totrans-150
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| 0 | 2019-09-20 05:00:00+00:00 | 0.000000 |'
+  id: totrans-151
+  prefs: []
+  type: TYPE_TB
+  zh: '| 0 | 2019-09-20 05:00:00+00:00 | 0.000000 |'
+- en: '| 1 | 2019-09-20 06:00:00+00:00 | 0.519979 |'
+  id: totrans-152
+  prefs: []
+  type: TYPE_TB
+  zh: '| 1 | 2019-09-20 06:00:00+00:00 | 0.519979 |'
+- en: '| 2 | 2019-09-20 04:00:00+00:00 | 0.546595 |'
+  id: totrans-153
+  prefs: []
+  type: TYPE_TB
+  zh: '| 2 | 2019-09-20 04:00:00+00:00 | 0.546595 |'
+- en: '| 3 | 2019-09-20 07:00:00+00:00 | 1.001852 |'
+  id: totrans-154
+  prefs: []
+  type: TYPE_TB
+  zh: '| 3 | 2019-09-20 07:00:00+00:00 | 1.001852 |'
+- en: '| 4 | 2019-09-20 03:00:00+00:00 | 1.387520 |'
+  id: totrans-155
+  prefs: []
+  type: TYPE_TB
+  zh: '| 4 | 2019-09-20 03:00:00+00:00 | 1.387520 |'
+- en: makes a lot of sense. The image from the previous/next hour is the most similar,
+    then images from +/– 2 hours, and so on.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样做非常有道理。从前/后一小时的图像最相似，然后是+/– 2小时的图像，依此类推。
+- en: Fast Search
+  id: totrans-157
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 快速搜索
+- en: In the SQL example in the previous section we searched the entire dataset, and
+    we were able to do it efficiently because BigQuery is a massively scaled cloud
+    data warehouse. A drawback of data warehouses, however, is that they tend to have
+    high latency. We will not be able to get millisecond response times.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前一节的SQL示例中，我们搜索了整个数据集，我们之所以能够高效地完成，是因为BigQuery是一个大规模扩展的云数据仓库。然而，数据仓库的一个缺点是它们往往具有高延迟。我们将无法获得毫秒级的响应时间。
+- en: For real-time serving, we need to be smarter about how we search for similar
+    embeddings. [Scalable Nearest Neighbors (ScaNN)](https://oreil.ly/1A1t4), which
+    we use in our next example, does search space pruning and provides an efficient
+    way to find similar vectors.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于实时服务，我们需要更聪明地搜索相似嵌入。[可扩展最近邻居（ScaNN）](https://oreil.ly/1A1t4)，我们在下一个示例中使用它，可以对搜索空间进行修剪，并提供了一种高效查找相似向量的方法。
+- en: 'Let’s build a search index of the first hundred images of our 5-flowers dataset
+    (normally, of course, we’d build a much larger dataset, but this is an illustration).
+    We can create MobileNet embeddings by creating a Keras model:'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们构建我们的5种花卉数据集的前100张图像的搜索索引（当然，通常情况下，我们会构建一个更大的数据集，但这只是一个示例）。我们可以通过创建一个Keras模型来创建MobileNet嵌入：
+- en: '[PRE16]'
+  id: totrans-161
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'To create an embeddings dataset, we loop through the dataset of flower images
+    and invoke the model’s `predict()` function (the full code is in [*11c_scann_search.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/11_adv_problems/11c_scann_search.ipynb)):'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建一个嵌入数据集，我们循环遍历花卉图像数据集，并调用模型的`predict()`函数（完整代码在GitHub上的[*11c_scann_search.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/11_adv_problems/11c_scann_search.ipynb)中）：
+- en: '[PRE17]'
+  id: totrans-163
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'Once we have the training dataset, we can initialize the [ScaNN searcher](https://oreil.ly/zJm5f),
+    specifying that the distance function to use is the cosine distance (we could
+    also use Euclidean distance):'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们有了训练数据集，我们可以初始化[ScaNN搜索器](https://oreil.ly/zJm5f)，指定要使用的距离函数为余弦距离（我们也可以使用欧氏距离）：
+- en: '[PRE18]'
+  id: totrans-165
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: This builds a tree for fast searching.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将构建一个用于快速搜索的树。
+- en: 'To search for the neighbors for some images, we obtain their embeddings and
+    invoke the searcher:'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要搜索某些图像的邻居，我们获取它们的嵌入并调用搜索器：
+- en: '[PRE19]'
+  id: totrans-168
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: If you have only one image, call `searcher.search()`.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果只有一张图片，调用`searcher.search()`。
+- en: Some results are shown in [Figure 11-17](Images/#searching_for_images_similar_to_the_firs).
+    We are looking for images similar to the first image in each row; the three closest
+    neighbors are shown in the other panels. The results aren’t too impressive. What
+    if we used a better approach to create embeddings, rather than using the embeddings
+    from MobileNet that are meant for transfer learning?
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图11-17](Images/#searching_for_images_similar_to_the_firs)中显示了一些结果。我们正在寻找与每行第一张图片相似的图像；其他面板显示了三个最接近的邻居。结果并不太令人印象深刻。如果我们使用更好的方法来创建嵌入，而不是使用用于迁移学习的MobileNet嵌入，会怎样？
+- en: '![](Images/pmlc_1117.png)'
+  id: totrans-171
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1117.png)'
+- en: Figure 11-17\. Searching for images similar to the first image in each row.
+  id: totrans-172
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-17。搜索与每行第一张图片相似的图像。
+- en: Better Embeddings
+  id: totrans-173
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 更好的嵌入
+- en: In the previous section we used MobileNet embeddings, which are derived from
+    an intermediate bottleneck layer obtained by training a large image classification
+    model. It is possible to use more customized embeddings. For example, when searching
+    for face similarity, embeddings from a model trained to identify and verify faces
+    will perform better than a generic embedding.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的部分中，我们使用了MobileNet的嵌入，这些嵌入是通过训练大型图像分类模型获得的中间瓶颈层得到的。可以使用更定制的嵌入。例如，在搜索面部相似性时，来自训练用于识别和验证面部的模型的嵌入将比通用嵌入表现更好。
+- en: To optimize the embeddings for the purposes of facial search, a system called
+    [FaceNet](https://arxiv.org/abs/1503.03832) uses triplets of matching/nonmatching
+    face patches that are aligned based on facial features. The triplets consist of
+    two matching and one nonmatching face thumbnails. A *triplet loss* function is
+    used that aims to separate the positive pair from the negative one by the maximum
+    possible distance. The thumbnails themselves are tight crops of the face area.
+    The difficulty of the triplets shown to the network increases as the network trains.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了优化面部搜索的嵌入，一个名为[FaceNet](https://arxiv.org/abs/1503.03832)的系统使用匹配/非匹配面部块的三元组，这些块基于面部特征对齐。三元组由两个匹配和一个非匹配的面部缩略图组成。使用*三元损失*函数，旨在通过最大可能距离将正对组与负对组分开。缩略图本身是面部区域的紧凑裁剪图。网络训练时，显示给网络的三元组的难度会增加。
+- en: Note
+  id: totrans-176
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Because of the ethical sensitivities that surround facial search and verification,
+    we are not demonstrating an implementation of facial search in our repository
+    or covering this topic any further. Code that implements the [FaceNet technique
+    is readily available online](https://oreil.ly/rRZ9Q). Please make sure that you
+    use AI responsibly and in a way that doesn’t run afoul of governmental, industry,
+    or company policies.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于围绕面部搜索和验证的道德敏感性，我们没有在我们的存储库中演示面部搜索的实现或进一步讨论此主题。实现[FaceNet技术的代码在线上已经很容易获得](https://oreil.ly/rRZ9Q)。请确保您负责任地使用AI，并遵守不违反政府、行业或公司政策的方式。
+- en: The triplet loss can be used to create embeddings that are clustered together
+    by label such that two images with the same label have their embeddings close
+    together and two images with different labels have their embeddings far apart.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 三元损失可以用来创建通过标签聚类在一起的嵌入，使得具有相同标签的两个图像的嵌入彼此靠近，而具有不同标签的两个图像的嵌入彼此远离。
+- en: 'The formal definition of triplet loss uses three images: the anchor image,
+    another image with the same label (so that the second image and the anchor form
+    a positive pair), and a third image with a different label (so that the third
+    image and the anchor form a negative pair). Given three images, the loss of a
+    triplet (*a*, *p*, *n*) is defined such that the distance *d*(*a, p*) is pushed
+    toward zero and the distance *d*(*a, n*) is at least some margin greater than
+    *d*(*a, p*):'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 三元损失的正式定义使用三个图像：锚定图像，另一个具有相同标签的图像（使得第二个图像和锚定图像形成正对组），以及具有不同标签的第三个图像（使得第三个图像和锚定图像形成负对组）。给定三个图像，三元组(*a*,
+    *p*, *n*)的损失定义为距离*d*(*a, p*)朝零推进，并且距离*d*(*a, n*)至少比*d*(*a, p*)大一些边距：
+- en: <math><mrow><mrow><mi>L</mi><mo>−</mo><mi mathvariant="italic">max</mi><mo>⁡</mo><mrow><mo>(</mo><mi>d</mi><mrow><mo>(</mo><mi>a</mi><mo>,</mo><mi>p</mi><mo>)</mo><mo>−</mo><mi>d</mi><mrow><mo>(</mo><mi>a</mi><mo>,</mo><mi>n</mi><mo>)</mo><mo>+</mo><mi
+    mathvariant="italic">m</mi><mo mathvariant="italic">⁢</mo><mi mathvariant="italic">arg</mi><mi
+    mathvariant="italic">i</mi><mi mathvariant="italic">n</mi><mo>,</mo><mn>0</mn></mrow></mrow><mo>)</mo></mrow></mrow></mrow></math>
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math><mrow><mrow><mi>L</mi><mo>−</mo><mi mathvariant="italic">max</mi><mo>⁡</mo><mrow><mo>(</mo><mi>d</mi><mrow><mo>(</mo><mi>a</mi><mo>,</mo><mi>p</mi><mo>)</mo><mo>−</mo><mi>d</mi><mrow><mo>(</mo><mi>a</mi><mo>,</mo><mi>n</mi><mo>)</mo><mo>+</mo><mi
+    mathvariant="italic">m</mi><mo mathvariant="italic">⁢</mo><mi mathvariant="italic">arg</mi><mi
+    mathvariant="italic">i</mi><mi mathvariant="italic">n</mi><mo>,</mo><mn>0</mn></mrow></mrow><mo>)</mo></mrow></mrow></mrow></math>
+- en: 'Given this loss, there are three categories of negatives:'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据这个损失，负样本分为三类：
+- en: Hard negatives, which are negatives that are closer to the anchor than the positive
+  id: totrans-182
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 硬负样本，即比锚点更接近正样本的负样本。
+- en: Easy negatives, which are negatives that are very far away from the anchor
+  id: totrans-183
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 简单负样本，即距离锚点非常远的负样本。
+- en: Semi-hard negatives, which are further away than the positive, but within the
+    margin distance
+  id: totrans-184
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 半硬负样本，比正样本更远，但在边距距离之内。
+- en: In the FaceNet paper, Schroff et al. found that focusing on the semi-hard negatives
+    yielded embeddings where images with the same label clustered together and were
+    distinct from images with a different label.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在FaceNet论文中，Schroff等人发现专注于半硬负样本可以产生嵌入，其中具有相同标签的图像聚集在一起，并且与具有不同标签的图像不同。
+- en: 'We can improve the embeddings for our flower images by adding a linear layer
+    and then training the model to minimize the triplet loss on those images, focusing
+    on the semi-hard negatives:'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过添加线性层来改进我们的花卉图像的嵌入，然后训练模型以最小化这些图像上的三元损失，重点放在半硬负样本上：
+- en: '[PRE20]'
+  id: totrans-187
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: In the preceding code, the architecture ensures that the resulting embedding
+    is of dimension 5 and that the embedding values are normalized.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上述代码中，架构确保生成的嵌入维度为5，并且嵌入值已归一化。
+- en: 'Note that the definition of the loss means that we have to somehow ensure that
+    each batch contains at least one positive pair. Shuffling and using a large enough
+    batch size tends to work. In the 5-flowers example we used a batch size of 32,
+    but it is a number you have to experiment with. Assuming the *k* classes are equally
+    distributed, the odds of a batch of size *B* containing at least one positive
+    pair is:'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，损失的定义意味着我们必须确保每个批次至少包含一个正对。洗牌和使用足够大的批次大小通常有效。在我们的5花示例中，我们使用了批次大小为32，但这是您需要进行实验的数字。假设*k*个类均匀分布，批次大小为*B*包含至少一个正对的概率为：
+- en: <math><mrow><mrow><mn>1</mn><mo>−</mo><mstyle displaystyle="true" scriptlevel="0"><mrow><mfrac><mrow><mi>k</mi><mo>−</mo><msup><mrow><mn>1</mn></mrow><mrow><mi>B</mi></mrow></msup></mrow><mrow><mi>k</mi></mrow></mfrac></mrow></mstyle></mrow></mrow></math>
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math><mrow><mrow><mn>1</mn><mo>−</mo><mstyle displaystyle="true" scriptlevel="0"><mrow><mfrac><mrow><mi>k</mi><mo>−</mo><msup><mrow><mn>1</mn></mrow><mrow><mi>B</mi></mrow></msup></mrow><mrow><mi>k</mi></mrow></mfrac></mrow></mstyle></mrow></mrow></math>
+- en: For 5 classes and a batch size of 32, this works out to 99.9%. 0.1% is not zero,
+    however, so in the ingest pipeline we have to discard batches that don’t meet
+    this criterion.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于5个类和批次大小为32，这相当于99.9%。然而，0.1%并不为零，因此在摄入管道中，我们必须丢弃不符合此标准的批次。
+- en: After training this model and plotting the embeddings on a test dataset (the
+    full code is in [*11c_scann_search.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/11_adv_problems/11c_scann_search.ipynb)),
+    we see that the resulting embeddings cluster with similar labels (see [Figure 11-18](#on_training_the_model_with_a_triplet_los)).
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练此模型并在测试数据集上绘制嵌入（完整代码在[GitHub上的*11c_scann_search.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/11_adv_problems/11c_scann_search.ipynb)中），我们看到生成的嵌入与相似标签聚集（见[图11-18](#on_training_the_model_with_a_triplet_los)）。
+- en: '![](Images/pmlc_1118.png)'
+  id: totrans-193
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1118.png)'
+- en: Figure 11-18\. On training the model with a triplet loss, we find that images
+    with the same labels cluster together in the embedding space.
+  id: totrans-194
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-18。在使用三元损失训练模型时，我们发现具有相同标签的图像在嵌入空间中聚集在一起。
+- en: This is also apparent in the results obtained when we search for similar images
+    (see [Figure 11-19](#on_training_the_embedding_with_a_triplet))—the distances
+    are smaller, and the images look much more similar than the ones in [Figure 11-17](Images/#searching_for_images_similar_to_the_firs).
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们搜索相似图像时，结果表明这一点是显而易见的（参见[图 11-19](#on_training_the_embedding_with_a_triplet)）—距离更小，图像看起来比[图 11-17](Images/#searching_for_images_similar_to_the_firs)中的图像更相似。
+- en: '![](Images/pmlc_1119.png)'
+  id: totrans-196
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1119.png)'
+- en: Figure 11-19\. On training the embedding with a triplet loss, the distances
+    become smaller, and the close-by images are truly similar. Compare with [Figure 11-17](Images/#searching_for_images_similar_to_the_firs).
+  id: totrans-197
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-19\. 在使用三元损失训练嵌入时，距离变小，附近的图像确实更相似。与[图 11-17](Images/#searching_for_images_similar_to_the_firs)进行比较。
+- en: Summary
+  id: totrans-198
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概要
+- en: In this chapter, we explored a variety of use cases that build on the fundamental
+    computer vision techniques. Object measurement can be done using reference objects,
+    masks, and some image correction. Counting can be done through postprocessing
+    of object detections. However, in some situations, a density estimate is better.
+    Pose estimation is done by predicting the likelihood of the different joints at
+    coarse-grained blocks within the image. Image search can be improved by training
+    an embedding with a triplet loss and using a fast search method such as ScaNN.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们探讨了多种基于基础计算机视觉技术的用例。可以使用参考对象、蒙版和一些图像校正来进行物体测量。通过对物体检测的后处理可以进行计数。然而，在某些情况下，密度估算更为合适。姿态估计是通过预测图像内粗粒度块中不同关节的可能性来完成的。通过使用三元损失训练嵌入并使用快速搜索方法（如ScaNN）可以改进图像搜索。
+- en: In the next chapter, we will explore how to generate images, not just process
+    them.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，我们将探讨如何生成图像，而不仅仅是处理它们。
+- en: ^([1](ch11.xhtml#ch11fn01-marker)) Lempitsky and Zisserman introduced a custom
+    loss function that they call the MESA distance, but the technique works well with
+    good old mean squared error, so that’s what we show.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch11.xhtml#ch11fn01-marker)) Lempitsky 和 Zisserman 提出了一种称为 MESA 距离的自定义损失函数，但该技术使用传统的均方误差效果也很好，这就是我们展示的内容。

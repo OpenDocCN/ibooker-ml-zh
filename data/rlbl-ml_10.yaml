@@ -1,0 +1,2689 @@
+- en: Chapter 9\. Monitoring and Observability for Models
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第9章 监控和可观察性的模型
+- en: By Niall Murphy and Aparna Dhinakaran
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作者：Niall Murphy 和 Aparna Dhinakaran
+- en: '**Contributors/Reviewers:** Ely Spears, Lina Weichbrodt, Tammy Le'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**贡献者/审阅者：** Ely Spears，Lina Weichbrodt，Tammy Le'
+- en: '**Diagrams:** Joel Bowman'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**图表：** Joel Bowman'
+- en: Managing production systems is somewhere between an art and a science. Add the
+    complexities of ML to this hybrid discipline, and it looks less like a science
+    and more like an art. What we do today is very much a frontier, rather than a
+    well-defined space. Despite that, this chapter outlines what we know about how
+    to monitor, observe, and alert for ML production systems, and makes suggestions
+    for developing the practice within your own organization.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管理生产系统介于艺术和科学之间。在这种混合学科中加入机器学习的复杂性，它看起来更像一门艺术而不是科学。今天我们所做的很大程度上是前沿，而不是一个定义明确的领域。尽管如此，本章概述了我们对如何监控、观察和警报机器学习生产系统的了解，并建议在您自己的组织中发展这一实践。
+- en: What Is Production Monitoring and Why Do It?
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 什么是生产监控以及为什么要进行监控？
+- en: This chapter is about how to monitor systems that are doing ML, rather than
+    using ML to monitor systems. The latter is sometimes called *AIOps*; we are focusing
+    on the former.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章讨论如何监控正在进行机器学习的系统，而不是使用机器学习来监控系统。后者有时被称为*AIOps*；我们专注于前者。
+- en: With that out of the way, let’s talk about production monitoring generically,
+    without the complexities of ML, so we can make things easier to understand—and
+    where better to begin than with a definition? *Monitoring*, at the most basic
+    level, provides data about how your systems are performing; that data is made
+    storable, accessible, and displayable in some reasonable way. *Observability*
+    is an attribute of software, meaning that when correctly written, the emitted
+    monitoring data—usually extended or expanded in some way, with labeling or tagging—can
+    be used to correctly infer the behavior of the system.^([1](ch09.xhtml#ch01fn96))
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 说了这么多，让我们通俗地讨论一下生产监控，不涉及机器学习的复杂性，以便更容易理解——开始的地方又何处比定义更好呢？*监控*，在最基本的层面上，提供有关您的系统性能的数据；这些数据可以以某种合理的方式存储、访问和显示。*可观察性*
+    是软件的一个属性，意味着当正确编写时，发出的监控数据——通常通过标签或标记方式扩展或扩展——可以用于正确推断系统的行为。^([1](ch09.xhtml#ch01fn96))
+- en: Why would you care? It turns out there are lots of reasons. Most urgently, monitoring
+    allows you to figure out whether your systems are actually working. If you are
+    buying and reading this book of your own accord, you probably already understand
+    how important that is. No less a luminary than Andrew Clay Shafer, cofounder of
+    the DevOps movement, [wrote](https://sre.google/workbook/foreword-II), “If the
+    systems are down, the software has no value.” If you don’t accept this is important,
+    or if you understand the arguments but don’t believe them, we encourage you to
+    read James Turnbull’s *The Art of Monitoring* (2016). For the purposes of the
+    rest of this chapter, though, we assume you understand that you need to monitor
+    (and alert on) the state of systems, and what is up for discussion is how best
+    to do that.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么你会在意？事实证明有很多原因。最紧迫的是，监控可以帮助你确定你的系统是否真正正常工作。如果你自愿购买并阅读这本书，你可能已经理解这一点的重要性。甚至连
+    DevOps 运动的联合创始人安德鲁·克雷·沙弗（Andrew Clay Shafer）都曾经 [写道](https://sre.google/workbook/foreword-II)，“如果系统崩溃了，软件就没有价值。”
+    如果你不认为这很重要，或者你理解了这些论点但不相信，我们建议你阅读詹姆斯·特恩布尔（James Turnbull）的《*监控的艺术*》（2016年）。不过，在本章的其余部分，我们假设你理解你需要监控（和对系统状态进行警报），讨论的是如何最好地实现这一点。
+- en: Of course, the situation has more nuance than that. For a start, systems don’t
+    usually behave as a Boolean, either entirely up or entirely down; generally, they
+    can be performing anywhere on a spectrum from superb to very badly. Monitoring
+    obviously needs to be able to handle this situation and represent the reality
+    correctly.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，情况比这复杂得多。首先，系统通常不会像布尔值那样表现，完全是开或者完全是关；通常情况下，它们可能在从极好到非常糟糕的全谱上表现。显然，监控需要能够处理这种情况并正确地反映现实。
+- en: 'Monitoring is hugely important in and of itself, but an offshoot of monitoring
+    is absolutely crucial: alerting. A useful simplification is that when things go
+    wrong, humans are alerted to fix them, and for the purposes of this paragraph,
+    *alerting* is therefore both defining the conditions for “things going wrong,”
+    and being able to reliably notify the responsible folks that something isn’t right—e.g.,
+    paging. This is a key technique in helping to “defend the user experience.”'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监控本身非常重要，但监控的一个分支绝对至关重要：警报。一个有用的简化是，当出现问题时，会向人类发出警报以修复它们，而在本段中，*警报*因此既定义了“事情出了问题”的条件，又能可靠地通知相关人员有些不对劲
+    —— 例如，呼叫。这是帮助“保护用户体验”的关键技术。
+- en: 'Less urgently, but still vital, is monitoring for long-term trend analysis,
+    capacity planning, and general understanding of your service envelope. You use
+    this kind of monitoring data to answer questions like these: Is my service cost-effective?
+    Does it have any unobvious performance cliffs? Is there data distribution drift?
+    How does service latency, for example, relate to user behavior on the weekend
+    versus the working week? All these questions and more cannot really be answered
+    well without monitoring and observability.'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 较少紧急但仍然至关重要的是长期趋势分析、容量规划以及对服务范围的整体理解的监控。您使用这类监控数据来回答诸如以下问题：我的服务是否具有成本效益？它是否有任何不明显的性能断层？是否存在数据分布漂移？例如，服务延迟如何与用户在周末与工作日的行为有关？所有这些问题等等在没有监控和可观察性的情况下很难得到很好的回答。
+- en: What Does It Look Like?
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 它看起来是什么样子？
+- en: As we’ve alluded to, to do monitoring, you must have a *monitoring system* as
+    well as systems to be monitored (here, called the *target systems*). Today, target
+    systems emit *metrics*—a series, typically of numbers, with an identifying name—which
+    are then collected by the monitoring system and transformed in various ways, often
+    via *aggregation* (producing a sum or a rate across multiple instances or machines)
+    or *decoration* (adding, say, event details onto the same data). These aggregated
+    metrics are used for system analysis, debugging, and the alerting we mentioned
+    previously*.*
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如我们所提到的，要进行监控，您必须拥有一个*监控系统*以及要监控的系统（这里称为*目标系统*）。如今，目标系统会发出*指标* —— 一系列通常是数字的数据，带有标识名称
+    —— 然后由监控系统收集并以各种方式转换，通常通过*聚合*（在多个实例或机器间生成总和或速率）或*装饰*（例如，将事件详细信息添加到相同的数据上）。这些聚合指标用于系统分析、调试以及前面提到的警报*。*
+- en: A concrete example is a web server with a metric of the total number of requests
+    it received; this metric has a name—say, in this case, `server.requests_total`.
+    (Of course, it could be any request/response architecture, like an ML model!)
+    The monitoring system will obtain these metrics, usually via *push* or *pull*,
+    which refers to whether the metrics get pulled from the target systems or get
+    pushed from them. These metrics are then collated, stored, and perhaps processed
+    in some way, generally as a *time series*. Different monitoring systems will make
+    different choices about how to receive, store, process, and so on, but the data
+    is generally *queryable* and often (very often) there’s a graphical way to plot
+    the monitoring data so we can take advantage of our visual comparison hardware
+    (eyes, retinas, optic nerves, and so on) to figure out what’s actually happening.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个具体的例子是具有总请求数量度量的Web服务器；这种指标有一个名称 —— 比如，在这种情况下是 `server.requests_total`。（当然，它可以是任何请求/响应架构，比如一个ML模型！）监控系统通常通过*推送*或*拉取*获得这些指标，这取决于是否从目标系统拉取指标或者目标系统推送指标。然后这些指标被汇总、存储，并可能以某种方式处理，通常作为*时间序列*。不同的监控系统会对如何接收、存储、处理等做出不同选择，但数据通常是*可查询*的，而且（非常频繁地）通常有一种图形方式来绘制监控数据，以便利用我们的视觉比较硬件（眼睛、视网膜、视神经等等）来理解实际发生的情况。
+- en: 'By extension, an observable system uses these foundational ideas but goes a
+    step further: instead of just getting a counter for the total number of requests,
+    you get *labeled*^([2](ch09.xhtml#idm46106045720304)) data for that metric, and
+    indeed most metrics. Specifically, *labeled data* means that you don’t just get
+    a counter; you get subdivisions, or slices, of that metric. So, for example, you
+    don’t just have `server.requests_total`; you have `server.requests_total{lang=en}`,
+    which means, “For all requests made where the client requested the page be rendered
+    in English, what is the total number of requests?” Of course, not just `{lang=en}`
+    either—also `{lang=fr}`, `{lang=pt}`, `{lang=es}`, `{lang=zh}`, and so on. A fully
+    observable system allows slicing and dicing of such data on *extremely* fine-grained
+    boundaries, such that it is possible to construct queries to look at the past
+    12 days of queries in Romanian that resulted in a HTTP 404 return code after 1200
+    ms of latency.^([3](ch09.xhtml#ch01fn97))'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 扩展来说，可观察系统使用这些基本理念，但更进一步：与其仅仅获取总请求数计数器不同，您会得到关于该指标的*标记*^([2](ch09.xhtml#idm46106045720304))数据，事实上大多数指标都是如此。具体来说，*标记数据*意味着您不仅仅获取计数器；您还可以获取该指标的子集或切片。因此，例如，您不仅仅有`server.requests_total`；您还有`server.requests_total{lang=en}`，这意味着“对于所有客户端请求以英语渲染页面的请求，总请求数是多少？”当然，并不只是`{lang=en}`，还有`{lang=fr}`、`{lang=pt}`、`{lang=es}`、`{lang=zh}`等等。一个完全可观察的系统允许在*极其*细粒度的边界上对这些数据进行切片和切块，以至于可以构建查询来查看过去12天以来，发生在罗马尼亚的查询，导致HTTP
+    404返回代码，在1200毫秒延迟之后.^([3](ch09.xhtml#ch01fn97))
+- en: Monitoring in general has many subtleties, particularly around how aggregation
+    is done and how results are used, but it’s a reasonable high-level picture—for
+    *non-*ML system monitoring at least. When you add ML systems as *target systems*
+    to this picture, you get not just all the issues mentioned previously, but also
+    the special concerns of ML; [Figure 9-1](#observability_layers_and_system_require)
+    may help illustrate.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监控本质上有许多微妙之处，特别是在聚合方式和结果使用方面，但这是一个合理的高层次描述，至少是在非ML系统监控方面。当您将ML系统作为*目标系统*添加到这个图景中时，不仅仅是前面提到的所有问题，还有ML的特殊关注点；[图9-1](#observability_layers_and_system_require)可能会有所帮助。
+- en: '![Observability layers and system requirements](Images/reml_0901.png)'
+  id: totrans-17
+  prefs: []
+  type: TYPE_IMG
+  zh: '![可观察性层和系统要求](Images/reml_0901.png)'
+- en: Figure 9-1\. Observability layers and system requirements
+  id: totrans-18
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-1\. 可观察性层和系统要求
+- en: The Concerns That ML Brings to Monitoring
+  id: totrans-19
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: ML对监控带来的关注
+- en: One important concern is not necessarily the task of monitoring ML itself, but
+    the *perception* of the act of monitoring by the model development community.
+    What do we mean?
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个重要的关注点不一定是监控ML本身的任务，而是模型开发社区对监控行为的*感知*。我们是什么意思呢？
+- en: Well, we believe the model development community understands very well that
+    software has inputs and outputs, and should be observed in order to figure out
+    what’s going on. (The whole act of model development can be looked on as the process
+    of metric extraction, control, and optimization, for a start!) What is sometimes
+    missing, though, is awareness and engagement with what happens *after* a model
+    is developed and goes out into production. What we see as the mindset problem
+    with monitoring ML also partially derives from how the word is used—semantically,
+    *monitoring* can mean inspection activities applying to model development, or
+    it can mean continual observation of systems in production. In actuality, the
+    term is used in both contexts.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 嗯，我们相信模型开发社区非常清楚软件有输入和输出，并且应该进行观察以弄清楚发生了什么。（模型开发的整个过程可以被视为指标提取、控制和优化的过程，首先！）然而，有时候缺少的是对模型开发完成并投入生产后发生的事情的认识和参与。我们看到关于ML监控的思维方式问题，部分源于术语的使用方式——从语义上讲，*监控*既可以指模型开发中的检查活动，也可以指对生产系统的持续观察。实际上，这个术语在两个情境中都被使用。
+- en: To put it another way, many model developers don’t realize that exactly the
+    same requirements for inspectability *could* and *should* apply when a model is
+    running in production as they do in development. This gap is particularly true
+    if your background is in using metrics for optimization, but not for *detection*.
+    Detection turns out to be a hugely crucial use case, and the activity of monitoring
+    should apply across the whole-model lifecycle.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 换句话说，许多模型开发者并没有意识到，在模型在生产环境中运行时，检查需求的确可以和应该和在开发中一样。这个差距尤其明显，如果您的背景是使用指标进行优化，而不是进行*检测*。检测事实上是一个非常关键的用例，而监控活动应该适用于整个模型生命周期。
+- en: This is not just a question of perception, though. The reality is that ML already
+    struggles with explainability—particularly at the time of execution in production.
+    This is partially because of the nature of ML, partially a function of the way
+    models are developed today, partially the nature of production operation, and
+    partially a reflection of the fact that tools for inspectability are generally
+    aimed just at model development. All of these combine to make monitoring ML more
+    difficult.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这不仅仅是感知问题。事实上，机器学习在可解释性方面已经存在困难——特别是在生产执行的时候。部分原因是机器学习本身的特性，部分是现今模型开发方式的结果，部分是生产操作的本质，还有一部分反映在检查工具通常只专注于模型开发上。所有这些因素共同导致了监控机器学习变得更加困难。
+- en: Reasons for Continual ML Observability—in Production
+  id: totrans-24
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 持续进行机器学习可观测性——在生产中
+- en: Observability data from your models is absolutely fundamental to business—both
+    tactical operations and strategic insights. We have mentioned, and much has been
+    written about, the negative consequences of not having monitoring and observability,
+    but positive consequences arise too.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从你的模型中获取的可观测性数据对业务至关重要——无论是战术操作还是战略洞察。我们已经提到，有关监控和可观测性缺失的负面后果，已经有很多文章写过，但也有积极的结果。
+- en: One example we like to use is the connection between latency and online sales.
+    In 2008, Amazon discovered that each additional 100 ms of latency lost 1% of sales,
+    and also the converse—so, the faster the better.^([4](ch09.xhtml#ch01fn98)) Similar
+    results have been confirmed by Akamai Technologies, Google, Zalando, and others.
+    We assert that without observability, there would be no way to have discovered
+    this effect, and certainly no way to know for sure that you were either making
+    it better or worse!
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们喜欢使用的一个例子是延迟与在线销售之间的关系。在2008年，亚马逊发现每增加100毫秒的延迟会导致销售下降1%，反之亦然——因此，越快越好。^([4](ch09.xhtml#ch01fn98))
+    Akamai Technologies、Google、Zalando等也证实了类似的结果。我们断言，如果没有可观测性，就不可能发现这种影响，而且肯定无法确定是改善了还是恶化了情况！
+- en: Ultimately, observability data *is* business outcome data. In the era of ML,
+    this happily allows you not just to detect and respond to outages, but also to
+    understand incredibly important things that are happening to your business. Ignore
+    it at your peril.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，可观测性数据确实是业务结果数据。在机器学习时代，这不仅让你能够检测和响应故障，还能理解对你的业务发生的非常重要的事情。如果忽视这一点，你将会付出代价。
+- en: Problems with ML Production Monitoring
+  id: totrans-28
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 机器学习生产监控的问题
+- en: ML model development is still in its infancy. The tools are immature, conceptual
+    frameworks are underdeveloped, and discipline is in short supply, as everyone
+    scrambles to get some kind of model—any kind of model!—off the ground as soon
+    as possible and solving real problems. The pressure to ship is real and has real
+    effects.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习模型开发仍处于初级阶段。工具不够成熟，概念框架不完善，纪律性不足，因为每个人都在争先恐后地试图尽快建立某种模型——任何一种模型！——并解决实际问题。时间紧迫，出货压力巨大，这是实实在在的。
+- en: In particular, model development, which is inherently hard because it involves
+    reconciling a wide array of conflicting concerns, gets harder because that urgency
+    forces developers and data science folks to focus on those hard problems and ignore
+    the wider picture. That wider picture often involves questions around monitoring
+    and observability.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特别是模型开发，由于其困难性，因为它涉及调和各种矛盾关注点，所以随着紧迫感迫使开发人员和数据科学家专注于这些难题，并忽视更广泛的视角。更广泛的视角通常涉及监控和可观测性的问题。
+- en: This leads to two important observations we would make about the difference
+    between model development and production serving. One of these is a generic observation
+    about all production environments, which just happens to be particularly complex
+    and difficult in the ML world. The other is a specific situation about model development
+    that is currently broadly true but may not be so forever; nonetheless, it is worth
+    mentioning as a foundation to what follows.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这导致我们对模型开发和生产服务之间差异的两个重要观察。其中一个是关于所有生产环境的通用观察，恰好在机器学习领域尤为复杂和困难。另一个是关于当前广泛适用但未来可能不再如此的模型开发特定情况，尽管如此，作为后续内容的基础，这仍值得一提。
+- en: Difficulties of Development Versus Serving
+  id: totrans-32
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 开发与服务的困难之处
+- en: The first problem is that effectively simulating production in development is
+    extremely hard, even in separate environments dedicated to that task (like test,
+    staging, and so on.) This is not just because of the wide variety of possible
+    serving architectures (model pools, shared libraries, edge devices, etc., with
+    the associated infrastructure that you might or might not be running on) but also
+    because in development you often invoke prediction methods directly or with a
+    relatively small amount of code between you and the model for velocity reasons.
+    Running in production also generally means you don’t have the ability to manipulate
+    input, logging level, processing, and so on, arbitrarily, leading to huge difficulties
+    in debugging, reproducing problematic configurations, etc. Finally—and crucially—the
+    data you have in testing is not necessarily distributed like the data the model
+    encounters in production, and as always for ML, data distribution really matters.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个问题是，即使在专门用于此任务的独立环境中（如测试、预发布等），在开发中有效模拟生产也极其困难。这不仅是因为可能的服务架构种类繁多（模型池、共享库、边缘设备等，以及您可能或可能未运行的相关基础设施），还因为在开发中，出于速度原因，您经常直接调用预测方法或只需很少的代码量。而在生产中运行通常意味着您无法任意操作输入、日志级别、处理等，这导致在调试、复现问题配置等方面遇到巨大困难。最重要的是，测试中拥有的数据不一定像模型在生产中遇到的数据分布那样分布，而对于机器学习来说，数据分布确实非常重要。
+- en: The second problem is a little different. In conventional software delivery,
+    the industry has a good handle on work practices that are known to improve throughput,
+    reliability, and developmental *velocity*. The most important of these are probably
+    the grouped concepts of continuous integration / continuous deployment (CI/CD),
+    unit tests, small changes, and a collection of other techniques probably best
+    described in *Accelerate* by Nicole Forsgren et al. (IT Revolution Press, 2018).^([5](ch09.xhtml#ch01fn99))
+    Unfortunately, today we are missing this equivalent of CI/CD for model development,
+    and cannot yet say we have converged onto a good set of (telemetry-related, or
+    otherwise) tools for model training and validation. We expect this will improve
+    over time as existing tools (such as MLflow and Kubeflow) gain traction, vendors
+    incorporate more of these concerns into their platforms, and the mindset of holistic
+    or whole-lifecycle monitoring gains more acceptance.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个问题有些不同。在传统软件交付中，行业已经掌握了已知能够提高吞吐量、可靠性和开发*速度*的工作实践。其中最重要的可能是连续集成/连续部署（CI/CD）、单元测试、小改变以及尼科尔·福斯格伦等人在《加速》（IT
+    Revolution Press, 2018）中最好描述的一些其他技术的集合。（见^([5](ch09.xhtml#ch01fn99))）不幸的是，今天我们在模型开发中缺少这种类似于CI/CD的机制，还不能说我们已经达到了一套好的（与遥测相关或其他）模型训练和验证工具的标准。我们预计随着现有工具（如MLflow和Kubeflow）的推广、供应商将更多这些关注点纳入其平台，以及整体或全生命周期监控思维的更广泛接受，这种情况将会有所改善。
+- en: A Mindset Change Is Required
+  id: totrans-35
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 必须改变心态
+- en: Though we have many technical challenges today, the organizational and cultural
+    ones that act against holistic monitoring are arguably the most relevant ones
+    here. In particular, model developers don’t generally think in terms of detection
+    of issues *post*-deployment, but instead think in terms of modeling KPI performance
+    *pre-*deployment—and modeling KPIs are not necessarily directly connected to business
+    KPIs!^([6](ch09.xhtml#ch01fn100))
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管今天我们面临许多技术挑战，但组织和文化上的挑战可能是对整体监控最具影响力的。特别是，模型开发人员通常不会考虑*部署后*问题的检测，而是考虑*部署前*的KPI性能建模——而KPI性能建模并不一定直接与业务KPI连接！（见^([6](ch09.xhtml#ch01fn100))）
+- en: This obviously presents a problem for whole-lifecycle monitoring, since both
+    pre- *and* post-deployment turn out to be important, and like successful software
+    generally, post-deployment often lasts longer than you think. Teams focused on
+    developing and deploying models quickly are often impatient about rigorous delivery
+    frameworks, as though these delivery frameworks will prevent them from organizing
+    training and serving in whatever way is most convenient for them. Which, of course,
+    they do—to some extent. But they do so by providing a set of monitoring and management
+    guarantees in production that would otherwise be difficult to achieve and deployed
+    on only an ad hoc basis.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这显然对整个生命周期的监控构成了问题，因为预部署和后部署都变得重要，就像成功的软件一般，后部署通常比你想象的时间长。专注于快速开发和部署模型的团队通常对严格的交付框架感到不耐烦，好像这些交付框架会阻止他们以最方便的方式组织培训和服务。当然，它们确实在某种程度上做到了。但是它们通过提供一套在生产环境中难以实现并仅以特定的特定方式部署的监控和管理保证来实现这一点。
+- en: If we accept this framing, the most important thing we should do is try to have
+    a reasonable, flexible solution for maintaining the broadest useful picture of
+    model behavior throughout its entire lifecycle, and make it adaptable for your
+    own situation. Since the special case tools that today are used for model development
+    (TensorBoard, Weights & Biases, and so on) don’t usually naturally translate into
+    production itself, the particular monitoring system in use, and so on, at the
+    moment we will necessarily have to make some of this up ourselves. Given that,
+    the overall goal for this chapter is to recommend a whole-lifecycle approach to
+    monitoring, and in particular, suggest a default set of things to monitor *other*
+    than the specific business metrics the model is intended to improve, since they
+    are already well understood.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们接受这个框架，我们应该做的最重要的事情是努力寻找一个合理灵活的解决方案，以在整个生命周期内维护模型行为的最广泛有用的视图，并使其适应你自己的情况。由于今天用于模型开发的特殊工具（如TensorBoard、Weights
+    & Biases等）通常不会自然地转化为生产本身，当前使用的特定监控系统等等，我们必然需要自己制定一些内容。鉴于此，本章的总体目标是推荐一种全生命周期的监控方法，特别是建议一个默认的监控事项集，*除了*模型旨在改进的特定业务指标，因为它们已经得到了很好的理解。
+- en: Best Practices for ML Model Monitoring
+  id: totrans-39
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 机器学习模型监控的最佳实践
+- en: 'Let’s start off with a few framing assumptions: for the purposes of this chapter,
+    model development is generally done in a loop. We select data, train on it, build
+    a model, do basic testing/validation, tweak, retrain, eventually release to production,
+    learn how the model behaves, and begin the cycle again with ideas for improvement.'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从几个框架假设开始：在本章的目的下，模型开发通常是循环进行的。我们选择数据，对其进行训练，建立模型，进行基本的测试/验证，调整，重新训练，最终发布到生产环境，了解模型的行为，并开始下一个循环，以改进的想法。
+- en: Monitoring in serving can be divided into model, data, and service (also known
+    as *infrastructure*). Separation like this is useful because we don’t have to
+    handle every detail at every level, though we acknowledge that some crossover
+    exists.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在服务中的监控可以分为模型、数据和服务（也称为*基础设施*）。这种分离是有用的，因为我们不必在每个层次处理每个细节，尽管我们承认某些交叉存在。
+- en: '*Explainability*—understanding what led the model to classify as it did, predict
+    as it did, and so on—is a huge topic and likely to get more and more important
+    as ML plays a larger role in more industries. A detailed explanation of explainability
+    and an overview of best practices is beyond the scope of this chapter, and indeed
+    this book. A handful of the ethical principles are addressed in [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical),
+    and most readers should review that.'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*可解释性*——理解模型分类的原因，预测的原因等——是一个重要的主题，随着机器学习在更多行业中发挥更大作用，它可能变得越来越重要。详细解释可解释性以及最佳实践概述超出了本章的范围，也超出了本书的范围。一些伦理原则在[第六章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)中有所涉及，大多数读者应该查阅该章节。'
+- en: From the more practical perspective of model monitoring only, however, explainability
+    is important to understand in preproduction and, increasingly, production phases.
+    The particularities of explainability vary according to model type, phase, business
+    strategies, and so on. But the in-production cases are usually where ML is being
+    used in safety-critical or socially significant ways, and where there might be
+    a legal or ethical interest in understanding what led to the outcome. The primary
+    objective here is to find as many ways as possible to “smooth out” the difference
+    between model development and serving.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，仅从模型监控的更实际角度来看，可解释性在预生产阶段和越来越多的生产阶段是重要的。可解释性的具体情况因模型类型、阶段、业务策略等而异。但通常情况下，在生产中使用ML用于安全关键或社会重要方式，并且在理解导致结果的原因方面可能存在法律或道德兴趣。这里的主要目标是尽可能找到平滑模型开发和服务之间差异的方法。
+- en: Generic Pre-serving Model Recommendations
+  id: totrans-44
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 通用的预服务模型建议
+- en: We talk about this more in [Chapter 3](ch03.xhtml#basic_introduction_to_models),
+    but from a monitoring point of view, it’s most important to keep in mind the business
+    goal attached to the development of the model, and connect its KPIs to exported
+    metrics for monitoring purposes. A model for which you have no business insight
+    but plenty of infrastructural insight would be close to useless, and similarly,
+    a model that you understood to work well in development but for which you had
+    no insight into production behavior would arguably be potentially more harmful
+    than useless.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在[第三章](ch03.xhtml#basic_introduction_to_models)中有更多讨论，但从监控的角度来看，最重要的是牢记与模型开发相连的业务目标，并将其KPI连接到导出的指标以供监控目的使用。对于你没有业务洞察力但有大量基础设施洞察力的模型来说，它几乎无用，同样地，你了解在开发中工作良好但对于其在生产中行为没有洞察力的模型，可以说可能比无用还要有害。
+- en: The most important recommendation is that your business KPIs should correlate
+    with model metrics; you should be able to trace these continuously from development
+    to production. For example, if you are a ride-hailing app company, and you are
+    predicting estimated time of arrival (ETA) for the ride, pickup location is something
+    you’ll want clearly available during the whole period. When monitoring for data
+    integrity, the most important features of the model should therefore be given
+    high priority.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最重要的建议是，您的业务关键绩效指标（KPI）应与模型指标相关联；您应能够从开发到生产阶段连续追踪这些指标。例如，如果您是一家打车应用公司，并且正在预测乘车的预计到达时间（ETA），那么接驳地点是您在整个期间内明确希望可用的内容。在监控数据完整性时，因此模型的最重要特征应优先考虑。
+- en: Explainability and monitoring
+  id: totrans-47
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 可解释性和监控
+- en: As we’ve mentioned, explainability is a big area, but in particular for monitoring
+    it presents some problems. Like debugging or observability in general, full explainability
+    generally involves more resources (and is slower, more costly, and so on) in production
+    than in development. Yet you often want explainability most urgently in a production
+    context.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，可解释性是一个重要领域，但特别是在监控方面，它会带来一些问题。就像调试或一般的可观察性一样，完整的可解释性通常在生产环境中比在开发中需要更多资源（并且更慢、更昂贵等）。然而，你通常最急需的是在生产环境中的可解释性。
+- en: 'People responsible for ML models want explainability for a few reasons: establishing
+    which features should be prioritized for data integrity, investigating a specific
+    prediction or specific slices of predictions, and responding to business requirements
+    for explainability generally. Since it’s so expensive, and since business people
+    may not have all the background required to understand it, being effective here
+    often amounts to having a conversation with them about what they really care about.
+    Often you can respond to their concerns (and potentially even build special monitoring
+    solutions) without having to get into highly specific modeling details, which
+    is a conversation that can sometimes distract from the essentials.'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 负责机器学习模型的人有几个原因需要可解释性：确定哪些特征应优先考虑数据完整性，调查特定预测或特定预测片段，并响应一般的可解释性业务要求。由于这是如此昂贵，并且商业人士可能没有理解所需背景的全部知识，有效的方法通常涉及与他们讨论他们真正关心的问题。通常情况下，您可以回应他们的关切（甚至可能构建特殊的监控解决方案），而无需深入具体的建模细节，这种对话有时可能会偏离主要问题。
+- en: 'However, in some cases explainability is essential for troubleshooting. Let’s
+    take a lending use case: say a prediction is rejected because the request has
+    a unique value for one feature that is not commonly seen—in this case, an application
+    date of February 29\. Application date is typically not one of the top 10 most
+    important features across all of our predictions, but if for some reason our training
+    dataset has only a few applications on February 29 and those end up being poor
+    risks in the intervening years, we can imagine a model that uses the application
+    date to heavily influence the decision to reject.'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在某些情况下，可解释性对于故障排除至关重要。让我们以借贷案例为例：假设预测被拒绝，因为请求具有一个特征的唯一值，而这个值并不常见——在这种情况下，例如，一个申请日期是二月二十九日。申请日期通常不是我们所有预测中前十个最重要的特征之一，但是如果由于某种原因我们的训练数据集中只有很少的二月二十九日的申请，并且这些申请在中间几年里都是较差的风险，我们可以想象一个模型会使用申请日期来严重影响决策以拒绝。
+- en: In such cases, explainability can surface what drove that individual prediction’s
+    output. This could be implemented via regularly logged summaries of predictions,
+    exposing internal mechanisms via LIME and SHAP (essentially surrogate or duplicate
+    models that use a conceptually analogous approach to differential cryptanalysis)^([7](ch09.xhtml#ch01fn101)),
+    or another more customized approach. You generally find such explanations are
+    not just used by model developers, but also risk and compliance teams, and can
+    help nontechnical users understand systematic issues with models. Unfortunately,
+    this is mostly too expensive to do in production.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，可解释性可以揭示驱动个体预测结果的因素。这可以通过定期记录预测摘要来实现，通过LIME和SHAP（本质上是使用概念上类似的差分密码分析方法的替代或重复模型）^([7](ch09.xhtml#ch01fn101))或另一种更定制化的方法来暴露内部机制。通常，这些解释不仅被模型开发人员使用，还被风险和合规团队使用，并且可以帮助非技术用户理解模型的系统问题。不幸的是，这在生产中大多数情况下都是太昂贵的。
+- en: Training and Retraining
+  id: totrans-52
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 训练与重新训练
+- en: In many ways, the training phase is the easiest to handle—from a classic monitoring
+    point of view, anyway. The most important thing for monitoring training is keeping
+    a holistic view, with the most important metric being how long it takes from starting
+    training to producing a (hopefully working) model.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从经典的监控角度来看，训练阶段通常是最容易处理的。在监控训练时，最重要的事情是保持全局视角，最重要的指标是从开始训练到生成（希望工作的）模型所需的时间。
+- en: 'Having said that, other factors are important too—in particular, understanding
+    when to *retrain*—i.e., to build a new model, in the hope or expectation that
+    it might fix a problem for us. Though model rollback is the most common tactic
+    used to resolve production problems, from time to time retraining is used—in this
+    context, you can think of it as being like roll-forward for models: i.e., replacing
+    what’s in production with the latest version of everything.'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管模型回滚是解决生产问题最常见的策略，但有时会使用重新训练——在这种情况下，您可以将其视为模型的前进：即用最新版本的一切替换生产中的内容，希望或期望这样做可能会为我们解决问题。
+- en: Retraining is generally used when rollback hasn’t worked or can’t work (see
+    [“Fallbacks in validation”](#fallbacks_in_validation)), or if roll-forward is
+    easier for your infrastructure than rollback.^([8](ch09.xhtml#ch01fn102)) Equally,
+    retraining has drawbacks in two circumstances. In the first, retraining would
+    execute over the exact same data you used to train the old model (in which case,
+    you would broadly expect the same behavior, since it’s the same input). In the
+    second, retraining takes so long that you can’t use it to tactically resolve an
+    outage. (This is one reason you might want to just run retraining automatically
+    and periodically, if it’s feasible for you to spend resources on this.)
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常在回滚未奏效或无法奏效时（参见[“验证中的回退”](#fallbacks_in_validation)），或者如果对您的基础设施来说，前进比回退更容易时，会使用重新训练。^([8](ch09.xhtml#ch01fn102))
+    同样，在两种情况下，重新训练都有缺点。首先，在重新训练时，会在与训练旧模型使用的完全相同的数据上执行（在这种情况下，您会广泛期待相同的行为，因为这是相同的输入）。其次，重新训练需要花费很长时间，无法用来战术性地解决故障。
+    （这是您可能希望自动定期运行重新训练的一个原因，如果对您来说，这样做是可行的话。）
+- en: For the first issue, you can *sometimes* “hack” the situation a little by changing
+    the data you’re training over—either by using an entirely new corpus, replacing
+    some bad data, adding missing data, and so on. (Of course, significant variables
+    for the training process here include changing the range of data we are training
+    over, and whether or not we change any weightings, but hopefully deciding those
+    is relatively quick.)^([9](ch09.xhtml#ch01fn103))
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于第一个问题，你有时可以通过一点“技巧”来稍微“操作”情况——无论是通过使用全新的语料库，替换一些不良数据，添加丢失的数据等。（当然，这里训练过程中的重要变量包括改变我们训练的数据范围，以及是否改变任何权重，但希望决定这些事项相对较快。)^([9](ch09.xhtml#ch01fn103))
+- en: Training is important in a monitoring context not only because of retraining,
+    but also because this is where most developers establish their *baselines*, and
+    these are used widely thereafter as a comparison point.^([10](ch09.xhtml#ch01fn104))
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在监控环境中，训练非常重要，不仅因为重新训练，还因为这是大多数开发者建立其*基准线*的地方，之后广泛用于比较点。（[10](ch09.xhtml#ch01fn104)）
+- en: Concrete recommendations
+  id: totrans-58
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 具体建议
+- en: Next, we outline a list of things to monitor to get base-level coverage. Things
+    that we consider minimal and mandatory, we highlight in italics; if you have to
+    start somewhere, start there. Of course, you could put a *lot* of effort into
+    monitoring, and perhaps in some cases it’s worth it, but in some it’s not. So
+    we recommend you think carefully about the cost/benefit trade-off before implementing
+    all of the following checks. (If you are looking for a more advanced guide to
+    deciding what’s important, we recommend you look at writing an SLO for your training
+    pipelines and models—see [“SLOs in ML monitoring”](#slos_in_ml_monitoring) for
+    more details.)
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们概述了一些监控基础覆盖的事项列表。我们认为最低限度和强制性的事项，我们用斜体突出显示；如果你必须从某个地方开始，就从那里开始。当然，你可以花费*很多*精力来监控，也许在某些情况下是值得的，但在某些情况下则不是。因此，我们建议在实施以下所有检查之前，仔细考虑成本/效益权衡。（如果你想找到更高级的决定重要性的指南，我们建议你查看为你的训练流水线和模型编写
+    SLOs——详见[“ML 监控中的 SLOs”](#slos_in_ml_monitoring)了解更多详情。）
+- en: Input data
+  id: totrans-60
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 输入数据
+- en: '*How large is the input dataset compared to the expected size?* Compare the
+    training dataset to either the last time we trained this model or use another
+    exogenous metric that can indicate rough size. If the dataset has shrunk by 50%
+    unexpectedly, that’s usually a bad sign.'
+  id: totrans-61
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*与预期大小相比，输入数据集有多大？* 将训练数据集与上次训练此模型的情况进行比较，或者使用另一个外生度量来指示粗略大小。如果数据集意外地缩小了50%，那通常是个不好的迹象。'
+- en: '*Are you comparing raw input data and feature data?* (Some problems emerge
+    only when combining fields into features.)'
+  id: totrans-62
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*你正在比较原始输入数据和特征数据吗？*（一些问题只有在将字段组合成特征时才会出现。）'
+- en: '*What are the youngest and oldest pieces of input data? Do they conform to
+    expectations?* For extra credit, start to look at the histogram of the distribution
+    of ages. In a distributed training situation, sometimes there can be a small number
+    of very old pieces of data while everything else has been processed cleanly and
+    effectively.'
+  id: totrans-63
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*最年轻和最老的输入数据分别是什么？它们符合预期吗？* 如果额外加分，开始查看年龄分布直方图。在分布式训练情况下，有时可能会有少量非常老的数据，而其他所有数据都已经被处理得干净有效。'
+- en: '*What is the cardinality* (in this case, total number of elements or examples),
+    and *how is the data distributed?* Is the distribution very different from the
+    expected distribution—either compared to the previous time we trained on this
+    data, or compared to other generated expected distributions?'
+  id: totrans-64
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*在这种情况下，基数是多少*（总元素或示例的数量），以及*数据是如何分布的？* 这个分布与预期分布非常不同吗——无论是与我们上次训练这些数据的情况相比，还是与其他生成的预期分布相比？'
+- en: In a batch-processing scenario, *can you enumerate the data and ensure it’s
+    finalized?* (Can you guarantee that all of the events from a particular day—say,
+    yesterday—have arrived and include all relevant fields? Do you have any outliers
+    from the day before that, or from today?)
+  id: totrans-65
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在批处理场景中，*你能枚举数据并确保它已经完成了吗？*（你能保证所有来自特定日期——比如昨天——的事件都已经到达并包含所有相关字段吗？你有来自前一天或今天的任何异常值吗？）
+- en: In a streaming processing scenario, *what is the rate of arrival of incoming
+    data?* Do you process on receipt of each “bundle” or after a fixed size has been
+    collected (in which case, you should track how often processing is invoked)?
+  id: totrans-66
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在流处理场景中，*传入数据的到达速率是多少？* 你是在每个“包裹”到达时处理，还是在收集到固定大小后处理（在这种情况下，你应该跟踪处理被调用的频率）？
+- en: If access to the data is mediated, *what are the rates of access? Are there
+    a large number of failures* (particularly authentication-related ones)?
+  id: totrans-67
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果数据访问是经过中介的，*访问率是多少？是否存在大量失败*（特别是与身份验证相关的失败）？
+- en: If the data is copied from somewhere else to go into, say, a feature store,
+    and the model is built from a feature store, *does that copying happen correctly?*
+  id: totrans-68
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果数据是从其他地方复制到，比如特征存储中，并且模型是从特征存储中构建的，*那么复制是否正确进行？*
+- en: Processing
+  id: totrans-69
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 处理
+- en: '*How many processing jobs are running? When did they last run? Did they complete
+    by the time they should have? What was the rate of restarts and the successful
+    job completion rate? Is there a backlog of unprocessed units? What is the distribution,
+    in age, of the unprocessed units?*'
+  id: totrans-70
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*有多少处理作业正在运行？它们上次运行是什么时候？它们是否按时完成？重新启动率和成功作业完成率是多少？有未处理单元的积压吗？未处理单元的年龄分布如何？*'
+- en: '*What is the processing rate* (measured, say, in input data elements processed
+    per second?) *What is the 50th percentile, 90th percentile, and 99th percentile
+    of processing rate?* (Pay particular attention to long-running shards—i.e., if
+    you split your work across many processing jobs, you often see one of them running
+    long—see the previous comment about input distributions.) How does that compare
+    to the previous iteration? Or for more accurate comparisons, how do you ensure
+    that seasonality effects are properly accounted for in defining the previous iteration?^([11](ch09.xhtml#ch01fn105))'
+  id: totrans-71
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*处理速率是多少*（比如每秒处理的输入数据元素数量？） *处理速率的50th、90th和99th百分位是多少？*（特别关注长时间运行的分片—即，如果您将工作分布到多个处理作业中，通常会看到其中一个运行时间较长—参见前面关于输入分布的评论。）与前一次迭代相比如何？或者为了更准确的比较，您如何确保正确考虑季节性效应以定义前一次迭代？^([11](ch09.xhtml#ch01fn105))'
+- en: '*How much, in total, of the three axes of CPU, memory, and I/O have been consumed
+    to produce the model?* (This can be nontrivial to determine, but is crucial for
+    figuring out bottlenecks—in particular, if you add more of any resource, would
+    you know if your system would get faster?)'
+  id: totrans-72
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*为了生成模型，CPU、内存和I/O这三个维度的资源总共消耗了多少？* （这可能很难确定，但对于找出瓶颈非常关键—特别是如果您增加了任何资源，您是否知道系统会变得更快？）'
+- en: Holistic view
+  id: totrans-73
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 全面视角
+- en: '*How long did the entire run—from marshaling input data to producing the model—take,
+    both in absolute duration and comparative duration?*'
+  id: totrans-74
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*整个运行过程—从整理输入数据到生成模型—需要多长时间，无论是绝对时长还是比较时长？*'
+- en: What is the *size of the output model*? If there is more than one file, is every
+    file present that should be?
+  id: totrans-75
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 输出模型的*大小是多少*？如果有多个文件，是否每个应该存在的文件都存在？
+- en: '*Can the model be successfully loaded and make simple predictions?*'
+  id: totrans-76
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*模型是否能够成功加载并进行简单预测？*'
+- en: For those who do testing in a separate environment, *does the model pass the
+    testing process?*
+  id: totrans-77
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于在单独环境中进行测试的人来说，*模型是否通过了测试流程？*
+- en: '*What is the time to get the model into production and serving queries?*'
+  id: totrans-78
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*将模型投入生产并处理查询所需的时间是多少？*'
+- en: For those who do testing in production, *does the model pass exposure to users?*
+    Are the business or use metrics that you track in production affected in an unexpected
+    way by the new model?
+  id: totrans-79
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于在生产环境进行测试的人来说，*模型是否经过用户曝光？* 新模型是否以意外方式影响了您在生产中跟踪的业务或使用指标？
+- en: '*Do you understand what the largest contribution to getting models into production
+    is?* Is it manual action or automatic action? (You might have to add decoration
+    or annotation information to achieve this: for example, a way to annotate a particular
+    period as being a time of heavy network load.)'
+  id: totrans-80
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*您是否了解将模型投入生产中的最大贡献是什么？* 是手动操作还是自动操作？（您可能需要添加装饰或注释信息来实现此目标：例如，标记特定时期为网络负载较重的时间。）'
+- en: Finally, we note that some of these suggestions might also usefully apply to
+    subcomponents of your training pipeline. It’s not uncommon to have, for example,
+    various data landing zones that have some very simple checks applied to them before
+    they get copied for fuller processing elsewhere (think yarn supplier delivery
+    manifests, for example, often sent over relatively inflexible electronic fund
+    transfer, or EFT, processes). Being aware if the size of those dropped by 50%
+    would be useful. Similar arguments might apply to chains of feature preprocessing
+    prior to feature-store assumption, and so on. We can’t describe every possible
+    architecture in advance here, but we can say that business risk analysis can help
+    you to understand where best to place your scarce resources.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们注意到，其中一些建议可能也可以有用地应用于您培训管道的子组件。例如，往往在将其复制到其他地方进行更完整处理之前，各种数据着陆区可能已经应用了一些非常简单的检查（例如，考虑到经常使用的相对不灵活的电子资金转移或EFT过程的纱线供应商交付清单）。了解如果这些减少了50%的大小是否有用。类似的论点可能适用于特征存储假设之前的特征预处理链等等。我们无法提前描述每种可能的架构，但我们可以说，业务风险分析可以帮助您了解在哪里最好地配置您稀缺的资源。
+- en: Model Validation (Before Rollout)
+  id: totrans-82
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型验证（投入使用之前）
+- en: Models are generally designed to achieve a certain business impact, also known
+    as *improving a metric*. *Business validation* can therefore be understood as
+    attempting to understand the business impact of a model,^([12](ch09.xhtml#ch01fn106))
+    for example, looking at how it affects profit and loss (also sometimes known as
+    the *profit/loss curve*), or using a confusion matrix, which tries to understand
+    where the model classified no and the answer should have been yes, and so on.
+    Of course, we always need to beware of user behavior being noisy, but the primary
+    goal is to find out whether the model improves a certain metric from a baseline.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型通常被设计来实现某种业务影响，也称为*改善指标*。因此，**业务验证**可以理解为试图了解模型的业务影响，^([12](ch09.xhtml#ch01fn106))
+    例如，查看它如何影响利润和损失（有时也称为*盈亏曲线*），或者使用混淆矩阵，试图理解模型错误分类的情况，应该是"是"而模型分类成"否"，等等。当然，我们始终需要注意用户行为可能会有噪声，但主要目标是找出模型是否从基准改善了某个指标。
+- en: 'The secondary goal is trying to figure out whether the new model is better
+    than what we already have. To do that, we not only have to test versus historical
+    data, which we are probably doing anyway, but also compare two models against
+    each other.^([13](ch09.xhtml#ch01fn107)) We can choose from at least two good
+    approaches:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 次要目标是尝试确定新模型是否比我们已有的更好。为此，我们不仅需要针对历史数据进行测试（我们可能已经在做了），还需要将两个模型彼此比较。^([13](ch09.xhtml#ch01fn107))
+    我们可以选择至少两种好方法之一：
+- en: Test in preproduction environments (sometimes called a *sandbox*), and run the
+    models either in parallel or serially, depending on your capacity, to compare
+    behaviors.
+  id: totrans-85
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在预生产环境中进行测试（有时称为*沙箱*），并根据您的能力并行或串行运行模型，以比较其行为。
+- en: Test in production, with the model getting a small subset of real user traffic
+    (typically, between 1% and 5%), sometimes called a *canary test*.
+  id: totrans-86
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在生产中进行测试，使模型获取一小部分实际用户流量（通常在1%到5%之间），有时称为*金丝雀测试*。
+- en: The second approach also has the good effect of exposing any problem with the
+    model reacting to user traffic before a full rollout. However, this does require
+    you to have some way of engineering traffic such that a particular version gets
+    only a subset of traffic—not all infrastructure supports this feature. But if
+    you have it, it’s really good for allowing safe transitions from old to new models,
+    and overlaps nicely with A/B testing. (General model updates can also fit well
+    within such a framework, and indeed contemporary software deployment makes a lot
+    of use of this approach.)
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二种方法还有一个好处，即在全面推出之前暴露模型对用户流量的反应问题。但是，这确实需要您有某种方式来工程化流量，以便特定版本只获取子集流量——并非所有基础设施都支持此功能。但如果您有此功能，它对允许从旧模型到新模型的安全过渡非常有益，并且与A/B测试完美重叠。（通用模型更新也可以很好地适应这种框架，并且事实上，当代软件部署广泛使用此方法。）
+- en: A hybrid approach is to send some data to the model locally, and the same data
+    to the model running in production (though with this approach, the local model
+    is not enabled to take full production traffic; it is just taking your test traffic).
+    This helps expose feature code differences between modeling and serving, configuration
+    differences, and so on. Finally, some folks send production traffic to a model,
+    but don’t serve the results to end users, which tests many components of the serving
+    path without exposing users to risk. This is called *shadowing*, and provides
+    another place on the spectrum to balance correctness and risk.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 混合方法是将一些数据发送到本地模型，同时将相同数据发送到在生产环境中运行的模型（尽管采用这种方法，本地模型不能完全处理生产流量；它只是处理你的测试流量）。这有助于暴露建模和服务之间的特征代码差异、配置差异等。最后，有些人将生产流量发送到模型，但不将结果提供给最终用户，这样可以测试服务路径的许多组件，而不会给用户带来风险。这被称为*影子模式*，在正确性和风险之间提供了另一个平衡点。
+- en: Fallbacks in validation
+  id: totrans-89
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 验证中的备用方案
+- en: 'For all kinds of reasons, it’s highly advisable to have a *fallback plan*,
+    which is a set of steps you take if the new model fails, the rollout fails, or
+    even the old model is found to have some weird behavior in a particular subset
+    of circumstances. There are two main approaches (as seen in [“Emergency Response
+    Must Be Done in Real Time”](ch10.xhtml#emergency_response_must_be_done_in_real)):'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于各种原因，强烈建议制定一个*备用计划*，即一套步骤，用于在新模型失败、发布失败，甚至老模型在特定情况下出现奇怪行为时采取。这里有两种主要方法（如《“紧急响应必须实时完成”》中所见）：
+- en: Use an older version of the model (roll back)
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用旧版本的模型（回滚）
+- en: This implies it’s a good idea to keep the actual binaries of these around, versioned
+    correctly, as well as monitoring the actual versions in production, since stressing
+    your training infrastructure to build a model from old data at a time of production
+    outage is generally the opposite of a good idea.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着保持这些实际二进制文件的正确版本化是个好主意，并且监控生产中的实际版本，因为在生产停机时为了从旧数据构建模型而加重训练基础设施的负担通常是不明智的做法的反面。
+- en: Fall back to a simpler algorithmic or even hardcoded approach
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 退回到更简单的算法或甚至硬编码的方法
+- en: For example, when attempting to supply ranked recommendations for product purchases,
+    instead of broken recommendations, just display the top 10 most popular products
+    on the site—though it won’t be right for anyone, it won’t be too wrong either
+    (in most cases)!
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，在试图为产品购买提供排名推荐时，不要显示错误的推荐，只需展示站点上最受欢迎的前10款产品—虽然对任何人来说都不完全正确，但大多数情况下也不会完全错误！
+- en: 'Be very careful in your rollback, since many subtle problems wait in the long
+    grass, waiting to strike: *schema changes*, *format changes,* or changes in *semantics*—whereby
+    a crucial database, data source, or feature store format changes between releases—are
+    all examples of areas that are easy to overlook in rollbacks. This can sometimes
+    make it effectively impossible or impractical to do so unless the whole suite
+    of dependencies is rebuilt, but might also make it hard to roll forward to a new
+    version unless the actual error is fully understood. In these situations, algorithmic
+    fallbacks can be life-saving. However, algorithmic fallbacks also can themselves
+    fail because of categorical errors.'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在回滚时要非常小心，因为许多微妙的问题等待在长草中，随时准备袭击：*模式更改*、*格式更改*或*语义更改*——在这些情况下，关键数据库、数据源或特征存储格式在版本发布之间的更改都是容易被忽视的例子。有时这会使得回滚变得事实上不可能或不切实际，除非整个依赖套件被重新构建，但也可能使得向前转到新版本变得困难，除非完全理解实际的错误。在这些情况下，算法备用可以拯救生命。然而，算法备用本身也可能因为分类错误而失败。
+- en: A nuance here is that even if the schema stays the same, feature transformations
+    applied to one version of the model may not be the same as what’s applied to another
+    version. For example, how to handle a missing value for a ride-hailing app pickup
+    location in one version of the model might be to simply default to where the rider
+    was last seen, and in another version of the model might be the closest previously
+    saved pickup location (e.g. home, office, etc.). These differences in the way
+    the features are transformed might differ among versions and would also complicate
+    rollback. Even worse would be if you roll back to one feature transformation on
+    one “side” of the system and stay with the new one on the other “side.”
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的一个细微之处是，即使架构保持不变，应用于模型的特征转换也可能与另一个版本中应用的不同。例如，在一个模型版本中，如何处理顺风车应用的上车位置的缺失值可能是简单地默认为乘客上次出现的位置，而在另一个版本中可能是最接近先前保存的上车位置（例如家、办公室等）。这些特征转换方式的差异可能在不同版本之间存在差异，并且还会使回滚变得复杂。更糟糕的是，如果您在系统的一侧回滚到一个特征转换，而在另一侧保留新的特征转换，则情况将变得更加复杂。
+- en: Call to action
+  id: totrans-97
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 行动号召
+- en: We don’t yet have anything like the CI/CD workflow used in the infrastructure-as-code
+    (IaC) community today that is commonly available for model development.^([14](ch09.xhtml#ch01fn108))
+    Different companies and even different teams within the same company could solve
+    the problems differently. That doesn’t mean you can’t do checks, or can’t do them
+    automatically—homegrown approaches have, of course, some utility—but today’s reality
+    involves manual, peer-based review of both code and data, and detailed validation
+    requiring PhDs in statistics.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当前在基础设施即代码（IaC）社区中使用的CI/CD工作流程，用于模型开发尚未普遍存在。^([14](ch09.xhtml#ch01fn108)) 不同的公司甚至同一公司内的不同团队可能会以不同方式解决问题。这并不意味着你不能进行检查，或者不能自动执行检查——自行开发的方法当然有其用处——但如今的现实是需要手动、基于同行的代码和数据审查，并需要统计学博士的详细验证。
+- en: For what it’s worth, this situation imposes serious friction for ML development
+    as it stands. The industry actively needs to work toward making as much of this
+    as automatic as possible, and this work is too important to be left to the platforms.
+    We therefore call on the industry to move toward a state where IaC approaches
+    are used as widely in ML development as CI/CD and IaC enjoy today in product development.
+    Even if we don’t get that far, being in a situation where everything after manual
+    validation moves the training artifacts safely and automatically to production
+    would be a significant improvement than what we have on average across industry
+    today.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就其价值而言，目前的情况对机器学习开发构成了严重的摩擦。行业迫切需要努力使尽可能多的工作自动化，而这项工作太重要，不能单单依靠平台完成。因此，我们呼吁行业朝着在机器学习开发中广泛使用IaC方法的状态迈进，就像CI/CD和IaC在产品开发中今天所受欢迎一样。即使我们无法达到这一目标，也将手动验证后的所有训练成果安全自动地推向生产将显著改善目前整个行业的平均水平。
+- en: Concrete recommendations
+  id: totrans-100
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 具体建议
+- en: 'Commonly used numerical KPIs are measured to assess an ML model’s performance.
+    These are also covered in some detail and with a deeper theoretical foundation
+    in [Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality), and with specific
+    attention to serving use cases in [Chapter 8](ch08.xhtml#serving-id0000021). We
+    summarize these KPIs here for continuity and ease of access:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于评估机器学习模型性能的常用数值KPI，这些内容在[第5章](ch05.xhtml#evaluating_model_validity_and_quality)中也有详细讨论和更深入的理论基础，并特别关注服务用例在[第8章](ch08.xhtml#serving-id0000021)中的应用。我们在这里总结这些KPI，以保持连贯性和易于访问性：
+- en: Accuracy
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 准确性
+- en: The fraction of predictions for which the model is correct.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型预测正确的比例。
+- en: Precision
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 精度
+- en: The ratio of true positives to total positives.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 真正例与总正例的比例。
+- en: Recall
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 召回率
+- en: The ratio of predicted positives to total positives.^([15](ch09.xhtml#ch01fn110))
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预测为正例的比例与总正例的比例。^([15](ch09.xhtml#ch01fn110))
+- en: Precision and recall (PR) curve
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 精度和召回（PR）曲线
+- en: The space of tradeoffs between precision and recall at different decision thresholds.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在不同决策阈值下精度和召回之间的权衡空间。
+- en: Log loss
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对数损失
+- en: See [Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality) for more detail.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更多详细信息，请参阅[第5章](ch05.xhtml#evaluating_model_validity_and_quality)。
+- en: ROC curve and AUC
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ROC曲线和AUC
+- en: A threshold-independent measure of model quality.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型质量的无阈值独立度量。
+- en: Many other possible mathematical measures could be used, some of which you might
+    recognize from early statistics classes (e.g., *p*-values and coefficient effect
+    sizes) and some of which are a little more involved (e.g., posterior simulations).
+    On the whole, though, if you understand the preceding list in terms of your model,
+    and understand your output distribution *shape*, you have a very good handle on
+    what’s going on.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有许多其他可能使用的数学度量标准，其中一些您可能从早期的统计课程中认识到（例如，*p*-值和系数效应大小），还有一些涉及的稍微复杂一些（例如，后验模拟）。总的来说，如果您能理解前面列表中关于您的模型的内容，并了解您的输出分布*形状*，您对正在发生的事情就有很好的把握了。
+- en: Serving
+  id: totrans-115
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 服务
+- en: 'Monitoring ML models while they are serving in production has all of the difficulties
+    of observing things in production, combined with the numerous challenges of figuring
+    out *why* things are happening that are peculiar to ML. Nonetheless, we can start
+    with a set of simple questions:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产环境中为ML模型提供服务时监控它们，具有在生产中观察事物的所有困难，再加上解释ML特有的事物发生原因的众多挑战。尽管如此，我们可以从一组简单的问题开始：
+- en: What are good metrics to measure my model in serving? (In some sense, you want
+    the more relevant ones; arbitrary metrics have a habit of growing without limit
+    until signal/noise is degraded.)
+  id: totrans-117
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 哪些指标适合衡量我的模型在服务中的表现？（在某种意义上，您希望更相关的指标；任意的指标往往会不断增长，直到信号/噪音被削弱。）
+- en: Is my model performing as expected? If it’s not performing as well, why, and
+    how can I resolve the issue?
+  id: totrans-118
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我的模型是否如预期般执行？如果表现不佳，原因是什么，我该如何解决？
+- en: 'To choose good metrics for measuring model performance, we need to properly
+    understand how a model can fail. Three components are needed to make a model work
+    successfully:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了选择衡量模型性能的好指标，我们需要正确理解模型可能出现故障的方式。为使模型成功运行，需要三个组成部分：
+- en: Model
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型
+- en: The model making predictions.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进行预测的模型。
+- en: Data
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据
+- en: The data that is flowing in and out of the model. This includes the features
+    that the model uses to make a prediction and the prediction itself.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流入和流出模型的数据。这包括模型用于进行预测的特征及其预测结果本身。
+- en: Service
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务
+- en: The service that actually renders the model**.** This typically involves the
+    deployment of the model and serving of inferences—infrastructure, in the broadest
+    sense.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际渲染模型的服务**。** 这通常涉及模型的部署和推理服务——从广义上讲，这是基础设施。
+- en: Each of these three components needs to be working as expected in order for
+    the model to be successful. A failure in any can have an impact on the overall
+    business KPIs that the model was designed to improve. Therefore, we need to measure
+    *all* of these to have a complete picture. In the next sections, we examine them
+    in more detail.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这三个组成部分中的每一个都需要按预期工作，以使模型成功。任何一个组成部分的失败都可能对模型旨在改善的整体业务关键绩效指标产生影响。因此，我们需要测量*所有*这些以获得完整的图片。在接下来的章节中，我们将更详细地研究它们。
+- en: Model
+  id: totrans-127
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型
+- en: Starting with the model itself, we again note that measuring model performance
+    *in* serving is a lot trickier than measuring performance *prior to* serving.
+    Given those difficulties, we prefer to use the same metrics to evaluate the model
+    in serving as we do in training/validation, since that will give us more confidence
+    that we’re actually measuring in some sense “the same thing.” Of course, doing
+    this requires being able to match the prediction with the corresponding observed
+    reality.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从模型本身开始，我们再次注意到，在服务中测量模型性能比在服务之前测量性能要困难得多。鉴于这些困难，我们更倾向于在服务中使用与训练/验证中相同的指标来评估模型，因为这将使我们更有信心，我们实际上在某种意义上“测量到了相同的东西”。当然，这样做需要能够将预测结果与相应的实际观察结果进行匹配。
+- en: 'For example, let’s assume a ride-hailing company has a model predicting the
+    ETA of a car for a customer. While evaluating this model in validation, you care
+    a lot about minimizing the error (usually referred to as *root mean squared error*,
+    or *RMSE*^([16](ch09.xhtml#ch01fn111))) so that the model’s prediction is close
+    to the actual ETA: in this context, it turns out that customers tend to get more
+    upset if you overpromise and underdeliver than the other way around. So to calculate
+    this same metric in a production environment, there must be some process that
+    can reconcile the predicted ETA with the actual ETA (i.e., calculate the error).'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设一家乘车打车公司有一个模型预测车辆到达客户的预计时间（ETA）。在验证阶段评估此模型时，你非常关心将误差（通常称为*均方根误差*或*RMSE*^([16](ch09.xhtml#ch01fn111)))
+    最小化，以便模型的预测接近实际的ETA：在这种情境下，事实证明如果你承诺过高而实际交付不足，顾客往往会更加不满意。因此，在生产环境中计算相同的度量标准，必须有一些过程可以协调预测的ETA与实际的ETA（即计算误差）。
+- en: In practice, a few scenarios describe the delay with which the real results
+    (known as *actuals*) arrive, and how we cope with that.^([17](ch09.xhtml#ch01fn112))
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实践中，有几种场景描述了真实结果（称为*实际数据*）到达的延迟及我们如何应对这些情况。^([17](ch09.xhtml#ch01fn112))
+- en: 'Case 1: Real-time actuals'
+  id: totrans-131
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 案例1：实时的实际数据
+- en: The ideal ML deployment scenario—and often the only one taught in the classroom—occurs
+    when you get fast actionable and fast performance information back on the model
+    as soon as you deploy your model to production.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理想的机器学习部署场景——通常也是课堂上唯一教授的场景——是当你将模型部署到生产环境后，能够立即获取行动建议和性能信息。
+- en: 'Many industries are lucky enough to have this ideal scenario. Probably the
+    most famous is digital advertising: a model attempts to predict which ad a consumer
+    is most likely to engage with. Almost immediately after the prediction is made,
+    the ground truth—whether they clicked or not—is determined. A similar example
+    is food delivery; as soon as the pizza has arrived at the hungry customer’s house,
+    you have real measurements you can compare your model predictions with, and pizza
+    delivery as a business has a strong time limit baked into it (as well as other
+    ingredients)—take too long, and the customer typically no longer wants it.^([18](ch09.xhtml#ch01fn113))
+    Ultimately, a strong detection KPI is what you want, if you can get it.'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多行业非常幸运地拥有这种理想的场景。可能最著名的是数字广告：一个模型试图预测哪个广告消费者最有可能与之互动。几乎在预测完成后立即确定了真实结果——他们是否点击了广告。类似的例子是食品送货；一旦披萨送到饥饿的客户家门口，你就有了可以将模型预测与之比较的实际测量数据，而食品送货作为一个业务，有着严格的时间限制（以及其他成分）——如果时间过长，顾客通常就不再需要了。^([18](ch09.xhtml#ch01fn113))
+    最终，强有力的检测KPI是你想要的，如果你能够获取的话。
+- en: The key thing this quick feedback loop enables is the ability to measure the
+    effectiveness of your models essentially *instantaneously* (or at least very quickly);
+    of course, once you have this latent ground truth linked back to your prediction
+    event, no matter how long it took to get it, model performance metrics can easily
+    be calculated and tracked.^([19](ch09.xhtml#ch01fn114)) Tracking such metrics
+    on a regular cadence allows you to make certain that performance has not degraded
+    drastically from when a model was trained, or when it was initially promoted to
+    production.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 快速反馈环路的关键之处在于能够几乎*即时*（或至少非常快速地）测量模型的效果；当然，一旦你将这个潜在的真实数据与预测事件联系起来，无论获取这些数据花费多长时间，模型的性能指标都可以轻松计算和跟踪。^([19](ch09.xhtml#ch01fn114))
+    定期跟踪这些指标可以确保模型的表现没有从训练时或最初投入生产时显著降级。
+- en: However, many real-world environments change the way you get access to ground-truth
+    data, as well as the tools you have at your disposal to monitor your models.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，许多现实环境都会改变你获取真实数据的方式，以及你用来监控模型的工具。
+- en: 'Case 2: Delayed actuals'
+  id: totrans-136
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 案例2：延迟的实际数据
+- en: In this case, you don’t get the benefit of the fast real-time feedback outlined
+    previously. Indeed, these kinds of situations are arguably more common in business
+    generally than case 1, and certainly a lot more awkward to deal with. Imagine
+    you are trying to predict the likelihood of physical infrastructure failing—say,
+    bridges collapsing—or use ML to perform predictions in the real estate market.
+    Both of these scenarios have durations that could plausibly be measured in years,
+    or even decades. This makes it tricky to ensure that a model developed to help
+    you make higher-quality decisions is behaving as expected.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，你无法享受之前提到的快速实时反馈的好处。事实上，这些类型的情况在业务中可能比案例1更常见，而且处理起来肯定更加尴尬。想象一下，你试图预测物理基础设施失败的可能性——比如桥梁倒塌——或者使用机器学习来进行房地产市场预测。这两种情况都可能需要几年甚至几十年的时间来测量。这使得确保一个旨在帮助你做出高质量决策的模型行为符合预期变得非常棘手。
+- en: This delay in receiving ground truth, as well as being very long, might also
+    be *unbounded*. Take, for example, a fintech company trying to classify which
+    credit card transactions are fraudulent. You likely won’t know whether a transaction
+    is truly fraudulent until you get a customer card loss report or charge dispute.
+    This can happen a couple of days, weeks, or months after the transaction cleared—or
+    in the scenario where the transaction goes undetected by the customer, might *never*
+    happen.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种延迟接收真实情况，而且可能是*无界*的。例如，一家金融科技公司试图分类哪些信用卡交易是欺诈行为。你可能要等到客户的卡片丢失报告或者交易争议之后才能知道一笔交易是否真的是欺诈。这可能发生在交易清算后的几天、几周或几个月内——或者在交易未被客户察觉的情况下，甚至*永远*不会发生。
+- en: Ultimately, you can still make the first approach work if you get “enough” semi-real-time
+    data, the data arrives reliably enough, and so on, but if you can’t make that
+    approach work, teams may need to turn to proxy metrics. *Proxy metrics* are alternative
+    signals that are correlated with the ground truth that you’re trying to approximate,
+    but are selected specifically because they arrive more quickly.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，如果你能获得足够多的“半实时”数据，数据能够足够可靠等等，你仍然可以使第一种方法奏效，但如果你不能使该方法奏效，团队可能需要转向代理指标。*代理指标*是与你试图逼近的真实情况相关的替代信号，但特别选择它们的原因是它们到达得更快。
+- en: 'In the case of bridge failures, we might look at results of bridge inspections,
+    maintenance schedules, whether a bridge is in an area prone to flooding, and the
+    age of a bridge. For real-estate purchase-price predictions, a common technique
+    is to look at prices for similar houses, but with as few components changed as
+    possible: for example, the same number of bedrooms and bathrooms but in a different
+    area, or different number of bedrooms but in the same area, and so on. For construction
+    timescales of months or years, even a messy composite proxy like this can be better
+    than nothing.'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于桥梁故障的情况，我们可能会查看桥梁检查的结果、维护计划、桥梁是否处于易受洪水影响的地区以及桥梁的年龄。对于房地产购买价格预测，一个常见的技术是查看类似房屋的价格，但尽量不改变太多组成部分：例如相同数量的卧室和浴室但在不同地区，或者不同数量的卧室但在同一地区等等。对于几个月或几年的建筑工期来说，即使是这样一个混乱的复合代理指标，也比没有要好。
+- en: Ultimately, proxy metrics serve as a powerful tool in the face of delayed ground
+    truth since, if you can’t get a strongly correlated metric in real time, you can
+    at least get a more weakly correlated one; often that’s good enough. Don’t forget
+    the mathematical requirement that your proxy metric has statistical significance,
+    however—and proxy metrics may even change relevance over time, so they need to
+    be continually reevaluated.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，代理指标在面对延迟的真实情况时成为一个强大的工具，因为如果你无法在实时获取到一个强相关的度量，至少可以获取一个相关性较弱的度量；通常这已经足够了。不过，不要忘记你的代理指标需要具有统计显著性的数学要求，而且代理指标可能随时间而改变其相关性，因此需要持续重新评估。
+- en: 'Case 3: Biased actuals'
+  id: totrans-142
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 情况3：偏倚的实际数据
+- en: One important thing to note is that not all ground truth is created equal. For
+    example, if we are a fintech company looking at creditworthiness in loan contexts,
+    the central problem with predictions is that declining a loan means you no longer
+    have any information about whether the applicant could have paid you back. In
+    other words, only the people you decide to give a loan to will result in outcomes
+    that you can use to train future models on—a kind of selection bias that could
+    allow bias of other kinds to creep in. As a result, we will never know whether
+    someone the model predicted will default could have actually paid the loan back
+    in full. As described more fully in [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical),
+    it is therefore critical to assess our data for potential biases, blindspots,
+    and areas of under-representation.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个重要的注意事项是，并非所有的真实数据都是平等的。例如，如果我们是一家金融科技公司，在贷款情境下审视信用度，预测的核心问题是拒绝贷款意味着你将不再有关于申请人是否能够偿还贷款的任何信息。换句话说，只有你决定发放贷款给的人才会产生可以用来训练未来模型的结果，这种选择偏差可能导致其他类型的偏差潜入。因此，我们将永远不会知道模型预测的某人是否会违约，其实际是否能够完全偿还贷款。正如在[第6章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)中更详细地描述的那样，因此至关重要的是评估我们的数据，以发现潜在的偏见、盲点和代表性不足的领域。
+- en: 'Case 4: No/few actuals'
+  id: totrans-144
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 情况4：没有/少量实际数据
+- en: 'In some ML applications, getting back actuals (responses) in a reasonable time
+    window is just not possible. This could be for a variety of reasons, including
+    these:'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一些机器学习应用中，及时获取实际数据（响应）是不可能的。这可能由于各种原因，包括以下几点：
+- en: Manual intervention is required to verify the model’s predictions.
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 需要手动干预来验证模型的预测结果。
+- en: There is no way to attribute the response to the prediction.
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 没有办法将响应归因于预测。
+- en: The time window of getting actuals is so delayed it cannot meaningfully inform
+    the modeler that the model’s performance should be looked at.
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 获取实际数据的时间窗口延迟如此之长，以至于无法有意义地通知建模者应该检查模型的性能。
+- en: For example, many image-classification applications require a human in the loop
+    to manually verify that the images were classified correctly. This might require
+    sampling so that only a valuable segment of the predictions is manually verified
+    to improve the model’s future training dataset.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，许多图像分类应用程序需要人为干预，以手动验证图像是否被正确分类。这可能需要抽样，以便仅对预测的有价值部分进行手动验证，以改进模型的未来训练数据集。
+- en: So what does a team do if it doesn’t get back actuals? In these scenarios, it’s
+    not uncommon for ML teams to once again use proxy metrics to give signals of model
+    performance. A weaker correlation may be better than nothing in these extreme
+    cases. It is also common while testing new versions of models in production to
+    A/B test models and compare their impact on product metrics. Monitoring data of
+    the model becomes even more important to know if the model has deviated from what
+    is expected.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么如果团队没有获取到实际数据，该怎么办呢？在这些情况下，ML团队再次使用代理指标来提供模型性能的信号并不罕见。在这些极端情况下，较弱的相关性可能比没有更好。在测试新版本模型在生产中的同时，对模型进行A/B测试并比较其对产品指标的影响也很常见。监控模型的数据变得更加重要，以了解模型是否偏离了预期。
+- en: Other approaches
+  id: totrans-151
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 其他方法
+- en: Quite apart from how a model might handle the relationship with actuals, it
+    is possible to use generic measurements of the behavior of a model that can be
+    useful for figuring out whether things have gone truly awry. Our top selection
+    here is the share of “useless” responses—i.e., empty, incomplete, or with subpar
+    fallback—versus “good enough” responses, though another critical one is our old
+    friend, data distribution.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了模型可能如何处理与实际数据的关系之外，还可以使用模型行为的通用测量来判断事情是否真的出了问题。我们的首要选择是“无用”响应的比例，即空白、不完整或次优的回复，而另一个关键指标是我们的老朋友，数据分布。
+- en: Troubleshooting model performance metrics
+  id: totrans-153
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 故障排除模型性能指标
+- en: Let’s assume that model performance metrics can be calculated. Inevitably, at
+    some point your model will not meet performance expectations. The hard question
+    to answer is *why.* The most common causes are typically undersampling in training
+    data, drift, and data integrity issues impacting the quality of data the model
+    uses to make predictions. A best practice is to look beyond averages and investigate
+    various *slices* of predictions, i.e., a specific subsegment of predictions, such
+    as everyone in California.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设模型性能指标可以计算。不可避免地，你的模型在某些时候会达不到性能期望。要回答的难题是*为什么*。最常见的原因通常是训练数据的欠采样、漂移以及影响模型用于预测的数据质量的数据完整性问题。一个最佳实践是超越平均值，调查各种*预测片段*，即预测的特定子段，例如加利福尼亚州的所有人。
+- en: Imagine that your model is predicting likelihood of fraud. You expect the volume
+    of false negatives (your model missed catching a real fraud transaction) to be
+    less than 0.01%. Let’s say you suddenly see false negatives jump to 2%. A natural
+    way to proceed is to see whether this behavior is localized in any particular
+    region or merchant. By doing so, you can surface where the missed classifications
+    happen, and what slices of data to upsample when retraining the model. Of course,
+    understanding the worst-performing slices of the model can provide feedback to
+    model builders for ways to improve model performance.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下，你的模型正在预测欺诈的可能性。你预期误报负例（你的模型未能捕捉到真实的欺诈交易）的体积少于0.01%。假设你突然看到误报负例跳到了2%。继续的自然方法是查看这种行为是否局限在特定的地区或商家。通过这样做，你可以找出错过的分类发生在哪里，以及重新训练模型时需要增加哪些数据片段的样本量。当然，了解模型最差表现的片段可以为模型构建者提供反馈，以改善模型性能。
+- en: Data
+  id: totrans-156
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据
+- en: A key component of ML monitoring is monitoring the inputs and outputs of the
+    model. As features are added or dropped, monitoring must be adapted to the schema
+    of the model. We have two common ways to monitor data—drift detection and data
+    quality checks. Drift is better for catching slow changes to the distribution
+    of the data, while data quality checks are better for catching sudden, large changes
+    in the data.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML 监控的关键组成部分是监控模型的输入和输出。随着特征的添加或删除，监控必须适应模型的架构。我们有两种常见的监控数据的方法——漂移检测和数据质量检查。漂移更适合捕捉数据分布的缓慢变化，而数据质量检查更适合捕捉数据的突然大变化。
+- en: Drift
+  id: totrans-158
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 漂移
+- en: 'Drift measures change in distribution over time. Models do not perform equally
+    well on every possible input: they are highly dependent on the data they were
+    trained on, perform well when they see data that resembles that, and perform less
+    well when they don’t. Especially in hyper-growth businesses where data is constantly
+    evolving, accounting for drift is important to ensure that your models stay relevant.
+    As a result, measuring the distribution of your data in various dimensions, if
+    only via histogram-style methods, is crucial to understanding what’s going on
+    in production. Some models are resilient to minor changes in input distributions,
+    but accepting infinite resilience does not exist; at some point data distributions
+    will stray far from what the model saw in training, and performance on the task
+    at hand will suffer. This kind of drift is known as *feature drift*, or *data
+    drift*. Conversely, when model outputs deviate from the established baseline,
+    this is known as *model drift*, or *prediction drift*.'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 漂移测量随时间的分布变化。模型在每种可能的输入上表现并不一样：它们高度依赖于它们训练时的数据，在看到类似的数据时表现良好，在看不到时表现较差。特别是在数据不断演变的高速增长业务中，考虑到漂移对确保模型保持相关性非常重要。因此，通过直方图风格的方法测量数据在各个维度上的分布对于理解生产过程中发生的情况至关重要。一些模型对输入分布的轻微变化具有韧性，但不存在无限的韧性；在某些时刻，数据分布将远离模型在训练中看到的情况，这将影响任务的性能。这种漂移被称为*特征漂移*或*数据漂移*。相反，当模型输出偏离已建立的基线时，这被称为*模型漂移*或*预测漂移*。
+- en: It would be great if the only things that could change were the inputs to your
+    model, but unfortunately, that’s not the case. Assuming your model is deterministic,
+    and nothing in your feature pipelines has changed, it should give the same results
+    if it sees the same inputs.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果只有输入到您的模型的事物可以改变，那将是很好的，但不幸的是，情况并非如此。假设您的模型是确定性的，并且特征管道中没有任何变化，如果它看到相同的输入，它应该给出相同的结果。
+- en: While this is reassuring, what would happen if the distribution of the correct
+    answers, the actuals, change? Even if your model is making the same predictions
+    as yesterday, it can make mistakes today! This drift in actuals can cause a regression
+    in your model’s performance and is commonly referred to as *concept drift*.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管这让人感到欣慰，但如果正确答案即实际数据的分布发生变化会怎样呢？即使您的模型今天做出的预测与昨天相同，也可能出错！实际数据的这种漂移会导致模型性能的退化，通常称为*概念漂移*。
+- en: Measuring drift
+  id: totrans-162
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 测量漂移
+- en: Understanding the differences in two distributions is important, but is a sophisticated
+    topic that we cannot go into in detail at this point. So if this material is foreign
+    to you, don’t fret. Just either use it as it is, or go look things up and learn
+    more. (Either way, you’ll probably end up coming across some of these terms if
+    you engage with data distributions at all, never mind actively monitoring them.)
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 了解两个分布之间的差异很重要，但这是一个复杂的话题，我们在此不能详细展开。所以如果这些材料对您来说很陌生，不要担心。要么就直接使用它，要么去查找并学习更多。（无论如何，如果您与数据分布有任何交集，不管是主动监控还是被动使用，您都可能会遇到这些术语。）
+- en: As we talked about previously, we measure drift by comparing the distributions
+    of the inputs, outputs, and actuals between two distributions. The two distributions
+    are typically the production data and the baseline distribution. Commonly used
+    baseline distributions are training datasets, test datasets, or a prior window
+    of time in production. But how do you quantify the distance between these distributions?
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前讨论的，我们通过比较输入、输出和实际数据的分布来测量漂移。这两个分布通常是生产数据和基准分布。常用的基准分布包括训练数据集、测试数据集或生产中的先前时间窗口。但是如何量化这些分布之间的距离呢？
+- en: Several ways to do this are popular. The *population stability index* (*PSI*),
+    commonly used across banking and fintechs, relies on bucketizing data for one
+    metric, calculating the percentages residing in the buckets for each distribution,
+    and comparing the log of the divided percentages. This detects shifts within buckets
+    or between buckets. The *Kullback-Leibler divergence* (*KL divergence*) is similar
+    to PSI, but asymmetric so it can detect distribution order switching. The *Wasserstein
+    distance* (also known as *earth mover’s distance*) calculates the amount of work
+    required to move one distribution over to another, which is useful for recognizing
+    the amount of shift between buckets—i.e., if things spill from one bucket to the
+    next, the Wasserstein score will be lower than if a more radical jump occurs from
+    one end of the distribution to the other far end.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几种流行的方法。*人口稳定性指数* (*PSI*) 在银行和金融科技领域广泛使用，依赖于为一个度量指标进行数据桶化，计算每个分布中驻留在桶中的百分比，并比较分割百分比的对数。这可以检测到桶内或桶间的变化。*Kullback-Leibler散度*
+    (*KL散度*) 类似于PSI，但是是非对称的，因此可以检测到分布顺序的变化。*Wasserstein距离*（也称为*地球移动者距离*）计算将一个分布移动到另一个分布所需的工作量，这对于识别桶之间的移动量非常有用——即使从一个桶溢出到下一个，Wasserstein分数会比从一个分布端到另一个远端进行更激烈跳跃时低。
+- en: 'While each of these distribution distance measures differ in the way they compute
+    distance, they are all doing the same thing: providing a way to quantify how different
+    two distributions are. Especially when actuals are not available, drift is used
+    in the real world to identify changes in model predictions, features, and actuals.'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管这些分布距离测量方法在计算距离的方式上有所不同，它们都在做同样的事情：提供一种量化两个分布有多不同的方式。特别是在实际数据不可用时，漂移被用于实际世界中识别模型预测、特征和实际数据的变化。
+- en: Troubleshooting drift
+  id: totrans-167
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 漂移故障排除
+- en: In many ML use cases where performance metrics cannot be calculated directly,
+    drift often becomes the primary way to monitor changes in model predictions. When
+    examining why predictions have started the drift, we usually start with looking
+    at which inputs have also drifted, and we can couple feature drift and feature
+    importance together to determine which features might be more strongly correlated
+    with the change. In turn, that helps us figure out which features might need to
+    be resampled from baseline or could potentially need a data quality fix.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多机器学习用例中，当无法直接计算性能指标时，漂移通常成为监控模型预测变化的主要方法。当检查为何预测开始漂移时，我们通常从观察哪些输入也漂移了开始，并且可以将特征漂移和特征重要性结合在一起，以确定哪些特征可能与变化更强相关。反过来，这有助于我们确定哪些特征可能需要从基线重新采样，或者可能需要数据质量修复。
+- en: Data quality
+  id: totrans-169
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据质量
+- en: While drift is focused on *slow* failures, data quality monitoring for models
+    is focused on the *hard* failures. Models rely on the input features coming in
+    to make a prediction, and these input features can come from a variety of data
+    sources. Different types of data can be monitored for data quality issues—categorical
+    fields, numerical fields, as well as unstructured data types such as embeddings,
+    and so on. Here, we will dive into common strategies for monitoring structured
+    categorical and numerical data.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然漂移侧重于*缓慢*故障，但模型数据质量监控侧重于*严重*故障。模型依赖于输入特征的输入来进行预测，而这些输入特征可以来自各种数据源。不同类型的数据可以监控数据质量问题——分类字段、数值字段，以及诸如嵌入等非结构化数据类型。在这里，我们将深入研究监控结构化分类和数值数据的常见策略。
+- en: Categorical data
+  id: totrans-171
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 分类数据
+- en: '*Categorical data* is a stream of selections of a single value from a limited
+    but larger collection of values. Think of categories like the type of pet someone
+    owns: dog, cat, bird, and so on. You might not think much can go wrong here, but
+    a sudden shift in the distribution of categories is always possible, either because
+    of user behavior (this year’s hot Christmas pet is, for example, reindeer) or
+    other failures. Let’s say, for example, your hypothetical model predicting which
+    pet food to buy for your pet supply store sees data suggesting that people own
+    only cats now. This might cause your model to purchase only cat food, and all
+    your potential customers with dogs will have to go to the pet supply store down
+    the street instead.'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*分类数据*是从一个有限但更大的值集合中选择单个值的流。想想类别，比如某人拥有的宠物类型：狗、猫、鸟等等。你可能认为这里不会出什么问题，但类别分布突然变化总是可能的，可能是因为用户行为（例如，今年流行的圣诞宠物是驯鹿）或其他故障。举个例子，假设你的假设模型预测你的宠物用品店应该购买哪种宠物食品，现在的数据表明人们只拥有猫。这可能会导致你的模型只购买猫食品，而所有拥有狗的潜在客户将不得不去街对面的宠物用品店。'
+- en: 'In addition to a sudden cardinality shift in your categorical data—i.e., literally
+    how many are counted in each category—your data stream might start returning values
+    that are not valid for the category. This is, quite simply, a bug in your data
+    stream, and a violation of the contract (semantic expectations) you have set up
+    between the data and the model. This could happen for a variety of reasons: your
+    data source being unreliable, your data processing code going awry, an upstream
+    schema change, etc. At this point, whatever comes out of your model is undefined
+    behavior, and you need to make sure to protect yourself against type mismatches
+    like this in categorical data streams.'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了你的分类数据中突然发生的基数转移之外——即每个类别中实际计数的变化——你的数据流还可能开始返回不符合该类别的值。这很简单地是你的数据流中的一个bug，违反了你与数据和模型之间建立的合同（语义期望）。这可能出现多种原因：你的数据源不可靠，你的数据处理代码出错，上游模式变更等等。在这一点上，你模型的输出变得未定义行为，你需要确保在分类数据流中保护自己免受类型不匹配等问题的影响。
+- en: 'Examples might include the following:'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如可能包括以下情况：
+- en: You were expecting a string for a feature and suddenly received floats.
+  id: totrans-175
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你期望的功能是字符串，突然收到了浮点数。
+- en: You are case-sensitive for a feature (i.e., state inputs) and were expecting
+    lowercase values, but are now receiving uppercase values (e.g., *ca* versus *CA*).
+  id: totrans-176
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于一个特征（即状态输入），你是大小写敏感的，但期望的是小写值，现在却收到了大写值（例如，*ca* 和 *CA*）。
+- en: You are receiving data from a third-party vendor, and the order of their schema
+    has an off-by-one error. You are now seeing each feature receive another feature’s
+    values.
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你正在从第三方供应商那里接收数据，他们的模式顺序存在一个偏移错误。现在，你看到每个特征接收到另一个特征的值。
+- en: 'An unfortunately common—and tricky-to-handle—situation is missing data. This
+    can arise for any number of reasons to do with infrastructure, application, storage,
+    and network failures, or simple bugs. The real question is how to handle it. In
+    a training context, sometimes just discarding the row will allow things to proceed
+    and not be too bad; in a production context, you can throw an error (but not a
+    fatal one; otherwise, that turns an intermittently flaky storage service into
+    fleet-wide death, which is not to be recommended). While these techniques help
+    you compensate for this problem, it’s not really a sustainable solution: if you
+    have hundreds, thousands, or tens of thousands of data streams used to compute
+    one feature vector for your model, the chance that one of these streams is missing
+    can be very high!'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个不幸常见且难以处理的情况是缺失数据。这可能由于与基础设施、应用程序、存储和网络故障或简单的错误相关的任何原因引起。真正的问题是如何处理它。在训练环境中，有时只需丢弃这一行就可以使事情继续进行，而不会太糟糕；在生产环境中，你可以抛出一个错误（但不是致命错误；否则，这将把一个间歇性故障的存储服务转变为整个舰队的灾难，这是不推荐的）。虽然这些技术帮助你弥补了这个问题，但实际上并不是一个可持续的解决方案：如果你有数百、数千或数万个用于计算模型特征向量的数据流，其中一个数据流缺失的可能性就会非常高！
+- en: Note
+  id: totrans-179
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Though this is more to do with robustness than monitoring, it is possible to
+    compensate for missing values in categorical data in a number of ways, a process
+    commonly referred to as *imputation*. You could choose the most common category
+    that you have historically seen in your data,^([20](ch09.xhtml#ch01fn116)) or
+    you could use the values that are present to predict what this missing value likely
+    is. The complexity of your solution to this problem is entirely up to your application
+    scenario, but it’s important to know that no solution is perfect.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管这更多与鲁棒性而非监控有关，但可以通过多种方式来补偿类别数据中的缺失值，这个过程通常称为*插补*。你可以选择在你的数据中历史上看到的最常见类别，^([20](ch09.xhtml#ch01fn116))或者可以使用存在的值来预测这个缺失的值可能是什么。你解决这个问题的复杂度完全取决于你的应用场景，但重要的是要知道没有一种解决方案是完美的。
+- en: Numerical data
+  id: totrans-181
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 数值数据
+- en: A numerical data stream is also pretty self-explanatory. *Numerical data* is
+    data generally represented by floats (though sometimes integers), such as the
+    amount of money in your bank account, or the temperature in Fahrenheit or Celsius.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数字数据流也相当不言自明。*数值数据*通常由浮点数（有时是整数）表示，例如银行账户中的金额，或者华氏或摄氏温度。
+- en: To start off our analysis of what can go wrong with numerical streams, one thing
+    you sometimes see is an *outlier*, a value that exists far out of the range of
+    historical values. Outliers are potentially dangerous to your model, as they could
+    make your model mispredict in spectacular fashion.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们分析数值流可能出现的问题时，有时你会看到一个*异常值*，即远远超出历史值范围的值。异常值对你的模型可能是潜在危险的，因为它们可能会导致你的模型在预测中出现严重错误。
+- en: '*Type mismatch* can also affect numerical data. It’s possible that a particular
+    data stream where you’re expecting a temperature reading instead gives you (say)
+    a categorical data point, and you have to handle this appropriately. It’s possible
+    that the default behavior may be to cast this categorical value to a number which,
+    though now valid, has entirely lost its semantic meaning and is now an error in
+    your data that is incredibly hard to track down. Another possibility is something
+    that maybe doesn’t change type but changes semantics: maybe you’re tracking a
+    total counter (with some arbitrarily large or small wrap), and it suddenly gets
+    changed to a delta. Depending on the data, of course, this might go undetected
+    for quite a while!'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*类型不匹配*也会影响数字数据。可能出现你期望得到温度读数的特定数据流，而实际上得到的是类别数据点，你需要适当处理。可能的默认行为是将这个类别值转换为一个数字，虽然此时是有效的，但它完全丧失了语义意义，成为数据中极难追踪的错误。另一种可能性是类型不变但语义发生变化：也许你正在追踪一个总计计数器（具有某些任意大或小的包装），突然它被更改为一个增量。当然，根据数据的不同，这可能在相当长的时间内不被察觉！'
+- en: Lastly, just as with categorical data, numerical data also suffers from the
+    same missing data problems, but the ordering and span implied by a numerical sequence
+    gives us more options for imputation compared to the pure categorical situation.
+    For example, we can take an average, median, or other aggregate distribution metric
+    to impute a missing numeric value such as yarn weight (in grams); see [Figure 9-2](#ways_to_handle_bad_production_data).
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，就像分类数据一样，数值数据也会遇到同样的缺失数据问题，但数值序列隐含的排序和跨度使我们在缺失值插补方面有更多选择。例如，我们可以取平均值、中位数或其他聚合分布度量来填补缺失的数值，比如纱线重量（以克为单位）；参见[图
+    9-2](#ways_to_handle_bad_production_data)。
+- en: '![Ways to handle bad production data](Images/reml_0902.png)'
+  id: totrans-186
+  prefs: []
+  type: TYPE_IMG
+  zh: '![处理不良生产数据的方法](Images/reml_0902.png)'
+- en: Figure 9-2\. Ways to handle bad production data
+  id: totrans-187
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-2\. 处理不良生产数据的方法
+- en: Measuring data quality
+  id: totrans-188
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 测量数据质量
+- en: It’s not surprising to ML practitioners today that many models rely on very
+    large numbers of features to perform their task. With training set sizes exploding
+    into the hundreds of millions and even billions, models with feature vector lengths
+    in the tens and hundreds of thousands are not uncommon.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当今 ML 从业者对于许多模型依赖于非常大量的特征来执行其任务并不感到意外。随着训练集大小爆炸性增长至数亿甚至数十亿，特征向量长度为数十万至数百万的模型并不罕见。
+- en: 'This leads us to a major challenge that practitioners face today. To support
+    these incredibly large feature vectors, teams have poured larger and larger data
+    streams into feature generation. The reality is that this data schema will inevitably
+    change often as the team experiments to improve the model. It’s common to add
+    a feature, drop a feature, or change how it is computed/processed, and platforms
+    such as feature stores are becoming widespread for tackling precisely this management
+    overhead. Concretely, here are the most important checks to do across your features:'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这带来了今天从业者面临的一个主要挑战。为了支持这些极其庞大的特征向量，团队不断地向特征生成中注入更多更大的数据流。现实情况是，这种数据模式将不可避免地经常发生变化，因为团队在试验以改进模型。常见的做法包括添加特征、删除特征或更改特征的计算/处理方式，而诸如特征存储等平台正在广泛用于处理这种管理开销。具体而言，在所有特征上执行以下最重要的检查：
+- en: Categorical data
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 分类数据
+- en: 'Cardinality: Has the number of unique values changed?'
+  id: totrans-192
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 基数：唯一值的数量是否已更改？
+- en: 'Missing values: Is this feature missing data?'
+  id: totrans-193
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 缺失值：此特征是否存在缺失数据？
+- en: 'Type mismatch: Has the data type changed?'
+  id: totrans-194
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 类型不匹配：数据类型是否已更改？
+- en: 'Volume of data: Has the volume of data seen for this feature changed?'
+  id: totrans-195
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据量：此特征的数据量是否已更改？
+- en: Numerical data
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数值数据
+- en: 'Out-of-range violations: Has the value gone outside an appropriate range?'
+  id: totrans-197
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 超出范围的违规：值是否超出了适当的范围？
+- en: 'Missing values: Is this feature missing data?'
+  id: totrans-198
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 缺失值：此特征是否存在缺失数据？
+- en: 'Type mismatch: Has the data type changed?'
+  id: totrans-199
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 类型不匹配：数据类型是否已更改？
+- en: 'Moving averages: Have the feature values been increasing/decreasing?'
+  id: totrans-200
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 移动平均值：特征值是否在增加/减少？
+- en: Service
+  id: totrans-201
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 服务
+- en: For an ML system to be successful, you need to understand not just the data
+    going in and out of the ML system, and the performance of the model itself, but
+    the overall service performance in rendering or serving the model—making its predictions
+    or classifications available. Even if the model performance improves business
+    outcomes and data integrity is maintained, but it takes several minutes for a
+    single prediction, it might not be performant enough to be deployed in a real-time
+    serving system. Similar to other software services deployed to production, the
+    service deploying the model into production and serving the model’s inferences
+    needs to be monitored.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使 ML 系统成功，您需要理解 ML 系统中输入和输出的数据、模型本身的性能，以及渲染或服务模型的整体服务性能——使其预测或分类结果可用。即使模型的性能改善了业务结果并保持数据完整性，但对于单个预测需要几分钟，这可能还不足以在实时服务系统中部署。与部署到生产环境的其他软件服务类似，部署模型并服务模型推理的服务需要进行监控。
+- en: 'Numerous options exist for serving a model into production: deploying your
+    own APIs/microservices, using an open source framework for model serving (TensorFlow
+    serving, PyTorch serving, Kubeflow serving, and so on), or using a third-party
+    service. Regardless of what is used for model serving, it is important (especially
+    in real-time services) to monitor the prediction latency of the service because
+    the expected prediction should happen immediately after the request is sent. There
+    are two ways to do this:'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有多种选项可用于将模型投入生产：部署自己的API/微服务、使用开源模型服务框架（如TensorFlow Serving、PyTorch Serving、Kubeflow
+    Serving等）、或使用第三方服务。无论使用何种模型服务方式，特别是在实时服务中，监控服务的预测延迟非常重要，因为预期的预测应该在请求发送后立即发生。有两种方法可以做到这一点：
+- en: Model level
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型层级
+- en: Reduce the time it takes for the model to make a prediction.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缩短模型进行预测所需的时间。
+- en: Serving level
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务层级
+- en: Reduce the time the system takes to service the prediction when it receives
+    the request. This is not just about the model, but also gathering the input features
+    (sometimes precomputing or caching them), and quickly catching the predictions
+    to serve.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 减少系统接收请求后服务预测所需的时间。这不仅涉及到模型本身，还包括收集输入特征（有时预先计算或缓存它们），以及快速捕捉预测结果以提供服务。
+- en: Optimizing performance of the model
+  id: totrans-208
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 优化模型性能
+- en: 'To optimize the model for lower prediction latencies, the best approach is
+    to reduce the complexity of the model. Some examples of reducing complexity could
+    be reducing the number of layers in a neural network, reducing levels in decision
+    trees, or reducing any irrelevant/unused part of the model. Architecture makes
+    a difference too: for example, bidirectional encoder representations for transformers
+    (BERT) is slower than feed-forward approaches, and tree-based models are faster
+    than deep learning.'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了优化模型以降低预测延迟，最好的方法是减少模型的复杂性。减少复杂性的一些例子包括减少神经网络中的层级、减少决策树中的层级，或减少模型中的任何无关/未使用部分。架构也很重要：例如，双向编码器表示转换（BERT）比前馈方法慢，而基于树的模型比深度学习快。
+- en: In some cases, this might be a direct trade-off to the model efficacy. For example,
+    if there are more levels in a decision tree, more-complex relationships can be
+    captured from the data and therefore increase the overall effectiveness of the
+    model. However, fewer levels in a decision tree can reduce prediction latency.
+    Balancing the efficacy of the model (accuracy, precision, AUC, and so on) with
+    its required operational constraints is important to strive for in any model to
+    be deployed. This becomes especially relevant for models that are embedded on
+    mobile or devices.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，这可能直接影响模型的效力。例如，如果决策树中有更多层级，可以从数据中捕捉到更复杂的关系，从而提高模型的整体效果。然而，决策树中较少的层级可以减少预测延迟。在部署任何模型时，平衡模型的效力（准确度、精确度、AUC等）与其所需的操作约束是非常重要的。这对于嵌入在移动设备或设备上的模型尤为重要。
+- en: Optimizing performance of the service
+  id: totrans-211
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 优化服务性能
+- en: To optimize service performance, here are suggestions for areas you could monitor
+    and improve.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了优化服务性能，以下是您可以监控和改进的建议区域。
+- en: 'First, let’s consider *input feature lookup*. Before the model can even make
+    a prediction, all of the input features must be gathered, and this is often accomplished
+    by the service layer of the ML system. Some features will be passed in by the
+    caller, while others might be collected from a datastore or calculated in real
+    time. For example, a model predicting the likelihood of a customer responding
+    to an ad might take in the historical purchase information of this customer. The
+    customer wouldn’t provide this when they view the page themselves, but the model
+    service would query a feature store or a real-time database to fetch this information.
+    Gathering input features can generally be classified into two groups:'
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们考虑*输入特征查找*。在模型能够进行预测之前，必须收集所有输入特征，这通常由ML系统的服务层完成。一些特征将由调用者传入，而其他特征可能会从数据存储中收集或实时计算。例如，一个预测客户对广告反应可能性的模型可能会获取该客户的历史购买信息。客户在浏览页面时不会提供这些信息，但模型服务会查询特征存储或实时数据库来获取这些信息。通常将输入特征收集分为两组：
+- en: Static features
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 静态特征
+- en: Features that are less likely to change quickly and can be stored or calculated
+    ahead of time. For example, historical purchase patterns or preferences for a
+    customer can be calculated ahead of time.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不太可能迅速改变且可以提前存储或计算的特征。例如，可以提前计算历史购买模式或顾客的偏好。
+- en: Real-time calculated features
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实时计算的特征
+- en: Features that require being calculated over a dynamic time window. For example,
+    when predicting ETAs for food delivery, this might require knowing how many other
+    orders have been made in the last hour.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要在动态时间窗口内计算的特征。例如，在预测食品配送的到达时间时，可能需要知道过去一小时内下了多少其他订单。
+- en: In practice, we typically have a mix of user- or application-provided features,
+    static features, and real-time calculated features. Monitoring the lookup and
+    transformations needed for these features is important to trace where the latency
+    is coming from in the ML system.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实践中，我们通常有用户或应用程序提供的特征、静态特征和实时计算的特征的混合。监控这些特征的查找和转换对于追踪ML系统中的延迟来源至关重要。
+- en: Next, let’s consider *precomputing predictions*. In some use cases, it is possible
+    to reduce prediction latency by precomputing predictions, storing them, and serving
+    them using a low-latency read datastore. For example, a streaming service might
+    store ahead of time the most popular recommendations for a new user of their service.
+    This type of offline batch-scoring job can vastly reduce latencies in the serving
+    environment because the brunt of the work has been done before the model has even
+    been called.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们考虑*预先计算预测*。在某些用例中，通过预先计算预测、存储并使用低延迟读取数据存储服务提供预测，可以减少预测延迟。例如，流媒体服务可以预先存储他们服务的新用户的最受欢迎推荐。这种离线批量评分作业可以大大降低服务环境中的延迟，因为大部分工作在调用模型之前已经完成。
+- en: Other Things to Consider
+  id: totrans-220
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 其他需要考虑的事项
+- en: Even with all of the preceding considerations, we have by no means exhausted
+    the list of potential concerns you might have with monitoring and observability.
+    Here are some other areas you might want to keep in mind for your monitoring journey.
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使考虑了前述所有因素，我们还远未穷尽对监控和可观察性可能存在的潜在关注点的清单。以下是一些你在监控旅程中可能想要记住的其他领域。
+- en: SLOs in ML monitoring
+  id: totrans-222
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 机器学习监控中的SLOs
+- en: SLOs are a popular and still growing technique used to explicitly decide in
+    advance an appropriate level of reliability for systems—in some sense, determining
+    what the user experience will be—and deciding whether to do feature work or reliability
+    work, depending on which side of the threshold we are on at a given moment. For
+    example, if we have decided the customer should have 99.9% availability, and we
+    move below that at some point, this triggers fixing broken systems until we are
+    trending at 99.9% again. That way, the union set of ML engineers, the overall
+    product team, and the SRE team (if any) cooperate to “bend the curve” of the user’s
+    experienced reliability toward the optimal, decided-on level.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SLOs是一种流行且仍在增长的技术，用于明确地预先确定系统的适当可靠性水平——某种意义上决定用户体验将是什么，并决定是进行特性工作还是可靠性工作，这取决于我们在某一时刻处于哪一阈值的哪一侧。例如，如果我们已经决定客户应该有99.9%的可用性，并且在某些时刻我们低于这个水平，这将触发修复损坏的系统，直到我们再次趋于99.9%。这样，机器学习工程师、整体产品团队和SRE团队（如果有的话）协同合作，将用户体验的可靠性“弯曲”朝向优化的、预先决定的水平。
+- en: 'This is a very simple, indeed simplistic, example, and the reality is considerably
+    more complex in multiple key areas. Even though ML is complex, you can still get
+    some value out of doing SLOs. But watch out for the following subtleties:'
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个非常简单，实际上是简化的例子，事实上在多个关键领域中的现实要复杂得多。即使机器学习很复杂，你仍然可以通过SLOs获得一些价值。但是要注意以下微妙之处：
+- en: As we have already established, you cannot determine the suitability of a model
+    for production by just looking at the model. Therefore, SLOs have a strong case
+    for being scoped to cover data as well (and data distribution, freshness, and
+    so on).
+  id: totrans-225
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 正如我们已经确定的，仅仅看模型就不能确定模型是否适合投入生产。因此，SLOs有充分理由扩展范围以涵盖数据（以及数据分布，新鲜度等）。
+- en: Availability for request-response serving systems, like the frontend web server
+    for *yarnit.ai*, is a relatively clear-cut issue—it is either serving correct
+    content within a certain acceptable latency, or it isn’t. What does availability
+    for an ML system mean when the things being served might have, for example, classifier
+    confidences ranging from 0.0 to 1.0, and any individual result or set of results
+    might be completely, correctly, and justifiably less than any arbitrary quality
+    threshold? At the very least, SLOs for ML therefore have to encompass the idea
+    of quality or confidence thresholds.
+  id: totrans-226
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于请求-响应服务系统，例如*yarnit.ai*的前端Web服务器，可用性是一个相对清晰的问题——要么在一定可接受的延迟内提供正确的内容，要么不提供。当被提供的内容可能具有从0.0到1.0的分类器置信度时，以及任何单个结果或一组结果可能完全、正确地且有正当理由地低于任意质量阈值时，ML系统的可用性意味着什么？至少，ML的SLO因此必须包含质量或置信度阈值的概念。
+- en: The best way to do this is, perhaps a little surprisingly, not to focus on the
+    ML system performance, but instead to focus on the business objective that the
+    ML system in question is supposed to deliver. Or in other words, the system as
+    a whole can suffer degradations of various—perhaps temporary—kinds, if the overall
+    user experience is still within the defined limits. For more of this topic, see
+    [Chapter 8 of *Implementing Service Level Objectives*](https://oreil.ly/hZ76d).
+  id: totrans-227
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 或许有点令人惊讶的是，最佳方法并不是专注于ML系统的性能，而是专注于该ML系统所需交付的业务目标。换句话说，如果整体用户体验仍在定义的限制范围内，系统作为一个整体可以遭受各种各样——也许是暂时的——退化。关于这个话题的更多内容，请参见《实施服务水平目标》的第8章。
+- en: For environments with lots of models, or lots of model churn, a promising approach
+    is a self-service infrastructure so ML engineers can define and enforce per model
+    or per class of model SLOs (generally by comparison to a golden dataset); SREs
+    could develop, offer, and support such a service, thus helping the overall SLO
+    approach scale for everyone. (The same approach can be extended to separate use
+    cases for a single model, too, as long as such tagging can be done deterministically.)
+  id: totrans-228
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于具有大量模型或大量模型变更的环境，一个有前途的方法是自助服务基础设施，使ML工程师可以定义和强制执行每个模型或模型类的SLO（通常通过与黄金数据集的比较）；SRE可以开发、提供和支持这样的服务，从而帮助所有人的整体SLO方法扩展。
+    （同样的方法也可以扩展到单个模型的单独用例，只要可以以确定性方式进行标记。）
+- en: 'Finally, as is clear from [Chapter 11](ch11.xhtml#incident_response), ML is
+    *entangled* across the business, and it may not be practical to specify SLOs for
+    an ML system without also specifying them for all or most adjacent systems. (Indeed,
+    you’ll have to, for anything other than the smallest systems.) Additionally, since
+    inspectability or explainability is often difficult to obtain, reacting quickly
+    enough to defend a sufficiently demanding SLO (say, 99.5% or more) is not going
+    to be something a human-driven process can achieve on its own: this will be a
+    question of automatic systems acting in concert with the humans. Automatic systems
+    acting on their own in the non-ML case are often very useful, but we should move
+    with caution in the ML case.'
+  id: totrans-229
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最后，正如从第11章[（事件响应）](ch11.xhtml#incident_response)中清楚地看出的那样，ML在整个业务中是*交织*在一起的，指定ML系统的SLO而不同时还为所有或大多数相邻系统指定它们可能是不切实际的。此外，由于检视性或可解释性通常难以获得，足以捍卫足够严格的SLO（例如，99.5%或更高）的快速反应不会成为仅凭人工驱动的过程可以实现的事情：这将成为自动系统与人类协同行动的问题。在非ML情况下，自动系统单独行动通常非常有用，但在ML情况下我们应该谨慎行事。
+- en: If you wish to get more concrete about establishing SLOs for your ML infrastructure,
+    we have a recommendation for where to start. If you look at [Table 9-1](#behaviors_or_metrics_to_monitor_per_ml),
+    you’ll see our suggestions for what to base your SLOs on, given what you care
+    about. The rows cover the context of what you’re trying to measure, and the columns
+    address the scope. So, for example, if you’re worried about the overall system
+    health of your ML training system, the top-left quadrant is where to go to find
+    ideas on where to start. In essence, the table outlines behaviors, indicators,
+    or example metrics to base SLOs on. Of course, this is a nonexhaustive list.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您希望更具体地为您的ML基础架构建立SLOs，我们建议您从哪里开始。如果您查看[表9-1](#behaviors_or_metrics_to_monitor_per_ml)，您将看到我们针对您关心的内容提出的SLO建议。行涵盖您试图衡量的内容，列涵盖范围。因此，例如，如果您担心ML训练系统的整体系统健康，左上角的象限是您可以找到启动点的地方。本质上，该表格概述了基于行为、指标或示例指标制定SLO的想法。当然，这不是一个详尽无遗的列表。
+- en: Table 9-1\. Behaviors or metrics to monitor per ML context
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表9-1. 每个ML上下文要监控的行为或指标
+- en: '|   | Training | Serving | Application (YarnIt) |'
+  id: totrans-232
+  prefs: []
+  type: TYPE_TB
+  zh: '|   | 训练 | 服务 | 应用（YarnIt） |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-233
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| Overall system health | Model build time (excluding snapshots) Number of
+    concurrent trainings'
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '| 整体系统健康 | 模型构建时间（不包括快照）并发训练数量'
+- en: Number of failed build attempts
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 失败的构建尝试次数
+- en: Resource saturation (e.g., GPU or I/O throughput) | Latency (time to respond
+    to request) Traffic (number of requests)
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 资源饱和度（例如，GPU或I/O吞吐量）| 延迟（响应请求的时间）流量（请求数量）
+- en: Error count (number of failed requests)
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 错误计数（失败请求的数量）
+- en: 'Saturation (exhaustion of any particular resource: CPU, RAM, I/O) | Mostly
+    tied to user journey or session Purchase rate'
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 饱和（任何特定资源的枯竭：CPU、RAM、I/O）| 主要与用户旅程或会话购买率相关
+- en: Login rate
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 登录率
+- en: Page subcomponent failure rate (e.g., cart display)
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 页面子组件失败率（例如，购物车显示）
+- en: Cart abandonment |
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 购物车弃购率 |
+- en: '| Generic ML signals / basic model health | Pretraining: Source data size (i.e.,
+    hasn’t grown or shrunk a lot since last build)'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '| 通用ML信号/基础模型健康 | 预训练：源数据大小（即，自上次构建以来未大幅增长或缩小）'
+- en: 'Training:'
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练：
+- en: Training time as a function of model type and input data size
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型类型和输入数据大小的训练时间函数
+- en: Training configurations (e.g., hyperparameters)
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练配置（例如，超参数）
+- en: 'Post-training:'
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练后：
+- en: Model quality metrics (accuracy, precision, recall, other model-specific metrics)
+    | Model serving latency (as a fraction of overall serving latency or compared
+    over time) Model serving throughput
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型质量指标（准确率、精确度、召回率、其他模型特定指标）| 模型服务延迟（作为总体服务延迟的一部分或随时间比较）模型服务吞吐量
+- en: Model serving error rate (time-out/ empty value)
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型服务错误率（超时/空值）
+- en: Serving resource use (RAM in particular)
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务资源使用（特别是RAM）
+- en: Age/version of model in serving | Model-specific metrics (visible on individual
+    page load) Number of recommendations per page
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在服务中的模型年龄/版本 | 模型特定指标（在单个页面加载时可见）每页推荐数量
+- en: Estimated quality (predicted click-through) of each recommendation
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个推荐的预测点击率估计质量
+- en: Similar metrics for search model |
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 搜索模型的类似指标 |
+- en: '| Domain-specific signals | Built model passes validation tests (not only that
+    aggregate filters work, but results on golden set and held-out set tests are of
+    equal or better quality). Recommendations for new products in the store are of
+    similar or greater quality. | These metrics are often delayed. Offline signals
+    match served predictions in aggregate and in relevant slices. Number of recommendations
+    served for specific queries matches pre-serving expectations. | Session- or user-journey-specific
+    metrics. Percentage of visits with purchases is not declining.'
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '| 领域特定信号 | 构建模型通过验证测试（不仅是聚合过滤器有效，而且在黄金集和保留集测试中的结果质量相等或更好）。商店中新产品的推荐与同等或更高质量的产品相似。
+    | 这些指标通常会延迟。离线信号与服务预测在总体和相关片段中匹配。特定查询的推荐数量与预服务预期匹配。 | 会话或用户旅程特定指标。拜访率不下降的百分比。'
+- en: Average sale per visit maintained.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每次访问的平均销售额保持不变。
+- en: Session duration maintained. |
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保持会话持续时间。 |
+- en: Actually specifying an SLO is best left to other texts, but [The Site Reliability
+    Workbook](https://oreil.ly/1lbVy), edited by Betsy Beyer et al. (O’Reilly, 2018)
+    has a reasonable example of a [fully specified, exhaustively detailed SLO document](https://sre.google/workbook/slo-document);
+    it is also possible to be have something as simple as “99% of this data is younger
+    than two hours” and for that still to provide value.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，具体指定一个服务级别目标最好留给其他文献，但[Betsy Beyer等编辑的《可靠性站点工作手册》](https://oreil.ly/1lbVy)（O’Reilly，2018年）提供了一个完全具体化、详尽细致的[服务级别目标文档示例](https://sre.google/workbook/slo-document)；即使是像“99%的数据在两小时内更新”这样简单的描述，也能提供价值。
+- en: Monitoring across services
+  id: totrans-257
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 跨服务的监控
+- en: As you scale out your ML infrastructure further, two of the major things that
+    you’ll probably find yourself doing, which probably won’t be easy, are distributed
+    tracing, and understanding the latency distribution of your systems. (Though we’ve
+    been talking about distributions a lot in this chapter, we are specifically referring
+    to monitoring in this section, rather than ML.)
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着机器学习基础设施的进一步扩展，你可能会发现自己需要做的两件重要事情是分布式追踪和理解系统的延迟分布。（尽管我们在本章节中已经多次讨论分布，但在本节中我们特指监控，而非机器学习。）
+- en: Distributed tracing, strongly related to observability, enables you to trace
+    the full path of a request as it goes between different services in a distributed
+    architecture. Think of it as labeling a request with “give me a full report on
+    the path this takes.” Every system that handles the request should turn on some
+    degree of extra visibility for it as it cascades throughout the system. Various
+    commercial and free systems implement this—you could do worse than look at [OpenTelemetry](https://opentelemetry.io)
+    to get a handle on how it works.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式追踪与可观测性密切相关，它使你能够追踪请求在分布式架构中不同服务之间的完整路径。可以将其视为给请求贴上“给我一份关于路径完整报告”的标签。处理请求的每个系统在其传播过程中应该增加一定程度的额外可见性。各种商业和免费系统都实现了这一点——你可以查看[OpenTelemetry](https://opentelemetry.io)来了解其工作原理。
+- en: Another crucial area is understanding distributions—in this case, not of ML
+    data, but of latency. It’s not necessarily intuitive, but in a sufficiently complicated
+    architectural arrangement, even a surprisingly small proportion of requests that
+    run slowly can end up affecting customer experience significantly.^([21](ch09.xhtml#ch01fn117))
+    Most organizations don’t have the storage or compute power to track this for every
+    request, so some kind of *request sampling* is required—i.e., to track detailed
+    statistics for certain requests, but only a comparatively small proportion of
+    them by default. You can achieve this in various ways, depending on your environment,
+    but we advise you to enable these capabilities early, since the additional insight
+    into customer experience and production behavior generally can be vital.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个关键领域是理解分布——在这种情况下，不是机器学习数据的分布，而是延迟的分布。这并不一定直观，但在足够复杂的架构安排中，即使是一小部分运行缓慢的请求也可能显著影响客户体验。[^21]
+    大多数组织没有存储或计算能力来追踪每个请求的这些情况，因此需要某种形式的*请求抽样*——即为某些请求跟踪详细统计信息，但默认情况下只是相对较小比例的请求。你可以根据环境的不同以各种方式实现这一点，但我们建议您尽早启用这些功能，因为对客户体验和生产行为的额外洞察通常至关重要。
+- en: Finally, one issue that is typically pertinent to only very large organizations
+    is how to scale to very large monitoring setups. Though we can’t cover this in
+    detail here, there are three main issues to consider. First is (1) how to run
+    multiple monitoring entities without duplication of alerts, data, and so on. Usually
+    this is related to (2) finding a way to divide the entities to be monitored in
+    a reasonable way (this usually implies approximately equal partitioning of the
+    monitoring targets). Finally, (3) we must monitor the monitors, to make sure they
+    themselves are running. Different monitoring products support these features to
+    a different extent—Prometheus, for example, can monitor itself and deduplicate
+    alerts. Our experience suggests that deduplication is potentially the most important
+    capability here—if your system can’t perform that, the next time you have a serious
+    outage, you potentially have *N* × <*number of pages you would receive*>, where
+    *N* is the number of monitoring instances you have. That could be quite a large
+    number.
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，通常只适用于非常大型组织的一个问题是如何扩展到非常大型的监控设置。虽然我们无法在这里详细介绍这个问题，但有三个主要问题需要考虑。第一是（1）如何运行多个监控实体而不重复警报、数据等。通常这与（2）找到合理划分要监控的实体的方法相关（这通常意味着近似等分监控目标）。最后，（3）我们必须监控监控器，以确保它们自身在运行。不同的监控产品在这些功能的支持程度上有所不同——例如，Prometheus可以监控自身并去重警报。我们的经验表明，去重可能是这里潜在最重要的能力——如果您的系统无法执行这一功能，那么下一次严重的停机事件时，您可能会收到*N*
+    × <*您将收到的页面数*>，其中*N*是您拥有的监控实例数量。这可能是一个相当大的数字。
+- en: Further advice on constructing and running sophisticated monitoring setups is
+    available from a variety of sources, but one particularly good source is [*Observability
+    Engineering*](https://oreil.ly/WFkOm) by Charity Majors et al. (O’Reilly, 2022).
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于构建和运行复杂监控设置的进一步建议可以从多种来源获取，但特别好的一个来源是《*可观测工程*》（*Observability Engineering*）由Charity
+    Majors等人提供（O'Reilly，2022年）。
+- en: Fairness in monitoring
+  id: totrans-263
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 监控中的公平性
+- en: 'In this chapter, we have covered important metrics for monitoring the service
+    health, model efficacy, and data integrity of the model. However, the topic of
+    monitoring includes other things to consider that we will not be able to cover
+    in this chapter. For example, our deployed models, almost by definition, have
+    real-world effects: deciding who gets a loan, who gets a job, or what purchasing
+    decisions we will make. In the increasingly automated world of such decision making,
+    it is critical we do not codify systemic bias and discrimination through the models.
+    Fairness is obviously a critical topic and is covered in depth in [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical).
+    From a monitoring point of view, our major concern is the requirement to facilitate
+    such visibility into model decisions, while not facilitating inappropriate visibility—see
+    the next section for more detail.'
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们已经涵盖了监控服务健康、模型有效性和模型数据完整性的重要指标。然而，监控的话题还包括其他我们无法在本章中涵盖的考虑因素。例如，我们部署的模型几乎可以说具有现实世界的影响：决定谁获得贷款，谁获得工作，或者我们将做出什么购买决策。在这种决策越来越自动化的世界中，至关重要的是我们不要通过模型将系统性偏见和歧视编码化。公平性显然是一个关键话题，在[第6章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)中有深入探讨。从监控的角度来看，我们的主要关注点是要求能够促进对模型决策的可见性，同时不促进不适当的可见性——更多细节请参见下一节。
+- en: Privacy in monitoring
+  id: totrans-265
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 监控中的隐私
+- en: A special case of fairness is the question of privacy in monitoring. Almost
+    by default, production monitoring dashboards will display the information that
+    is fed to them. You can therefore understand immediately that if your monitoring
+    stack exposes PII or other sensitive information, that will go right to the dashboard
+    and be viewable to all who can access it at the dashboard level—even if they can’t
+    access it at the production level. This is clearly a violation of privacy expectations,
+    if not some privacy-concerned legal frameworks themselves (though we are not lawyers).
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 公平性的一个特殊案例是监控中的隐私问题。几乎默认情况下，生产监控仪表板会显示输入的信息。因此，您立即可以理解，如果您的监控堆栈暴露了个人身份信息（PII）或其他敏感信息，这些信息将直接显示在仪表板上，并且对所有能够访问该仪表板的人可见，即使他们在生产环境级别上无法访问。这显然违反了隐私期望，即使不违反某些关注隐私的法律框架（尽管我们不是律师）。
+- en: Though every situation has nuances, in general we recommend that if you can’t
+    tolerate the risk of PII escaping, you *either* tighten dashboard access (and
+    every intermediate point where that information is collected), or you control
+    what happens to the PII on egress from the first point of aggregation—for example,
+    names, addresses, and so on, are fully anonymized and the system has had a thorough
+    privacy review. In general, though controlling access to a dashboard is simpler
+    and easier, it’s really not a strong control point. You almost certainly want
+    (need!) to PII-proof the data at the first point of egress from the monitoring
+    system, or even do it in a staged way, where different kinds of data can be processed
+    or stripped at different ingress points to different systems—a multistage filtering
+    approach. Again, see [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)
+    for a much more complete treatment of this important issue.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管每种情况都有细微差别，但一般而言，我们建议如果您无法容忍PII泄露的风险，*要么*加强仪表板访问权限（以及收集信息的每个中间点），*要么*控制PII在第一个聚合点外流时的处理方式——例如，姓名、地址等完全匿名化，并且系统已进行了彻底的隐私审查。一般而言，控制对仪表板的访问更为简单易行，但确实不是一个强有力的控制点。您几乎肯定希望（需要！）在监控系统的第一个外流点PII-proof数据，甚至以分阶段的方式进行，不同类型的数据可以在不同的进入点向不同的系统剥离或处理——一种多阶段过滤方法。再次见[第6章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)，这里更详尽地讨论了这一重要问题。
+- en: Business impact
+  id: totrans-268
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 业务影响
+- en: Another important category we don’t cover is relating the model performance
+    metrics to the business impact of the model. We measure model performance with
+    statistical metrics such as AUC or log loss, but those don’t incorporate the concrete
+    impact that the business has experienced when the metrics degrade. The more representative
+    the metrics are, the easier it will be to make that connection—choose carefully!^([22](ch09.xhtml#ch01fn118))
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们未涉及的另一重要类别是将模型性能指标与模型对业务影响相关联。我们用统计指标如AUC或对数损失来衡量模型性能，但这些指标并未包括业务在指标恶化时所经历的具体影响。指标越具代表性，就越容易建立这种关联——请谨慎选择！^([22](ch09.xhtml#ch01fn118))
+- en: Dense data types (image, video, text documents, audio, and so on)
+  id: totrans-270
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 密集数据类型（图像、视频、文本文档、音频等）
+- en: Another important category we won’t be covering is monitoring for dense data
+    types, also sometimes called *unstructured data*—though since these formats are,
+    in fact, highly structured, this is a bit of a misnomer! As ML increasingly uses
+    images, video, and so on as inputs into its models, it’s necessary to monitor
+    data integrity for these nontabular data types too. There aren’t commonly available
+    approaches today, and we call on the industry to actively work toward supporting
+    this. One growing approach is to monitor the *embedding* outputs of the data itself.
+    ML practitioners use embeddings to map these items (e.g., movies, images) to lower-dimensional
+    vectors where similar items are closer together. Monitoring these lower-dimensional
+    vectors provides a proxy to monitoring dense data types.
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不会涉及的另一个重要类别是密集数据类型的监控，有时也称为*非结构化数据*——尽管实际上这些格式是高度结构化的，这有些误导！随着机器学习越来越多地使用图像、视频等作为模型的输入，有必要为这些非表格数据类型的数据完整性进行监控。目前普遍没有可用的方法，我们呼吁行业积极努力支持这一点。一个日益流行的方法是监控数据本身的*嵌入*输出。机器学习从业者使用嵌入将这些项目（如电影、图像）映射到低维向量，其中相似的项目靠得更近。监控这些低维向量提供了监控密集数据类型的代理。
+- en: High-Level Recommendations for Monitoring Strategy
+  id: totrans-272
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 高级监控策略推荐
+- en: '[“Serving”](#serving-id0000040) made many detailed recommendations for how
+    to start monitoring, but we’d like to cover a few high-level recommendations for
+    your overall monitoring strategy here:'
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[“服务”](#serving-id0000040)给出了许多关于如何开始监控的详细建议，但我们想在这里概述您整体监控策略的几个高级建议：'
+- en: Actuals or not
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际情况还是？
+- en: If your model is able to get back actuals in a near real-time way, monitoring
+    model/KPI performance is the best signal, since that corresponds most closely
+    to your concept of what the model is doing. If you don’t have reasonable actuals,
+    you’ll have to build a picture of what’s happening from a set of partial sources,
+    including infrastructural elements as well as model performance. Look at the “Generic
+    recommendations” item toward the end of this list for hints on how to do that.
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的模型能够以接近实时的方式返回实际数据，监控模型/KPI的性能是最佳信号，因为这最接近您对模型正在执行的概念。如果没有合理的实际数据，您将不得不从一组部分来源（包括基础设施元素和模型性能）构建发生情况的图像。查看本列表末尾的“一般建议”项，了解如何做到这一点的提示。
+- en: Model performance metrics
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型性能指标
+- en: In general, you are best served by exposing the model performance statistics
+    we talked about in [“Model”](#model). Doing this is strongly dependent on your
+    local monitoring situation, ML platform usage, and so on, so we can’t tell you
+    how to do this in detail, but at the very least you should be tracking them. There’s
+    also some value in looking at how the model performance is working at a pure service
+    level. Think of it as a simple request-response service; if the model is unable
+    to make predictions/recommendations, if the model produces predictions with a
+    drastically lower confidence, and if any algorithmic fallback path is being invoked
+    more than expected, these are all good things to know (and you should therefore
+    monitor them).
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一般而言，最好公开我们在[“模型”](#model)中讨论的模型性能统计数据。这在很大程度上取决于您的本地监控情况、机器学习平台使用情况等，因此我们无法详细告诉您如何做到这一点，但至少您应该追踪它们。查看模型性能如何在纯服务水平上运行也有一定的价值。将其视为简单的请求-响应服务；如果模型无法进行预测/推荐，如果模型产生的预测置信度显著降低，以及如果任何算法回退路径被调用频率超出预期，这些都是需要了解的好事情（因此您应该监控它们）。
+- en: Data concerns (drift)
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据关注点（漂移）
+- en: It is vital to track the distribution of input data on an ongoing basis, so
+    computing the various measures of distribution (PSI, KL divergence, Wasserstein
+    distance, etc.) and also surfacing that in your monitoring system is vital. (The
+    distribution of your *output* data—i.e., the predictions themselves, reconciled
+    with reality—is covered previously.)
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定期跟踪输入数据的分布非常重要，因此计算分布的各种度量（如PSI、KL散度、Wasserstein距离等），并在监控系统中呈现它们也是至关重要的。（您的*输出*数据的分布—即预测本身与现实的对比—在先前已经涵盖。）
+- en: Data concerns (quality)
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据质量关注点
+- en: Track missing data, type mismatches, data corpus size, and related attributes
+    as discussed previously in this chapter. Some of the recommendations from the
+    training section are also hugely relevant in the serving context too—not the duration
+    of training itself, of course, but everything about the availability of data.
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前章节讨论过的那样，跟踪丢失数据、类型不匹配、数据语料库大小及相关属性是至关重要的。训练部分的一些建议在服务环境中也非常相关，当然不包括训练本身的持续时间，而是关于数据可用性的一切。
+- en: Service or infrastructure performance
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务或基础设施性能
+- en: 'As a first approximation—i.e., you need a place to start—you can treat this
+    as any serving system. From [*Site Reliability Engineering*](https://oreil.ly/Y1geI),
+    there are four *golden signals* you can use to look at the high-level state of
+    your serving system: latency, traffic, errors, and saturation. If you establish
+    good levels for these—via, for example, [Chapter 8 of *Implementing Service Level
+    Objectives*](https://oreil.ly/efwiE)—it’s quite hard for something to go seriously
+    wrong in infrastructure and *not* have it be reflected in those numbers. In some
+    sense, “goodput” is what you’re looking for: questions are arriving at a reasonable
+    rate, and getting answered correctly and quickly enough for the needs of the application.'
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为第一次近似，即您需要一个起点，您可以将其视为任何服务系统。从[*网站可靠性工程*](https://oreil.ly/Y1geI)中，有四个*黄金信号*可用于查看您服务系统的高级状态：延迟、流量、错误和饱和度。如果您为这些建立了良好的水平，例如通过[*实施服务级别目标*](https://oreil.ly/efwiE)的第8章，那么在基础设施中出现严重问题并且这些问题不反映在这些数据中将非常困难。在某种意义上，您正在寻找“良好吞吐量”：问题以合理的速率到达，并且以足够快且正确地方式回答以满足应用程序的需求。
+- en: Alerting and SLOs
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警报和服务水平目标（SLO）
+- en: We haven’t said much specifically about alerting in this chapter, since in general,
+    once you’re monitoring a metric and have established some kind of threshold, alerting
+    is (supposed to be) a fairly mechanical achievement. But it’s important to pay
+    special attention to the questions of deciding what the right metrics to alert
+    on are—definitely not every metric—and what makes for a good threshold. Otherwise,
+    everyone gets drowned in alerts, sucking away valuable cognitive attention, almost
+    all of which are basically irrelevant to the customer experience. For more on
+    this, a good place to start might be [Chapter 8 of *Implementing Service Level
+    Objectives*](https://oreil.ly/Ruf03).
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们没有特别多地谈到警报，因为一般来说，一旦您监视了某个度量标准并建立了某种阈值，警报（应该）是一个相当机械的成就。 但是，重要的是特别注意决定要警报哪些正确的度量标准——绝对不是每个度量标准——以及什么构成一个好的阈值。
+    否则，每个人都会被警报淹没，吸走宝贵的认知注意力，其中几乎所有的警报对客户体验基本上都是无关紧要的。 欲了解更多信息，请参阅[*实施服务级目标*第8章](https://oreil.ly/Ruf03)。
+- en: Though many of the conceptual underpinnings of request/response systems apply
+    to ML serving systems, training is different, being primarily either batch or
+    streaming oriented. One potential problem you’ll often come across in monitoring
+    training is the question of how to alert for model building being late. The major
+    challenge here is that since the model building duration can be a large number
+    of minutes, hours, or even days, it doesn’t make much sense to alert on every
+    fluctuation in training performance; otherwise, you’ll be alerting too much.
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管请求/响应系统的许多概念基础适用于ML服务系统，但训练不同，主要是批处理或流式处理导向。 在监视训练时您经常会遇到的一个潜在问题是如何警报模型构建延迟。
+    这里的主要挑战在于，由于模型构建持续时间可能是大量的分钟、小时，甚至是天数，因此在训练性能每次波动时警报并不合理；否则，您将会警报太多。
+- en: The quantity that becomes important therefore is *catch-up time*. If your model
+    takes roughly (say) 20 hours to build, and you have a requirement for a new model
+    every 24 hours, what happens if you get 8 hours through building and then stall
+    for 4 hours? Having consumed 12 wall-clock hours, with 12 wall-clock hours to
+    go, if you resume training at your previous rate, you will have 12 hours of learning
+    before you’re finished. So you may already have blown your deadline, and predicting
+    that 12 hours early would be a significant optimization. Therefore maintaining
+    a notion of how long it would take to catch up, and alerting when current time
+    + catch-up time is greater than threshold will bring attention to potentially
+    stuck situations usefully quickly.
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此变得重要的量是*赶上时间*。 如果您的模型大约需要（比如）20小时来构建，并且您每24小时需要一个新模型，那么如果您在构建过程中进行了8小时，然后停顿了4小时会发生什么？
+    消耗了12个墙钟小时，还有12个墙钟小时要走，如果您以前的速度恢复训练，您将在完成之前学习12个小时。 因此，您可能已经错过了截止日期，并且提前12小时进行预测将是一个重要的优化。
+    因此，保持追赶所需时间的概念，并在当前时间+追赶时间大于阈值时发出警报，将有助于迅速引起潜在的停滞情况的注意。
+- en: Generic recommendations
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通用建议
+- en: An important monitoring and/or debugging technique is to log predictions (ID,
+    value) to a table, or some otherwise easily searchable format—if you’re concerned
+    about speed, head-of-line blocking, and so on, then sampling is also a perfectly
+    tractable approach (though you will then lose guaranteed explainability). For
+    extra points, have a column for the *actual* value, as opposed to the prediction,
+    so you can backfill and compare. In the world of microservices and/or distributed
+    tracing, it’s also useful to get the client consumer of a prediction to log the
+    prediction ID as well, so you have a chain of joinable events. (Sometimes it’s
+    OK to kick away this kind of scaffolding in the process of moving from development
+    to prediction, but it’s generally handy in both contexts.)
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个重要的监控和/或调试技术是将预测（ID，值）记录到表格或某种易于搜索的格式中——如果您担心速度、头部阻塞等问题，那么采样也是一个完全可行的方法（尽管您将失去保证的可解释性）。
+    对于额外的分数，还可以有一个*实际*值的列，而不是预测值，这样您可以回填和比较。 在微服务和/或分布式跟踪的世界中，让预测的客户消费者也记录预测ID同样很有用，这样您就有了可连接事件链。
+    （有时在从开发到预测的过程中删除这种脚手架是可以接受的，但在两种情况下通常都很方便。）
+- en: Explainability during serving
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务期间的可解释性
+- en: The gold standard for explainability during serving is what’s called *individual
+    inference level explainability*—in other words, why was this specific transaction
+    granted, or denied, or what led to the classifier making that particular decision
+    in this particular context? As per the preceding “Generic recommendations” paragraph,
+    success here really looks like being able to tie the specific state of the model
+    at the time of specific prediction request with a specific state. In some industries,
+    such as lending, models that predict whether to give an individual a loan may
+    use explainability to surface why an individual was rejected. This is often communicated
+    to the downstream users via reason codes.
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在服务过程中的可解释性的黄金标准是所谓的*个体推理级解释*，换句话说，为什么会批准或拒绝这笔具体交易，或者分类器在这特定背景下做出那个具体决定的原因是什么？根据前述的“通用建议”段落，成功的表现实际上是能够将模型在特定预测请求时的具体状态与特定状态联系起来。在某些行业，如贷款领域，预测是否向个人发放贷款的模型可能使用可解释性来表明为何拒绝个人。通常通过原因代码向下游用户传达这一信息。
+- en: Conclusion
+  id: totrans-292
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: 'We hope this chapter has provided a useful overview to monitoring your ML systems
+    from birth to happy life in production. To reiterate: the main battle is to realize
+    that you need to monitor at as high a level of fidelity as you can—for explainability,
+    production debugging, and just generally knowing how your business is doing. Once
+    you accept that, you can choose from multiple approaches to implementation, and
+    aggregating the various “Concrete recommendations” sections of this chapter should
+    be of use to you.'
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 希望本章为您监控机器学习系统从诞生到投产的过程提供了有用的概述。重申一下：主要挑战在于意识到你需要尽可能高的保真度来监控——无论是为了解释性、生产调试，还是简单地了解业务的运行情况。一旦你接受了这一点，你可以选择多种实施方法，并且本章各个“具体建议”节的整合对你应该是有用的。
+- en: ^([1](ch09.xhtml#ch01fn96-marker)) You can’t have observability without monitoring,
+    but you can have the reverse—coarse-level detection without any ability to inspect
+    in greater detail. This is, however, not the direction of travel of the industry.
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch09.xhtml#ch01fn96-marker)) 你不能没有监控就实现可观察性，但可以反过来——可以进行粗略级别的检测，但没有任何深入检查的能力。然而，这并非行业发展的方向。
+- en: ^([2](ch09.xhtml#idm46106045720304-marker)) Note that this use of “labeled”
+    is distinct from the use of the term “labeled data” in supervised ML. Here, the
+    labels are more like arbitrary key-value pairs associated with a time series.
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch09.xhtml#idm46106045720304-marker)) 注意，这里使用的“标记”一词与监督学习中“标记数据”的用法不同。在这里，标记更像是与时间序列相关的任意键值对。
+- en: ^([3](ch09.xhtml#ch01fn97-marker)) Of course, you don’t get this level of detail
+    for free. Product developers have to write code to maintain labeled metrics and
+    export them correctly, and you need a system capable of analysis and display.
+    But it’s worth it.
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch09.xhtml#ch01fn97-marker)) 当然，你不会免费获得这种详细级别的信息。产品开发人员必须编写代码来维护标记的度量并正确导出它们，你还需要一个能够进行分析和展示的系统。但这是值得的。
+- en: ^([4](ch09.xhtml#ch01fn98-marker)) *Discovered* is maybe not quite the right
+    word. For more details, see the Digital Realty blog post [“The Cost of Latency”](https://oreil.ly/qawrq)
+    by Farhan Khan, or the 2018 Zalando study [“Loading Time Matters”](https://oreil.ly/UCN69)
+    by Christoph Luetke Schelhowe et al.
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch09.xhtml#ch01fn98-marker)) *发现* 可能不太准确。更多细节，请参阅 Farhan Khan 撰写的 Digital
+    Realty 博文[“延迟成本”](https://oreil.ly/qawrq)，或者 Christoph Luetke Schelhowe 等人于2018年撰写的
+    Zalando 研究[“加载时间的重要性”](https://oreil.ly/UCN69)。
+- en: ^([5](ch09.xhtml#ch01fn99-marker)) CI/CD is too complicated to describe in detail
+    here but basically means delivering software in a continuous, reliable stream.
+    In addition, to be clear, just because we know what works under certain circumstances
+    doesn’t mean that the industry as a whole does it consistently—just that we have
+    good, evidence-based reasons to believe it.
+  id: totrans-298
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch09.xhtml#ch01fn99-marker)) CI/CD 这里不便详细描述，但基本上是指以持续、可靠的方式交付软件。此外，要明确的是，仅因为我们知道在某些情况下的有效做法，并不意味着整个行业都能保持一致性——只是我们有充分的基于证据的理由去相信它。
+- en: ^([6](ch09.xhtml#ch01fn100-marker)) Indeed, we often see that modeling KPIs
+    are actively hard to link to business KPIs, and teams can end up doing a series
+    of A/B tests geared not toward safe rollout, but toward understanding the degree
+    of coupling between online business metrics and offline modeling metrics.
+  id: totrans-299
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch09.xhtml#ch01fn100-marker)) 实际上，我们经常看到，建模的关键绩效指标难以有效与业务关键绩效指标联系起来，团队最终可能会进行一系列旨在理解在线业务指标与离线建模指标之间耦合程度的A/B测试。
+- en: ^([7](ch09.xhtml#ch01fn101-marker)) We see an industry trend toward SHAP as
+    the gold standard for model interpretability; LIME is also popular. See [“Idea
+    Behind LIME and SHAP”](https://oreil.ly/yd9zo) by Ashutosh Nayak for more details
+    on SHAP and LIME.
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch09.xhtml#ch01fn101-marker)) 我们看到行业趋势朝向SHAP作为模型可解释性的黄金标准；LIME也很受欢迎。详见Ashutosh
+    Nayak的《关于SHAP和LIME的理念》[链接](https://oreil.ly/yd9zo)。
+- en: ^([8](ch09.xhtml#ch01fn102-marker)) In the annals of reliability literature,
+    *roll-forward* is generally considered quite risky and to be seriously considered
+    only when there is genuinely no possibility of a safe and clean rollback. Change
+    is change, and even going back to an older version of a model represents some
+    risk, but doing so may tend to minimize that risk by reducing the number of *untested*
+    changes.
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch09.xhtml#ch01fn102-marker)) 在可靠性文献中，*向前滚动* 通常被认为是相当危险的，只有在确实没有安全干净的回滚可能性时才需要认真考虑。变化就是变化，即使回到模型的旧版本也代表了一些风险，但这样做可能会通过减少*未经测试的*
+    变更来最小化风险。
+- en: ^([9](ch09.xhtml#ch01fn103-marker)) Be warned that sometimes if you press the
+    retraining button, things get worse. You could press it at a time when a radically
+    different model might be built than only a short time ago and thereby produce
+    something equally broken. Think of the difference between training over December
+    24 and December 26 in the Anglosphere, for example. There’s also no guarantee
+    the new version is better, so unless your validation process is significantly
+    automated, you won’t just pay the CPU cost; you’ll pay staff time costs as well.
+  id: totrans-302
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch09.xhtml#ch01fn103-marker)) 请注意，有时如果您按下重新训练按钮，情况可能会变得更糟。例如，在盎格鲁撒克逊世界中，可能会在12月24日和12月26日之间进行训练，产生的模型可能完全不同。此外，新版本并不保证更好，因此，除非您的验证过程显著自动化，否则您不仅需要支付CPU成本，还需要支付员工时间成本。
+- en: ^([10](ch09.xhtml#ch01fn104-marker)) Andrej Karpathy’s blog on the software
+    development lifecycle (SDLC) in an [ML context](https://oreil.ly/dtqF7) and the
+    Google Cloud pages on [continuous ML](https://oreil.ly/IKU5a) are also very much
+    worth reading in this context.
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([10](ch09.xhtml#ch01fn104-marker)) Andrej Karpathy在[ML背景下的软件开发生命周期（SDLC）](https://oreil.ly/dtqF7)的博客和Google
+    Cloud关于[持续ML](https://oreil.ly/IKU5a)的页面在这方面也非常值得阅读。
+- en: ^([11](ch09.xhtml#ch01fn105-marker)) For example, using week-on-week to avoid
+    comparing (say) a Saturday to a Friday, which often have very different shopping
+    patterns. In general, being aware of these patterns is useful for monitoring work.
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([11](ch09.xhtml#ch01fn105-marker)) 例如，使用周对周来避免比较（例如）星期六和星期五，它们通常具有非常不同的购物模式。总体而言，意识到这些模式对监控工作是有用的。
+- en: ^([12](ch09.xhtml#ch01fn106-marker)) [Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality)
+    covers this topic in more detail, but it is necessary to repeat some of the elements,
+    and emphasize a slightly different set, here.
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([12](ch09.xhtml#ch01fn106-marker)) [第5章](ch05.xhtml#evaluating_model_validity_and_quality)更详细地讨论了这个主题，但有必要在这里重复一些元素，并且强调稍微不同的一组元素。
+- en: '^([13](ch09.xhtml#ch01fn107-marker)) Of course, that raises the possibility
+    that, given performance may be a multidimensional assessment, there might be no
+    clear winner. In that case, there are good arguments for doing two opposite things:
+    (1) preferring the model currently running on the basis that it changes the least
+    and is well understood, and (2) preferring a new model on the basis that something
+    built over more recent data is probably going to survive change better and will
+    be less painful to transition from. Only you can judge which is best for your
+    circumstances.'
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([13](ch09.xhtml#ch01fn107-marker)) 当然，这引发了一个可能性，即，鉴于绩效可能是多维度评估，可能没有明确的赢家。在这种情况下，有充分的理由采取两种相反的做法：(1)
+    更倾向于当前正在运行的模型，因为它变化最少且被充分理解，以及(2) 更倾向于新模型，因为基于更近期数据构建的东西可能更能经受住变化并且过渡也不那么痛苦。只有您能判断哪种对您的情况更好。
+- en: ^([14](ch09.xhtml#ch01fn108-marker)) IaC is the act of managing computer infrastructure
+    as if it was code—which is to say, with statements in files, version control,
+    release processes, and so on.
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([14](ch09.xhtml#ch01fn108-marker)) IaC是将计算机基础设施管理为代码的行为——这意味着，在文件中使用语句、版本控制、发布流程等等。
+- en: ^([15](ch09.xhtml#ch01fn110-marker)) For those with a search engine background,
+    by way of an example, if you search for a particular term, *precision* indicates
+    the number of documents you retrieve that contain the term in a relevant way,
+    divided by the total number of documents retrieved, and *recall* indicates the
+    number of relevant documents retrieved, divided by the total number of relevant
+    documents. So *high precision* means you don’t give the user irrelevant documents,
+    and *high recall* means you give them almost every relevant document. The converses
+    are, alas, both easy to intuit the definition of, and easy to generate.
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([15](ch09.xhtml#ch01fn110-marker)) 对于具有搜索引擎背景的人来说，举例来说，如果搜索特定术语，*精确度*表示检索到包含相关术语的文档数除以总检索到的文档数，而*召回率*表示检索到的相关文档数除以总相关文档数。因此，*高精确度*意味着您不会向用户提供不相关的文档，而*高召回率*意味着您几乎提供了每个相关文档。相反的情况，不幸的是，两者的定义都很容易直觉理解，并且很容易生成。
+- en: ^([16](ch09.xhtml#ch01fn111-marker)) Much more detail is available on RMSE in
+    many other places; the [C3 AI Glossary page](https://oreil.ly/KqpdH) is probably
+    a good place to start.
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([16](ch09.xhtml#ch01fn111-marker)) 在许多其他地方都有关于RMSE的更多细节；[C3 AI术语表页](https://oreil.ly/KqpdH)可能是一个很好的起点。
+- en: ^([17](ch09.xhtml#ch01fn112-marker)) The engineering challenge here is how to
+    join these sets of data, which can often be done with session IDs, user journey
+    tokens, or something similar.
+  id: totrans-310
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([17](ch09.xhtml#ch01fn112-marker)) 这里的工程挑战在于如何将这些数据集合并，通常可以使用会话ID、用户旅程令牌或类似的东西来完成。
+- en: ^([18](ch09.xhtml#ch01fn113-marker)) Though YarnIt has been experimenting with
+    drop-ship capabilities for delivering its products, the feedback loop is still
+    limited by the physical delivery cycle and product review time.
+  id: totrans-311
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([18](ch09.xhtml#ch01fn113-marker)) 尽管YarnIt一直在尝试使用直邮功能来交付其产品，但反馈循环仍然受限于物理交付周期和产品评审时间。
+- en: ^([19](ch09.xhtml#ch01fn114-marker)) The best model metric to use primarily
+    depends on the type of model and the distribution of the data it’s predicting
+    over. This should typically match up with the metrics used in training/validation.
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([19](ch09.xhtml#ch01fn114-marker)) 最佳模型指标的选择主要取决于模型的类型以及预测数据的分布。这通常应与训练/验证中使用的指标相匹配。
+- en: ^([20](ch09.xhtml#ch01fn116-marker)) This strengthens the argument for your
+    application keeping distribution state, or at least bucket counters. Other techniques
+    for robustness actually use *dropping* data in order to improve robustness (which
+    is really a synonym for avoiding overfitting).
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([20](ch09.xhtml#ch01fn116-marker)) 这加强了应用程序保持分布状态的论点，或者至少是桶计数器。其他提高鲁棒性的技术实际上是使用*丢弃*数据来改善鲁棒性（这实际上是避免过拟合的同义词）。
+- en: ^([21](ch09.xhtml#ch01fn117-marker)) See [“The Tail at Scale”](https://research.google/pubs/pub40801)
+    by Jeffrey Dean and Luiz Andre Barroso.
+  id: totrans-314
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([21](ch09.xhtml#ch01fn117-marker)) 请参阅[《规模的尾部》](https://research.google/pubs/pub40801)，作者为杰弗里·迪恩和路易斯·安德烈·巴罗索。
+- en: ^([22](ch09.xhtml#ch01fn118-marker)) The business impact of a model is ultimately
+    the only reason it exists. Every other metric is secondary to the purpose for
+    which the model was built. Therefore, direct monitoring of business impact is
+    the holy grail of monitoring, however difficult it might be. Determining the correlation
+    between available monitoring metrics and business value is almost certainly the
+    most important thing for the organization to do in order to extract the most value
+    out of its ML efforts in production.
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([22](ch09.xhtml#ch01fn118-marker)) 模型的商业影响最终是其存在的唯一原因。其他所有指标都次于模型构建的目的。因此，直接监控业务影响是监控的至高无上的目标，无论其难度如何。确定可用监控指标与业务价值之间的关联几乎可以肯定是组织从其ML生产努力中提取最大价值的最重要事情。

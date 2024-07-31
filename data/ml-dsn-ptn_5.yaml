@@ -1,0 +1,2971 @@
+- en: Chapter 5\. Design Patterns for Resilient Serving
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第5章。弹性服务的设计模式
+- en: The purpose of a machine learning model is to use it to make inferences on data
+    it hasn’t seen during training. Therefore, once a model has been trained, it is
+    typically deployed into a production environment and used to make predictions
+    in response to incoming requests. Software that is deployed into production environments
+    is expected to be resilient and require little in the way of human intervention
+    to keep it running. The design patterns in this chapter solve problems associated
+    with resilience under different circumstances as it relates to production ML models.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习模型的目的是在训练期间未见过的数据上进行推断。因此，一旦模型训练完毕，通常会将其部署到生产环境中，并用于根据传入请求进行预测。部署到生产环境中的软件预期是具有弹性的，并且在保持运行时需要很少的人工干预。本章中的设计模式解决了与生产ML模型的弹性相关的不同情况下的问题。
+- en: The *Stateless Serving Function* design pattern allows the serving infrastructure
+    to scale and handle thousands or even millions of prediction requests per second.
+    The *Batch Serving* design pattern allows the serving infrastructure to asynchronously
+    handle occasional or periodic requests for millions to billions of predictions.
+    These patterns are useful beyond resilience in that they reduce coupling between
+    creators and users of machine learning models.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*Stateless Serving Function*设计模式允许服务基础架构扩展和处理每秒数千甚至数百万的预测请求。*Batch Serving*设计模式允许服务基础架构异步处理偶发或周期性的数百万到数十亿次预测请求。这些模式不仅在提高弹性方面有用，而且还减少了机器学习模型创建者和用户之间的耦合。'
+- en: The *Continued Model Evaluation* design pattern handles the common problem of
+    detecting when a deployed model is no longer fit-for-purpose. The *Two-Phase Predictions*
+    design pattern provides a way to address the problem of keeping models sophisticated
+    and performant when they have to be deployed onto distributed devices. The *Keyed
+    Predictions* design pattern is a necessity to scalably implement several of the
+    design patterns discussed in this chapter.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*持续模型评估*设计模式处理了检测部署模型不再适用的常见问题。*两阶段预测*设计模式提供了一种解决方案，用于在部署到分布式设备时保持模型的复杂性和性能。*键控预测*设计模式是实现本章讨论的多个设计模式的必要条件。'
+- en: 'Design Pattern 16: Stateless Serving Function'
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 设计模式16：无状态服务功能
+- en: The Stateless Serving Function design pattern makes it possible for a production
+    ML system to synchronously handle thousands to millions of prediction requests
+    per second. The production ML system is designed around a stateless function that
+    captures the architecture and weights of a trained model.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无状态服务功能设计模式使得生产ML系统能够同步处理每秒数千到数百万的预测请求。生产ML系统围绕一个捕获训练模型体系结构和权重的无状态函数进行设计。
+- en: Problem
+  id: totrans-6
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题
+- en: 'Let’s take a text classification model that uses, as its training data, movie
+    reviews from the Internet Movie Database (IMDb). For the initial layer of the
+    model, we will use a pre-trained embedding that maps text to 20-dimensional embedding
+    vectors (for the full code, see the [*serving_function.ipynb* notebook](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/serving_function.ipynb)
+    in the GitHub repository for this book):'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们来看一个文本分类模型，该模型使用来自互联网电影数据库（IMDb）的电影评论作为其训练数据。对于模型的初始层，我们将使用一个预训练的嵌入，将文本映射到20维嵌入向量（有关完整代码，请参见[*serving_function.ipynb*
+    notebook](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/serving_function.ipynb)
+    在本书的GitHub存储库中）：
+- en: '[PRE0]'
+  id: totrans-8
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'The embedding layer is obtained from TensorFlow Hub and marked as being trainable
+    so that we can carry out fine-tuning (see [“Design Pattern 13: Transfer Learning”](ch04.xhtml#design_pattern_onethree_transfer_learni)
+    in [Chapter 4](ch04.xhtml#model_training_patterns)) on the vocabulary found in
+    IMDb reviews. The subsequent layers are that of a simple neural network with one
+    hidden layer and an output logits layer. This model can then be trained on the
+    dataset of movie reviews to learn to predict whether or not a review is positive
+    or negative.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 嵌入层来自TensorFlow Hub，并标记为可训练，以便我们可以对IMDb评论中的词汇进行微调（详见[“设计模式13：迁移学习”](ch04.xhtml#design_pattern_onethree_transfer_learni)在[第4章](ch04.xhtml#model_training_patterns)中）。随后的层是一个简单的神经网络，具有一个隐藏层和一个输出对数层。然后，这个模型可以在电影评论数据集上进行训练，以学习预测评论是正面还是负面。
+- en: 'Once the model has been trained, we can use it to carry out inferences on how
+    positive a review is:'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦模型训练完毕，我们可以使用它进行推断，判断评论的积极程度：
+- en: '[PRE1]'
+  id: totrans-11
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'The result is a 2D array that might be something like:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果是一个可能类似于的二维数组：
+- en: '[PRE2]'
+  id: totrans-13
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'There are several problems with carrying out inferences by calling `model.predict()`
+    on an in-memory object (or a trainable object loaded into memory) as described
+    in the preceding code snippet:'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在内存对象（或加载到内存中的可训练对象）上调用 `model.predict()` 进行推断存在几个问题，正如前面代码片段所述：
+- en: We have to load the entire Keras model into memory. The text embedding layer,
+    which was set up to be trainable, can be quite large because it needs to store
+    embeddings for the full vocabulary of English words. Deep learning models with
+    many layers can also be quite large.
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们必须将整个 Keras 模型加载到内存中。文本嵌入层设置为可训练，可能会很大，因为它需要存储英文词汇的嵌入。具有许多层的深度学习模型也可能会很大。
+- en: The preceding architecture imposes limits on the latency that can be achieved
+    because calls to the `predict()` method have to be sent one by one.
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 前述架构对可达到的延迟施加了限制，因为必须逐个调用 `predict()` 方法。
+- en: Even though the data scientist’s programming language of choice is Python, model
+    inference is likely to be invoked by programs written by developers who prefer
+    other languages, or on mobile platforms like Android or iOS that require different
+    languages.
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 尽管数据科学家选择的编程语言是 Python，但模型推断可能会由偏好其他语言的开发人员编写的程序调用，或者在需要不同语言的移动平台（如 Android
+    或 iOS）上调用。
+- en: The model input and output that is most effective for training may not be user
+    friendly. In our example, the model output was [logits](https://oreil.ly/qCWdH)
+    because it is better for gradient descent. This is why the second number in the
+    output array is greater than 1\. What clients will typically want is the sigmoid
+    of this so that the output range is 0 to1 and can be interpreted in a more user-friendly
+    format as a probability. We will want to carry out this postprocessing on the
+    server so that the client code is as simple as possible. Similarly, the model
+    may have been trained from compressed, binary records, whereas during production,
+    we might want to be able to handle self-descriptive input formats like JSON.
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用于训练最有效的模型输入和输出可能不够用户友好。在我们的例子中，模型输出为 [logits](https://oreil.ly/qCWdH)，因为它对于梯度下降更好。这就是为什么输出数组中的第二个数字大于1的原因。客户通常希望对其进行
+    sigmoid 处理，使输出范围为0到1，并以更用户友好的格式解释。我们希望在服务器上进行这种后处理，以便客户端代码尽可能简单。类似地，模型可能已经是从压缩的二进制记录中训练出来的，而在生产环境中，我们可能希望能够处理像
+    JSON 这样的自描述输入格式。
+- en: Solution
+  id: totrans-19
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 解决方案
+- en: 'The solution consists of the following steps:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决方案由以下步骤组成：
+- en: Export the model into a format that captures the mathematical core of the model
+    and is programming language agnostic.
+  id: totrans-21
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将模型导出为捕获模型数学核心且与编程语言无关的格式。
+- en: In the production system, the formula consisting of the “forward” calculations
+    of the model is restored as a stateless function.
+  id: totrans-22
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在生产系统中，“前向”计算模型的公式被恢复为无状态函数。
+- en: The stateless function is deployed into a framework that provides a REST endpoint.
+  id: totrans-23
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 无状态函数部署到提供 REST 端点的框架中。
+- en: Model export
+  id: totrans-24
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型导出
+- en: The first step of the solution is to export the model into a format (TensorFlow
+    uses [SavedModel](https://oreil.ly/9TjS3), but [ONNX](https://onnx.ai) is another
+    choice) that captures the mathematical core of the model. The entire model state
+    (learning rate, dropout, short-circuit, etc.) doesn’t need to be saved—just the
+    mathematical formula required to compute the output from the inputs. Typically,
+    the trained weight values are constants in the mathematical formula.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决方案的第一步是将模型导出为一种格式（TensorFlow 使用 [SavedModel](https://oreil.ly/9TjS3)，但 [ONNX](https://onnx.ai)
+    是另一个选择），该格式捕获了模型的数学核心。整个模型状态（学习率、丢失率、短路等）不需要保存，只需计算输出所需的数学公式。通常，训练后的权重值在数学公式中是常数。
+- en: 'In Keras, this is accomplished by:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Keras 中，通过以下方式实现：
+- en: '[PRE3]'
+  id: totrans-27
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'The SavedModel format relies on [protocol buffers](https://oreil.ly/g3Vjc)
+    for a platform-neutral, efficient restoration mechanism. In other words, the `model.save()`
+    method writes the model as a protocol buffer (with the extension `.pb`) and externalizes
+    the trained weights, vocabularies, and so on into other files in a standard directory
+    structure:'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SavedModel 格式依赖于[协议缓冲区](https://oreil.ly/g3Vjc)以实现跨平台、高效的恢复机制。换句话说，`model.save()`方法将模型写入协议缓冲区（扩展名为`.pb`），并将训练好的权重、词汇表等外部化到其他文件中，采用标准的目录结构：
+- en: '[PRE4]'
+  id: totrans-29
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Inference in Python
+  id: totrans-30
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Python 中的推断
+- en: In a production system, the model’s formula is restored from the protocol buffer
+    and other associated files as a stateless function that conforms to a specific
+    model signature with input and output variable names and data types.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产系统中，模型的公式从协议缓冲区及其他相关文件中恢复为一个无状态函数，该函数符合特定的模型签名，包括输入和输出变量名及数据类型。
+- en: 'We can use the TensorFlow `saved_model_cli` tool to examine the exported files
+    to determine the signature of the stateless function that we can use in serving:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用 TensorFlow 的 `saved_model_cli` 工具检查导出文件，以确定我们可以在服务中使用的无状态函数的签名：
+- en: '[PRE5]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'This outputs:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样就输出了：
+- en: '[PRE6]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'The signature specifies that the prediction method takes a one-element array
+    as input (called `full_text_input`) that is a string, and outputs one floating
+    point number whose name is `positive_review_logits`. These names come from the
+    names that we assigned to the Keras layers:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 签名指定预测方法接受一个作为输入的单元素数组（称为`full_text_input`），其类型为字符串，并输出一个名为`positive_review_logits`的浮点数。这些名称来自我们分配给
+    Keras 层的名称：
+- en: '[PRE7]'
+  id: totrans-37
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'Here is how we can obtain the serving function and use it for inference:'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是如何获取服务函数并用于推断：
+- en: '[PRE8]'
+  id: totrans-39
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Note how we are using the input and output names from the serving function in
+    the code.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意我们在代码中使用了服务函数的输入和输出名称。
+- en: Create web endpoint
+  id: totrans-41
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 创建 Web 端点
+- en: The code above can be put into a web application or serverless framework such
+    as Google App Engine, Heroku, AWS Lambda, Azure Functions, Google Cloud Functions,
+    Cloud Run, and so on. What all these frameworks have in common is that they allow
+    the developer to specify a function that needs to be executed. The frameworks
+    take care of autoscaling the infrastructure so as to handle large numbers of prediction
+    requests per second at low latency.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述代码可以放入 Web 应用程序或无服务器框架，如 Google App Engine、Heroku、AWS Lambda、Azure Functions、Google
+    Cloud Functions、Cloud Run 等。所有这些框架的共同点是它们允许开发人员指定需要执行的函数。这些框架会自动扩展基础架构，以处理每秒大量预测请求，并保持低延迟。
+- en: 'For example, we can invoke the serving function from within Cloud Functions
+    as follows:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，我们可以在 Cloud Functions 中调用服务函数如下：
+- en: '[PRE9]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: Note that we should be careful to define the serving function as a global variable
+    (or a singleton class) so that it isn’t reloaded in response to every request.
+    In practice, the serving function will be reloaded from the export path (on Google
+    Cloud Storage) only in the case of cold starts.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，我们应该谨慎地将服务函数定义为全局变量（或单例类），以免在每个请求的响应中重新加载它。实际上，服务函数将仅在冷启动时从导出路径（在 Google
+    Cloud Storage 上）重新加载。
+- en: Why It Works
+  id: totrans-46
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 为何有效
+- en: The approach of exporting a model to a stateless function and deploying the
+    stateless function in a web application framework works because web application
+    frameworks offer autoscaling, can be fully managed, and are language neutral.
+    They are also familiar to software and business development teams who may not
+    have experience with machine learning. This also has benefits for agile development—an
+    ML engineer or data scientist can independently change the model, and all the
+    application developer needs to do is change the endpoint they are accessing.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将模型导出为无状态函数，并在 Web 应用程序框架中部署这一方法之所以有效，是因为 Web 应用程序框架提供了自动扩展功能，可以完全托管，并且与编程语言无关。对于可能缺乏机器学习经验的软件和业务开发团队来说，这些框架也是熟悉的。对于敏捷开发也有好处——机器学习工程师或数据科学家可以独立更改模型，而应用程序开发人员只需更改他们正在访问的端点。
+- en: Autoscaling
+  id: totrans-48
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 自动扩展
+- en: Scaling web endpoints to millions of requests per second is a well-understood
+    engineering problem. Rather than building services unique to machine learning,
+    we can rely on the decades of engineering work that has gone into building resilient
+    web applications and web servers. Cloud providers know how to autoscale web endpoints
+    efficiently, with minimal warmup times.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将 Web 端点扩展到每秒数百万次请求是一个众所周知的工程问题。与其构建专门用于机器学习的服务，不如依赖几十年来在构建可靠 Web 应用和 Web 服务器方面所做的工程工作。云服务提供商知道如何高效地自动扩展
+    Web 端点，且热启动时间最小。
+- en: We don’t even need to write the serving system ourselves. Most modern enterprise
+    machine learning frameworks come with a serving subsystem. For example, TensorFlow
+    provides TensorFlow Serving and PyTorch provides TorchServe. If we use these serving
+    subsystems, we can simply provide the exported file and the software takes care
+    of creating a web endpoint.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们甚至不需要自己编写服务系统。大多数现代企业机器学习框架都配备了服务子系统。例如，TensorFlow 提供 TensorFlow Serving，PyTorch
+    提供 TorchServe。如果使用这些服务子系统，我们只需提供导出的文件，软件便会自动创建 Web 端点。
+- en: Fully managed
+  id: totrans-51
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 完全托管
+- en: 'Cloud platforms abstract away the managing and installation of components like
+    TensorFlow Serving as well. Thus, on Google Cloud, deploying the serving function
+    as a REST API is as simple as running this command-line program providing the
+    location of the SavedModel output:'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 云平台也抽象化了 TensorFlow Serving 等组件的管理和安装。因此，在 Google Cloud 上，将服务功能部署为 REST API
+    就像运行这个命令行程序一样简单，只需提供 SavedModel 输出的路径：
+- en: '[PRE10]'
+  id: totrans-53
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'In Amazon’s SageMaker, deployment of a TensorFlow SavedModel is similarly simple,
+    and achieved using:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Amazon 的 SageMaker 中，部署 TensorFlow SavedModel 同样简单，使用如下命令实现：
+- en: '[PRE11]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'With a REST endpoint in place, we can send a prediction request as a JSON with
+    the form:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在设置了 REST 端点后，我们可以发送一个 JSON 预测请求，格式如下：
+- en: '[PRE12]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'We get back the predicted values also wrapped in a JSON structure:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们返回的预测值也被封装在 JSON 结构中：
+- en: '[PRE13]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Tip
+  id: totrans-60
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: By allowing clients to send JSON requests with multiple instances in the request,
+    called *batching*, we are allowing clients to trade off the higher throughput
+    associated with fewer network calls against the increased parallelization if they
+    send more requests with fewer instances per request.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过允许客户端发送带有多个实例的 JSON 请求，即所谓的 *批处理*，我们允许客户端在较少的网络调用和发送更多请求时增加并行化之间进行权衡。
+- en: Besides batching, there are other knobs and levers to improve performance or
+    lower cost. Using a machine with more powerful GPUs, for example, typically helps
+    to improve the performance of deep learning models. Choosing a machine with multiple
+    accelerators and/or threads helps improve the number of requests per second. Using
+    an autoscaling cluster of machines can help lower cost on spiky workloads. These
+    kinds of tweaks are often done by the ML/DevOps team; some are ML-specific, some
+    are not.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了批处理，还有其他方法可以提高性能或降低成本。例如，使用更强大的 GPU 通常有助于提升深度学习模型的性能。选择具有多个加速器和/或线程的机器有助于提高每秒请求的数量。使用自动扩展的机器集群可以帮助降低尖峰工作负载的成本。这些调整通常由
+    ML/DevOps 团队完成；其中一些是特定于机器学习的，另一些则不是。
+- en: Language-neutral
+  id: totrans-63
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 语言中立
+- en: 'Every modern programming language can speak REST, and a discovery service is
+    provided to autogenerate the necessary HTTP stubs. Thus, Python clients can invoke
+    the REST API as follows. Note that there is nothing framework specific in the
+    code below. Because the cloud service abstracts the specifics of our ML model,
+    we don’t need to provide any references to Keras or TensorFlow:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有现代编程语言都可以使用 REST，且提供了一个发现服务来自动生成必要的 HTTP 存根。因此，Python 客户端可以如下调用 REST API。请注意，下面的代码没有特定于框架的内容。因为云服务抽象了我们的
+    ML 模型的具体细节，我们不需要提供任何关于 Keras 或 TensorFlow 的引用：
+- en: '[PRE14]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: The equivalent of the above code can be written in many languages (we show Python
+    because we assume you are somewhat familiar with it). At the time that this book
+    is being written, developers [can access the Discovery API](https://oreil.ly/zCZir)
+    from Java, PHP, .NET, JavaScript, Objective-C, Dart, Ruby, Node.js, and Go.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述   上述代码的等效写法可以用多种语言实现（我们展示 Python 是因为我们假设你对它有所了解）。在本书撰写时，开发者[可以从 Java、PHP、.NET、JavaScript、Objective-C、Dart、Ruby、Node.js
+    和 Go 中访问 Discovery API](https://oreil.ly/zCZir)。
+- en: Powerful ecosystem
+  id: totrans-67
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 强大的生态系统
+- en: Because web application frameworks are so widely used, there is a lot of tooling
+    available to measure, monitor, and manage web applications. If we deploy the ML
+    model to a web application framework, the model can be monitored and throttled
+    using tools that software reliability engineers (SREs), IT administrators, and
+    DevOps personnel are familiar with. They do not have to know anything about machine
+    learning.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于Web应用程序框架被广泛使用，有很多工具可用于测量、监视和管理Web应用。如果我们将ML模型部署到Web应用程序框架中，可以使用软件可靠性工程师（SREs）、IT管理员和DevOps人员熟悉的工具对模型进行监控和节流。他们不必了解任何关于机器学习的知识。
+- en: Similarly, your business development colleagues know how to meter and monetize
+    web applications using API gateways. They can carry over that knowledge and apply
+    it to metering and monetizing machine learning models.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，您的业务发展同事知道如何使用API网关对Web应用进行计量和货币化。他们可以借鉴这些知识并将其应用于对机器学习模型进行计量和货币化。
+- en: Trade-Offs and Alternatives
+  id: totrans-70
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 折衷和替代方案
+- en: As the [joke by David Wheeler](https://oreil.ly/uskud) goes, the solution to
+    any problem in computer science is to add an extra level of indirection. Introduction
+    of an exported stateless function specification provides that extra level of indirection.
+    The Stateless Serving Function design pattern allows us to change the serving
+    signature to provide extra functionality, like additional pre- and postprocessing,
+    beyond what the ML model does. In fact, it is possible to use this design pattern
+    to provide multiple endpoints for a model. This design pattern can also help with
+    creating low-latency, online prediction for models that are trained on systems,
+    such as data warehouses, that are typically associated with long-running queries.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像[David Wheeler的一个笑话](https://oreil.ly/uskud)所说，计算机科学中任何问题的解决方案都是添加额外的间接层。引入导出的无状态函数规范提供了额外的间接层。无状态服务函数设计模式允许我们更改服务签名以提供额外的功能，如超出ML模型功能的额外预处理和后处理。事实上，可以使用此设计模式为模型提供多个端点。此设计模式还有助于为在数据仓库等长时间运行查询系统上训练的模型创建低延迟的在线预测。
+- en: Custom serving function
+  id: totrans-72
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 自定义服务函数
+- en: 'The output layer of our text classification model is a Dense layer whose output
+    is in the range (-∞,∞):'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们文本分类模型的输出层是一个Dense层，其输出范围为(-∞,∞)：
+- en: '[PRE15]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'Our loss function takes this into account:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的损失函数考虑到了这一点：
+- en: '[PRE16]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: When we use the model for prediction, the model naturally returns what it was
+    trained to predict and outputs the logits. What clients expect, however, is the
+    probability that the review is positive. To solve this, we need to return the
+    sigmoid output of the model.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们用该模型进行预测时，模型自然返回其训练预测的内容并输出logits。然而，客户期望的是评论为积极的概率。为了解决这个问题，我们需要返回模型的sigmoid输出。
+- en: 'We can do this by writing a custom serving function and exporting it instead.
+    Here is a custom serving function in Keras that adds a probability and returns
+    a dictionary that contains both the logits and the probabilities for each of the
+    reviews provided as input:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过编写一个自定义服务函数并导出它来实现这一点。这里是一个在Keras中的自定义服务函数，它添加了一个概率并返回一个包含每个输入评论的logits和概率的字典：
+- en: '[PRE17]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'We can then export the above function as the serving default:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们可以将以上函数导出为默认服务：
+- en: '[PRE18]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: The `add_prob` method definition is saved in the export_path and will be invoked
+    in response to a client request.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`add_prob`方法定义保存在导出路径中，并将在响应客户请求时被调用。'
+- en: 'The serving signature of the exported model reflects the new input name (note
+    the name of the input parameter to `add_prob`) and the output dictionary keys
+    and data types:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 导出模型的服务签名反映了新的输入名称（请注意`add_prob`的输入参数名称）和输出字典键及其数据类型：
+- en: '[PRE19]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'When this model is deployed and used for inference, the output JSON contains
+    both the logits and the probability:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当此模型部署并用于推断时，输出的JSON包含logits和概率：
+- en: '[PRE20]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Note that `add_prob` is a function that we write. In this case, we did a bit
+    of postprocessing of the output. However, we could have done pretty much any (stateless)
+    thing that we wanted inside that function.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，`add_prob`是我们编写的一个函数。在这种情况下，我们对输出进行了一些后处理。但是，我们可以在该函数内进行几乎任何（无状态的）操作。
+- en: Multiple signatures
+  id: totrans-88
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 多个签名
+- en: It is quite common for models to support multiple objectives or clients who
+    have different needs. While outputting a dictionary can allow different clients
+    to pull out whatever they want, this may not be ideal in some cases. For example,
+    the function we had to invoke to get a probability from the logits was simply
+    `tf.sigmoid()`. This is pretty inexpensive, and there is no problem with computing
+    it even for clients who will discard it. On the other hand, if the function had
+    been expensive, computing it for clients who don’t need the value can add considerable
+    overhead.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型通常支持多个目标或有不同需求的客户端。虽然输出字典可以让不同的客户端取出他们想要的任何东西，但在某些情况下可能不是理想的。例如，我们必须调用的函数以从logits获取概率只是`tf.sigmoid()`。这相当便宜，即使对于会丢弃它的客户端也没有问题。另一方面，如果该函数很昂贵，在不需要该值的客户端上计算它会增加相当大的开销。
+- en: 'If a small number of clients require a very expensive operation, it is helpful
+    to provide multiple serving signatures and have the client inform the serving
+    framework which signature to invoke. This is done by specifying a name other than
+    `serving_default` when the model is exported. For example, we might write out
+    two signatures using:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果少数客户端需要非常昂贵的操作，则有助于提供多个服务签名，并让客户端告知服务框架要调用哪个签名。这是通过在导出模型时指定一个非`serving_default`的名称来完成的。例如，我们可以使用以下方式写出两个签名：
+- en: '[PRE21]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'Then, the input JSON request includes the signature name to choose which serving
+    endpoint of the model is desired:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，输入JSON请求包括签名名称，以选择所需模型的哪个服务端点：
+- en: '[PRE22]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: Online prediction
+  id: totrans-94
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 在线预测
+- en: Because the exported serving function is ultimately just a file format, it can
+    be used to provide online prediction capabilities when the original machine learning
+    training framework does not natively support online predictions.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为导出的服务函数最终只是一个文件格式，所以在原始机器学习训练框架不原生支持在线预测时，它可以用来提供在线预测能力。
+- en: 'For example, we can train a model to infer whether or not a baby will require
+    attention by training a logistic regression model on the natality dataset:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，我们可以通过在新生儿数据集上训练逻辑回归模型来推断婴儿是否需要关注：
+- en: '[PRE23]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'Once the model is trained, we can carry out prediction using SQL:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型训练完成后，我们可以使用SQL进行预测：
+- en: '[PRE24]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: However, BigQuery is primarily for distributed data processing. While it was
+    great for training the ML model on gigabytes of data, using such a system to carry
+    out inference on a single row is not the best fit—latencies can be as high as
+    a second or two. Rather, the `ML.PREDICT` functionality is more appropriate for
+    batch serving.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，BigQuery主要用于分布式数据处理。虽然用它来训练千兆字节数据上的ML模型很棒，但在单行数据上进行推断并不是最佳选择——延迟可能高达一到两秒。相反，`ML.PREDICT`功能更适合批量服务。
+- en: 'In order to carry out online prediction, we can ask BigQuery to export the
+    model as a TensorFlow SavedModel:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了进行在线预测，我们可以要求BigQuery将模型导出为TensorFlow SavedModel：
+- en: '[PRE25]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: Now, we can deploy the SavedModel into a serving framework like Cloud AI Platform
+    that supports SavedModel to get the benefits of low-latency, autoscaled ML model
+    serving. See the [notebook in GitHub](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/serving_function.ipynb)
+    for the complete code.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以将SavedModel部署到像Cloud AI Platform这样支持SavedModel的服务框架中，以获得低延迟、自动扩展的ML模型服务优势。查看GitHub中的[notebook](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/serving_function.ipynb)获取完整代码。
+- en: Even if this ability to export the model as a SavedModel did not exist, we could
+    have extracted the weights, written a mathematical model to carry out the linear
+    model, containerized it, and deployed the container image into a serving platform.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使不存在将模型导出为SavedModel的能力，我们也可以提取权重，编写数学模型来执行线性模型，将其容器化，并部署容器映像到服务平台。
+- en: Prediction library
+  id: totrans-105
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 预测库
+- en: Instead of deploying the serving function as a microservice that can be invoked
+    via a REST API, it is possible to implement the prediction code as a library function.
+    The library function would load the exported model the first time it is called,
+    invoke `model.predict()` with the provided input, and return the result. Application
+    developers who need to predict with the library can then include the library with
+    their applications.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 而不是将服务函数部署为可以通过REST API调用的微服务，可以将预测代码实现为库函数。库函数在第一次调用时加载导出的模型，使用提供的输入调用`model.predict()`，并返回结果。需要在应用程序中进行预测的应用程序开发人员可以包含该库。
+- en: A library function is a better alternative than a microservice if the model
+    cannot be called over a network either because of physical reasons (there is no
+    network connectivity) or because of performance constraints. The library function
+    approach also places the computational burden on the client, and this might be
+    preferable from a budgetary standpoint. Using the library approach with `TensorFlow.js`
+    can avoid cross-site problems when there is a desire to have the model running
+    in a browser.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果模型由于物理原因（没有网络连接）或性能约束而无法通过网络调用，则库函数是比微服务更好的选择。库函数方法还将计算负担放在客户端上，从预算的角度来看，这可能更可取。在希望在浏览器中运行模型时，使用`TensorFlow.js`的库方法可以避免跨站点问题。
+- en: The main drawback of the library approach is that maintenance and updates of
+    the model are difficult—all the client code that uses the model will have to be
+    updated to use the new version of the library. The more commonly a model is updated,
+    the more attractive a microservices approach becomes. A secondary drawback is
+    that the library approach is restricted to programming languages for which libraries
+    are written, whereas the REST API approach opens up the model to applications
+    written in pretty much any modern programming language.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 库方法的主要缺点是模型的维护和更新困难——所有使用模型的客户端代码都必须更新为使用新版本的库。模型更新得越频繁，微服务方法就越有吸引力。第二个缺点是，库方法仅限于已编写库的编程语言，而REST
+    API方法则可以打开模型给几乎任何现代编程语言编写的应用。
+- en: The library developer should take care to employ a threadpool and use parallelization
+    to support the necessary throughput. However, there is usually a limit to the
+    scalability achievable with this approach.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 库开发者应注意使用线程池和并行化来支持所需的吞吐量。然而，通常存在此方法可达到的可扩展性限制。
+- en: 'Design Pattern 17: Batch Serving'
+  id: totrans-110
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 设计模式17：批量服务
+- en: The Batch Serving design pattern uses software infrastructure commonly used
+    for distributed data processing to carry out inference on a large number of instances
+    all at once.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量服务设计模式使用通常用于分布式数据处理的软件基础设施，一次性对大量实例进行推断。
+- en: Problem
+  id: totrans-112
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题
+- en: Commonly, predictions are carried one at a time and on demand. Whether or not
+    a credit card transaction is fraudulent is determined at the time a payment is
+    being processed. Whether or not a baby requires intensive care is determined when
+    the baby is examined immediately after birth. Therefore, when you deploy a model
+    into an ML serving framework, it is set up to process one instance, or at most
+    a few thousands of instances, embedded in a single request.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，预测是按需单独进行的。无论信用卡交易是否欺诈性，在处理付款时确定。无论婴儿是否需要重症监护，都是在婴儿出生后立即检查时确定的。因此，当你将模型部署到机器学习服务框架时，它被设置为处理一个实例，或者最多几千个实例，嵌入在一个单一请求中。
+- en: 'The serving framework is architected to process an individual request synchronously
+    and as quickly as possible, as discussed in [“Design Pattern 16: Stateless Serving
+    Function”](#design_pattern_onesix_stateless_serving). The serving infrastructure
+    is usually designed as a microservice that offloads the heavy computation (such
+    as with deep convolutional neural networks) to high-performance hardware such
+    as tensor processing units (TPUs) or graphics processing units (GPUs) and minimizes
+    the inefficiency associated with multiple software layers.'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如在[“设计模式16：无状态服务功能”](#design_pattern_onesix_stateless_serving)中讨论的那样，服务框架的架构设计为同步尽可能快速地处理单个请求。服务基础设施通常设计为微服务，将重计算（如深度卷积神经网络）卸载到高性能硬件，如张量处理单元（TPU）或图形处理单元（GPU），并最小化与多个软件层相关的低效率。
+- en: However, there are circumstances where predictions need to be carried out asynchronously
+    over large volumes of data. For example, determining whether to reorder a stock-keeping
+    unit (SKU) might be an operation that is carried out hourly, not every time the
+    SKU is bought at the cash register. Music services might create personalized daily
+    playlists for every one of their users and push them out to those users. The personalized
+    playlist is not created on-demand in response to every interaction that the user
+    makes with the music software. Because of this, the ML model needs to make predictions
+    for millions of instances at a time, not one instance at a time.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，有些情况下需要异步地对大量数据进行预测。例如，确定是否重新订购库存商品（SKU）可能是每小时执行一次的操作，而不是每次SKU在收银机上被购买时都执行。音乐服务可能为每位用户创建个性化的每日播放列表并将其推送给这些用户。个性化播放列表不是根据用户与音乐软件的每次交互按需创建的。因此，机器学习模型需要一次对数百万个实例进行预测，而不是逐个实例进行预测。
+- en: Attempting to take a software endpoint that is designed to handle one request
+    at a time and sending it millions of SKUs or billions of users will overwhelm
+    the ML model.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尝试将设计为一次处理一个请求的软件端点发送到数百万个SKU或数十亿用户将会使机器学习模型不堪重负。
+- en: Solution
+  id: totrans-117
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 解决方案
+- en: The Batch Serving design pattern uses a distributed data processing infrastructure
+    (MapReduce, Apache Spark, BigQuery, Apache Beam, and so on) to carry out ML inference
+    on a large number of instances asynchronously.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量服务设计模式使用分布式数据处理基础设施（MapReduce、Apache Spark、BigQuery、Apache Beam等）异步地对大量实例进行机器学习推断。
+- en: In the discussion on the Stateless Serving Function design pattern, we trained
+    a text classification model to output whether a review was positive or negative.
+    Let’s say that we want to apply this model to every complaint that has ever been
+    made to the United States Consumer Finance Protection Bureau (CFPB).
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在讨论无状态服务功能设计模式时，我们训练了一个文本分类模型，用于输出一个评价是正面还是负面。假设我们想将这个模型应用于向美国消费者金融保护局（CFPB）投过投诉的每一个投诉。
+- en: 'We can load the Keras model into BigQuery as follows (complete code is available
+    in a [notebook in GitHub](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/batch_serving.ipynb)):'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将Keras模型加载到BigQuery中，操作如下（完整代码在[GitHub的笔记本](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/batch_serving.ipynb)中提供）：
+- en: '[PRE26]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: Where normally, one would train a model using data in BigQuery, here we are
+    simply loading an externally trained model. Having done that, though, it is possible
+    to use BigQuery to carry out ML predictions. For example, the SQL query.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，人们会使用BigQuery中的数据来训练模型，但在这里我们只是加载一个外部训练好的模型。尽管如此，仍然可以使用BigQuery进行机器学习预测。例如，SQL查询。
+- en: '[PRE27]'
+  id: totrans-123
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: returns a `positive_review_probability` of 0.82.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 返回了`positive_review_probability`为0.82的概率。
+- en: 'Using a distributed data processing system like BigQuery to carry out one-off
+    predictions is not very efficient. However, what if we want to apply the machine
+    learning model to every complaint in the CFPB database?^([1](ch05.xhtml#ch01fn24))
+    We can simply adapt the query above, making sure to alias the `consumer_complaint_narrative`
+    column in the inner `SELECT` as the `reviews` to be assessed:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用像BigQuery这样的分布式数据处理系统进行一次性预测效率不高。但是，如果我们想将机器学习模型应用于消费者金融保护局（CFPB）数据库中的每一条投诉，怎么办？^([1](ch05.xhtml#ch01fn24))
+    我们只需简单地调整上述查询，确保在内部`SELECT`中将`consumer_complaint_narrative`列别名为要评估的`reviews`：
+- en: '[PRE28]'
+  id: totrans-126
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: The database has more than 1.5 million complaints, but they get processed in
+    about 30 seconds, proving the benefits of using a distributed data processing
+    framework.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据库有超过150万条投诉，但处理时间大约为30秒，证明了使用分布式数据处理框架的好处。
+- en: Why It Works
+  id: totrans-128
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 它为什么有效
+- en: The Stateless Serving Function design pattern is set up for low-latency serving
+    to support thousands of simultaneous queries. Using such a framework for occasional
+    or periodic processing of millions of items can get quite expensive. If these
+    requests are not latency-sensitive, it is more cost effective to use a distributed
+    data processing architecture to invoke machine learning models on millions of
+    items. The reason is that invoking an ML model on millions of items is an embarrassingly
+    parallel problem—it is possible to take the million items, break them down into
+    1,000 groups of 1,000 items each, send each group of items to a machine, then
+    combine the results. The result of the machine learning model on item number 2,000
+    is completely independent of the result of the machine learning model on item
+    number 3,000, and so it is possible to divide up the work and conquer it.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无状态服务函数设计模式旨在支持数千个同时查询的低延迟服务。对数百万个项目进行偶尔或定期处理时，使用这样的框架会变得非常昂贵。如果这些请求不受延迟影响，使用分布式数据处理架构来调用数百万个项目上的机器学习模型更具成本效益。原因在于，在数百万个项目上调用ML模型是一个尴尬并行问题——可以将百万个项目分成1000组，每组1000个项目，将每组项目发送到一台机器，然后组合结果。项目编号2000上的机器学习模型的结果与项目编号3000上的机器学习模型的结果完全独立，因此可以分割工作并处理。
+- en: 'Take, for example, the query to find the five most positive complaints:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，查询查找五个最积极投诉的情况如下：
+- en: '[PRE29]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'Looking at the execution details in the BigQuery web console, we see that the
+    entire query took 35 seconds (see the box marked #1 in [Figure 5-1](#the_first_two_steps_of_a_query_to_find)).'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在BigQuery Web控制台的执行详情中，我们看到整个查询花费了35秒（参见[图5-1](#the_first_two_steps_of_a_query_to_find)中标记为＃1的方框）。
+- en: '![The first two steps of a query to find the five most “positive” complaints
+    in the Consumer Finance Protection Bureau dataset of consumer complaints.](Images/mldp_0501.png)'
+  id: totrans-133
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在消费者金融保护局消费者投诉数据集中查找五个最“积极”投诉的查询的前两个步骤。](Images/mldp_0501.png)'
+- en: Figure 5-1\. The first two steps of a query to find the five most “positive”
+    complaints in the Consumer Financial Protection Bureau dataset of consumer complaints.
+  id: totrans-134
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-1\. 在消费者金融保护局消费者投诉数据集中查找五个最“积极”投诉的查询的前两个步骤。
+- en: 'The first step (see box #2 in [Figure 5-1](#the_first_two_steps_of_a_query_to_find))
+    reads the `consumer_complaint_narrative` column from the BigQuery public dataset
+    where the complaint narrative is not `NULL`. From the number of rows highlighted
+    in box #3, we learn that this involves reading 1,582,045 values. The output of
+    this step is written into 10 shards (see box #4 of [Figure 5-1](#the_first_two_steps_of_a_query_to_find)).'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一步（参见[图5-1](#the_first_two_steps_of_a_query_to_find)中的方框＃2）从BigQuery公共数据集中读取`consumer_complaint_narrative`列，其中投诉叙述不为`NULL`。从方框＃3中突出显示的行数中，我们了解到这涉及读取1582045个值。该步骤的输出写入10个分片（参见[图5-1](#the_first_two_steps_of_a_query_to_find)中的方框＃4）。
+- en: The second step reads the data from this shard (note the `$12:shard` in the
+    query), but also obtains the `file_path` and `file_contents` of the machine learning
+    model `imdb_sentiment` and applies the model to the data in each shard. The way
+    MapReduce works is that each shard is processed by a worker, so the fact that
+    there are 10 shards indicates that the second step is being done by 10 workers.
+    The original 1.5 million rows would have been stored over many files, and so the
+    first step was likely to have been processed by as many workers as the number
+    of files that comprised that dataset.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二步从这个分片中读取数据（注意查询中的`$12:shard`），但也获取机器学习模型`imdb_sentiment`的`file_path`和`file_contents`，并将模型应用于每个分片中的数据。
+    MapReduce的工作方式是每个分片由一个工作器处理，因此存在10个分片表明第二步由10个工作器执行。原始的150万行可能存储在许多文件中，因此第一步很可能由构成该数据集的文件数量相同的工作器处理。
+- en: The remaining steps are shown in [Figure 5-2](#third_and_subsequent_steps_of_the_query).
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 剩余步骤在[图5-2](#third_and_subsequent_steps_of_the_query)中显示。
+- en: '![Third and subsequent steps of the query to find the five most “positive”
+    complaints.](Images/mldp_0502.png)'
+  id: totrans-138
+  prefs: []
+  type: TYPE_IMG
+  zh: '![查询的第三步及后续步骤，以找出五个最“积极”的投诉。](Images/mldp_0502.png)'
+- en: Figure 5-2\. Third and subsequent steps of the query to find the five most “positive”
+    complaints.
+  id: totrans-139
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-2\. 查询的第三步及后续步骤，以找出五个最“积极”的投诉。
+- en: The third step sorts the dataset in descending order and takes five. This is
+    done on each worker, so each of the 10 workers finds the 5 most positive complaints
+    in “their” shard. The remaining steps retrieve and format the remaining bits of
+    data and write them to the output.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三步将数据集按降序排序并取前五个。每个工人都会执行这个步骤，因此每个10个工人都会在“它们”的片段中找到5个最积极的投诉。剩余的步骤检索并格式化剩余的数据片段，并将其写入输出。
+- en: The final step (not shown) takes the 50 complaints, sorts them, and selects
+    the 5 that form the actual result. The ability to separate work in this way across
+    many workers is what enables BigQuery to carry out the entire operation on 1.5
+    million complaint documents in 35 seconds.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一步（未显示）将这50个投诉进行排序，并选择其中的5个作为实际结果。能够跨多个工人这样分割工作，正是使得BigQuery能够在35秒内处理完150万份投诉文件的关键。
+- en: Trade-Offs and Alternatives
+  id: totrans-142
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 权衡和替代方案
+- en: The Batch Serving design pattern depends on the ability to split a task across
+    multiple workers. So, it is not restricted to data warehouses or even to SQL.
+    Any MapReduce framework will work. However, SQL data warehouses tend to be the
+    easiest and are often the default choice, especially when the data is structured
+    in nature.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量服务设计模式依赖于能够将任务分割成多个工人处理的能力。因此，它不仅限于数据仓库或SQL。任何MapReduce框架都可以使用。然而，SQL数据仓库往往是最简单的选择，尤其是在数据结构化的情况下。
+- en: Even though batch serving is used when latency is not a concern, it is possible
+    to incorporate precomputed results and periodic refreshing to use this in scenarios
+    where the space of possible prediction inputs is limited.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管批量服务用于不关注延迟的情况，但可以将预计算结果和定期刷新结合起来，以便在预测输入空间有限的情况下使用。
+- en: Batch and stream pipelines
+  id: totrans-145
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 批处理和流水线
+- en: Frameworks like Apache Spark or Apache Beam are useful when the input needs
+    preprocessing before it can be supplied to the model, if the machine learning
+    model outputs require postprocessing, or if either the preprocessing or postprocessing
+    are hard to express in SQL. If the inputs to the model are images, audio, or video,
+    then SQL is not an option and it is necessary to use a data processing framework
+    that can handle unstructured data. These frameworks can also take advantage of
+    accelerated hardware like TPUs and GPUs to carry out preprocessing of the images.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 像Apache Spark或Apache Beam这样的框架在需要预处理输入数据以供模型使用、如果机器学习模型输出需要后处理、或者预处理或后处理难以用SQL表达时非常有用。如果模型的输入是图像、音频或视频，则无法使用SQL，必须使用能够处理非结构化数据的数据处理框架。这些框架还可以利用加速硬件如TPU和GPU来对图像进行预处理。
+- en: Another reason to use a framework like Apache Beam is if the client code needs
+    to maintain state. A common reason that the client needs to maintain state is
+    if one of the inputs to the ML model is a time-windowed average. In that case,
+    the client code has to carry out moving averages of the incoming stream of data
+    and supply the moving average to the ML model.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Apache Beam这类框架的另一个理由是客户端代码需要维护状态。客户端需要维护状态的一个常见原因是，如果ML模型的输入之一是时间窗口平均值。在这种情况下，客户端代码必须对传入的数据流执行移动平均，并将移动平均值提供给ML模型。
+- en: Imagine that we are building a comment moderation system and we wish to reject
+    people who comment more than two times a day about a specific person. For example,
+    the first two times that a commenter writes something about President Obama, we
+    will let it go but block all attempts by that commenter to mention President Obama
+    for the rest of the day. This is an example of postprocessing that needs to maintain
+    state because we need a counter of the number of times that each commenter has
+    mentioned a particular celebrity. Moreover, this counter needs to be over a rotating
+    time period of 24 hours.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们正在构建一个评论审核系统，并希望拒绝那些每天多次评论特定人物的人。例如，如果评论者第一次写关于奥巴马总统的事情，我们会放过他，但是对于当天的其他关于奥巴马的评论，我们会禁止该评论者继续提及。这是一个需要维护状态的后处理示例，因为我们需要计算每个评论者提及特定名人的次数。此外，这个计数器需要在一个24小时的滚动时间段内进行。
+- en: 'We can do this using a distributed data processing framework that can maintain
+    state. Enter Apache Beam. Invoking an ML model to identify mentions of a celebrity
+    and tying them to a canonical knowledge graph (so that a mention of Obama and
+    a mention of President Obama both tie to *en.wikipedia.org/wiki/Barack_Obama*)
+    from Apache Beam can be accomplished using the following (see this [notebook in
+    GitHub](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/nlp_api.ipynb)
+    for complete code):'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用能够维护状态的分布式数据处理框架来完成这个过程。Apache Beam就是这样一个例子。从Apache Beam中调用ML模型以识别名人的提及，并将其与规范化的知识图（例如，提及Obama和President
+    Obama都与*en.wikipedia.org/wiki/Barack_Obama*相关联）进行关联，可以通过以下方式完成（参见GitHub上的[notebook](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/nlp_api.ipynb)获取完整代码）：
+- en: '[PRE30]'
+  id: totrans-150
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: where `parse_nlp_result` parses the JSON request that goes through the `AnnotateText`
+    transform which, beneath the covers, invokes an NLP API.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中`parse_nlp_result`解析通过`AnnotateText`变换传递的JSON请求，该变换在底层调用NLP API。
+- en: Cached results of batch serving
+  id: totrans-152
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 批量服务的缓存结果
+- en: We discussed batch serving as a way to invoke a model over millions of items
+    when the model is normally served online using the Stateless Serving Function
+    design pattern. Of course, it is possible for batch serving to work even if the
+    model does not support online serving. What matters is that the machine learning
+    framework doing inference is capable of taking advantage of embarrassingly parallel
+    processing.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们讨论了批量服务作为在通常使用无状态服务函数设计模式在线提供模型时，调用模型处理数百万项的一种方法。当然，即使模型不支持在线服务，批量服务也可以运行。重要的是，进行推断的机器学习框架能够利用尴尬并行处理。
+- en: Recommendation engines, for example, need to fill out a sparse matrix consisting
+    of every user–item pair. A typical business might have 10 million all-time users
+    and 10,000 items in the product catalog. In order to make a recommendation for
+    a user, recommendation scores have to be computed for each of the 10,000 items,
+    ranked, and the top 5 presented to the user. This is not feasible to do in near
+    real time off a serving function. Yet, the near real-time requirement means that
+    simply using batch serving will not work either.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，推荐引擎需要填写由每个用户-项目对组成的稀疏矩阵。一个典型的企业可能有1000万的历史用户和10000个产品目录中的项目。为了为用户做出推荐，必须为这10000个项目计算推荐分数，排名并将前5个呈现给用户。这在几乎实时的服务函数中是不可行的。然而，近乎实时的需求意味着简单地使用批量服务也不起作用。
+- en: 'In such cases, use batch serving to precompute recommendations for all 10 million
+    users:'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，使用批量服务预先计算所有1000万用户的推荐：
+- en: '[PRE31]'
+  id: totrans-156
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: Store it in a relational database such as MySQL, Datastore, or Cloud Spanner
+    (there are pre-built transfer services and Dataflow [templates](https://github.com/GoogleCloudPlatform/DataflowTemplates/blob/master/src/main/java/com/google/cloud/teleport/templates/BigQueryToDatastore.java)
+    that can do this). When any user visits, the recommendations for that user are
+    pulled from the database and served immediately and at very low latency.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将其存储在诸如MySQL、Datastore或Cloud Spanner之类的关系型数据库中（有预构建的传输服务和Dataflow [模板](https://github.com/GoogleCloudPlatform/DataflowTemplates/blob/master/src/main/java/com/google/cloud/teleport/templates/BigQueryToDatastore.java)可以完成此操作）。当任何用户访问时，从数据库中获取该用户的推荐内容，并立即以极低的延迟提供。
+- en: 'In the background, the recommendations are refreshed periodically. For example,
+    we might retrain the recommendation model hourly based on the latest actions on
+    the website. We can then carry out inference for just those users who visited
+    in the last hour:'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在后台，推荐定期刷新。例如，我们可以根据网站上最新的操作每小时重新训练推荐模型。然后，我们可以仅针对最近一小时访问的用户进行推断：
+- en: '[PRE32]'
+  id: totrans-159
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: We can then update the corresponding rows in the relational database used for
+    serving.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们接着更新用于服务的关系型数据库中的相应行。
+- en: Lambda architecture
+  id: totrans-161
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Lambda架构
+- en: A production ML system that supports both online serving and batch serving is
+    called a [*Lambda architecture*](https://oreil.ly/jLZ46)—such a production ML
+    system allows ML practitioners to trade-off between latency (via the Stateless
+    Serving Function pattern) and throughput (via the Batch Serving pattern).
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 支持在线服务和批量服务的生产ML系统称为[*Lambda架构*](https://oreil.ly/jLZ46) ——这样的生产ML系统允许ML从业者在延迟（通过无状态服务功能模式）和吞吐量（通过批量服务模式）之间进行权衡。
+- en: Note
+  id: totrans-163
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: '[AWS Lambda](https://oreil.ly/RqPan), in spite of its name, is not a Lambda
+    architecture. It is a serverless framework for scaling stateless functions, similar
+    to Google Cloud Functions or Azure Functions.'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[AWS Lambda](https://oreil.ly/RqPan)，尽管名字如此，不是 Lambda 架构。它是一个无服务器框架，用于扩展无状态函数，类似于
+    Google Cloud Functions 或 Azure Functions。'
+- en: Typically, a Lambda architecture is supported by having separate systems for
+    online serving and batch serving. In Google Cloud, for example, the online serving
+    infrastructure is provided by Cloud AI Platform Predictions and the batch serving
+    infrastructure is provided by BigQuery and Cloud Dataflow (Cloud AI Platform Predictions
+    provides a convenient interface so that users don’t have to explicitly use Dataflow).
+    It is possible to take a TensorFlow model and import it into BigQuery for batch
+    serving. It is also possible to take a trained BigQuery ML model and export it
+    as a TensorFlow SavedModel for online serving. This two-way compatibility enables
+    users of Google Cloud to hit any point in the spectrum of latency–hroughput trade-off.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，Lambda 架构通过拥有在线服务和批处理服务的分离系统来支持。例如，在 Google Cloud 中，在线服务基础设施由 Cloud AI Platform
+    Predictions 提供，而批处理服务基础设施由 BigQuery 和 Cloud Dataflow 提供（Cloud AI Platform Predictions
+    提供了方便的界面，使用户不必显式使用 Dataflow）。可以将 TensorFlow 模型导入 BigQuery 进行批处理服务。还可以将训练好的 BigQuery
+    ML 模型导出为 TensorFlow SavedModel 用于在线服务。这种双向兼容性使得 Google Cloud 的用户能够在延迟和吞吐量之间的任何点上进行权衡。
+- en: 'Design Pattern 18: Continued Model Evaluation'
+  id: totrans-166
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 设计模式 18：持续模型评估
+- en: The Continued Model Evaluation design pattern handles the common problem of
+    needing to detect and take action when a deployed model is no longer fit-for-purpose.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续模型评估设计模式处理了一个常见问题，即在部署的模型不再适用时需要检测并采取行动。
+- en: Problem
+  id: totrans-168
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题
+- en: So, you’ve trained your model. You collected the raw data, cleaned it up, engineered
+    features, created embedding layers, tuned hyperparameters, the whole shebang.
+    You’re able to achieve 96% accuracy on your hold-out test set. Amazing! You’ve
+    even gone through the painstaking process of deploying your model, taking it from
+    a Jupyter notebook to a machine learning model in production, and are serving
+    predictions via a REST API. Congratulations, you’ve done it. You’re finished!
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以，你已经训练好了你的模型。你收集了原始数据，进行了清洗，设计了特征，创建了嵌入层，调优了超参数，整个过程都做到了。你在留存测试集上能够达到96%的准确率。太棒了！你甚至经历了将模型部署的繁琐过程，把它从
+    Jupyter 笔记本转换为生产中的机器学习模型，并通过 REST API 提供预测服务。恭喜你，你成功了。你完成了！
+- en: Well, not quite. Deployment is not the end of a machine learning model’s life
+    cycle. How do you know that your model is working as expected in the wild? What
+    if there are unexpected changes in the incoming data? Or the model no longer produces
+    accurate or useful predictions? How will these changes be detected?
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 嗯，并不完全是这样。部署并不是机器学习模型生命周期的终点。你怎么知道你的模型在实际应用中表现如预期？如果输入数据出现意外变化怎么办？或者模型不再产生准确或有用的预测了？这些变化如何被检测到？
+- en: The world is dynamic, but developing a machine learning model usually creates
+    a static model from historical data. This means that once the model goes into
+    production, it can start to degrade and its predictions can grow increasingly
+    unreliable. Two of the main reasons models degrade over time are concept drift
+    and data drift.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 世界是动态的，但通常开发机器学习模型会根据历史数据创建静态模型。这意味着一旦模型投入生产，它可能会开始退化，其预测可能变得越来越不可靠。模型随时间退化的两个主要原因是概念漂移和数据漂移。
+- en: Concept drift occurs whenever the relationship between the model inputs and
+    target have changed. This often happens because the underlying assumptions of
+    your model have changed, such as models trained to learn adversarial or competitive
+    behavior like fraud detection, spam filters, stock market trading, online ad bidding,
+    or cybersecurity. In these scenarios, a predictive model aims to identify patterns
+    that are characteristic of desired (or undesired) activity, while the adversary
+    learns to adapt and may modify their behavior as circumstances change. Think for
+    example of a model developed to detect credit card fraud. The way people use credit
+    cards has changed over time and thus the common characteristics of credit card
+    fraud have also changed. For instance, when “Chip and Pin” technology was introduced,
+    fraudulent transactions began to move more online. As fraudulent behavior adapted,
+    the performance of a model that had been developed before this technology would
+    suddenly begin to suffer and model predictions would be less accurate.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 概念漂移发生在模型输入与目标之间的关系发生变化时。这经常发生是因为您的模型的基本假设发生了变化，例如针对学习对抗性或竞争性行为的模型，比如欺诈检测、垃圾邮件过滤、股票市场交易、在线广告竞价或网络安全。在这些场景中，预测模型旨在识别特定活动的特征模式（或非期望活动），而对手则学会适应并可能随着情况改变其行为。例如，考虑开发用于检测信用卡欺诈的模型。随着人们使用信用卡的方式随时间改变，信用卡欺诈的常见特征也发生了变化。例如，当“芯片和PIN”技术推出时，欺诈交易开始更多地发生在线。随着欺诈行为的适应，在此技术之前开发的模型性能突然开始下降，并且模型预测将变得不太准确。
+- en: 'Another reason for a model’s performance to degrade over time is data drift.
+    We introduced the problem of data drift in [“Common Challenges in Machine Learning”](ch01.xhtml#common_challenges_in_machine_learning)
+    in [Chapter 1](ch01.xhtml#the_need_for_machine_learning_design_pa). Data drift
+    refers to any change that has occurred to the data being fed to your model for
+    prediction as compared to the data that was used for training. Data drift can
+    occur for a number of reasons: the input data schema changes at the source (for
+    example, fields are added or deleted upstream), feature distributions change over
+    time (for example, a hospital might start to see more younger adults because a
+    ski resort opened nearby), or the meaning of the data changes even if the structure/schema
+    hasn’t (for example, whether a patient is considered “overweight” may change over
+    time). Software updates could introduce new bugs or the business scenario changes
+    and creates a new product label previously not available in the training data.
+    ETL pipelines for building, training, and predicting with ML models can be brittle
+    and opaque, and any of these changes would have drastic effects on the performance
+    of your model.'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型性能随时间降低的另一个原因是数据漂移。我们在[“机器学习中的常见挑战”](ch01.xhtml#common_challenges_in_machine_learning)一文中介绍了数据漂移问题，该章节位于[第1章](ch01.xhtml#the_need_for_machine_learning_design_pa)中。数据漂移指的是与用于训练模型的数据相比，用于模型预测的数据发生的任何变化。数据漂移可能由多种原因引起：输入数据架构在源头发生变化（例如，上游添加或删除字段），特征分布随时间改变（例如，由于附近开设滑雪度假村，医院可能开始看到更多年轻成年人），或者即使结构/架构没有变化，数据的含义也发生了变化（例如，随着时间推移，一个病人是否被视为“超重”可能会改变）。软件更新可能引入新的错误，或者业务场景变化并创建了以前在训练数据中不可用的新产品标签。用于构建、训练和预测ML模型的ETL流水线可能脆弱且不透明，这些变化中的任何一种都会对模型的性能产生重大影响。
+- en: Model deployment is a continuous process, and to solve for concept drift or
+    data drift, it is necessary to update your training dataset and retrain your model
+    with fresh data to improve predictions. But how do you know when retraining is
+    necessary? And how often should you retrain? Data preprocessing and model training
+    can be costly both in time and money and each step of the model development cycle
+    adds additional overhead of development, monitoring, and maintenance.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型部署是一个持续的过程，要解决概念漂移或数据漂移问题，有必要使用新鲜数据更新您的训练数据集并重新训练模型以改进预测结果。但是如何知道何时需要重新训练？以及多久重新训练一次？数据预处理和模型训练可能在时间和金钱上都很昂贵，模型开发周期的每个步骤都增加了开发、监控和维护的额外开销。
+- en: Solution
+  id: totrans-175
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 解决方案
+- en: The most direct way to identify model deterioration is to continuously monitor
+    your model’s predictive performance over time, and assess that performance with
+    the same evaluation metrics you used during development. This kind of continuous
+    model evaluation and monitoring is how we determine whether the model, or any
+    changes we’ve made to the model, are working as they should.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最直接识别模型退化的方法是持续监视模型随时间的预测性能，并使用与开发期间使用的相同评估指标评估该性能。这种持续模型评估和监控是我们确定模型或我们对模型所做任何更改是否正常工作的方法。
+- en: Concept
+  id: totrans-177
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 概念
+- en: Continuous evaluation of this kind requires access to the raw prediction request
+    data and the predictions the model generated as well as the ground truth, all
+    in the same place. Google Cloud AI Platform provides the ability to configure
+    the deployed model version so that the online prediction input and output are
+    regularly sampled and saved to a table in BigQuery. In order to keep the service
+    performant to a large number of requests per second, we can customize how much
+    data is sampled by specifying a percentage of the number of input requests. In
+    order to measure performance metrics, it is necessary to combine this saved sample
+    of predictions against the ground truth.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种连续评估需要访问原始预测请求数据、模型生成的预测以及真实数据，全部在同一个地方。Google Cloud AI 平台提供了配置部署模型版本的能力，以便将在线预测的输入和输出定期采样并保存到
+    BigQuery 中的表中。为了保持服务对每秒大量请求的性能，我们可以通过指定输入请求数量的百分比来自定义采样数据量。为了测量性能指标，有必要将这些保存的预测样本与真实数据进行结合。
+- en: In most situations, it may take time before the ground truth labels become available.
+    For example, for a churn model, it may not be known until the next subscription
+    cycle which customers have discontinued their service. Or, for a financial forecasting
+    model, the true revenue isn’t known until after that quarter’s close and earnings
+    report. In either of these cases, evaluation cannot take place until ground truth
+    data is available.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大多数情况下，直到确切的真实标签变得可用之前，可能需要一段时间。例如，对于流失模型，直到下一个订阅周期，才会知道哪些客户已经停止使用其服务。或者对于财务预测模型，真实的收入直到季度结束和收益报告后才会知道。在任何这些情况下，只有在真实数据可用之后，才能进行评估。
+- en: To see how continuous evaluation works, we’ll deploy a text classification model
+    trained on the HackerNews dataset to Google Cloud AI Platform. The full code for
+    this example can be found in the [continuous evaluation notebook](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/continuous_eval.ipynb)
+    in the repository accompanying this book.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解连续评估的工作原理，我们将在Google Cloud AI平台上部署一个基于HackerNews数据集训练的文本分类模型。此示例的完整代码可以在伴随本书的存储库中的
+    [连续评估笔记本](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/continuous_eval.ipynb)
+    中找到。
+- en: Deploying the model
+  id: totrans-181
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 部署模型
+- en: The input for our training dataset is an article title and its associated label
+    is the news source where the article originated, either `nytimes`, `techcrunch`,
+    or `github`. As news trends evolve over time, the words associated with a *New
+    York Times* headline will change. Similarly, releases of new technology products
+    will affect the words to be found in TechCrunch. Continuous evaluation allows
+    us to monitor model predictions to track how those trends affect our model performance
+    and kick off retraining if necessary.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的训练数据集的输入是文章标题，其相关标签是文章来源的新闻源，可以是`nytimes`、`techcrunch`或`github`。随着新闻趋势随时间变化，与*纽约时报*标题相关的词语也会变化。同样地，新技术产品的发布将影响在TechCrunch上找到的词语。连续评估使我们能够监控模型预测，以跟踪这些趋势如何影响我们的模型性能，并在必要时启动重新训练。
+- en: 'Suppose that the model is exported with a custom serving input function as
+    described in [“Design Pattern 16: Stateless Serving Function”](#design_pattern_onesix_stateless_serving):'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '假设模型是使用自定义服务输入函数导出的，如 [“设计模式 16: 无状态服务函数”](#design_pattern_onesix_stateless_serving)
+    中描述的那样：'
+- en: '[PRE33]'
+  id: totrans-184
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'After deploying this model, when we make an online prediction, the model will
+    return the predicted news source as a string value and a numeric score of that
+    prediction label related to how confident the model is. For example, we can create
+    an online prediction by writing an input JSON example to a file called *input.json*
+    to send for prediction:'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署了这个模型后，当我们进行在线预测时，模型将返回预测的新闻来源作为字符串值，并且与模型对于该预测标签的置信度相关的数字分数。例如，我们可以通过编写一个名为
+    *input.json* 的输入 JSON 示例文件来进行在线预测发送：
+- en: '[PRE34]'
+  id: totrans-186
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: 'This returns the following prediction output:'
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将返回以下预测输出：
+- en: '[PRE35]'
+  id: totrans-188
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: Saving predictions
+  id: totrans-189
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 保存预测
+- en: Once the model is deployed, we can set up a job to save a sample of the prediction
+    requests—the reason to save a sample, rather than all requests, is to avoid unnecessarily
+    slowing down the serving system. We can do this in the Continuous Evaluation section
+    of the Google Cloud AI Platform (CAIP) console by specifying the `LabelKey` (the
+    column that is the output of the model, which in our case will be `source` since
+    we are predicting the source of the article), a `ScoreKey` in the prediction outputs
+    (a numeric value, which in our case is `confidence`), and a table in BigQuery
+    where a portion of the online prediction requests are stored. In our example code,
+    the table is called `txtcls_eval.swivel`. Once this has been configured, whenever
+    online predictions are made, CAIP streams the model name, the model version, the
+    timestamp of the prediction request, the raw prediction input, and the model’s
+    output to the specified BigQuery table, as shown in [Table 5-1](#a_proportion_of_the_online_prediction_r).
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型部署后，我们可以设置一个任务来保存一部分预测请求的样本——之所以保存样本而不是所有请求，是为了避免不必要地减慢服务系统的速度。我们可以在 Google
+    Cloud AI Platform（CAIP）控制台的连续评估部分进行此操作，通过指定`LabelKey`（模型输出的列，在我们的例子中将是`source`，因为我们预测文章的来源）、预测输出中的`ScoreKey`（一个数值，我们的情况下是`confidence`）以及在
+    BigQuery 中存储在线预测请求的表。在我们的示例代码中，该表称为`txtcls_eval.swivel`。配置完成后，每当进行在线预测时，CAIP将模型名称、模型版本、预测请求的时间戳、原始预测输入以及模型的输出流到指定的
+    BigQuery 表中，如 [Table 5-1](#a_proportion_of_the_online_prediction_r) 所示。
+- en: Table 5-1\. A proportion of the online prediction requests and the raw prediction
+    output is saved to a table in BigQuery
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Table 5-1\. 在 BigQuery 中保存在线预测请求和原始预测输出的比例表
+- en: '| Row | model | model_version | time | raw_data | raw_prediction | groundtruth
+    |  |'
+  id: totrans-192
+  prefs: []
+  type: TYPE_TB
+  zh: '| 行 | 模型 | 模型版本 | 时间 | 原始数据 | 原始预测 | 地面真实值 |  |'
+- en: '| --- | --- | --- | --- | --- | --- | --- | --- |'
+  id: totrans-193
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- | --- | --- | --- |'
+- en: '| 1 | txtcls | swivel | 2020-06-10 01:40:32 UTC | {"instances”: [{"text”: “Astronauts
+    Dock With Space Station After Historic SpaceX Launch"}]} | {"predictions”: [{"source”:
+    “github”, “confidence”: 0.9994275569915771}]} | *null* |  |'
+  id: totrans-194
+  prefs: []
+  type: TYPE_TB
+  zh: '| 1 | txtcls | swivel | 2020-06-10 01:40:32 UTC | {"instances”: [{"text”: “Astronauts
+    Dock With Space Station After Historic SpaceX Launch"}]} | {"predictions”: [{"source”:
+    “github”, “confidence”: 0.9994275569915771}]} | *null* |  |'
+- en: '| 2 | txtcls | swivel | 2020-06-10 01:37:46 UTC | {"instances”: [{"text”: “Senate
+    Confirms First Black Air Force Chief"}]} | {"predictions”: [{"source”: “nytimes”,
+    “confidence”: 0.9989787340164185}]} | *null* |  |'
+  id: totrans-195
+  prefs: []
+  type: TYPE_TB
+  zh: '| 2 | txtcls | swivel | 2020-06-10 01:37:46 UTC | {"instances”: [{"text”: “Senate
+    Confirms First Black Air Force Chief"}]} | {"predictions”: [{"source”: “nytimes”,
+    “confidence”: 0.9989787340164185}]} | *null* |  |'
+- en: '| 3 | txtcls | swivel | 2020-06-09 21:21:47 UTC | {"instances”: [{"text”: “A
+    native Mac app wrapper for WhatsApp Web"}]} | {"predictions”: [{"source”: “github”,
+    “confidence”: 0.745254397392273}]} | *null* |  |'
+  id: totrans-196
+  prefs: []
+  type: TYPE_TB
+  zh: '| 3 | txtcls | swivel | 2020-06-09 21:21:47 UTC | {"instances”: [{"text”: “A
+    native Mac app wrapper for WhatsApp Web"}]} | {"predictions”: [{"source”: “github”,
+    “confidence”: 0.745254397392273}]} | *null* |  |'
+- en: Capturing ground truth
+  id: totrans-197
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 捕获地面真实值
+- en: It is also necessary to capture the ground truth for each of the instances sent
+    to the model for prediction. This can be done in a number of ways depending on
+    the use case and data availability. One approach would be to use a human labeling
+    service—all instances sent to the model for prediction, or maybe just the ones
+    for which the model has marginal confidence, are sent out for human annotation.
+    Most cloud providers offer some form of a human labeling service to enable labeling
+    instances at scale in this way.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于发送给模型进行预测的每个实例，捕获地面真实值也是必要的。根据用例和数据可用性，可以通过多种方式进行。一种方法是使用人工标注服务——将发送给模型进行预测的所有实例，或者可能只是对模型信心较低的实例，发送给人工注释。大多数云服务提供商都提供某种形式的人工标注服务，以便以这种方式批量标记实例。
+- en: Ground truth labels can also be derived from how users interact with the model
+    and its predictions. By having users take a specific action, it is possible to
+    obtain implicit feedback for a model’s prediction or to produce a ground truth
+    label. For example, when a user chooses one of the proposed alternate routes in
+    Google Maps, the chosen route serves as an implicit ground truth. More explicitly,
+    when a user rates a recommended movie, this is a clear indication of the ground
+    truth for a model that is built to predict user ratings in order to surface recommendations.
+    Similarly, if the model allows the user to change the prediction, for example,
+    as in medical settings when a doctor is able to change a model’s suggested diagnosis,
+    this provides a clear signal for the ground truth.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 地面真相标签也可以根据用户与模型及其预测的互动方式推导出来。通过让用户采取特定行动，可以获得对模型预测的隐式反馈或生成地面真相标签。例如，当用户在Google地图中选择推荐的替代路线之一时，所选路线作为隐式地面真相。更明确地说，当用户对推荐电影进行评分时，这清楚地表明了建立用于预测用户评级以提供推荐的模型的地面真相。类似地，如果模型允许用户更改预测，例如在医疗设置中，当医生能够更改模型建议的诊断时，这提供了地面真相的明确信号。
+- en: Warning
+  id: totrans-200
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: It is important to keep in mind how the feedback loop of model predictions and
+    capturing ground truth might affect training data down the road. For example,
+    suppose you’ve built a model to predict when a shopping cart will be abandoned.
+    You can even check the status of the cart at routine intervals to create ground
+    truth labels for model evaluation. However, if your model suggests a user will
+    abandon their shopping cart and you offer them free shipping or some discount
+    to influence their behavior, then you’ll never know if the original model prediction
+    was correct. In short, you’ve violated the assumptions of the model evaluation
+    design and will need to determine ground truth labels some other way. This task
+    of estimating a particular outcome under a different scenario is referred to as
+    counterfactual reasoning and often arises in use cases like fraud detection, medicine,
+    and advertising where a model’s predictions likely lead to some intervention that
+    can obscure learning the actual ground truth for that example.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要牢记模型预测的反馈循环和捕捉地面真相可能会如何影响未来的训练数据。例如，假设您建立了一个模型来预测何时会放弃购物车。您甚至可以定期检查购物车的状态，以创建模型评估的地面真相标签。然而，如果您的模型建议用户会放弃他们的购物车，并且您提供免费运输或某些折扣以影响他们的行为，那么您将永远不会知道原始模型预测是否正确。简而言之，您违反了模型评估设计的假设，并且需要以其他方式确定地面真相标签。在不同情景下估计特定结果的任务被称为反事实推理，通常在欺诈检测、医学和广告等使用案例中出现，其中模型的预测可能导致某些干预，这些干预可能会模糊该示例的实际地面真相的学习。
+- en: Evaluating model performance
+  id: totrans-202
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 评估模型性能
+- en: 'Initially, the `groundtruth` column of the `txtcls_eval.swivel` table in BigQuery
+    is left empty. We can provide the ground truth labels once they are available
+    by updating the value directly with a SQL command. Of course, we should make sure
+    the ground truth is available before we run an evaluation job. Note that the ground
+    truth adheres to the same JSON structure as the prediction output from the model:'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最初，在BigQuery中`txtcls_eval.swivel`表的`groundtruth`列是空的。一旦可用，我们可以通过直接使用SQL命令更新值来提供地面真相标签。当然，在运行评估作业之前，我们应确保地面真相是可用的。请注意，地面真相遵循与模型预测输出相同的JSON结构：
+- en: '[PRE36]'
+  id: totrans-204
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: 'To update more rows, we’d use a `MERGE` statement instead of an `UPDATE`. Once
+    the ground truth has been added to the table, it’s possible to easily examine
+    the text input and your model’s prediction and compare with the ground truth as
+    in [Table 5-2](#once_ground_truth_is_availablecomma_it):'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更新更多行时，我们会使用`MERGE`语句而不是`UPDATE`语句。一旦地面真相已经添加到表中，就可以轻松地检查文本输入和模型预测，并与地面真相（如[表5-2](#once_ground_truth_is_availablecomma_it)）进行比较：
+- en: '[PRE37]'
+  id: totrans-206
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: Table 5-2\. Once ground truth is available, it can be added to the original
+    BigQuery table and the performance of the model can be evaluated
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表5-2. 一旦地面真相可用，它可以添加到原始BigQuery表中，并且可以评估模型的性能。
+- en: '| Row | model | model_version | time | text | prediction | confidence | groundtruth
+    |  |'
+  id: totrans-208
+  prefs: []
+  type: TYPE_TB
+  zh: '| 行 | 模型 | 模型版本 | 时间 | 文本 | 预测 | 置信度 | 地面真相 |  |'
+- en: '| --- | --- | --- | --- | --- | --- | --- | --- | --- |'
+  id: totrans-209
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- | --- | --- | --- | --- |'
+- en: '| 1 | txtcls | swivel | 2020-06-10 01:38:13 UTC | A native Mac app wrapper
+    for WhatsApp Web | github | 0.77 | github |  |'
+  id: totrans-210
+  prefs: []
+  type: TYPE_TB
+  zh: '| 1 | txtcls | swivel | 2020-06-10 01:38:13 UTC | WhatsApp Web的本地Mac应用程序包装器
+    | github | 0.77 | github |  |'
+- en: '| 2 | txtcls | swivel | 2020-06-10 01:37:46 UTC | Senate Confirms First Black
+    Air Force Chief | nytimes | 0.99 | nytimes |  |'
+  id: totrans-211
+  prefs: []
+  type: TYPE_TB
+  zh: '| 2 | txtcls | swivel | 2020-06-10 01:37:46 UTC | **参议院确认第一位黑人空军首脑** | nytimes
+    | 0.99 | nytimes |  |'
+- en: '| 3 | txtcls | swivel | 2020-06-10 01:40:32 UTC | Astronauts Dock With Space
+    Station After Historic SpaceX Launch | github | 0.99 | nytimes |  |'
+  id: totrans-212
+  prefs: []
+  type: TYPE_TB
+  zh: '| 3 | txtcls | swivel | 2020-06-10 01:40:32 UTC | **宇航员历史性的 SpaceX 发射后与空间站对接**
+    | github | 0.99 | nytimes |  |'
+- en: '| 4 | txtcls | swivel | 2020-06-09 21:21:44 UTC | YouTube introduces Video
+    Chapters to make it easier to navigate longer videos | techcrunch | 0.77 | techcrunch
+    |  |'
+  id: totrans-213
+  prefs: []
+  type: TYPE_TB
+  zh: '| 4 | txtcls | swivel | 2020-06-09 21:21:44 UTC | **YouTube 推出视频章节功能，以便更轻松地浏览更长的视频**
+    | techcrunch | 0.77 | techcrunch |  |'
+- en: With this information accessible in BigQuery, we can load the evaluation table
+    into a dataframe, `df_evals`, and directly compute evaluation metrics for this
+    model version. Since this is a multiclass classification, we can compute the precision,
+    recall, and F1-score for each class. We can also create a confusion matrix, which
+    helps to analyze where model predictions within certain categorical labels may
+    suffer. [Figure 5-3](#a_confusion_matrix_shows_all_pairs_of_g) shows the confusion
+    matrix comparing this model’s predictions with the ground truth.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了这些信息在 BigQuery 中可访问，我们可以将评估表加载到一个名为 `df_evals` 的数据帧中，并直接计算该模型版本的评估指标。由于这是多类分类，我们可以计算每个类别的精确度、召回率和
+    F1 分数。我们还可以创建一个混淆矩阵，帮助分析模型预测在某些分类标签内的情况。图 [5-3](#a_confusion_matrix_shows_all_pairs_of_g)
+    显示了将该模型预测与地面真实标签进行比较的混淆矩阵。
+- en: '![A confusion matrix shows all pairs of ground truth labels and predictions
+    so you can explore your model performance within different classes.](Images/mldp_0503.png)'
+  id: totrans-215
+  prefs: []
+  type: TYPE_IMG
+  zh: '![混淆矩阵显示所有地面真实标签和预测标签的配对，因此您可以探索模型在不同类别内的性能。](Images/mldp_0503.png)'
+- en: Figure 5-3\. A confusion matrix shows all pairs of ground truth labels and predictions
+    so you can explore your model performance within different classes.
+  id: totrans-216
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-3\. 混淆矩阵显示所有地面真实标签和预测标签的配对，因此您可以探索模型在不同类别内的性能。
+- en: Continuous evaluation
+  id: totrans-217
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 持续评估
+- en: 'We should make sure the output table also captures the model version and the
+    timestamp of prediction requests so that we can use the same table for continuous
+    evaluation of two different model versions for comparing metrics between the models.
+    For example, if we deploy a newer version of our model, called `swivel_v2,` that
+    is trained on more recent data or has different hyperparameters, we can compare
+    their performance by slicing the evaluation dataframe according to the model version:'
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应确保输出表还捕获了模型版本和预测请求的时间戳，以便我们可以使用同一张表对比两个不同模型版本之间的指标。例如，如果我们部署了一个名为 `swivel_v2`
+    的新模型版本，该版本是根据最新数据或具有不同超参数进行训练的，我们可以通过切片评估数据帧来比较它们的性能：
+- en: '[PRE38]'
+  id: totrans-219
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: 'Similarly, we can create evaluation slices in time, focusing only on model
+    predictions within the last month or the last week:'
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，我们可以创建时间段内的评估切片，仅关注最近一个月或最近一周内的模型预测：
+- en: '[PRE39]'
+  id: totrans-221
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: To carry out the above evaluations continuously, the notebook (or a containerized
+    form) can be scheduled. We can set it up to trigger a model retraining if the
+    evaluation metric falls below some threshold.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了持续进行上述评估，可以安排笔记本电脑（或容器化形式）。我们可以设置它在评估指标低于某个阈值时触发模型重新训练。
+- en: Why It Works
+  id: totrans-223
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 为什么会有效
+- en: When developing machine learning models, there is an implicit assumption that
+    the train, validation, and test data come from the same distribution, as shown
+    in [Figure 5-4](#when_developing_a_machine_learning_mode). When we deploy models
+    to production, this assumption implies that future data will be similar to past
+    data. However, once the model is in production “in the wild,” this static assumption
+    on the data may no longer be valid. In fact, many production ML systems encounter
+    rapidly changing, nonstationary data, and models become stale over time, which
+    negatively impacts the quality of predictions.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在开发机器学习模型时，有一个隐含的假设，即训练、验证和测试数据来自相同的分布，如图 [5-4](#when_developing_a_machine_learning_mode)
+    所示。当我们将模型部署到生产环境时，这一假设意味着未来的数据将与过去的数据相似。然而，一旦模型在生产环境中“野外”运行，对数据的这种静态假设可能不再有效。事实上，许多生产中的机器学习系统会遇到快速变化的非静态数据，而模型随时间变得陈旧，从而对预测质量产生负面影响。
+- en: '![When developing a machine learning model, the train, validation, and test
+    data come from the same data distribution. However, once the model is deployed
+    that distribution can change, severely affecting model performance. ](Images/mldp_0504.png)'
+  id: totrans-225
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在开发机器学习模型时，训练、验证和测试数据来自相同的数据分布。然而，一旦模型部署，该分布可能会改变，严重影响模型性能。 ](Images/mldp_0504.png)'
+- en: Figure 5-4\. When developing a machine learning model, the train, validation,
+    and test data come from the same data distribution. However, once the model is
+    deployed, that distribution can change, severely affecting model performance.
+  id: totrans-226
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-4\. 在开发机器学习模型时，训练、验证和测试数据来自相同的数据分布。然而，一旦模型部署，该分布可能会改变，严重影响模型性能。
+- en: Continuous model evaluation provides a framework to evaluate a deployed model’s
+    performance *exclusively* on new data. This allows us to detect model staleness
+    as early as possible. This information helps determine how frequently to retrain
+    a model or when to replace it with a new version entirely.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续模型评估提供了一个框架，专门用于评估部署模型在新数据上的性能。这使我们能够尽早检测模型陈旧。这些信息有助于确定重新训练模型的频率或何时完全替换为新版本。
+- en: By capturing prediction inputs and outputs and comparing with ground truth,
+    it’s possible to quantifiably track model performance or measure how different
+    model versions perform with A/B testing in the current environment, without regard
+    to how the versions performed in the past.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过捕捉预测的输入和输出，并与真实情况进行比较，可以量化地跟踪模型的性能或者在当前环境中进行 A/B 测试以衡量不同模型版本的表现，而不考虑过去版本的表现。
+- en: Trade-Offs and Alternatives
+  id: totrans-229
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 权衡和替代方案
+- en: The goal of continuous evaluation is to provide a means to monitor model performance
+    and keep models in production fresh. In this way, continuous evaluation provides
+    a trigger for when to retrain the model. In this case, it is important to consider
+    tolerance thresholds for model performance, the trade-offs they pose, and the
+    role of scheduled retraining. There are also techniques and tools, like TFX, to
+    help detect data and concept drift preemptively by monitoring input data distributions
+    directly.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续评估的目标是提供一种监控模型性能并保持生产中模型新鲜的方法。通过持续评估，可以确定何时重新训练模型的触发器。在这种情况下，重要的是考虑模型性能的容忍阈值及其所带来的权衡，以及定期重新训练的作用。还有一些技术和工具，如
+    TFX，通过直接监控输入数据分布来帮助预防性地检测数据和概念漂移。
+- en: Triggers for retraining
+  id: totrans-231
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 重新训练的触发器
+- en: Model performance will usually degrade over time. Continuous evaluation allows
+    you to measure precisely how much in a structured way and provides a trigger to
+    retrain the model. So, does that mean you should retrain your model as soon as
+    performance starts to dip? It depends. The answer to this question is heavily
+    tied to the business use case and should be discussed alongside evaluation metrics
+    and model assessment. Depending on the complexity of the model and ETL pipelines,
+    the cost of retraining could be expensive. The trade-off to consider is what amount
+    of deterioration of performance is acceptable in relation to this cost.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型性能通常会随时间而下降。持续评估允许您以结构化方式精确测量下降程度，并提供重新训练模型的触发器。那么，这是否意味着一旦性能开始下降就应该重新训练模型？这取决于情况。这个问题的答案与业务用例紧密相关，应与评估指标和模型评估一起讨论。根据模型复杂性和
+    ETL 流水线，重新训练的成本可能很高。要考虑的权衡是在何种程度的性能恶化可以接受与成本相比。
+- en: The threshold itself could be set as an absolute value; for example, model retraining
+    occurs once model accuracy falls below 95%. Or the threshold could be set as a
+    rate of change of performance, for example, once performance begins to experience
+    a downward trajectory. Whichever approach, the philosophy for choosing the threshold
+    is similar to that for checkpointing models during training. With a higher, more
+    sensitive threshold, models in production remain fresh, but there is a higher
+    cost for frequent retraining as well as technical overhead of maintaining and
+    switching between different model versions. With a lower threshold, training costs
+    decrease but models in production are more stale. [Figure 5-5](#setting_a_higher_threshold_for_model_pe)
+    shows this trade-off between the performance threshold and how it affects the
+    number of model retraining jobs.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 阈值本身可以设置为绝对值；例如，当模型准确率低于 95% 时进行模型重新训练。或者阈值可以设置为性能变化率，例如，一旦性能开始出现下降趋势。无论哪种方法，选择阈值的理念类似于训练过程中对模型进行检查点。具有更高、更敏感的阈值时，生产中的模型保持更新，但频繁重新训练的成本更高，并且需要维护和切换不同模型版本的技术开销。阈值较低时，训练成本降低，但生产中的模型可能更陈旧。[图
+    5-5](#setting_a_higher_threshold_for_model_pe) 显示了性能阈值与模型重新训练作业数量之间的权衡。
+- en: If the model retraining pipeline is automatically triggered by such a threshold,
+    it is important to track and validate the triggers as well. Not knowing when your
+    model has been retrained inevitably leads to issues. Even if the process is automated,
+    you should always have control of the retraining of your model to better understand
+    and debug the model in the production.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果模型重新训练管道由此类阈值自动触发，跟踪和验证触发器非常重要。不知道何时重新训练您的模型不可避免地会导致问题。即使流程是自动化的，您也应始终控制模型的重新训练，以便更好地理解和调试生产中的模型。
+- en: '![Setting a higher threshold for model performance ensures a higher quality
+    model in production, but will require more frequent retraining jobs, which can
+    be costly.](Images/mldp_0505.png)'
+  id: totrans-235
+  prefs: []
+  type: TYPE_IMG
+  zh: '![设置更高的性能阈值以确保生产中的更高质量模型，但将需要更频繁的重新训练作业，这可能会很昂贵。](Images/mldp_0505.png)'
+- en: Figure 5-5\. Setting a higher threshold for model performance ensures a higher-quality
+    model in production but will require more frequent retraining jobs, which can
+    be costly.
+  id: totrans-236
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-5\. 设置更高的性能阈值以确保生产中的更高质量模型，但将需要更频繁的重新训练作业，这可能会很昂贵。
+- en: Scheduled retraining
+  id: totrans-237
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 定期重新训练
+- en: Continuous evaluation provides a crucial signal for knowing when it’s necessary
+    to retrain your model. This process of retraining is often carried out by fine-tuning
+    the previous model using any newly collected training data. Where continued evaluation
+    may happen every day, scheduled retraining jobs may occur only every week or every
+    month ([Figure 5-6](#continuous_evaluation_provides_model_ev)).
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续评估为了知道何时有必要重新训练您的模型提供了关键信号。这种重新训练的过程通常是通过使用任何新收集的训练数据微调前一个模型来完成的。持续评估可能每天发生一次，而定期重新训练作业可能仅每周或每月发生一次（[图
+    5-6](#continuous_evaluation_provides_model_ev)）。
+- en: Once a new version of the model is trained, its performance is compared against
+    the current model version. The updated model is deployed as a replacement only
+    if it outperforms the previous model with respect to a test set of current data.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦新版本的模型训练完成，其性能将与当前模型版本进行比较。只有在新模型在当前数据测试集上表现优于先前模型时，更新后的模型才会作为替换部署。
+- en: '![Continuous evaluation provides model evaluation each day as new data is collected.
+    Periodic retraining and model comparison provides evaluation at discrete time
+    points.](Images/mldp_0506.png)'
+  id: totrans-240
+  prefs: []
+  type: TYPE_IMG
+  zh: '![持续评估在每天收集新数据时提供模型评估。定期重新训练和模型比较提供离散时间点的评估。](Images/mldp_0506.png)'
+- en: Figure 5-6\. Continuous evaluation provides model evaluation each day as new
+    data is collected. Periodic retraining and model comparison provides evaluation
+    at discrete time points.
+  id: totrans-241
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-6\. 持续评估在每天收集新数据时提供模型评估。定期重新训练和模型比较在离散时间点提供评估。
+- en: So how often should you schedule retraining? The timeline for retraining will
+    depend on the business use case, prevalence of new data, and the cost (in time
+    and money) of executing the retraining pipeline. Sometimes, the time horizon of
+    the model naturally determines when to schedule retraining jobs. For example,
+    if the goal of the model is to predict next quarter’s earnings, since you will
+    get new ground truth labels only once each quarter, it doesn’t make sense to train
+    more frequently than that. However, if the volume and occurrence of new data is
+    high, then it would be beneficial to retrain more frequently. The most extreme
+    version of this is [online machine learning](https://oreil.ly/Mj-DA). Some machine
+    learning applications, such as ad placement or newsfeed recommendation, require
+    online, real-time decision, and can continuously improve performance by retraining
+    and updating parameter weights with each new training example.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何安排重新训练的频率？重新训练的时间表取决于业务用例、新数据的普遍性以及执行重新训练流水线的时间和金钱成本。有时候，模型的时间视角自然决定了何时安排重新训练作业。例如，如果模型的目标是预测下个季度的收益，因为每个季度只能获取一次新的真实标签，那么频率高于此是没有意义的。然而，如果新数据的量和发生频率很高，那么频繁进行重新训练将是有益的。这种情况的极端版本是[在线机器学习](https://oreil.ly/Mj-DA)。某些机器学习应用，如广告投放或新闻推荐，需要在线、实时决策，并可以通过不断重新训练和更新参数权重来持续改善性能。
+- en: In general, the optimal time frame is something you as a practitioner will determine
+    through experience and experimentation. If you are trying to model a rapidly moving
+    task, such as adversary or competitive behavior, then it makes sense to set a
+    more frequent retraining schedule. If the problem is fairly static, like predicting
+    a baby’s birth weight, then less frequent retrainings should suffice.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总的来说，最佳的时间框架是你作为从业者通过经验和实验确定的。如果你试图建模一个快速变化的任务，比如对手或竞争行为，那么设置更频繁的重新训练计划是有意义的。如果问题相对静态，例如预测婴儿的出生体重，那么较少频繁的重新训练就足够了。
+- en: 'In either case, it is helpful to have an automated pipeline set up that can
+    execute the full retraining process with a single API call. Tools like Cloud Composer/Apache
+    Airflow and AI Platform Pipelines are useful to create, schedule, and monitor
+    ML workflows from preprocessing raw data and training to hyperparameter tuning
+    and deployment. We discuss this further in the next chapter in [“Design Pattern
+    25: Workflow Pipeline”](ch06_split_000.xhtml#design_pattern_twofive_workflow_pipelin).'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论哪种情况，建立一个自动化流水线非常有帮助，它可以通过单个API调用执行完整的重新训练过程。像Cloud Composer/Apache Airflow和AI
+    Platform Pipelines这样的工具非常有用，可以从原始数据预处理和训练到超参数调整和部署，创建、调度和监控机器学习工作流。我们在下一章节进一步讨论这个话题，详见[“设计模式25：工作流管道”](ch06_split_000.xhtml#design_pattern_twofive_workflow_pipelin)。
+- en: Data validation with TFX
+  id: totrans-245
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用TFX进行数据验证
+- en: Data distributions can change over time, as shown in [Figure 5-7](#data_distributions_can_change_over_time).
+    For example, consider the natality birth weight dataset. As medicine and societal
+    standards change over time, the relationship between model features, such as the
+    mother’s age or the number of gestation weeks, change with respect to the model
+    label, the weight of the baby. This data drift negatively impacts the model’s
+    ability to generalize to new data. In short, your model has gone *stale,* and
+    it needs to be retrained on fresh data.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据分布随时间可能会发生变化，如图5-7所示。例如，考虑出生体重数据集。随着医学和社会标准随时间的变化，模型特征（如母亲年龄或妊娠周数）与模型标签——婴儿体重之间的关系也会发生变化。这种数据漂移对模型泛化到新数据的能力产生负面影响。简而言之，你的模型已经*过时*，需要用新数据重新训练。
+- en: '![Data distributions can change over time. Data drift refers to any change
+    that has occurred to the data being fed to your model for prediction as compared
+    to the data used for training.](Images/mldp_0507.png)'
+  id: totrans-247
+  prefs: []
+  type: TYPE_IMG
+  zh: '![数据分布随时间可以发生变化。数据漂移是指与训练用数据相比，用于模型预测的数据发生的任何变化。](Images/mldp_0507.png)'
+- en: Figure 5-7\. Data distributions can change over time. Data drift refers to any
+    change that has occurred to the data being fed to your model for prediction as
+    compared to the data used for training.
+  id: totrans-248
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-7\. 数据分布随时间可能会发生变化。数据漂移是指与训练用数据相比，用于模型预测的数据发生的任何变化。
+- en: While continuous evaluation provides a post hoc way of monitoring a deployed
+    model, it is also valuable to monitor the new data that is received during serving
+    and preemptively identify changes in data distributions.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然持续评估提供了监控部署模型的后续方式，但监控接收到的新数据并预先识别数据分布变化也是有价值的。
+- en: TFX’s Data Validation is a useful tool to accomplish this. [TFX](https://oreil.ly/RP2e9)
+    is an end-to-end platform for deploying machine learning models open sourced by
+    Google. The Data Validation library can be used to compare the data examples used
+    in training with those collected during serving. Validity checks detect anomalies
+    in the data, training-serving skew, or data drift. TensorFlow Data Validation
+    creates data visualizations using [Facets](https://oreil.ly/NE-SQ), an open source
+    visualization tool for machine learning. The Facets Overview gives a high-level
+    look at the distributions of values across various features and can uncover several
+    common and uncommon issues like unexpected feature values, missing feature values,
+    and training-serving skew.
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX 的数据验证是一个有用的工具来完成这个任务。[TFX](https://oreil.ly/RP2e9) 是一个由谷歌开源的用于部署机器学习模型的端到端平台。数据验证库可以用来比较训练中使用的数据示例与服务中收集的数据示例。有效性检查可以检测数据中的异常、训练与服务中的偏差，或者数据漂移。TensorFlow
+    数据验证使用 [Facets](https://oreil.ly/NE-SQ)，一个用于机器学习的开源可视化工具，创建数据可视化。Facets 概述可以高层次地查看各种特征值的分布，并能发现一些常见和不常见的问题，比如意外的特征值、缺失的特征值和训练与服务中的偏差。
+- en: Estimating retraining interval
+  id: totrans-251
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 估算重新训练间隔
+- en: A useful and relatively cheap tactic to understand how data and concept drift
+    affect your model is to train a model using only stale data and assess the performance
+    of that model on more current data ([Figure 5-8](#training_a_model_on_stale_data_and_eval)).
+    This mimics the continued model evaluation process in an offline environment.
+    That is, collect data from six months or a year ago and go through the usual model
+    development workflow, generating features, optimizing hyperparameters, and capturing
+    relevant evaluation metrics. Then, compare those evaluation metrics against the
+    model predictions for more recent data collected from only a month prior. How
+    much worse does your stale model perform on the current data? This gives a good
+    estimate of the rate at which a model’s performance falls off over time and how
+    often it might be necessary to retrain.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 了解数据和概念漂移如何影响模型的一个有用且相对便宜的策略是，仅使用陈旧数据训练模型，并评估该模型在更当前的数据上的表现（[图 5-8](#training_a_model_on_stale_data_and_eval)）。这模仿了离线环境中持续模型评估的过程。也就是说，收集六个月或一年前的数据，并经历通常的模型开发工作流程，生成特征，优化超参数，并捕获相关的评估指标。然后，将这些评估指标与仅一个月前收集的更近期数据的模型预测进行比较。你的陈旧模型在当前数据上表现差多少？这可以很好地估计模型性能随时间下降的速度，以及重新训练的必要性。
+- en: '![Training a model on stale data and evaluating on current data mimics the
+    continued model evaluation process in an offline environment. ](Images/mldp_0508.png)'
+  id: totrans-253
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在陈旧数据上训练模型，并在当前数据上评估，模仿了离线环境中持续模型评估过程。](Images/mldp_0508.png)'
+- en: Figure 5-8\. Training a model on stale data and evaluating on current data mimics
+    the continued model evaluation process in an offline environment.
+  id: totrans-254
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-8\. 在陈旧数据上训练模型，并在当前数据上评估，模仿了离线环境中持续模型评估过程。
+- en: 'Design Pattern 19: Two-Phase Predictions'
+  id: totrans-255
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 设计模式 19：两阶段预测
+- en: The Two-Phase Predictions design pattern provides a way to address the problem
+    of keeping large, complex models performant when they have to be deployed on distributed
+    devices by splitting the use cases into two phases, with only the simpler phase
+    being carried out on the edge.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两阶段预测设计模式提供了一种解决当需要在分布式设备上部署大型复杂模型时保持性能的方法，通过将用例分成两个阶段，只在边缘执行更简单的阶段。
+- en: Problem
+  id: totrans-257
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题
+- en: When deploying machine learning models, we cannot always rely on end users having
+    reliable internet connections. In such situations, models are deployed at the
+    *edge*—meaning they are loaded on a user’s device and don’t require an internet
+    connection to generate predictions. Given device constraints, models deployed
+    on the edge typically need to be smaller than models deployed in the cloud, and
+    consequently require balancing trade-offs between model complexity and size, update
+    frequency, accuracy, and low latency.
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在部署机器学习模型时，我们不能总是依赖最终用户有可靠的互联网连接。在这种情况下，模型被部署在*边缘*——意味着它们被加载到用户的设备上，并且不需要互联网连接来生成预测。考虑到设备的限制，部署在边缘的模型通常需要比在云中部署的模型更小，并因此需要在模型复杂性和大小、更新频率、准确性和低延迟之间进行权衡。
+- en: There are various scenarios where we’d want our model deployed on an edge device.
+    One example is a fitness tracking device, where a model makes recommendations
+    for users based on their activity, tracked through accelerometer and gyroscope
+    movement. It’s likely that a user could be exercising in a remote outdoor area
+    without connectivity. In these cases, we’d still want our application to work.
+    Another example is an environmental application that uses temperature and other
+    environmental data to make predictions on future trends. In both of these examples,
+    even if we have internet connectivity, it may be slow and expensive to continuously
+    generate predictions from a model deployed in the cloud.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存在多种场景需要我们的模型部署在边缘设备上。一个例子是健身追踪设备，模型根据通过加速计和陀螺仪跟踪的用户活动为用户提供建议。在没有连接性的远程户外区域进行锻炼时，用户可能会使用这种设备。在这些情况下，我们仍希望我们的应用程序正常工作。另一个例子是环境应用程序，该应用程序使用温度和其他环境数据预测未来趋势。在这两个示例中，即使我们有互联网连接，从部署在云中的模型连续生成预测可能会变得缓慢和昂贵。
+- en: To convert a trained model into a format that works on edge devices, models
+    often go through a process known as *quantization*, where learned model weights
+    are represented with fewer bytes. TensorFlow, for example, uses a format called
+    TensorFlow Lite to [convert](https://oreil.ly/UaMq7) saved models into a smaller
+    format optimized for serving at the edge. In addition to quantization, models
+    intended for edge devices may also start out smaller to fit into stringent memory
+    and processor constraints.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将训练好的模型转换为适用于边缘设备的格式，通常需要经历一种称为*量化*的过程，其中学习的模型权重用较少的字节表示。例如，TensorFlow 使用名为
+    TensorFlow Lite 的格式来[转换](https://oreil.ly/UaMq7)保存的模型为更小的优化格式，以便在边缘提供服务。除了量化之外，用于边缘设备的模型可能也会从一开始就更小，以适应严格的内存和处理器约束。
+- en: Quantization and other techniques employed by TF Lite significantly reduce the
+    size and prediction latency of resulting ML models, but with that may come reduced
+    model accuracy. Additionally, since we can’t consistently rely on edge devices
+    having connectivity, deploying new model versions to these devices in a timely
+    manner also presents a challenge.
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF Lite 使用的量化和其他技术显著减少了生成的 ML 模型的大小和预测延迟，但可能会降低模型的准确性。此外，由于我们无法始终依赖边缘设备具有连接性，及时向这些设备部署新的模型版本也是一个挑战。
+- en: We can see how these trade-offs play out in practice by looking at the options
+    for training edge models in [Cloud AutoML Vision](https://oreil.ly/MWsQH) in [Figure 5-9](#making_trade-offs_between_accuracycomma).
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过观察在[Cloud AutoML Vision](https://oreil.ly/MWsQH)中训练边缘模型的选项，我们可以看到这些权衡在实践中是如何发挥作用的，见[图 5-9](#making_trade-offs_between_accuracycomma)。
+- en: '![Making trade-offs between accuracy, model size, and latency for models deployed
+    at the edge in Cloud AutoML Vision.](Images/mldp_0509.png)'
+  id: totrans-263
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在云AutoML Vision中为边缘部署的模型之间进行准确性、模型大小和延迟的权衡。](Images/mldp_0509.png)'
+- en: Figure 5-9\. Making trade-offs between accuracy, model size, and latency for
+    models deployed at the edge in Cloud AutoML Vision.
+  id: totrans-264
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-9\. 在云AutoML Vision中为边缘部署的模型之间进行准确性、模型大小和延迟的权衡。
+- en: To account for these trade-offs, we need a solution that balances the reduced
+    size and latency of edge models against the added sophistication and accuracy
+    of cloud models.
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要考虑这些权衡，我们需要一个解决方案来平衡边缘模型的尺寸和延迟的减少与云模型的增强复杂性和准确性。
+- en: Solution
+  id: totrans-266
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 解决方案
+- en: With the Two-Phase Predictions design pattern, we split our problem into two
+    parts. We start with a smaller, cheaper model that can be deployed on-device.
+    Because this model typically has a simpler task, it can accomplish this task on-device
+    with relatively high accuracy. This is followed by a second, more complex model
+    deployed in the cloud and triggered only when needed. Of course, this design pattern
+    requires you to have a problem that can be split into two parts with varying levels
+    of complexity. One example of such a problem is smart devices like [Google Home](https://oreil.ly/3ROKg),
+    which are activated by a wake word and can then answer questions and respond to
+    commands related to setting alarms, reading the news, and interacting with integrated
+    devices like lights and thermostats. Google Home, for example, is activated by
+    saying “OK Google” or “Hey Google.” Once the device recognizes a wake word, users
+    can ask more complex questions like, “Can you schedule a meeting with Sara at
+    10 a.m.?”
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用两阶段预测设计模式，我们将问题分成两部分。我们从一个较小、成本较低的模型开始，该模型可以部署在设备上。由于这个模型通常具有较简单的任务，它可以在设备上以相对较高的准确率完成这个任务。接着是第二个更复杂的模型，部署在云端，仅在需要时触发。当然，这种设计模式要求你有一个可以分成两个具有不同复杂程度部分的问题。一个这样的问题的例子是智能设备，比如[Google
+    Home](https://oreil.ly/3ROKg)，它们通过唤醒词激活，然后可以回答问题和响应设置闹钟、阅读新闻以及与灯光和恒温器等集成设备交互的命令。例如，Google
+    Home可以通过说“OK Google”或“Hey Google”来激活。一旦设备识别到唤醒词，用户可以提出更复杂的问题，比如：“你能安排和萨拉在上午10点的会议吗？”
+- en: 'This problem can be broken into two distinct parts: an initial model that listens
+    for a wake word, and a more complex model that can understand and respond to any
+    other user query. Both models will perform audio recognition. The first model,
+    however, will only need to perform binary classification: does the sound it just
+    heard match the wake word or not? Although this model is simpler in complexity,
+    it needs to be constantly running, which will be expensive if it’s deployed to
+    the cloud. The second model will require audio recognition *and* natural language
+    understanding in order to parse the user’s query. This model only needs to run
+    when a user asks a question, but places more emphasis on high accuracy. The Two-Phase
+    Predictions pattern can solve this by deploying the wake word model on-device
+    and the more complex model in the cloud.'
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个问题可以分成两个明确的部分：一个初始模型用于监听唤醒词，另一个更复杂的模型可以理解并响应任何其他用户查询。两个模型都将执行音频识别。然而，第一个模型只需要执行二元分类：刚刚听到的声音是否匹配唤醒词？虽然这个模型在复杂性上更简单，但如果部署到云端并且需要不断运行，这将非常昂贵。第二个模型将需要音频识别和自然语言理解来解析用户的查询。这个模型只需要在用户提问时运行，但更强调高准确率。两阶段预测模式可以通过在设备上部署唤醒词模型和在云端部署更复杂的模型来解决这个问题。
+- en: In addition to this smart device use case, there are many other situations where
+    the Two-Phase Predictions pattern can be employed. Let’s say you work on a factory
+    floor where many different machines are running at a given time. When a machine
+    stops working correctly, it typically makes a noise that can be associated with
+    a malfunction. There are different noises corresponding with each distinct machine
+    and the different ways a machine could be broken. Ideally, you can build a model
+    to flag problematic noises and identify what they mean. With Two-Phase Predictions,
+    you could build one offline model to detect anomalous sounds. A second cloud model
+    could then be used to identify whether the usual sound is indicative of some malfunctioning
+    condition.
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了这种智能设备的使用案例外，还有许多其他情况可以使用两阶段预测模式。比如说，你在一个工厂生产线上工作，同时许多不同的机器在运行。当一个机器停止正常工作时，通常会发出可能与故障相关的噪音。不同的噪音对应于每台不同的机器以及机器可能出现故障的不同方式。理想情况下，你可以构建一个模型来标记问题噪音并识别其含义。使用两阶段预测，你可以构建一个离线模型来检测异常声音。然后可以使用第二个云模型来确定通常的声音是否表明某种故障状态。
+- en: You could also use the Two-Phase Predictions pattern for an image-based scenario.
+    Let’s say you have cameras deployed in the wild to identify and track endangered
+    species. You can have one model on the device that detects whether the latest
+    image captured contains an endangered animal. If it does, this image can then
+    be sent to a cloud model that determines the specific type of animal in the image.
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以针对基于图像的场景使用两阶段预测模式。假设您在野外部署了摄像头以识别和追踪濒危物种。您可以在设备上有一个模型，用于检测最新捕捉的图像是否包含濒危动物。如果是，该图像将被发送到一个云模型，以确定图像中特定类型的动物。
+- en: To illustrate the Two-Phase Predictions pattern, let’s employ a general-purpose
+    audio recognition [dataset from Kaggle](https://oreil.ly/I89Pr). The dataset contains
+    around 9,000 audio samples of familiar sounds with a total of 41 label categories,
+    including “cello,” “knock,” “telephone,” “trumpet,” and more. The first phase
+    of our solution will be a model that predicts whether or not the given sound is
+    a musical instrument. Then, for sounds that the first model predicts are an instrument,
+    we’ll get a prediction from a model deployed in the cloud to predict the specific
+    instrument from a total of 18 possible options. [Figure 5-10](#using_the_two-phase_predictions_pattern)
+    shows the two-phased flow for this example.
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明两阶段预测模式，让我们使用来自Kaggle的通用音频识别[数据集](https://oreil.ly/I89Pr)。该数据集包含约9,000个熟悉声音的音频样本，共41个标签类别，包括“大提琴”，“敲门声”，“电话”，“小号”等。我们解决方案的第一阶段将是一个模型，预测给定声音是否是一种乐器。然后，对于第一个模型预测为乐器的声音，我们将从云中部署的模型中获得对18种可能选项中特定乐器的预测结果。[图5-10](#using_the_two-phase_predictions_pattern)显示了这个示例的两阶段流程。
+- en: '![Using the Two-Phase Predictions pattern to identify instrument sounds.](Images/mldp_0510.png)'
+  id: totrans-272
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用两阶段预测模式来识别乐器声音。](Images/mldp_0510.png)'
+- en: Figure 5-10\. Using the Two-Phase Predictions pattern to identify instrument
+    sounds.
+  id: totrans-273
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-10\. 使用两阶段预测模式来识别乐器声音。
+- en: To build each of these models, we’ll convert the audio data to spectrograms,
+    which are visual representations of sound. This will allow us to use common image
+    model architectures along with the Transfer Learning design pattern to solve this
+    problem. See [Figure 5-11](#the_image_representation_left_parenthes) for a spectrogram
+    of a saxophone audio clip from our dataset.
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了构建这些模型，我们将把音频数据转换为声谱图，这些图像是声音的可视化表示。这将允许我们使用常见的图像模型架构以及转移学习设计模式来解决这个问题。请参见[图5-11](#the_image_representation_left_parenthes)中我们数据集中的萨克斯管音频片段的声谱图。
+- en: '![The image representation (spectrogram) of a saxophone audio clip from our
+    training dataset. Code for converting .wav files to spectrograms can be found
+    in the GitHub repository.](Images/mldp_0511.png)'
+  id: totrans-275
+  prefs: []
+  type: TYPE_IMG
+  zh: '![我们训练数据集中萨克斯管音频片段的图像表示（声谱图）。将.wav文件转换为声谱图的代码可以在GitHub仓库中找到。](Images/mldp_0511.png)'
+- en: Figure 5-11\. The image representation (spectrogram) of a saxophone audio clip
+    from our training dataset. Code for converting .wav files to spectrograms can
+    be found in the [GitHub repository](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/audio_to_spectro.ipynb).
+  id: totrans-276
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-11\. 我们训练数据集中萨克斯管音频片段的图像表示（声谱图）。将.wav文件转换为声谱图的代码可以在[GitHub仓库](https://github.com/GoogleCloudPlatform/ml-design-patterns/blob/master/05_resilience/audio_to_spectro.ipynb)中找到。
+- en: 'Phase 1: Building the offline model'
+  id: totrans-277
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 阶段1：构建离线模型
+- en: The first model in our Two-Phase Predictions solution should be small enough
+    that it can be loaded on a mobile device for quick inference without relying on
+    internet connectivity. Building on the instrument example introduced above, we’ll
+    provide an example of the first prediction phase by building a binary classification
+    model optimized for on-device inference.
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的两阶段预测解决方案中的第一个模型应该足够小，以便可以加载到移动设备上进行快速推断，而无需依赖互联网连接。延续上面介绍的仪器示例，我们将通过构建一个优化用于设备内推断的二元分类模型来提供第一个预测阶段的示例。
+- en: 'The original sound dataset has 41 labels for different types of audio clips.
+    Our first model will only have two labels: “instrument” or “not instrument.” We’ll
+    build our model using the [MobileNetV2](https://oreil.ly/zvbzR) model architecture
+    trained on the ImageNet dataset. MobileNetV2 is available directly in Keras and
+    is an architecture optimized for models that will be served on-device. For our
+    model, we’ll freeze the MobileNetV2 weights and load it *without* the top so that
+    we can add our own binary classification output layer:'
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最初的声音数据集有 41 个标签，用于不同类型的音频剪辑。我们的第一个模型只有两个标签：“乐器”或“非乐器”。我们将使用在 ImageNet 数据集上训练过的
+    [MobileNetV2](https://oreil.ly/zvbzR) 模型架构来构建我们的模型。MobileNetV2 可直接在 Keras 中使用，并且是为将在设备上提供服务的模型优化的架构。对于我们的模型，我们将冻结
+    MobileNetV2 的权重，并加载它，但不包括顶部，以便我们可以添加自己的二元分类输出层：
+- en: '[PRE40]'
+  id: totrans-280
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: 'If we organize our spectrogram images into directories with the corresponding
+    label name, we can use Keras’s `ImageDataGenerator` class to create our training
+    and validation datasets:'
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们将我们的频谱图像组织到具有相应标签名称的目录中，我们可以使用 Keras 的 `ImageDataGenerator` 类来创建我们的训练和验证数据集：
+- en: '[PRE41]'
+  id: totrans-282
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: With our training and validation datasets ready, we can train the model as we
+    normally would. The typical approach for exporting trained models for serving
+    is to use TensorFlow’s `model.save()` method. However, remember that this model
+    will be served on-device, and as a result we want to keep it as small as possible.
+    To build a model that fits these requirements, we’ll use [TensorFlow Lite](https://oreil.ly/dyx93),
+    a library optimized for building and serving models directly on mobile and embedded
+    devices that may not have reliable internet connectivity. TF Lite has some built-in
+    utilities for quantizing models both during and after training.
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们的训练和验证数据集准备好后，我们可以像通常一样训练模型。用于将训练好的模型导出用于服务的典型方法是使用 TensorFlow 的 `model.save()`
+    方法。但是，请记住，此模型将在设备上提供服务，因此我们希望尽可能将其保持小巧。为了构建符合这些要求的模型，我们将使用 [TensorFlow Lite](https://oreil.ly/dyx93)，这是一个专为在移动和嵌入式设备上直接构建和提供模型而优化的库，这些设备可能没有可靠的互联网连接。TF
+    Lite 在训练期间和训练后都有一些内置工具来量化模型。
+- en: 'To prepare the trained model for edge serving, we use TF Lite to export it
+    in an optimized format:'
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了准备在边缘提供服务的训练模型，我们使用 TF Lite 将其导出为优化格式：
+- en: '[PRE42]'
+  id: totrans-285
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: This is the fastest way to quantize a model *after* training. Using the TF Lite
+    optimization defaults, it will reduce our model’s weights to their 8-bit representation.
+    It will also quantize inputs at inference time when we make predictions on our
+    model. By running the code above, the resulting exported TF Lite model is one-fourth
+    the size it would have been if we had exported it without quantization.
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是训练后量化模型的最快方法。使用 TF Lite 的优化默认设置，它将将我们模型的权重减少到它们的 8 位表示。在推断时，它还会量化输入，当我们对模型进行预测时。通过运行上述代码，导出的
+    TF Lite 模型的大小仅为没有量化时的四分之一。
+- en: Tip
+  id: totrans-287
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: To further optimize your model for offline inference, you can also quantize
+    your model’s weights *during* training or quantize all of your model’s math operations
+    in addition to weights. At the time of writing, quantization-optimized training
+    for TensorFlow 2 models is [on the roadmap](https://oreil.ly/RuONn).
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了进一步优化您的模型以进行离线推断，您还可以在训练期间量化模型的权重，或者在权重之外量化模型的所有数学操作。在撰写本文时，TensorFlow 2 模型的量化优化训练已在路线图上。
+- en: 'To generate a prediction on a TF Lite model, you use the TF Lite interpreter,
+    which is optimized for low latency. You’ll likely want to load your model on an
+    Android or iOS device and generate predictions directly from your application
+    code. There are APIs for both platforms, but we’ll show the Python code for generating
+    predictions here so that you can run it from the same notebook where you created
+    your model. First, we create an instance of TF Lite’s interpreter and get details
+    on the input and output format it’s expecting:'
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在 TF Lite 模型上生成预测，您需要使用 TF Lite 解释器，该解释器针对低延迟进行了优化。您可能希望将模型加载到 Android 或 iOS
+    设备上，并直接从应用程序代码中生成预测。这两个平台都有 API，但我们将在此展示生成预测的 Python 代码，以便您可以从创建模型的同一笔记本中运行它。首先，我们创建
+    TF Lite 解释器的实例，并获取它期望的输入和输出格式的详细信息：
+- en: '[PRE43]'
+  id: totrans-290
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: 'For the MobileNetV2 binary classification model we trained above, `input_details`
+    looks like the following:'
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们上面训练的 MobileNetV2 二元分类模型，`input_details` 看起来如下：
+- en: '[PRE44]'
+  id: totrans-292
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: 'We’ll then pass the first image from our validation batch to the loaded TF
+    Lite model for prediction, invoke the interpreter, and get the output:'
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们将验证批次中的第一个图像传递给加载的 TF Lite 模型进行预测，调用解释器并获取输出：
+- en: '[PRE45]'
+  id: totrans-294
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: The resulting output is a sigmoid array with a single value in the [0,1] range
+    indicating whether or not the given input sound is an instrument.
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果输出是一个在 [0,1] 范围内的 sigmoid 数组，指示给定输入声音是否为乐器。
+- en: Tip
+  id: totrans-296
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Depending on how costly it is to call your cloud model, you can change what
+    metric you’re optimizing for when you train the on-device model. For example,
+    you might choose to optimize for precision over recall if you care more about
+    avoiding false positives.
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据调用云模型的成本，您可以在训练设备上的模型时更改您优化的度量标准。例如，如果您更关心避免假阳性，可以选择优化精确度而不是召回率。
+- en: With our model now working on-device, we can get fast predictions without having
+    to rely on internet connectivity. If the model is confident that a given sound
+    is not an instrument, we can stop here. If the model predicts “instrument,” it’s
+    time to proceed by sending the audio clip to a more complex cloud-hosted model.
+  id: totrans-298
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们的模型在设备上运行，可以快速预测，无需依赖互联网连接。如果模型确信给定的声音不是乐器，我们可以在此停止。如果模型预测为“乐器”，则是时候将音频剪辑发送到更复杂的云托管模型进行下一步处理了。
+- en: 'Phase 2: Building the cloud model'
+  id: totrans-299
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 第二阶段：构建云模型
+- en: 'Since our cloud-hosted model doesn’t need to be optimized for inference without
+    a network connection, we can follow a more traditional approach for training,
+    exporting, and deploying this model. Depending on your Two-Phase Prediction use
+    case, this second model could take many different forms. In the Google Home example,
+    phase 2 might include multiple models: one that converts a speaker’s audio input
+    to text, and a second one that performs NLP to understand the text and route the
+    user’s query. If the user asks for something more complex, there could even be
+    a third model to provide a recommendation based on user preferences or past activity.'
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们的云托管模型不需要优化以在没有网络连接的情况下进行推理，我们可以按照更传统的方法进行训练、导出和部署此模型。根据您的两阶段预测用例，第二个模型可以采取多种不同的形式。在
+    Google Home 示例中，第二阶段可能包括多个模型：一个将说话者的音频输入转换为文本，第二个执行自然语言处理以理解文本并路由用户的查询。如果用户要求更复杂的内容，甚至可能会有第三个模型基于用户偏好或过去活动提供推荐。
+- en: In our instrument example, the second phase of our solution will be a multiclass
+    model that classifies sounds into one of 18 possible instrument categories. Since
+    this model doesn’t need to be deployed on-device, we can use a larger model architecture
+    like VGG as a starting point and then follow the Transfer Learning design pattern
+    outlined in [Chapter 4](ch04.xhtml#model_training_patterns).
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的乐器示例中，我们解决方案的第二阶段将是一个多类别模型，将声音分类为可能的 18 个乐器类别之一。由于这个模型不需要在设备上部署，我们可以使用像
+    VGG 这样的更大模型架构作为起点，然后按照第 4 章中概述的迁移学习设计模式进行。
+- en: 'We’ll load VGG trained on the ImageNet dataset, specify the size of our spectrogram
+    images in the `input_shape` parameter, and freeze the model’s weights before adding
+    our own softmax classification output layer:'
+  id: totrans-302
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将加载在 ImageNet 数据集上训练的 VGG，指定我们的频谱图像的大小在 `input_shape` 参数中，并在添加自己的 softmax
+    分类输出层之前冻结模型的权重：
+- en: '[PRE46]'
+  id: totrans-303
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: 'Our output will be an 18-element array of softmax probabilities:'
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的输出将是一个包含 softmax 概率的 18 元素数组：
+- en: '[PRE47]'
+  id: totrans-305
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: We’ll limit our dataset to only the audio clips of instruments, then transform
+    the instrument labels to 18-element one-hot vectors. We can use the same `image_generator`
+    approach above to feed our images to our model for training. Instead of exporting
+    this as a TF Lite model, we can use `model.save()` to export our model for serving.
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将数据集限制为仅包含乐器音频剪辑，然后将乐器标签转换为 18 元素的独热向量。我们可以使用上述 `image_generator` 方法将图像馈送到我们的模型进行训练。与将其导出为
+    TF Lite 模型不同，我们可以使用 `model.save()` 导出模型以供服务。
+- en: To demonstrate deploying the phase 2 model to the cloud, we’ll use Cloud [AI
+    Platform Prediction](https://oreil.ly/P5Cn9). We’ll need to upload our saved model
+    assets to a Cloud Storage bucket, then deploy the model by specifying the framework
+    and pointing AI Platform Prediction to our storage bucket.
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要演示如何将第二阶段模型部署到云端，我们将使用云[AI Platform Prediction](https://oreil.ly/P5Cn9)。我们需要将保存的模型资产上传到云存储桶，然后通过指定框架并将
+    AI Platform Prediction 指向我们的存储桶来部署模型。
+- en: Tip
+  id: totrans-308
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: You can use any cloud-based custom model deployment tool for the second phase
+    of the Two-Phase Predictions design pattern. In addition to Google Cloud’s AI
+    Platform Prediction, [AWS SageMaker](https://oreil.ly/zIHey) and [Azure Machine
+    Learning](https://oreil.ly/dCxHE) both offer services for deploying custom models.
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用任何基于云的自定义模型部署工具来实现两阶段预测设计模式的第二阶段。除了Google Cloud的AI Platform Prediction外，[AWS
+    SageMaker](https://oreil.ly/zIHey)和[Azure Machine Learning](https://oreil.ly/dCxHE)都提供部署自定义模型的服务。
+- en: 'When we export our model as a TensorFlow SavedModel, we can pass a Cloud Storage
+    bucket URL directly to the save model method:'
+  id: totrans-310
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们将模型导出为TensorFlow SavedModel时，我们可以直接向保存模型方法传递Cloud Storage存储桶URL：
+- en: '[PRE48]'
+  id: totrans-311
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE48]'
+- en: This will export our model in the TF SavedModel format and upload it to our
+    Cloud Storage bucket.
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将以TF SavedModel格式导出我们的模型并上传到我们的Cloud Storage存储桶。
+- en: 'In AI Platform, a model resource contains different versions of your model.
+    Each model can have hundreds of versions. We’ll first create the model resource
+    using gcloud, the Google Cloud CLI:'
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在AI Platform中，模型资源包含您模型的不同版本。每个模型可以有数百个版本。我们将首先使用Google Cloud CLI通过gcloud创建模型资源：
+- en: '[PRE49]'
+  id: totrans-314
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE49]'
+- en: 'There are a few ways to deploy your model. We’ll use gcloud and point AI Platform
+    at the storage subdirectory that contains our saved model assets:'
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几种部署模型的方法。我们将使用gcloud并将AI Platform指向包含我们保存的模型资产的存储子目录：
+- en: '[PRE50]'
+  id: totrans-316
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE50]'
+- en: We can now make prediction requests to our model via the AI Platform Prediction
+    API, which supports online and batch prediction. Online prediction lets us get
+    predictions in near real time on a few examples at once. If we have hundreds or
+    thousands of examples we want to send for prediction, we can create a batch prediction
+    job that will run asynchronously in the background and output the prediction results
+    to a file when complete.
+  id: totrans-317
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们可以通过AI Platform预测API向我们的模型发出预测请求，支持在线和批处理预测。在线预测让我们能够在几个示例上几乎实时获取预测结果。如果我们要发送数百或数千个示例进行预测，我们可以创建一个批处理预测作业，该作业将在后台异步运行，并在完成时将预测结果输出到文件。
+- en: To handle cases where the device calling our model may not always be connected
+    to the internet, we could store audio clips for instrument prediction on the device
+    while it is offline. When it regains connectivity, we could then send these clips
+    to the cloud-hosted model for prediction.
+  id: totrans-318
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了处理调用我们模型的设备可能不总是连接互联网的情况，我们可以在设备离线时将音频片段存储为仪器预测。当恢复连接时，我们可以将这些片段发送到云托管模型进行预测。
+- en: Trade-Offs and Alternatives
+  id: totrans-319
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 折衷与替代方案
+- en: While the Two-Phase Predictions pattern works for many cases, there are situations
+    where your end users may have very little internet connectivity and you therefore
+    cannot rely on being able to call a cloud-hosted model. In this section, we’ll
+    discuss two offline-only alternatives, a scenario where a client needs to make
+    many prediction requests at a time, and suggestions on how to run continuous evaluation
+    for offline models.
+  id: totrans-320
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然**两阶段预测模式**适用于许多情况，但存在这样的情况：您的最终用户可能几乎没有互联网连接，因此无法依赖于能够调用云托管模型。在本节中，我们将讨论两种仅离线使用的替代方案，一个客户需要同时进行多个预测请求的场景，以及如何针对离线模型运行持续评估的建议。
+- en: Standalone single-phase model
+  id: totrans-321
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 独立单阶段模型
+- en: Sometimes, the end users of your model may have little to no internet connectivity.
+    Even though these users’ devices won’t be able to reliably access a cloud model,
+    it’s still important to give them a way to access your application. For this case,
+    rather than relying on a two-phase prediction flow, you can make your first model
+    robust enough that it can be self-sufficient.
+  id: totrans-322
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时，您的模型最终用户可能几乎没有互联网连接。即使这些用户的设备无法可靠地访问云模型，仍然重要的是为他们提供访问您的应用程序的方式。对于这种情况，与依赖于两阶段预测流程不同，您可以使您的第一个模型足够强大，以使其能够自给自足。
+- en: To do this, we can create a smaller version of our complex model, and give users
+    the option to download this simpler, smaller model for use when they are offline.
+    These offline models may not be quite as accurate as their larger online counterparts,
+    but this solution is infinitely better than having no offline support at all.
+    To build more complex models designed for offline inference, it’s best to use
+    a tool that allows you to quantize your model’s weights and other math operations
+    both during and after training. This is known as [*quantization aware training*](https://oreil.ly/ABd8r).
+  id: totrans-323
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了实现这一点，我们可以创建我们复杂模型的一个较小版本，并让用户选择在脱机时下载这个更简单、更小的模型。这些脱机模型可能不如其更大的在线对应版本精确，但这个解决方案比完全没有脱机支持要好得多。要构建更复杂的设计用于脱机推断的模型，最好使用一种工具，在训练期间和训练后都允许你量化模型的权重和其他数学操作。这被称为[*量化感知训练*](https://oreil.ly/ABd8r)。
+- en: One example of an application that provides a simpler offline model is [Google
+    Translate](https://oreil.ly/uEWAM). Google Translate is a robust, online translation
+    service available in hundreds of languages. However, there are many scenarios
+    where you’d need to use a translation service without internet access. To handle
+    this, Google translate lets you download offline translations in over 50 different
+    languages. These offline models are small, around 40 to 50 megabytes, and come
+    close in accuracy to the more complex online versions. [Figure 5-12](#a_comparison_of_on-device_phrase-based)
+    shows a quality comparison of on-device and online translation models.
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提供较简单脱机模型的一个应用示例是[Google Translate](https://oreil.ly/uEWAM)。Google Translate
+    是一个强大的在线翻译服务，支持数百种语言。然而，有许多情况下，您需要在没有互联网访问的情况下使用翻译服务。为了处理这个问题，Google Translate
+    允许您下载超过50种不同语言的离线翻译。这些脱机模型较小，大约在40到50兆字节之间，并且在精度上接近更复杂的在线版本。[图5-12](#a_comparison_of_on-device_phrase-based)显示了基于设备和在线翻译模型的质量比较。
+- en: '![A comparison of on-device phrase-based and (newer) neural-machine translation
+    models, and online neural machine translation (source: https://www.blog.google/products/translate/offline-translations-are-now-lot-better-thanks-device-ai/).](Images/mldp_0512.png)'
+  id: totrans-325
+  prefs: []
+  type: TYPE_IMG
+  zh: '![基于设备的短语翻译模型与（更新的）神经机器翻译模型，以及在线神经机器翻译的比较（来源：https://www.blog.google/products/translate/offline-translations-are-now-lot-better-thanks-device-ai/）。](Images/mldp_0512.png)'
+- en: 'Figure 5-12\. A comparison of on-device phrase-based and (newer) neural-machine
+    translation models and online neural machine translation (source: [The Keyword](https://oreil.ly/S_woM)).'
+  id: totrans-326
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-12。基于设备的短语翻译模型与（更新的）神经机器翻译模型以及在线神经机器翻译的比较（来源：[The Keyword](https://oreil.ly/S_woM)）。
+- en: Another example of a standalone single-phase model is [Google Bolo](https://oreil.ly/zTy79),
+    a speech-based language learning app for children. The app works entirely offline
+    and was developed with the intention of helping populations where reliable internet
+    access is not always available.
+  id: totrans-327
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个独立的单相模型示例是[Google Bolo](https://oreil.ly/zTy79)，这是一个面向儿童的语音语言学习应用程序。该应用完全脱机工作，并且旨在帮助那些可靠的互联网访问并非总是可用的人群。
+- en: Offline support for specific use cases
+  id: totrans-328
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 特定用例的脱机支持
+- en: Another solution for making your application work for users with minimal internet
+    connectivity is to make only certain parts of your app available offline. This
+    could involve enabling a few common features offline or caching the results of
+    an ML model’s prediction for later use offline. With this alternative, we’re still
+    employing two prediction phases, but we’re limiting the use cases covered by our
+    offline model. In this approach, the app works sufficiently offline, but provides
+    full functionality when it regains connectivity.
+  id: totrans-329
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个使您的应用程序适用于具有最小互联网连接性的用户的解决方案是仅使应用程序的某些部分脱机可用。这可能涉及启用一些常见的离线功能或缓存ML模型预测的结果以供以后脱机使用。通过这种替代方案，我们仍然使用两个预测阶段，但我们限制了离线模型覆盖的用例。在这种方法中，应用程序在脱机状态下可以正常工作，但在恢复连接时提供完整功能。
+- en: Google Maps, for example, lets you download maps and directions in advance.
+    To avoid having directions take up too much space on a mobile device, only driving
+    directions might be made available offline (not walking or biking). Another example
+    could be a fitness application that tracks your steps and makes recommendations
+    for future activity. Let’s say the most common use of this app is checking how
+    many steps you have walked on the current day. To support this use case offline,
+    we could sync the fitness tracker’s data to a user’s device over Bluetooth to
+    enable checking the current day’s fitness status offline. To optimize our app’s
+    performance, we might decide to make fitness history and recommendations only
+    available online.
+  id: totrans-330
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，Google Maps 允许您提前下载地图和路线指南。为了避免在移动设备上占用太多空间，可能仅提供驾驶路线的离线模式（而不是步行或骑行）。另一个例子可以是健身应用程序，该应用程序跟踪您的步数并为未来活动提供建议。假设该应用程序最常见的用途是检查您当天走了多少步。为了支持离线使用情况，我们可以通过蓝牙将健身跟踪器的数据同步到用户设备上，以便离线检查当天的健身状态。为了优化我们应用程序的性能，我们可能决定仅在线提供健身历史记录和建议。
+- en: We could further build upon this by storing the user’s queries while their device
+    is offline and sending them to a cloud model when they regain connectivity to
+    provide more detailed results. Additionally, we could even provide a basic recommendation
+    model available offline, with the intention of complementing this with improved
+    results when the app is able to send the user’s queries to a cloud-hosted model.
+    With this solution, the user still gets some functionality when they aren’t connected.
+    When they come back online, they can then benefit from a full-featured app and
+    robust ML model.
+  id: totrans-331
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以进一步发展这一点，即在设备离线时存储用户的查询，并在它们重新连接时将其发送到云模型，以提供更详细的结果。此外，我们甚至可以提供基本的离线推荐模型，旨在在用户查询发送到云托管模型时补充改进结果。通过这种解决方案，用户在未连接时仍可获得部分功能。当它们重新连接时，它们可以从完整功能的应用程序和强大的机器学习模型中获益。
+- en: Handling many predictions in near real time
+  id: totrans-332
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 处理近实时的大量预测
+- en: In other cases, end users of your ML model may have reliable connectivity but
+    might need to make hundreds or even thousands of predictions to your model at
+    once. If you only have a cloud-hosted model and each prediction requires an API
+    call to a hosted service, getting prediction responses on thousands of examples
+    at once will take too much time.
+  id: totrans-333
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在其他情况下，您的机器学习模型的最终用户可能具有可靠的连接性，但可能需要一次对模型进行数百甚至数千次预测。如果您只有一个云托管模型，并且每个预测都需要向托管服务发起
+    API 调用，那么一次获取数千个示例的预测响应将花费太长时间。
+- en: To understand this, let’s say we have embedded devices deployed in various areas
+    throughout a user’s house. These devices are capturing data on temperature, air
+    pressure, and air quality. We have a model deployed in the cloud for detecting
+    anomalies from this sensor data. Because the sensors are continuously collecting
+    new data, it would be inefficient and expensive to send every incoming data point
+    to our cloud model. Instead, we can have a model deployed directly on the sensors
+    to identify possible anomaly candidates from incoming data. We can then send only
+    the potential anomalies to our cloud model for consolidated verification, taking
+    sensor readings from all the locations into account. This is a variation of the
+    Two-Phase Predictions pattern described earlier, the main difference being that
+    both the offline and cloud models perform the same prediction task but with different
+    inputs. In this case, models also end up throttling the number of prediction requests
+    sent to the cloud model at one time.
+  id: totrans-334
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要理解这一点，假设我们在用户家中的各个区域部署了嵌入式设备。这些设备捕获温度、气压和空气质量数据。我们在云中部署了一个模型，用于从这些传感器数据中检测异常。由于传感器不断收集新数据，将每个传入数据点发送到我们的云模型将是低效且昂贵的。因此，我们可以在传感器上直接部署模型，以从传入数据中识别可能的异常候选项。然后，我们只将潜在的异常发送到我们的云模型进行综合验证，考虑所有位置的传感器读数。这是早期描述的两阶段预测模式的变体，其主要区别在于离线和云模型执行相同的预测任务，但输入不同。在这种情况下，模型还限制了一次发送到云模型的预测请求数量。
+- en: Continuous evaluation for offline models
+  id: totrans-335
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 离线模型的持续评估
+- en: How can we ensure our on-device models stay up to date and don’t suffer from
+    data drift? There are a few options for performing continuous evaluation on models
+    that do not have network connectivity. First, we could save a subset of predictions
+    that are received on-device. We could then periodically evaluate our model’s performance
+    on these examples and determine if the model needs retraining. In the case of
+    our two-phase model, it’s important we do this evaluation regularly since it’s
+    likely that many calls to our on-device model will not go onto the second-phase
+    cloud model. Another option is to create a replica of our on-device model to run
+    *online*, only for continuous evaluation purposes. This solution is preferred
+    if our offline and cloud models are running similar prediction tasks, like in
+    the translation case mentioned previously.
+  id: totrans-336
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何确保我们的设备上的模型保持更新，并且不会受到数据漂移的影响？有几种方法可以对没有网络连接的模型执行持续评估。首先，我们可以保存在设备上接收到的预测子集。然后，我们可以定期评估这些示例上模型的性能，并确定是否需要重新训练模型。对于我们的两阶段模型，定期进行此评估非常重要，因为很可能我们设备上模型的许多调用不会进入第二阶段云模型。另一种选择是创建设备上模型的副本，仅用于连续评估目的。如果我们的离线和云模型运行类似的预测任务，比如前面提到的翻译案例，这种解决方案更可取。
+- en: 'Design Pattern 20: Keyed Predictions'
+  id: totrans-337
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 设计模式 20：键控预测
+- en: Normally, you train your model on the same set of input features that the model
+    will be supplied in real time when it is deployed. In many situations, however,
+    it can be advantageous for your model to also pass through a client-supplied key.
+    This is called the Keyed Predictions design pattern, and it is a necessity to
+    scalably implement several of the design patterns discussed in this chapter.
+  id: totrans-338
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，您会在模型训练时使用与部署时实时提供的输入特征相同的输入集。然而，在许多情况下，您的模型也可以通过客户提供的键来传递。这被称为键控预测设计模式，在本章讨论的几种设计模式中实现可扩展性时是必需的。
+- en: Problem
+  id: totrans-339
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题
+- en: If your model is deployed as a web service and accepts a single input, then
+    it is quite clear which output corresponds to which input. But what if your model
+    accepts a file with a million inputs and sends back a file with a million output
+    predictions?
+  id: totrans-340
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的模型部署为 Web 服务并接受单个输入，则很明确每个输出对应哪个输入。但如果您的模型接受包含百万个输入的文件，并返回一个包含百万个输出预测的文件呢？
+- en: You might think that it should be obvious that the first output instance corresponds
+    to the first input instance, the second output instance to the second input instance,
+    etc. However, with a 1:1 relationship, it is necessary for each server node to
+    process the full set of inputs serially. It would be much more advantageous if
+    you use a distributed data processing system and farm out instances to multiple
+    machines, collect all the resulting outputs, and send them back. The problem with
+    this approach is that the outputs are going to be jumbled. Requiring that the
+    outputs be ordered the same way poses scalability challenges, and providing the
+    outputs in an unordered manner requires the clients to somehow know which output
+    corresponds to which input.
+  id: totrans-341
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能会认为第一个输出实例对应于第一个输入实例，第二个输出实例对应于第二个输入实例，依此类推是显而易见的。然而，使用 1:1 的关系时，每个服务器节点需要按顺序处理完整的输入集。如果您使用分布式数据处理系统，并将实例分发到多台机器，收集所有结果输出并发送回来会更有优势。但这种方法的问题在于输出会被混乱排序。要求输出以相同的方式排序会带来可扩展性挑战，而以无序方式提供输出则要求客户端以某种方式知道哪个输出对应哪个输入。
+- en: This same problem occurs if your online serving system accepts an array of instances
+    as discussed in the Stateless Serving Function pattern. The problem is that processing
+    a large number of instances locally will lead to hot spots. Server nodes that
+    receive only a few requests will be able to keep up, but any server node that
+    receives a particularly large array will start to fall behind. These hot spots
+    will force you to make your server machines more powerful than they need to be.
+    Therefore, many online serving systems will impose a limit on the number of instances
+    that can be sent in one request. If there is no such limit, or if the model is
+    so computationally expensive that requests with fewer instances than this limit
+    can overload the server, you will run into the problem of hot spots. Therefore,
+    any solution to the batch serving problem will also address the problem of hot
+    spots in online serving.
+  id: totrans-342
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的在线服务系统接受一组实例数组，则会出现相同的问题，就像无状态服务函数模式中讨论的那样。问题在于在本地处理大量实例将导致热点。接收到少量请求的服务器节点将能够跟上，但是接收到特别大数组的任何服务器节点将开始落后。这些热点将迫使您使服务器机器比实际需要的更强大。因此，许多在线服务系统将对可以在一次请求中发送的实例数量施加限制。如果没有这样的限制，或者如果模型的计算成本如此之高，以至于比此限制更少的实例请求可能会使服务器超载，那么您将会遇到热点问题。因此，批处理服务问题的任何解决方案也将解决在线服务中的热点问题。
+- en: Solution
+  id: totrans-343
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 解决方案
+- en: The solution is to use pass-through keys. Have the client supply a key associated
+    with each input. For example (see [Figure 5-13](#the_client_supplies_a_unique_key_with_e)),
+    suppose your model is trained with three inputs (a, b, c), shown on the left,
+    to produce the output d, shown on the right. Make your clients supply (k, a, b,
+    c) to your model where k is a key with a unique identifier. The key could be as
+    simple as numbering the input instances 1, 2, 3, …, etc. Your model will then
+    return (k, d), and so the client will be able to figure out which output instance
+    corresponds to which input instance.
+  id: totrans-344
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决方案是使用透传键。让客户端为每个输入提供一个关联的键。例如（见[图 5-13](#the_client_supplies_a_unique_key_with_e)），假设您的模型训练有三个输入（a、b、c），如左侧所示，生成右侧的输出d。让您的客户端提供（k、a、b、c）给您的模型，其中k是具有唯一标识符的键。该键可以简单地对输入实例进行编号1、2、3等。然后，您的模型将返回（k、d），因此客户端将能够确定哪个输出实例对应哪个输入实例。
+- en: '![The client supplies a unique key with each input instance. The serving system
+    attaches those keys to the corresponding prediction. This allows the client to
+    retrieve the correct prediction for each input even if outputs are out of order.](Images/mldp_0513.png)'
+  id: totrans-345
+  prefs: []
+  type: TYPE_IMG
+  zh: '![客户端为每个输入实例提供一个唯一键。服务系统将这些键附加到相应的预测上。这使得客户端能够检索每个输入的正确预测，即使输出顺序不同。](Images/mldp_0513.png)'
+- en: Figure 5-13\. The client supplies a unique key with each input instance. The
+    serving system attaches those keys to the corresponding prediction. This allows
+    the client to retrieve the correct prediction for each input even if outputs are
+    out of order.
+  id: totrans-346
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-13\. 客户端为每个输入实例提供一个唯一键。服务系统将这些键附加到相应的预测上。这使得客户端能够检索每个输入的正确预测，即使输出顺序不同。
+- en: How to pass through keys in Keras
+  id: totrans-347
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 如何在Keras中透传键
+- en: In order to get your Keras model to pass through keys, supply a serving signature
+    when exporting the model.
+  id: totrans-348
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使您的Keras模型透传键，当导出模型时提供一个服务签名。
+- en: 'For example, this is the code to take a model that would otherwise take four
+    inputs (`is_male`, `mother_age`, `plurality`, and `gestation_weeks`) and have
+    it also take a key that it will pass through to the output along with the original
+    output of the model (the `babyweight`):'
+  id: totrans-349
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，以下是将本来需要四个输入（`is_male`、`mother_age`、`plurality`和`gestation_weeks`）的模型修改为还接收一个键，并将其传递到输出中的代码：
+- en: '[PRE51]'
+  id: totrans-350
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE51]'
+- en: 'This model is then saved as discussed in the Stateless Serving Function design
+    pattern:'
+  id: totrans-351
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后按照无状态服务函数设计模式讨论的方式保存此模型：
+- en: '[PRE52]'
+  id: totrans-352
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE52]'
+- en: Adding keyed prediction capability to an existing model
+  id: totrans-353
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 将键控预测功能添加到现有模型
+- en: Note that the code above works even if the original model was not saved with
+    a serving function. Simply load the model using `tf.saved_model.load()`, attach
+    a serving function, and use the code snippet above, as shown in [Figure 5-14](#load_a_savedmodelcomma_attach_a_nondefa).
+  id: totrans-354
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意上述代码即使原始模型未保存服务函数也能正常工作。只需使用`tf.saved_model.load()`加载模型，附加一个服务函数，然后使用上述代码片段，如[图 5-14](#load_a_savedmodelcomma_attach_a_nondefa)所示。
+- en: '![Load a SavedModel, attach a nondefault serving function, and save it.](Images/mldp_0514.png)'
+  id: totrans-355
+  prefs: []
+  type: TYPE_IMG
+  zh: '![加载一个SavedModel，附加一个非默认服务函数，并保存它。](Images/mldp_0514.png)'
+- en: Figure 5-14\. Load a SavedModel, attach a nondefault serving function, and save
+    it.
+  id: totrans-356
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-14\. 加载一个SavedModel，附加一个非默认的服务函数，并保存它。
+- en: 'When doing so, it is preferable to provide a serving function that replicates
+    the older, no-key behavior:'
+  id: totrans-357
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这样做时，最好提供一个服务函数，复制旧的无密钥行为：
+- en: '[PRE53]'
+  id: totrans-358
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE53]'
+- en: 'Use the previous behavior as the default and add the `keyed_prediction` as
+    a new serving function:'
+  id: totrans-359
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将以前的行为用作默认，并添加`keyed_prediction`作为新的服务函数：
+- en: '[PRE54]'
+  id: totrans-360
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE54]'
+- en: Trade-Offs and Alternatives
+  id: totrans-361
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 折衷与替代方案
+- en: Why can’t the server just assign keys to the inputs it receives? For online
+    prediction, it is possible for servers to assign unique request IDs that lack
+    any semantic information. For batch prediction, the problem is that the inputs
+    need to be associated with the outputs, so the server assigning a unique ID is
+    not enough since it can’t be joined back to the inputs. What the server has to
+    do is to assign keys to the inputs it receives before it invokes the model, use
+    the keys to order the outputs, and then remove the keys before sending along the
+    outputs. The problem is that ordering is computationally very expensive in distributed
+    data processing.
+  id: totrans-362
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么服务器不能只为接收到的输入分配密钥？对于在线预测，服务器可以分配缺乏任何语义信息的唯一请求ID。对于批量预测，问题在于需要将输入与输出关联起来，因此服务器分配唯一ID是不够的，因为无法将其与输入重新关联起来。服务器必须在调用模型之前为接收到的输入分配密钥，使用这些密钥对输出进行排序，然后在发送输出之前移除密钥。问题在于，在分布式数据处理中，排序是计算非常昂贵的过程。
+- en: In addition, there are a couple of other situations where client-supplied keys
+    are useful—asynchronous serving and evaluation. Given these two situations, it
+    is preferable that what constitutes a key becomes use case specific and needs
+    to be identifiable. Therefore, asking clients to supply a key makes the solution
+    simpler.
+  id: totrans-363
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，还有几种其他情况下客户提供的密钥很有用——异步服务和评估。鉴于这两种情况，最好确定密钥的构成因用例而异，并且需要能够识别。因此，要求客户提供密钥会使解决方案更简单。
+- en: Asynchronous serving
+  id: totrans-364
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 异步服务
+- en: Many production machine learning models these days are neural networks, and
+    neural networks involve matrix multiplications. Matrix multiplication on hardware
+    like GPUs and TPUs is more efficient if you can ensure that the matrices are within
+    certain size ranges and/or multiples of a certain number. It can, therefore, be
+    helpful to accumulate requests (up to a maximum latency of course) and handle
+    the incoming requests in chunks. Since the chunks will consist of interleaved
+    requests from multiple clients, the key, in this case, needs to have some sort
+    of client identifier as well.
+  id: totrans-365
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如今许多生产机器学习模型都是神经网络，神经网络涉及矩阵乘法。在像GPU和TPU这样的硬件上，如果您可以确保矩阵在某些大小范围内和/或某个数字的倍数内，矩阵乘法会更有效率。因此，积累请求（当然最大延迟）并以块处理传入请求可能会有所帮助。由于这些块将包含来自多个客户端的交织请求，因此在这种情况下，密钥需要具有某种客户标识符。
+- en: Continuous evaluation
+  id: totrans-366
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 连续评估
+- en: If you are doing continuous evaluation, it can be helpful to log metadata about
+    the prediction requests so that you can monitor whether performance drops across
+    the board, or only in specific situations. Such slicing is made much easier if
+    the key identifies the situation in question. For example, suppose that we need
+    to apply a Fairness Lens (see [Chapter 7](ch07.xhtml#responsible_ai)) to ensure
+    that our model’s performance is fair across different customer segments (age of
+    customer and/or race of customer, for example). The model will not use the customer
+    segment as an input, but we need to evaluate the performance of the model sliced
+    by the customer segment. In such cases, having the customer segment(s) be embedded
+    in the key (an example key might be 35-Black-Male-34324323) makes slicing easier.
+  id: totrans-367
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您正在进行连续评估，记录有关预测请求的元数据可能会有所帮助，以便您可以监视整体性能是否下降，或者仅在特定情况下下降。如果键标识了所讨论的情况，这种切片操作将变得更加容易。例如，假设我们需要应用公平性镜头（参见[第7章](ch07.xhtml#responsible_ai)）来确保我们模型在不同客户段（例如客户的年龄和/或种族）之间的性能公平。模型不会将客户段作为输入使用，但我们需要按客户段切片评估模型的性能。在这种情况下，将客户段嵌入密钥中（例如一个示例密钥可能是35-黑人-男性-34324323）会使切片操作更加容易。
+- en: An alternate solution is to have the model ignore unrecognized inputs and send
+    back not just the prediction outputs but also all inputs, including the unrecognized
+    ones. This allows the client to match inputs to outputs, but is more expensive
+    in terms of bandwidth and client-side computation.
+  id: totrans-368
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个解决方案是让模型忽略未识别的输入，并不仅返回预测输出，而是返回所有输入，包括未识别的输入。这允许客户端将输入与输出匹配，但在带宽和客户端计算方面更为昂贵。
+- en: Because high-performance servers will support multiple clients, be backed by
+    a cluster, and batch up requests to gain performance benefits, it’s better to
+    plan ahead for this—ask that clients supply keys with every prediction and for
+    clients to specify keys that will not cause a collision with other clients.
+  id: totrans-369
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于高性能服务器将支持多个客户端，并由集群支持，并且批处理请求以获得性能优势，因此最好提前计划——要求客户端在每次预测时提供键，并要求客户端指定不会与其他客户端发生冲突的键。
+- en: Summary
+  id: totrans-370
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: In this chapter, we looked at techniques for operationalizing machine learning
+    models to ensure they are resilient and can scale to handle production load. Each
+    resilience pattern we discussed relates to the deployment and serving steps in
+    a typical ML workflow.
+  id: totrans-371
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们探讨了使机器学习模型运营化的技术，以确保它们具有韧性并能够扩展以处理生产负载。我们讨论的每个韧性模式都涉及典型机器学习工作流程中的部署和服务步骤。
+- en: We started this chapter by looking at how to encapsulate your trained machine
+    learning model as a stateless function using the *Stateless Serving Function*
+    design pattern. A serving function decouples your model’s training and deployment
+    environments by defining a function that performs inference on an exported version
+    of your model, and is deployed to a REST endpoint. Not all production models require
+    immediate prediction results, as there are situations where you need to send a
+    large batch of data to your model for prediction but don’t need results right
+    away. We saw how the *Batch Serving* design pattern solves this by utilizing distributed
+    data processing infrastructure designed to run many model prediction requests
+    asynchronously as a background job, with output written to a specified location.
+  id: totrans-372
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们从探讨如何使用*无状态服务函数*设计模式将训练好的机器学习模型封装为无状态函数开始。服务函数通过定义一个函数来执行对模型导出版本的推断，并部署到REST端点，从而解耦了模型的训练和部署环境。并非所有生产模型都需要立即的预测结果，因为在某些情况下，您需要将大批数据发送到模型进行预测，但不需要立即获取结果。我们看到*批量服务*设计模式如何通过利用设计为异步后台作业运行多个模型预测请求的分布式数据处理基础设施来解决这一问题，并将输出写入指定位置。
+- en: Next, with the *Continued Model Evaluation* design pattern, we looked at an
+    approach to verifying that your deployed model is still performing well on new
+    data. This pattern addresses the problems of data and concept drift by regularly
+    evaluating your model and using these results to determine if retraining is necessary.
+    In the *Two-Phase Predictions* design pattern, we solved for specific use cases
+    where models need to be deployed at the edge. When you can break a problem into
+    two logical parts, this pattern first creates a simpler model that can be deployed
+    on-device. This edge model is connected to a more complex model hosted in the
+    cloud. Finally, in the *Keyed Prediction* design pattern, we discussed why it
+    can be beneficial to supply a unique key with each example when making prediction
+    requests. This ensures that your client associates each prediction output with
+    the correct input example.
+  id: totrans-373
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，使用*持续模型评估*设计模式，我们探讨了一种验证部署模型在新数据上表现良好的方法。这种模式通过定期评估模型并利用结果来确定是否需要重新训练，从而解决了数据和概念漂移的问题。在*两阶段预测*设计模式中，我们解决了需要在边缘部署模型的特定用例。当你能够将问题分解为两个逻辑部分时，这种模式首先创建一个可以在设备上部署的简化模型。这个边缘模型连接到云端托管的更复杂的模型。最后，在*关键预测*设计模式中，我们讨论了在进行预测请求时每个示例都提供唯一键值的好处。这确保你的客户将每个预测输出与正确的输入示例关联起来。
+- en: In the next chapter, we’ll look at *reproducibility* patterns. These patterns
+    address challenges associated with the inherent randomness present in many aspects
+    of machine learning and focus on enabling reliable, consistent results each time
+    a machine learning process runs.
+  id: totrans-374
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，我们将探讨*可复现性*模式。这些模式解决了许多机器学习中固有随机性带来的挑战，并专注于每次机器学习过程运行时都能产生可靠一致结果。
+- en: '^([1](ch05.xhtml#ch01fn24-marker)) Curious what a “positive” complaint looks
+    like? Here you go:'
+  id: totrans-375
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch05.xhtml#ch01fn24-marker)) 好奇“正面”投诉是什么样？这里是一个例子：
+- en: “I get phone calls morning XXXX and night. I have told them to stop so many
+    calls but they still call even on Sunday in the morning. I had two calls in a
+    row on a Sunday morning from XXXX XXXX. I received nine calls on Saturday. I receive
+    about nine during the week day every day as well.
+  id: totrans-376
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “我每天早上和晚上都接到电话。我告诉他们停止打电话了，但他们仍然会打电话，甚至在星期天早上也是如此。星期天早上我连续接到两个来自XXXX XXXX的电话。星期六我接到了九个电话。平日我每天也接到大约九个电话。
+- en: The only hint that the complainer is unhappy is that they have asked the callers
+    to stop. Otherwise, the rest of the statements might well be about someone bragging
+    about how popular they are!”
+  id: totrans-377
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 唯一的提示是，抱怨者不高兴的迹象是他们已经要求打电话的人停止了。否则，其余的陈述可能会是关于某人在吹嘘自己有多受欢迎！

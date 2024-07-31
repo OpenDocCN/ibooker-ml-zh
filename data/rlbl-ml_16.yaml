@@ -1,0 +1,1520 @@
+- en: 'Chapter 15\. Case Studies: MLOps in Practice'
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第15章。案例研究：MLOps实践
+- en: This book has laid out principles and best practices for MLOps, and we’ve done
+    our best to provide examples throughout. But there is nothing like hearing stories
+    from folks working in the field to help see how these principles play out in the
+    real world.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本书阐述了MLOps的原则和最佳实践，并且我们已经尽力在整个过程中提供了示例。但是，没有什么比听到从事这一领域工作的人的故事更能帮助我们看到这些原则在现实世界中是如何发挥作用的。
+- en: This chapter provides a set of case studies from different groups of practitioners,
+    each detailing a specific issue, challenge, or crisis that they have lived through
+    from an MLOps perspective. Each story was written by the practitioners themselves,
+    so we can hear in their own words what they went through. We can see what they
+    faced, how they dealt with it, what they learned, and what they might do differently
+    next time. Indeed, it is striking to see how things as deceptively simple as load
+    testing, or as seemingly unrelated as a launched update to an entirely different
+    mobile app, can cause headaches for those in charge of daily care and feeding
+    of ML models and systems. (Note that some of the details may have been glossed
+    over or omitted to protect trade secrets.)
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章提供了来自不同实践者团体的一系列案例研究，每一个都详细描述了他们从MLOps角度经历的特定问题、挑战或危机。每个故事都是由实践者们自己撰写的，因此我们可以听到他们亲自经历了什么。我们可以看到他们面对的问题，他们是如何处理的，他们学到了什么，以及下次他们可能会有何不同的做法。确实，看到像负载测试这样貌似简单，或者像完全不相关的移动应用程序更新一样，如何给那些负责日常管理和维护ML模型和系统的人带来头疼，这是非常引人注目的。（请注意，为了保护商业机密，某些细节可能已被省略或省略。）
+- en: 1\. Accommodating Privacy and Data Retention Policies in ML Pipelines
+  id: totrans-3
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 1\. 在ML管道中考虑隐私和数据保留政策
+- en: By Riqiang Wang, Dialpad
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作者：Riqiang Wang，Dialpad
+- en: Background
+  id: totrans-5
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 背景
+- en: The automatic speech recognition (ASR) team at Dialpad is responsible for the
+    end-to-end speech transcription system that generates live transcripts for various
+    AI features (collectively known as *Dialpad AI*) for our customers across the
+    world. Various subcomponents of our AI system heavily rely on the ASR outputs
+    to make further predictions, so any error in the transcripts gets propagated to
+    other downstream natural language processing (NLP) tasks, such as real-time assists
+    or named entity recognition (NER). Therefore, we continually aspire to improve
+    the ASR models in our ML pipelines.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Dialpad，自动语音识别（ASR）团队负责为全球客户生成各种AI功能的端到端语音转录系统（统称为*Dialpad AI*）的实时转录。我们AI系统的各个子组件都严重依赖于ASR输出，以进行进一步的预测，因此转录中的任何错误都会传播到其他下游自然语言处理（NLP）任务，如实时辅助或命名实体识别（NER）。因此，我们不断努力改进ML管道中的ASR模型。
+- en: Problem and Resolution
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题和解决方案
+- en: In 2020, our system was achieving great accuracy for typical North American
+    dialects, but our benchmarking as well as anecdotal evidence showed that other
+    dialects were often mistranscribed. As we expanded our business to other major
+    English-speaking countries like the United Kingdom, Australia, and New Zealand,
+    we needed to at least reach the same bar set for North American dialects. Consequently,
+    we started looking into how to improve ASR accuracy for specific dialects, or
+    even the plethora of dialects within North America. This included transfer learning
+    experiments and using specialized lexicons, but on their own they were not enough.
+    Privacy is at the center of everything we do at Dialpad, which is also a major
+    challenge in most of the modern ML ecosystems. In this case study, we discuss
+    a couple of challenges we’ve come across and the solutions we’ve implemented as
+    we worked toward deploying a model for multiple dialects while respecting user
+    privacy.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到2020年，我们的系统在典型的北美方言中达到了很高的准确率，但我们的基准测试和轶事证据显示其他方言经常被误转录。随着我们将业务扩展到英国、澳大利亚和新西兰等其他主要英语国家，我们需要至少达到为北美方言设定的同一标准。因此，我们开始研究如何提高特定方言的ASR准确率，甚至是北美内众多方言的ASR准确率。这包括转移学习实验和使用专门的词汇表，但单独使用它们是不够的。隐私在Dialpad所做的一切中都是核心问题，这也是现代大多数ML生态系统面临的主要挑战。在本案例研究中，我们讨论了我们遇到的几个挑战及其解决方案，以及在尊重用户隐私的同时努力部署多方言模型的工作。
+- en: Note
+  id: totrans-9
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注
+- en: In a departure from the relevant literature, we mainly use the term *dialects*
+    instead of *accents* because we recognize variations beyond the accent (i.e.,
+    the sound of the speech). For example, New York and New Zealand dialects differ
+    also in vocabulary, phrasal expressions, and even grammar. We want to ideally
+    address all these aspects in making ASR more inclusive.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与相关文献不同，我们主要使用“方言”这个术语，而不是“口音”，因为我们意识到除了口音（即语音的声音）外，还存在其他变化。例如，纽约和新西兰的方言在词汇、短语表达甚至语法上也有所不同。我们希望在使ASR更具包容性的过程中能够理想地解决所有这些方面。
+- en: 'Challenge 1: Which dialects?'
+  id: totrans-11
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 挑战1：哪些方言？
+- en: At Dialpad, we value user privacy, and to power various AI features, we need
+    massive amounts of data for model training. Therefore, accommodations have to
+    be made within our Dialects pipeline. Specifically, we keep as little metadata
+    related to calls as possible, and remove calls when needed for privacy reasons.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Dialpad，我们重视用户隐私，并且为了支持各种AI功能，我们需要大量数据来进行模型训练。因此，我们需要在我们的方言处理管道中进行适当的调整。具体来说，我们尽可能保留与通话相关的少量元数据，并且基于隐私原因在需要时移除通话记录。
+- en: But for training a good Dialects model, we wanted to know which of our users
+    speak with a given dialect, be it British, Australian, or others. Thus, we needed
+    as much metadata as feasible so we could sample accordingly for each dialect.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是为了训练一个优秀的方言模型，我们想知道我们的用户中谁使用某种方言，无论是英式、澳式还是其他方言。因此，我们需要尽可能多的元数据，以便我们可以相应地为每种方言进行采样。
+- en: We first considered ideas such as letting human transcribers annotate the accent
+    being spoken in each call, but then realized that crucially, it is extremely difficult
+    to pinpoint accents without having experience with them, especially with non-native
+    speakers, who are more likely to have idiolects than dialects (i.e., each speaker
+    has their own way of speaking). Then we thought about letting users self-report
+    dialects, but such classification self-evidently raises data privacy concerns
+    that cut against our motivating goal of inclusiveness.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们最初考虑了让人类转录员注释每个通话中所讲的口音的想法，但后来意识到，要准确识别口音是非常困难的，尤其是对于非母语者，他们更可能有个人语言特征而非方言（即每个说话者都有自己的说话方式）。然后，我们考虑让用户自行报告方言，但这种分类显然会引起数据隐私问题，与我们促进包容性的目标相矛盾。
+- en: 'Solution: Get rid of the concept of dialects!'
+  id: totrans-15
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 解决方案：摒弃方言的概念！
+- en: Ultimately, we realized that regardless of a given user’s dialect, we just wanted
+    our model to do better with the speech that it was then struggling with. The ASR
+    model did well with North American dialects because we had been feeding it North
+    American speech, so we could also improve this existing model by adding undersampled
+    data, building a model agnostic of dialects. We ended up simply getting more data
+    that our model was doing poorly on, filtered by the model’s own confidence measure.
+    We manually transcribed this underrepresented data and trained a new model with
+    this dataset plus the original training dataset.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，我们意识到，无论用户使用何种方言，我们只是希望我们的模型在处理它当前遇到困难的语音时能做得更好。ASR模型在处理北美方言时表现良好，是因为我们一直在提供北美的语音数据，因此我们也可以通过添加被欠采样数据来改进现有模型，建立一个不受方言限制的模型。我们最终通过模型自身的置信度量筛选了更多模型表现不佳的数据。我们手动转录了这些低频数据，并用这些数据集加上原始训练数据训练了一个新模型。
+- en: Within a few rounds of model tuning and evaluations, the ASR models started
+    performing better on the underrepresented dialects test set that we manually curated,
+    without any changes to the training techniques or model architecture. More importantly,
+    this extra dialect dataset was only a tiny fraction of the larger original training
+    data, but made a significant difference in performance. This shows the importance
+    of intentionality and diversity in data collection. It also suggests that we can
+    rely on confidence/uncertainty measures as a pseudo-diversity measure for data
+    collection, when true diversity is difficult to measure.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在几轮模型调优和评估后，ASR模型在我们手动策划的低频方言测试集上表现得更好，而不需要改变训练技术或模型架构。更重要的是，这些额外的方言数据集只是更大原始训练数据的一小部分，但在性能上有了显著的提升。这显示了数据收集中意图和多样性的重要性。它还表明，当真正的多样性难以衡量时，我们可以依赖信心/不确定性测量作为数据收集的伪多样性指标。
+- en: 'Challenge 2: Racing the clock'
+  id: totrans-18
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 挑战2：与时间赛跑
+- en: 'Making Dialpad’s no-cost, customizable data-retention policy available as standard
+    to all customers means that a customer can request their data to be deleted anytime,
+    or schedule new data to be available for only a specific period of time. These
+    substantial privacy wins, however, require equally substantial cleverness across
+    the entire ASR system in terms of model testing and experimentation, and especially
+    so for the Dialects ML pipeline that consists of multiple steps: collection of
+    audio, transcription, data preparation, experimentation, and final productionization.
+    These steps can together span over multiple quarters, longer than the lifespan
+    of some of the collected data. That means training data and test sets are not
+    constant, making it difficult to reproduce experimental results, sometimes leading
+    to delays in training the models and launching the desired improvements for customers.'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将 Dialpad 的无成本、可定制的数据保留政策作为所有客户的标准可用性，意味着客户可以随时请求删除他们的数据，或安排新的数据仅在特定时间段内可用。然而，这些重大的隐私胜利需要整个
+    ASR 系统在模型测试和实验方面同样巨大的智慧，尤其是对于由多个步骤组成的方言 ML 流水线：音频收集、转录、数据准备、实验和最终投入生产。这些步骤可以跨越多个季度，长于某些收集数据的生命周期。这意味着训练数据和测试集并非恒定不变，这使得复现实验结果变得困难，有时会导致训练模型和推出客户期望改进的延迟。
+- en: Late in the process of rolling out the new Dialects model, we saw that it performed
+    well on multiple test sets, but performed significantly worse with one single
+    test set across multiple internal trials (compared to the model in production,
+    released six months earlier). This halted deployment of the model while we investigated
+    why. We used multiple methods, including training the new Dialects model from
+    scratch and checking data partitioning (after a previous misadventure inadvertently
+    mispartitioning between training data and test data).
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在推广新的方言模型的过程中，我们发现它在多个测试集上表现良好，但在多次内部试验中，与生产中发布的模型（六个月前发布）相比，对一个单一测试集的表现明显较差。这导致我们暂停了模型的部署，以便进一步调查原因。我们采用了多种方法，包括从头开始训练新的方言模型和检查数据分区（在之前的一次不愉快的事件中，数据分区无意中在训练数据和测试数据之间发生了错误划分）。
+- en: We also wanted to reproduce the results from the production model by using the
+    same process to train a model, but 11 months later, the data subject to retention
+    policies had begun expiring, and we didn’t have the exact training dataset anymore.
+    This made it difficult to reproduce the results of past model builds, and we gained
+    only inconclusive results. Ultimately, the key insight to resolving the discrepancy
+    was that the previous model that had performed well on the test set was actually
+    *in use* during the time the data from production was taken to make the test set.
+    Since our human transcribers create test-set transcripts by editing production
+    model transcripts, this means that the reference transcript of this test set is
+    biased toward the output of the old model. We will never know for sure, however,
+    because the transient nature of data subject to arbitrary data retention regimes
+    compounds the problem of building and maintaining a sufficient corpus for underrepresented
+    data.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还希望通过使用相同的过程训练模型来复现生产模型的结果，但是在 11 个月后，受数据保留政策约束的数据已经开始过期，我们再也没有完全相同的训练数据集了。这使得复现过去模型构建的结果变得困难，我们只得到了不确定的结果。最终，解决这一差异的关键洞察是，在测试集的参考文本中，先前表现良好的模型实际上是在生产数据被用来制作测试集时*正在使用*。由于我们的人工转录员通过编辑生产模型的转录来创建测试集的转录，这意味着这个测试集的参考转录偏向于旧模型的输出。然而，我们永远无法确定，因为数据受任意数据保留制度的瞬时性质使得为不足数据建立和维护足够的语料库问题变得更加复杂。
+- en: Solutions (and new challenges!)
+  id: totrans-22
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 解决方案（以及新的挑战！）
+- en: We see this experience as a good step toward integrating our respect for data
+    privacy goals with the rigor of reproducible R&D. By the end of this project,
+    we had created a separate, specialized data team that handles ASR or the NLP team’s
+    data tasks, redefining our whole data collection and annotation preparation process.
+    The data team’s task is to standardize our test-set creation process, creating
+    dynamic test sets that provide high reproducibility even if some test data needs
+    to be removed because of data retention policies. For example, data with time-based
+    retention policies are no longer considered when creating a test set, and the
+    data team also handles manual data deletions by backfilling, while monitoring
+    how performance metrics on our test sets change over time.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们认为，这种经验是朝着将我们对数据隐私目标的尊重与可再现研发的严谨性相结合迈出的一大步。在项目结束时，我们已经创建了一个专门的数据团队，负责处理 ASR
+    或 NLP 团队的数据任务，重新定义了我们整个数据收集和标注准备流程。数据团队的任务是标准化我们的测试集创建过程，创建动态测试集，即使由于数据保留政策需要移除一些测试数据，也能保证高度的可再现性。例如，具有基于时间的保留政策的数据在创建测试集时不再考虑，数据团队还通过补充处理手动数据删除，同时监控我们的测试集上的性能指标随时间变化的情况。
+- en: 'The team has also standardized training data collection: instead of each ASR
+    engineer writing their own query to get data from our database, we can now submit
+    a request to the data team, and it will provide structured data as needed, including
+    accounting for (and even avoiding) data flagged for deletion. As confidence in
+    the accuracy and integrity of our human annotation pipeline improves, we are also
+    exploring the possibility of identifying personal data elements at scale so that
+    they could be removed or tokenized in lieu of fully deleting the transcript. While
+    difficult, this challenge suggests a way in which privacy-promoting, data-minimizing
+    techniques could secure much more robust access to ML training data.'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 团队还统一了训练数据收集：不再让每个 ASR 工程师自行编写数据库查询来获取数据，现在我们可以向数据团队提交请求，根据需要提供结构化数据，包括考虑（甚至避免）标记为删除的数据。随着对人工标注流水线准确性和完整性的信心提高，我们还在探索在大规模情况下识别个人数据元素的可能性，以便在完全删除转录本之前删除或标记它们。虽然具有挑战性，但这一挑战提出了一种促进隐私、数据最小化技术的方式，从而更加安全地访问
+    ML 训练数据。
+- en: Takeaways
+  id: totrans-25
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 收获
+- en: Integrating with privacy and data retention policies undoubtedly introduces
+    challenges in ML pipelines, especially those powering the primary use cases of
+    a customer-facing product/service. In our use case, working toward a more inclusive
+    ASR model for Dialects, we first learned that even a little diversity in our training
+    data makes the model more robust. In traditional ML practices, we tend to emphasize
+    the size of the training data, but our results demonstrate that quality—and specifically,
+    diversity—is irreplaceable. More importantly, we can get diversity without probing
+    into users’ privacy by using the model confidence measure.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无疑，与隐私和数据保留政策的整合在 ML 流水线中引入了挑战，特别是那些支持面向客户产品/服务的主要用例的 ML 流水线。在我们的用例中，为方言的更具包容性的
+    ASR 模型进行工作，我们首先了解到，即使在我们的训练数据中稍微增加多样性，也能使模型更加鲁棒。在传统的 ML 实践中，我们倾向于强调训练数据的数量，但我们的结果表明，质量——特别是多样性——是不可替代的。更重要的是，我们可以通过使用模型置信度测量来获得多样性，而无需深入用户的隐私。
+- en: Secondly, although these efforts at diversity were complicated by our commitment
+    to honoring customer choice in their data usage, we discovered that with careful
+    curation, we could engineer robustness and reproducibility into our ML pipeline,
+    alongside efficiency gains, by standardizing dataset creation with a dedicated
+    team. We believe abandoning the “trade-off” narrative ultimately improves our
+    access to needed customer data by demonstrating we are willing to put in the effort
+    to be good stewards. Efforts like our Diversity and Dialects initiatives likewise
+    demonstrate to customers the value of wide participation in, and representation
+    by, ML training sets.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，尽管在多样性方面的努力受到了我们尊重客户在数据使用上的选择的复杂性的影响，但我们发现通过精心策划，我们可以通过专门团队标准化数据集的创建，将鲁棒性和可再现性引入我们的
+    ML 流水线中，并实现效率收益。我们相信，通过放弃“权衡”叙事，最终可以通过展示我们愿意付出努力来成为良好的管理员，从而改善我们对所需客户数据的访问。像我们的多样性和方言倡议这样的努力同样向客户展示了广泛参与和
+    ML 训练集的代表性的价值。
+- en: 2\. Continuous ML Model Impacting Traffic
+  id: totrans-28
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 2\. 持续影响流量的 ML 模型
+- en: By Todd Phillips, Google
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作者：Todd Phillips，Google
+- en: Background
+  id: totrans-30
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 背景
+- en: Here’s a story from an incident within Google from several years ago. For confidentiality,
+    we obscure some of the details and don’t say exactly which system was impacted,
+    but the broad strokes of the story are still worth retelling.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个来自几年前谷歌内部的事件故事。为了保密，我们隐藏了一些细节，不直接说受影响的系统是哪一个，但这个故事的大概情节仍值得重述。
+- en: The system in question included a continuous ML model that helped predict the
+    likelihood of clicks on certain kinds of results in a search engine setting, continually
+    updating on new data as it came in. Data came in from several sources, including
+    web browsers and specialized apps on mobile devices. (See [Chapter 10](ch10.xhtml#continuous_ml)
+    for more background on continuous ML models.)
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该系统包含一个连续的机器学习模型，帮助预测在搜索引擎设置中某些类型结果的点击可能性，不断根据新数据进行更新。数据来自多个来源，包括网络浏览器和移动设备上的专业应用程序。（有关连续机器学习模型的更多背景，请参阅[第10章](ch10.xhtml#continuous_ml)。）
+- en: One day, an improvement was made to one of the apps that contributed a particularly
+    large amount of traffic to the system. As part of the improvement, code was included
+    that asked the app to issue the most recent query a second time after an app update
+    was made, in order to make sure that the served results had the freshest state.
+    This improvement was pushed out to all installations of the app as one instantaneous
+    update. For the sake of ominous foreshadowing, we will call this mass instantaneous
+    update *issue A*.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一天，一个特定应用程序做出了改进，向系统贡献了大量流量。作为改进的一部分，包含了一段代码，要求应用程序在更新后再次发出最近的查询，以确保服务的结果处于最新状态。这项改进作为一个瞬间更新推送到了所有应用程序的安装中。为了预示不祥，我们称这次大规模瞬时更新为*问题A*。
+- en: Problem and Resolution
+  id: totrans-34
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题和解决方案
+- en: What happened over the next day and a half was interesting. The moment each
+    device in the world received the update, it reissued the most recent query. This
+    resulted in a huge spike in traffic, but because the queries were being issued
+    automatically, there were no additional user result clicks. This data with many
+    more queries but no additional clicks was staged for retraining of the continuous
+    ML model.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来的一天半时间发生了有趣的事情。全球每台设备接收到更新的瞬间，它就重新发出了最近的查询。这导致流量急剧增加，但由于查询是自动发出的，没有额外的用户结果点击。这些具有更多查询但没有额外点击的数据被用来重新训练连续的机器学习模型。
+- en: Because of an unrelated issue, which we will call *issue B*, the original push
+    was rolled back. Each device that got the original update now updated back to
+    the previous version. This, of course, caused each one to follow the protocol
+    of reissuing the most recent query yet again, causing a third round of duplicate
+    queries and even more data that had no associated clicks.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于一个与此无关的问题，我们将其称为*问题B*，原始推送被撤销了。每个收到原始更新的设备现在都更新回了先前的版本。这当然导致每个设备都按照重新发出最近的查询的协议，再次发出最新的查询，造成第三轮重复查询，甚至更多没有相关点击的数据。
+- en: At this point, the continuous ML model was now happily training on all the corrupted
+    data. Because the corrupted data included a lot of traffic with no associated
+    clicks, the model was getting a signal that the overall click-through rate in
+    the world was now about half of what it had been just a few hours before. The
+    resulting learning within the model soon led to changes in the served models and,
+    not surprisingly, lower served predictions than normal. This soon set off numerous
+    alerts, and the model ops folks started to notice a problem with no obvious root
+    cause because the app owners and the model owners had no visibility into each
+    other’s systems—indeed, they were in completely different areas of a much larger
+    organization.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此时，连续的机器学习模型正在愉快地训练所有损坏的数据。由于这些损坏的数据中包含很多没有相关点击的流量，模型得到的信号表明，全球的整体点击率现在比仅几小时前低了约一半。模型内的学习结果很快导致了服务模型的变化，而且毫不奇怪地，服务的预测比正常情况下要低。这很快引发了大量警报，模型运维人员开始注意到一个问题，而且没有明显的根本原因，因为应用程序的所有者和模型的所有者对彼此的系统一无所知——实际上，他们处于同一组织的完全不同领域之中。
+- en: Meanwhile, the unrelated issue B that had caused the rollback was fixed, and
+    the app folks pushed the update again. This caused—you guessed it!—another round
+    of updates on each mobile device with the app, and still yet another round of
+    duplicate queries.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与此同时，导致回滚的与此无关的问题B被修复了，应用程序相关人员再次推送了更新。你猜对了！这导致每个手机设备上的应用程序都再次更新，并且还有一轮重复查询。
+- en: By this time, the ops folks had pushed the stop button on the continuous ML
+    model training, and all model training was stopped. The most up-to-date version
+    of the model was therefore one that has been impacted by the corrupted data.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到这个时候，运维人员已经按下了连续ML模型训练的停止按钮，所有模型训练都已停止。因此，最新版本的模型受到了损坏数据的影响。
+- en: Also by this time, word has gotten through the organization, and the root cause
+    has been traced to the recent app push, but the specific cause of the changes
+    in model predictions due to the app update was not readily apparent. The behavior
+    that an app update caused a duplicate query was not widely known, and those who
+    knew about it on the app side did not make the connection to the way that it could
+    impact training data in a continuous ML model. Thus, it was assumed that the update
+    may have contained another bug, and the decision was made to re-roll back the
+    re-update of the app and observe for a few hours after that. And of course, this
+    re-rollback created still yet one more round of duplicate queries and corrupted
+    data.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到这个时候，组织中已经传开了这件事情，根本原因已经追溯到最近的应用推送，但由于应用更新导致模型预测变化的具体原因并不明显。应用更新导致重复查询的行为并不广为人知，知情者也没有将其与连续ML模型中的训练数据影响联系起来。因此，假设更新可能包含另一个错误，并决定重新回滚应用更新，并在此之后观察几个小时。当然，这次再次回滚导致了更多的重复查询和损坏的数据。
+- en: 'Once the rollback was completed and several hours of system observations were
+    done, there was enough information available to be sure that the problem was just
+    in the way that the pushes were being done. The mitigation turned out to be simple:
+    stop making updates to the app in terms of rollbacks and re-updates, and then
+    let the continuous ML system roll forward and catch up to the new state of the
+    world. The ML model eventually saw clean data with the appropriate click-through
+    rates.'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当回滚完成并观察了几个小时的系统后，就有足够的信息来确保问题仅仅是推送方式的问题。最终的缓解措施变得很简单：停止在回滚和重新更新方面对应用进行更新，然后让连续ML系统向前发展，以迎合世界新状态。ML模型最终看到了具有适当点击率的干净数据。
+- en: Takeaways
+  id: totrans-42
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 亮点
+- en: One thing we took away from this study is that the many attempted mitigating
+    actions actually ended up doing as much harm as good, and in some ways extended
+    the period of impact. In retrospect, if we had just allowed the model to roll
+    through, the system likely would have recovered much more smoothly and gracefully
+    than it did in the wake of all our attempts to fix things. Sometimes it pays to
+    just hold tight and roll through.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个研究给我们带来的一个教训是，许多尝试的缓解措施实际上造成了与好处一样多的伤害，并在某些方面延长了影响期。回想起来，如果我们只是允许模型自行运行，系统可能会比我们试图修复问题后更顺利和优雅地恢复。有时候，坚持下去是明智的选择。
+- en: 3\. Steel Inspection
+  id: totrans-44
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 3\. 钢材检查
+- en: By Ivan Zhou, Landing AI
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作者：Ivan Zhou，Landing AI
+- en: Background
+  id: totrans-46
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 背景
+- en: Manufacturers in many industries rely on visual inspections to detect critical
+    defects during production of steel rolls. I am an ML engineer at Landing AI and
+    wrote this case study to show some data-centric techniques we used to develop
+    deep learning models for visual inspection tasks.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多行业的制造商依赖视觉检测来在生产钢卷过程中检测关键缺陷。我是Landing AI的一名机器学习工程师，并撰写了这个案例研究，展示了我们用来开发深度学习模型进行视觉检测任务的一些数据中心技术。
+- en: Recently, my team and I worked on a steel inspection project ([Figure 15-1](#this_case_study_focuses_on_detecting_de)).
+    The customer had been developing a visual inspection model for years and had it
+    running in production. But their models achieved only 70% to 80% accuracy. I was
+    able to rapidly prototype a new deep-learning model that achieved 93% accuracy
+    at detecting defects in the project.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最近，我和我的团队在一个钢材检查项目上进行了工作（[图15-1](#this_case_study_focuses_on_detecting_de)）。客户多年来一直在开发视觉检测模型，并将其投入生产。但他们的模型只能达到70%到80%的准确率。我能够快速原型化一个新的深度学习模型，在项目中检测缺陷的准确率达到了93%。
+- en: '![This case study focuses on detecting defects in steel rolls that may have
+    occurred in production](Images/reml_1501.png)'
+  id: totrans-49
+  prefs: []
+  type: TYPE_IMG
+  zh: '![本案例研究重点关注于检测可能在生产中发生的钢卷缺陷](Images/reml_1501.png)'
+- en: Figure 15-1\. This case study focuses on detecting defects in steel rolls that
+    may have occurred in production
+  id: totrans-50
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图15-1\. 本案例研究重点关注于检测可能在生产中发生的钢卷缺陷
+- en: The goal of this project was to accurately classify the defects among the customer’s
+    hot rolling dataset; *hot rolling* is a key stage in the production pipeline of
+    steel rolls. The defects were spread across 38 classes, and many defect classes
+    had only a couple hundred examples.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该项目的目标是准确分类客户热轧数据集中的缺陷；*热轧* 是钢轧制生产管道中的关键阶段。这些缺陷分布在38个类别中，许多缺陷类别只有几百个样本。
+- en: The customers had been working on this problem for almost 10 years, and the
+    best performance their model was able to achieve was only 80% accuracy, which
+    was not sufficient for the client’s needs. Over the years, the customers had tried
+    to bring on several other AI teams to improve the accuracy of their models. All
+    attempted to improve the performance by architecting several state-of-the-art
+    models, but ultimately none were able to make any improvements.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 客户们已经在解决这个问题上工作了近10年，他们的模型能够达到的最佳性能只有80%的准确率，这并不符合客户的需求。多年来，客户尝试引入几个其他AI团队来提高模型的准确性。他们尝试通过设计几种最先进的模型来提高性能，但最终都未能取得任何改进。
+- en: Problem and Resolution
+  id: totrans-53
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题与解决方案
+- en: I went onsite to work on this project. I hired three local interns to help me
+    label those images. In the first week, I spent almost all of my time learning
+    about defect classes, managing the labeling work, and reviewing their labels.
+    I gave data to interns in small batches. Every time they finished, I would review
+    their labels and share with them feedback if there was a labeling error.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我现场前往参与这个项目。我雇了三名当地实习生帮助我标记这些图像。在第一周，我几乎所有的时间都花在学习缺陷类别、管理标记工作和审核他们的标签上。我按批次向实习生提供数据。每次他们完成后，我会审核他们的标签，并在出现标注错误时给予反馈。
+- en: We didn’t label all data at once. We labeled 30% of the data per class in the
+    first iteration, pinpointed all the ambiguities, addressed them, and then labeled
+    the next 30%. So we had three iterations of labeling over two weeks. We focused
+    on defects that might be introduced in the “roll” stage of the manufacturing pipeline,
+    after the metal is cast but before it is finished. Defects can occur from a variety
+    of physical conditions in the hot process, and are grouped by category. In the
+    end, we labeled 18,000 images and threw away more than 3,000 that we thought were
+    confusing (Figures [15-2](#details_of_the_hot_rolling_setting) and [15-3](#timeline_for_data_labelingcomma_label_r)).
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们没有一次性标记所有数据。在第一次迭代中，每个类别的数据我们只标记了30%，找出了所有的模棱两可之处，加以解决，然后再标记下一个30%。所以我们在两周内进行了三次标记。我们专注于可能在制造管道的“轧制”阶段引入的缺陷，即在金属浇铸完成之后但还未完成之前。这些缺陷可能是由于热处理过程中的各种物理条件引起的，并按类别分组。最终，我们标记了18,000张图像，丢弃了超过3,000张我们认为混淆的图像（图[15-2](#details_of_the_hot_rolling_setting)和[15-3](#timeline_for_data_labelingcomma_label_r)）。
+- en: '![Details of the hot rolling setting](Images/reml_1502.png)'
+  id: totrans-56
+  prefs: []
+  type: TYPE_IMG
+  zh: '![热轧设定的细节](Images/reml_1502.png)'
+- en: Figure 15-2\. Details of the hot rolling setting
+  id: totrans-57
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图15-2. 热轧设定的细节
+- en: '![Timeline for data labeling, label review, and model training](Images/reml_1503.png)'
+  id: totrans-58
+  prefs: []
+  type: TYPE_IMG
+  zh: '![数据标记、标签审核和模型训练的时间轴](Images/reml_1503.png)'
+- en: Figure 15-3\. Timeline for data labeling, label review, and model training
+  id: totrans-59
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图15-3. 数据标记、标签审核和模型训练的时间轴
+- en: One of the challenges that took us lots of time was to manage and update the
+    defect consensus. Out of 38 defect classes, many pairs of classes looked very
+    similar at first glance, so they easily confused the labelers. We had to constantly
+    discuss ambiguous cases when disagreement occurred, and we had to update our defect
+    definitions to maintain defect consensus among three labelers and ML engineers.
+    For example, can you tell there are three distinctive defect classes from the
+    nine images in [Figure 15-4](#visually_identifying_the_distinctions_a)?
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个耗费大量时间的挑战是管理和更新缺陷共识。在38个缺陷类别中，许多类别一开始看起来非常相似，因此很容易让标注者混淆。当出现分歧时，我们不得不不断讨论模棱两可的案例，并更新我们的缺陷定义，以维持三名标注者和机器学习工程师之间的缺陷共识。例如，你能从图[Figure 15-4](#visually_identifying_the_distinctions_a)的九张图像中区分出三个明显的缺陷类别吗？
+- en: '![Visually identifying the distinctions among the three classes (black line,
+    black stripe, and scratch) from nine images is far from trivial](Images/reml_1504.png)'
+  id: totrans-61
+  prefs: []
+  type: TYPE_IMG
+  zh: '![从九张图像中视觉识别三类别（黑线、黑条纹和划痕）的区别绝非易事](Images/reml_1504.png)'
+- en: Figure 15-4\. Visually identifying the distinctions among the three classes
+    (black line, black stripe, and scratch) from nine images is far from trivial
+  id: totrans-62
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图15-4. 从九张图像中视觉识别三类别（黑线、黑条纹和划痕）的区别绝非易事
+- en: So here are the answers. After we saw more samples of these three classes, we
+    could continuously correct the boundaries between these three defect types and
+    update their defect definitions ([Figure 15-5](#three_defect_types_with_updated_definit)).
+    We spent lots of effort for labelers to maintain a defect consensus. For samples
+    that were really hard to identify, we had to remove them from our training dataset.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以这些就是答案。在我们看到更多这三类样本后，我们能够持续纠正这三种缺陷类型之间的界限，并更新它们的缺陷定义（[图 15-5](#three_defect_types_with_updated_definit)）。我们花了大量精力来保持标注人员对缺陷的一致性。对于确实难以识别的样本，我们不得不从训练数据集中移除它们。
+- en: '![Three defect types with updated definitions](Images/reml_1505.png)'
+  id: totrans-64
+  prefs: []
+  type: TYPE_IMG
+  zh: '![三种更新定义的缺陷类型](Images/reml_1505.png)'
+- en: Figure 15-5\. Three defect types with updated definitions
+  id: totrans-65
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 15-5\. 三种更新定义的缺陷类型
+- en: Besides the defect definition, it was also critical to establish labeling consensus.
+    The labelers were not only expected to tell defect classes accurately, but since
+    we were doing object detection, we also wanted their bounding boxes labeling to
+    be tight and consistent.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了缺陷定义外，建立标注一致性也非常关键。标注人员不仅要准确地判断缺陷类别，而且由于我们正在进行目标检测，我们还希望他们的边界框标注紧凑而一致。
+- en: For example, the samples shown in [Figure 15-6](#the_third_image_shows_a_well_annotated)
+    were from a defect class called *roller iron sheet*, which featured very dense
+    holes or black dots. When labelers labeled the images, they were expected to draw
+    tight bounding boxes around all areas with clear patterns of defects. If discontinuity
+    occurred, they needed to annotate with separate boxes, like the third image ([Figure 15-6](#the_third_image_shows_a_well_annotated)).
+    However, the fourth image was rejected during labeling reviewing, because the
+    box was too wide and loosely covered a defective area. If we allowed this label
+    to be added to our training set, it would mislead the model when calculating the
+    losses, and we should avoid that.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，显示在[图 15-6](#the_third_image_shows_a_well_annotated)中的样本来自一个称为*辊压铁皮*的缺陷类别，其特征是非常密集的孔或黑点。当标注人员标注这些图像时，他们应该在所有具有明显缺陷模式的区域周围绘制紧凑的边界框。如果出现不连续性，他们需要用单独的框进行注释，就像第三张图片（[图 15-6](#the_third_image_shows_a_well_annotated)）那样。然而，第四张图片在标注审查时被拒绝，因为框太宽松，覆盖了一个缺陷区域。如果我们允许此标注添加到我们的训练集中，将会误导模型在计算损失时，我们应该避免这种情况。
+- en: '![The third image shows a well-annotated discontinuity, while the fourth image
+    was rejected during labeling review because the box too loosely covers a defective
+    area](Images/reml_1506.png)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![第三张图片展示了一个有详细注释的不连续性，而第四张图片在标注审查期间被拒绝，因为框覆盖的缺陷区域太宽松](Images/reml_1506.png)'
+- en: Figure 15-6\. The third image shows a well-annotated discontinuity, while the
+    fourth image was rejected during labeling review because the box too loosely covers
+    a defective area
+  id: totrans-69
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 15-6\. 第三张图片展示了一个有详细注释的不连续性，而第四张图片在标注审查期间被拒绝，因为框覆盖的缺陷区域太宽松。
+- en: Takeaways
+  id: totrans-70
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 收获
+- en: We spent less than 10% of our time doing model iterations. After each time we
+    trained a model, I spent most of my time reviewing falsely predicted examples
+    and identified root causes of errors. Then I took those insights back to further
+    clean the dataset. After two iterations like this, we achieved 93% accuracy on
+    the test set, or a 65% reduction in error rate. This far exceeded the baseline
+    and the expectations that the customers had at that time and met their needs.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们花了不到10%的时间进行模型迭代。每次训练完模型后，我大部分时间都用来回顾错误预测的例子，并找出错误的根本原因。然后，我将这些见解用于进一步清洗数据集。经过两次这样的迭代，我们在测试集上达到了93%的准确率，错误率降低了65%。这远远超过了基线和当时客户的预期，满足了他们的需求。
+- en: '4\. NLP MLOps: Profiling and Staging Load Test'
+  id: totrans-72
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 4\. NLP MLOps：配置文件和分阶段负载测试
+- en: By Cheng Chen, Dialpad
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作者：Cheng Chen，Dialpad
+- en: Background
+  id: totrans-74
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 背景
+- en: Dialpad’s AI team builds NLP applications to help users get more from their
+    calls, including real-time transcript formatting, sentiment detection, action-item
+    extraction, and more. Developing and deploying large NLP models systems is a challenge.
+    Fitting them within the constraints of real-time, cost-effective performance makes
+    that challenge significantly more complex.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dialpad的AI团队开发了NLP应用程序，帮助用户更好地利用他们的通话，包括实时转录格式化、情绪检测、行动项提取等。开发和部署大型NLP模型系统是一个挑战。将它们适应实时、成本效益高的性能限制，使这一挑战变得更加复杂。
+- en: 'In 2019, the large language model BERT achieved state-of-the-art NLP performance.^([1](ch15.xhtml#ch01fn145))
+    We planned to leverage it to provide more accurate NLP capabilities, including
+    punctuation restoration and date, time, and currency detection. To reduce cloud
+    cost, however, our real-time production environment has very limited resources
+    assigned to it (GPU is not an option, and we have one CPU at most for many models).
+    In addition, our hard limit on model inference is 50 ms per utterance. Meanwhile,
+    the BERT base model has 12 layers of transformer blocks with 110 million parameters.
+    We knew it would be challenging to optimize it to fit into our real-time environment,
+    but we still overlooked one critical piece: the difficulty of obtaining an accurate
+    estimate on how much faster the model has to be to meet our real-time demand.'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 2019年，大型语言模型BERT实现了最先进的自然语言处理性能。^([1](ch15.xhtml#ch01fn145)) 我们计划利用它提供更准确的NLP能力，包括标点恢复、日期、时间和货币检测。然而，为了降低云成本，我们的实时生产环境资源非常有限（GPU不是选项，多个模型最多只有一个CPU）。此外，我们对模型推理的硬限制是每个话语50毫秒。与此同时，BERT基础模型具有12层变压器块和1.1亿个参数。我们知道将其优化以适应我们的实时环境将是一项挑战，但我们仍然忽视了一个关键问题：估算模型需要多快才能满足我们的实时需求是多么困难。
+- en: Problem and Resolution
+  id: totrans-77
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题与解决方案
+- en: Our team needed to perform local profiling in order to benchmark various NLP
+    models, which ran model inference over a large number of randomly sampled utterances
+    and calculated average inference time per utterance.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的团队需要进行本地分析，以便对各种自然语言处理（NLP）模型进行基准测试，这些模型对大量随机抽样的话语进行模型推理，并计算每个话语的平均推理时间。
+- en: Once the average inference speed met a fixed threshold, the packaged model would
+    be handed over to our data engineering (DE) team, which would then do canary deployment
+    in our Google Kubernetes Engine (GKE) cluster, and monitor a dashboard of various
+    real-time metrics ([Figure 15-7](#a_dashboard_monitoring_real_time_metric)) with
+    an ability to drill down into specific metrics ([Figure 15-8](#drill_down_to_a_specific_metric_for_a_g)).
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦平均推理速度达到固定阈值，打包的模型将交给我们的数据工程（DE）团队，在我们的Google Kubernetes Engine（GKE）集群中进行金丝雀部署，并监控各种实时指标的仪表板（[图
+    15-7](#a_dashboard_monitoring_real_time_metric)），能够深入分析特定指标（[图 15-8](#drill_down_to_a_specific_metric_for_a_g)）。
+- en: 'This was how we gradually deployed a new BERT-based punctuator model (whose
+    goal is to restore punctuation) into production, and this was where the confusion
+    started. For a large language model based on BERT, often DE teams discovered that
+    the latency or queue time bumped up significantly and they had to roll back the
+    deployment. Clearly, the local profiling configuration was not aligned with the
+    actual pattern occurring in the production system. This discrepancy may come from
+    two sources: cluster compute resource allocation and/or traffic pattern. However,
+    the reality was that scientists didn’t have the right tools to properly benchmark
+    model inference. This was resulting in time-consuming deployments and rollbacks
+    with lots of wasted effort on repeated manual work. Add to that the anxiety about
+    deploying a potentially underperforming model into the system, with the resulting
+    system congestion and service outages. As a stopgap measure, applied scientists
+    and engineers agreed to increase the compute resource, such as adding one more
+    CPU for inference, but we clearly needed a better approach to benchmarking.'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是我们如何逐步将基于BERT的新标点模型（其目标是恢复标点符号）部署到生产环境中的过程，也是混乱开始的地方。对于基于BERT的大型语言模型，DE团队经常发现延迟或队列时间显著增加，他们不得不回滚部署。显然，本地分析配置与生产系统中实际发生的模式不一致。这种差异可能来自两个方面：集群计算资源分配和/或流量模式。然而，事实是科学家们没有正确的工具来正确评估模型推理。这导致部署和回滚非常耗时，需要大量重复的手动工作。加上对部署潜在表现不佳模型的焦虑，导致系统拥塞和服务中断。作为一种权宜之计，应用科学家和工程师们同意增加计算资源，例如增加一个额外的CPU用于推理，但我们显然需要更好的基准测试方法。
+- en: '![A dashboard monitoring real-time metrics](Images/reml_1507.png)'
+  id: totrans-81
+  prefs: []
+  type: TYPE_IMG
+  zh: '![监控实时指标的仪表板](Images/reml_1507.png)'
+- en: Figure 15-7\. A dashboard monitoring real-time metrics
+  id: totrans-82
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 15-7\. 监控实时指标的仪表板
+- en: '![Drill-down to a specific metric for a given model](Images/reml_1508.png)'
+  id: totrans-83
+  prefs: []
+  type: TYPE_IMG
+  zh: '![针对特定模型进行详细分析](Images/reml_1508.png)'
+- en: Figure 15-8\. Drill-down to a specific metric for a given model
+  id: totrans-84
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 15-8\. 针对特定模型进行详细分析
+- en: An improved process for benchmarking
+  id: totrans-85
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 一个改进的基准测试过程
+- en: What we needed was a way to allow NLP applied scientists to efficiently obtain
+    benchmarking results that were close to production metrics. (Note that canary
+    deployment was still required in production deployment.)
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要一种方法，允许NLP应用科学家高效获取接近生产指标的基准测试结果。（请注意，生产部署仍然需要金丝雀部署。）
+- en: Apart from the production system, the DE team also maintained a staging environment
+    where NLP models were deployed and integrated with the product interface (reference)
+    prior to production deployment. Our QA team made test calls to test various call
+    features, and applied scientists leveraged this environment to ensure that the
+    model ran properly with the product UI. However, they had not used it to thoroughly
+    benchmark large models.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了生产系统外，DE团队还维护了一个演示环境，用于部署NLP模型并与产品界面（参考）集成，以便在生产部署之前进行测试。我们的QA团队对各种调用功能进行测试调用，而应用科学家则利用该环境确保模型能够与产品界面正常运行。然而，他们尚未将其用于全面测试大型模型。
+- en: 'The DE team proposed a comprehensive and self-serve load-test tool to help
+    applied scientists benchmark model inference in the staging environment. When
+    designing the load-test tool, we kept the following high-level points in mind:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DE团队提出了一个全面且自助的负载测试工具，以帮助应用科学家在演示环境中对模型推理进行基准测试。在设计负载测试工具时，我们牢记以下几个高级要点：
+- en: Load-test data should contain trigger phrases for the model.
+  id: totrans-89
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 负载测试数据应包含触发模型的短语。
+- en: Load-test data should contain a healthy mix of utterance lengths. It is probably
+    better to have longer utterances so as to give a better approximation of how the
+    system will perform under stress.
+  id: totrans-90
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 负载测试数据应包含健康混合的话语长度。最好使用较长的话语长度，以更好地近似系统在压力下的表现。
+- en: Load-test data should trigger model inference and not get short-circuited by
+    optimizations/caches that would lead to misleadingly low runtime latencies.
+  id: totrans-91
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 负载测试数据应触发模型推理，而不会被优化/缓存所绕过，从而导致误导性的低运行时延迟。
+- en: We use CircleCI workflows to control automatic deployments to staging.
+  id: totrans-92
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们使用CircleCI工作流来控制自动部署到演示环境。
+- en: (Optional) Load-test data should have similar characteristics to data expected
+    in production.
+  id: totrans-93
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: （可选）负载测试数据应具有与预期在生产中使用的数据类似的特征。
+- en: 'After the tool was developed, applied scientists had two options for performing
+    a load test on staging:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开发完成后，应用科学家在**演示环境**中执行负载测试时有两个选择：
+- en: Audio-based (end-to-end) load test
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 基于音频的（端到端）负载测试
+- en: This is a full end-to-end test.
+  id: totrans-96
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这是一个完整的端到端测试。
+- en: This simulates calls on the system.
+  id: totrans-97
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这模拟了对系统的调用。
+- en: Data is sampled automatically from calls in the staging environment (e.g., QA
+    calls) and tries to provide good coverage on certain features.
+  id: totrans-98
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据自动从演示环境中的调用（例如QA调用）中采样，并尝试在某些特定功能上提供良好的覆盖范围。
+- en: This audio can be customized so we can put NLP-specific audio datasets if needed.
+  id: totrans-99
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果需要，可以根据需要定制此音频，因此我们可以放置特定于NLP的音频数据集。
+- en: Text-based (model specific) load test
+  id: totrans-100
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 基于文本的（特定于模型的）负载测试
+- en: This targets only a single microservice (e.g., the punctuator or the sentiment
+    model).
+  id: totrans-101
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这仅针对单个微服务（例如，标点符号或情感模型）。
+- en: This allows us to pick the most difficult inputs to stress-test our models.
+  id: totrans-102
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这使我们能够选择最具挑战性的输入来对我们的模型进行压力测试。
+- en: After scientists decided on the type of load test and had all the necessary
+    data in place, they then deployed the changes to staging and started the load
+    test.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 科学家们确定负载测试的类型并准备好所有必要的数据后，将更改部署到演示环境并开始负载测试。
+- en: Once the load test began, scientists could monitor the live dashboard for important
+    metrics such as the Runtime 95th, as shown in [Figure 15-9](#runtime_ninefiveth_percentile).
+    That is the most significant value when evaluating inference speed. As a rule
+    of thumb, anything below 1 second satisfies the requirement. Currently, most models
+    tend to be clustered at or below 0.5 seconds.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦负载测试开始，科学家们可以监控实时仪表板，查看诸如运行时95百分位数之类的重要指标，如[图15-9](#runtime_ninefiveth_percentile)所示。这是在评估推理速度时最重要的值。作为一个经验法则，低于1秒的任何时间都能满足要求。目前，大多数模型倾向于聚集在或低于0.5秒。
+- en: '![Runtime 95th percentile](Images/reml_1509.png)'
+  id: totrans-105
+  prefs: []
+  type: TYPE_IMG
+  zh: '![运行时95百分位数](Images/reml_1509.png)'
+- en: Figure 15-9\. Runtime 95th percentile
+  id: totrans-106
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图15-9. 运行时95百分位数
+- en: With this tool in place, scientists could launch staging tests themselves, without
+    asking for help from the DE team. The Datadog dashboard also provided a comprehensive
+    breakdown of the runtime performance of each model so that applied scientists
+    could monitor the metric numbers more closely. Therefore, the load-test tool significantly
+    reduced communication overhead during our rapid development cycle.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了这个工具，科学家们可以自行启动分段测试，无需向DE团队寻求帮助。Datadog仪表板还提供了每个模型运行时性能的全面分析，以便应用科学家能更密切地监控指标数字。因此，在我们快速开发周期中，负载测试工具显著减少了通信开销。
+- en: Takeaways
+  id: totrans-108
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 要点
+- en: Cramming state-of-the-art NLP performance into a resource-constrained real-time
+    production environment requires very high confidence that benchmarks during testing
+    will be borne out in production. When our testing methods started failing on the
+    more resource-intensive BERT model, we reached into our staging environment to
+    give our scientists a more representative environment to test against and made
+    it self-serve so they could iterate rapidly. The automatic staging benchmarking
+    step has since become a standard process in the model development process. Both
+    teams are now relieved as applied scientists are able to obtain close-to-production
+    estimates on model inference with great confidence.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将最先进的自然语言处理性能融入资源受限的实时生产环境中，需要非常高的信心，即测试期间的基准将在生产中得到验证。当我们的测试方法开始在资源密集型的BERT模型上失效时，我们利用我们的分段环境为科学家提供更具代表性的测试环境，并使其自助化，以便他们能够快速迭代。自动化分段基准测试步骤已成为模型开发过程中的标准流程。现在，两个团队都感到放心，因为应用科学家能够非常自信地获得接近生产的模型推断估计。
+- en: '5\. Ad Click Prediction: Databases Versus Reality'
+  id: totrans-110
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 5\. 广告点击预测：数据库与现实之间的挑战
+- en: By Daniel Papasian, Google
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由Google的Daniel Papasian提供
+- en: Background
+  id: totrans-112
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 背景
+- en: Google’s ad-targeting systems aim to help maximize the long-term value of shown
+    ads, which includes minimizing the frequency of displaying unwanted ads to users.
+    They do so in part by using models to predict the probability that a given ad
+    will be clicked. When there are opportunities to show ads, an auction is conducted,
+    and as part of this auction a server uses a model to predict the probability that
+    certain ads will be clicked. These probabilities are one of several inputs to
+    the auction, and if the model underperforms, both user and advertiser experience
+    suffers. The act of displaying the ad results in us inserting a row to our database.
+    The row in the database corresponds to an ad being shown to the user, with columns
+    associated with the features used for model training. Additionally, a Boolean
+    column represents whether the ad resulted in a click. This column is defaulted
+    to `false` when the row is inserted.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 谷歌的广告定位系统旨在帮助最大化显示广告的长期价值，其中包括尽量减少向用户展示不想看的广告的频率。他们部分地通过使用模型来预测某个广告被点击的概率来实现这一目标。当有机会展示广告时，会进行拍卖，拍卖的一部分是服务器使用模型来预测某些广告被点击的概率。这些概率是拍卖的几个输入之一，如果模型表现不佳，用户和广告主的体验都会受到影响。显示广告的行为导致我们向数据库插入一行。数据库中的行对应于向用户展示广告，其列与用于模型训练的特征相关联。此外，一个布尔列表示广告是否导致点击。当插入行时，此列默认为`false`。
+- en: If the ad is clicked, it generates a record in a click log. The click-logging
+    team runs a process to remove fraudulent clicks, and publishes a feed of “clean”
+    clicks for consumption by other internal users. This feed is used to issue an
+    update to the already created row in the database to mark the ad impression as
+    having resulted in a click.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果广告被点击，将在点击日志中生成一条记录。点击日志团队运行一个过程来移除欺诈点击，并发布一份“干净”点击的反馈，供其他内部用户使用。这个反馈用于更新已经创建的数据库行，标记广告展示已经导致点击。
+- en: The model was trained by looking at the rows in this database as examples, and
+    using the click bit as the label. The rows in the data were the raw inputs to
+    the model and the label for each event recording either “resulted in a click”
+    or “was not clicked.” If we were to never update the models, they would work well
+    for some time, but eventually degrade in accuracy because of changing user behaviors
+    and advertiser inventories. To improve the overall behavior, we automated the
+    retraining and deployment of the click prediction model.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型是通过查看此数据库中的行作为示例进行训练的，并使用点击位作为标签。 数据中的行是模型的原始输入，并且每个事件的标签记录为“导致点击”或“未被点击”。
+    如果我们从不更新模型，它们将在一段时间内表现良好，但最终由于用户行为和广告库存的变化而精度下降。 为了改善整体行为，我们自动化了点击预测模型的重新训练和部署。
+- en: 'Before a retrain is pushed to production, we validate that we are improving
+    the model’s accuracy. We hold back a portion of the dataset from training and
+    use it as a test set. Our training process handled this with Bernoulli sampling:
+    for each ad shown in the 48 hours before training, there would be a 99% chance
+    we’d train on it, and a 1% chance we would reserve it for our test set. This was
+    implemented with a `test_set` bit on the row that we’d set to `true` 1% of the
+    time. When the training system read the events table, it would filter out all
+    rows where this was true. Newly trained models would be sent to this validation
+    system, which generated inferences on recent events with the `test_set` bit. It
+    compared these inferences to the observed labels to generate statistics about
+    model accuracy. Models would be pushed to production only if the new models performed
+    better than the old model over the recent test set events.'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在推送重新训练到生产之前，我们验证了我们是否提高了模型的准确性。 我们从训练集中留出一部分数据集，并将其用作测试集。 我们的训练过程通过伯努利抽样处理：在训练之前的48小时内展示的每个广告，我们将有99%的机会对其进行训练，以及1%的机会将其保留为测试集。
+    这是通过在我们将`test_set`位设置为`true`的行上实施的。 当训练系统读取事件表时，它将过滤出所有这些位为true的行。 新训练的模型将发送到此验证系统，该系统对具有`test_set`位的最近事件生成推断。
+    它将这些推断与观察到的标签进行比较，以生成有关模型准确性的统计数据。 只有新模型在最近的测试集事件上表现优于旧模型时，才会将模型推送到生产环境。
+- en: Problem and Resolution
+  id: totrans-117
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题与解决方案
+- en: 'One Monday, we came in and were greeted by an automatic alert: we were showing
+    ads at a rate far below normal. We quickly realized that our mean predicted probability
+    of a click was one-tenth of what it typically was. Whether we show an ad at all
+    was gated in part on how probable we thought it was that the ad would be clicked.
+    As such, the widespread underprediction of click probability explained the alert
+    on the rate of ads being shown. But questions still remained: did our users’ behavior
+    change? Or had our model update somehow hurt us, despite our validation measures?'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一个星期一，我们进来时被自动警报所迎接：我们的广告显示率远低于正常水平。 我们很快意识到，我们平均预测的点击概率只有通常水平的十分之一。 我们是否展示广告部分取决于我们认为广告会被点击的可能性。
+    因此，广泛的点击概率低估解释了广告显示率警报。 但问题仍然存在：我们的用户行为是否发生了变化？ 或者我们的模型更新是否在某种程度上对我们造成了伤害，尽管我们有验证措施？
+- en: We queried the database for all rows in the 48 hours before the training cutoff.
+    No matter how we aggregated it, we saw click rates that were astoundingly typical.
+    The model was acting as if clicks were far more rare, but the data in our database
+    didn’t reflect that. But why didn’t our validation system block the model from
+    going to production? We tasked both our data science and production engineering
+    teams to dig into the situation to understand what happened.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们查询了训练截止前48小时内的所有行的数据库。 无论我们如何聚合它，我们看到的点击率都是惊人地典型。 模型表现得好像点击远不及我们数据库中的数据。 但是为什么我们的验证系统没有阻止模型进入生产？
+    我们委托我们的数据科学和生产工程团队调查这种情况，以了解发生了什么。
+- en: 'The data science team started by looking at the validation system: this was
+    supposed to keep us from pushing out models that performed worse than the versions
+    we were replacing. The validation system computed a loss metric by generating
+    inferences over the test set. Lower loss was supposed to mean better models. The
+    logs from Sunday’s validation run indicated we processed the test events as expected,
+    and that the loss statistic was lower for the new model than our old model. With
+    a hunch, someone decided to rerun the validation system with the same pair of
+    models across the test set. The test set was reread from the database, and the
+    inferences were generated as expected. This time, the loss metric indicated the
+    new model was worse than the old model—the opposite result from Sunday. What changed?'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据科学团队首先查看了验证系统：这个系统原本旨在防止我们发布比替换版本表现更差的模型。验证系统通过在测试集上生成推断来计算损失指标。更低的损失意味着更好的模型。周日的验证运行日志显示，我们按预期处理了测试事件，并且新模型的损失统计低于旧模型。有人有预感，决定再次使用相同的模型对测试集进行验证。测试集从数据库重新读取，并且生成了预期的推断。这一次，损失指标表明新模型比旧模型更差——与周日相反的结果。到底发生了什么？
+- en: The production engineering teams checked a range of data from a large set of
+    systems, trying to see whether any unexplained anomalies were in relevant systems.
+    Curiously, a graph showed revenue of $0 for Wednesday through Sunday, and then
+    a spike to very large amounts of revenue in the early hours of Monday. The graph
+    was produced by a system that watched the feed of verified clicks.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产工程团队检查了大量系统的数据范围，试图查看相关系统中是否存在任何未解释的异常。耐人寻味的是，一个图表显示周三到周日的收入为0，然后在周一凌晨出现了非常大的收入额。这个图表是由一个监视验证点击流的系统生成的。
+- en: When the production engineer and data scientist teams conferred with each other
+    and shared their findings, they realized the model was underpredicting because
+    of a failure of the infrastructure responsible for processing the raw click logs
+    and distributing the clean click feed to consumers. The clean clicks arrived to
+    the ML training system late—not until early Monday morning, after the model had
+    last trained. Without any evidence to the contrary, the model believed that every
+    ad shown in this period didn’t result in a click. Every event was a true negative
+    or a false negative, and that’s all our test set contained as well. The model
+    that we trained concluded that the ads were awful and no one would click on any
+    of them, which was accurate given the data that we had when we trained the model.
+    When the click-processing feed caught up, the validation data was relabeled so
+    that ads that resulted in clicks were labeled that way. This explained why subsequent
+    attempts at validation of the already trained model were still failing. The issue
+    was resolved by retraining on the corrected data.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当生产工程师和数据科学家团队相互商议并分享他们的发现时，他们意识到由于负责处理原始点击日志和向消费者分发干净点击流的基础设施失败，模型出现了欠预测的情况。干净的点击数据直到周一早上模型最后一次训练后才到达ML训练系统。没有证据表明相反情况，模型认为这段时间内显示的每个广告都没有被点击。每个事件都是真负或假负，这也是我们的测试集所包含的。我们训练的模型得出的结论是广告很糟糕，没有人会点击任何一个广告，这在我们训练模型时的数据是准确的。当点击处理流赶上时，验证数据被重新标记，使得产生点击的广告被相应标记。这解释了为什么对已训练模型的后续验证尝试仍然失败。问题通过在修正后的数据上重新训练得到解决。
+- en: Takeaways
+  id: totrans-123
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 收获
+- en: In retrospect, it’s important to note that our model never directly predicted
+    the probability of a click. Rather, it predicted the probability of a shown ad
+    being marked as “was clicked” in our database at the time that training happens.
+    Indeed, while we expect that our database is an accurate reflection of reality,
+    bugs or failures may cause differences. In this case, a production failure in
+    an upstream system caused the meaning of this label to diverge from what we wished
+    it to reflect. Our models built using supervised learning techniques predict labels
+    in our training set, and it’s of critical importance that our labels reflect reality.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回顾起来，重要的是要注意，我们的模型从未直接预测点击的概率。相反，它预测了在训练时段内被标记为“被点击”的广告展示的概率。确实，虽然我们期望我们的数据库能够准确反映现实，但是错误或故障可能导致差异。在这种情况下，上游系统的生产故障导致了此标签的含义与我们希望反映的不同。我们使用监督学习技术构建的模型在我们的训练集中预测标签，我们的标签反映现实是至关重要的。
+- en: 'The teams collaborated to write a postmortem to analyze what happened and how
+    to prevent it. This turned out to be a significant learning experience for our
+    organization. We gathered the timeline: from the perspective of people working
+    on the click prediction models, the problem wasn’t detected until Monday. We later
+    learned that the team that worked on the click logs noticed their pipeline was
+    broken on Wednesday with a software release, and were aware of the problem the
+    same day when their alerting indicated the feed wasn’t being processed. They put
+    in place mitigations to ensure that clicks would still be eventually billed, and
+    figured they’d fix the rest of the data-feed processing first thing on Monday.
+    They hadn’t realized their system was a data dependency of an ML process downstream,
+    and how that system was making assumptions about the completeness of data. We
+    believe many ML pipelines make assumptions about the completeness of input data
+    and correctness of provided labels without verifying these assumptions, and as
+    such are at risk for similar problems.'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 团队合作撰写了一份事后分析报告，分析发生了什么以及如何防止。这对我们的组织来说是一次重要的学习经验。我们整理了时间线：从点击预测模型工作人员的角度来看，问题直到周一才被发现。我们后来得知，点击日志团队在周三的软件发布时注意到他们的管道出现故障，并在当天通过他们的警报系统意识到了问题未被处理。他们采取了措施确保点击最终仍将被计费，并计划在周一第一时间修复其余的数据处理问题。他们没有意识到他们的系统是下游机器学习流程的数据依赖，以及该系统如何对数据的完整性作出假设。我们认为许多机器学习流水线对输入数据的完整性和提供标签的正确性做出了假设，而没有验证这些假设，因此可能面临类似问题的风险。
+- en: We listed every potential cause of the outage we could muster; we knew we’d
+    prioritize these based on effort to make an improvement and expected value of
+    the improvement. The causes included the lack of integration testing leading to
+    the click logs breaking, the training system’s reliance on the click log processing
+    being more reliable than agreed-upon service availability targets, and our assumption
+    that the most recent events would be representative of all events.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们列出了我们能够想到的每一个停机的潜在原因；我们知道我们会根据改进的工作量和预期改进的价值来优先考虑这些原因。这些原因包括缺乏集成测试导致点击日志中断、训练系统依赖点击日志处理的可靠性高于约定的服务可用性目标，以及我们假设最近的事件会代表所有事件。
+- en: Our follow-ups included establishing an availability target for the click log
+    processing systems, expanding our validation system to check that the test set’s
+    positive ratio wasn’t suspiciously low or high, and establishing a process for
+    the click log team to communicate outages and pause training if serious problems
+    with model health occurred.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的后续工作包括为点击日志处理系统建立可用性目标，扩展我们的验证系统以检查测试集的正样本比例是否异常偏低或偏高，并建立一个流程，用于当模型健康出现严重问题时，点击日志团队可以通报故障并暂停训练。
+- en: 6\. Testing and Measuring Dependencies in ML Workflow
+  id: totrans-128
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 6\. 在机器学习工作流中进行测试和测量依赖关系
+- en: By Harsh Saini, Dialpad
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作者：Harsh Saini，Dialpad
+- en: Background
+  id: totrans-130
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 背景
+- en: At Dialpad, we have a speech recognition and processing engine that has several
+    ML dependencies. Audio comes in from our telephony backend and gets transcribed
+    in real time through our proprietary ASR models, where formatting and readability
+    improvements are also made. The output is then fed into our language-specific
+    NLP models like NER and sentiment analysis. This pipeline can be simplified as
+    a flowchart ([Figure 15-10](#flowchart_of_dialpad_speech_recognition)).
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Dialpad，我们有一个语音识别和处理引擎，它具有几个机器学习依赖项。音频从我们的电话后端输入，并通过我们的专有ASR模型实时转录，在这过程中还进行格式化和可读性改进。然后输出被馈送到我们的语言特定的自然语言处理模型中，如NER和情感分析。这个管道可以简化为一个流程图（见[图
+    15-10](#flowchart_of_dialpad_speech_recognition)）。
+- en: '![Flowchart of Dialpad speech-recognition and processing pipeline](Images/reml_1510.png)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Dialpad语音识别和处理管道流程图](Images/reml_1510.png)'
+- en: Figure 15-10\. Flowchart of Dialpad speech-recognition and processing pipeline
+  id: totrans-133
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 15-10\. Dialpad语音识别和处理管道流程图
+- en: However, in reality, the pipeline is not as straightforward as shown in this
+    simplified diagram. Multiple speech-recognition models may be used, depending
+    on the user’s location and/or the product line they are using within Dialpad.
+    For instance, a user from the UK using the call-center product line will be provided
+    with a speech-recognition model fine-tuned on the UK dialect of English and trained
+    on call-center domain-specific knowledge. Similarly, a user from the US using
+    the sales product line will have their call transcribed using a speech-recognition
+    model trained on the US English dialect and domain-specific knowledge for sales
+    calls.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，实际情况并不像这个简化的图表所显示的那样直接。根据用户的位置和/或他们在Dialpad内使用的产品线，可能会使用多个语音识别模型。例如，使用呼叫中心产品线的英国用户将使用在英国英语方言上进行了微调，并针对呼叫中心领域特定知识的语音识别模型。同样地，使用销售产品线的美国用户将使用在美国英语方言上进行了训练，并针对销售电话领域特定知识的语音识别模型来转录他们的通话。
+- en: Additionally, for the NLP, several task-specific models run in parallel to perform
+    tasks such as sentiment analysis, question detection, and action-item identification.
+    With this in mind, the simplified flowchart can be extended to highlight the diversity
+    of models in Dialpad’s production ML pipeline.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，针对NLP，多个任务特定模型并行运行，执行情感分析、问题检测和行动项识别等任务。考虑到这一点，简化的流程图可以扩展以突显Dialpad生产ML管道中模型的多样性。
+- en: Problem and Resolution
+  id: totrans-136
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题与解决方案
+- en: '[Figure 15-11](#some_of_the_ml_dependencies_that_exist) highlights some of
+    the ML dependencies that exist for NLP task-specific models with regards to the
+    upstream speech-recognition models. NLP model performance is sensitive to ASR
+    model output artifacts. While most NLP models are not overly sensitive to minor
+    changes to ASR model outputs, over time the data changes significantly enough,
+    and NLP models experience a degradation in performance due to regression and data
+    drift. A few common updates to ASR that result in a change in input data distribution
+    for NLP models are as follows:'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图15-11](#some_of_the_ml_dependencies_that_exist)强调了关于上游语音识别模型的NLP任务特定模型的一些ML依赖项。NLP模型性能对ASR模型输出产物非常敏感。尽管大多数NLP模型对ASR模型输出的微小变化并不过敏感，但随着时间的推移，数据发生显著变化，NLP模型由于回归和数据漂移而性能下降。导致ASR的一些常见更新导致NLP模型输入数据分布发生变化的几个更新如下：'
+- en: Modifications in the vocabulary of the ASR system (e.g., the addition of the
+    word *coronavirus*)
+  id: totrans-138
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: ASR系统词汇的修改（例如，添加了*冠状病毒*这个词）
+- en: Changes in the output of the ASR system (e.g., people are saying the same things,
+    but we’re getting better at accurately transcribing them)
+  id: totrans-139
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: ASR系统输出的变化（例如，人们说着相同的话，但我们在准确转录它们方面变得更好）
+- en: Topic drift, whereby people are actually talking about different things (e.g.,
+    suddenly everyone starts talking about elections in the US)
+  id: totrans-140
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 主题漂移，即人们实际上在谈论不同的事物（例如，突然间所有人都开始谈论美国的选举）。
+- en: '![Some of the ML dependencies that exist for NLP task-specific models](Images/reml_1511.png)'
+  id: totrans-141
+  prefs: []
+  type: TYPE_IMG
+  zh: '![一些针对NLP任务特定模型的ML依赖项](Images/reml_1511.png)'
+- en: Figure 15-11\. Some of the ML dependencies that exist for NLP task-specific
+    models
+  id: totrans-142
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图15-11\. 一些针对NLP任务特定模型的ML依赖项
+- en: To combat this phenomenon, the DE team at Dialpad, in collaboration with the
+    data science team, built an offline testing pipeline that could measure NLP model
+    performance for a given ASR model.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了应对这种现象，Dialpad的DE团队与数据科学团队合作，建立了一个离线测试管道，可以测量给定ASR模型的NLP模型性能。
+- en: Building the regression-testing sandbox
+  id: totrans-144
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 建立回归测试沙盒
+- en: 'Some of the key requirements for our regression testing and monitoring system
+    were as follows:'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的回归测试和监控系统的一些关键需求如下：
+- en: Ensure that monitoring of NLP model performance would happen automatically whenever
+    newer ASR models are released.
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保在发布新的ASR模型时，NLP模型性能的监控将自动进行。
+- en: Simulate the behavior as observed in production by the models.
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模拟观察到的生产模型行为。
+- en: Collect and report metrics submitted via the evaluation that can be viewed by
+    stakeholders.
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 收集并报告通过评估提交的指标，供利益相关者查看。
+- en: Collect model inference artifacts and logs so as to assist in troubleshooting
+    by scientists.
+  id: totrans-149
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 收集模型推断产物和日志，以帮助科学家进行故障排除。
+- en: Allow for ad hoc evaluation by data science teams when they wish to evaluate
+    a model prerelease.
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 允许数据科学团队在希望评估先行发布模型时进行临时评估。
+- en: Ensure that we could establish comparable baselines, since datasets for evaluation
+    could be modified out of band.
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保我们能够建立可比较的基线，因为评估数据集可能会在带外进行修改。
+- en: Be a scalable system so that multiple evaluations could occur simultaneously,
+    and also not be bottlenecked as we increase either the dataset sizes or the number
+    of models being tested.
+  id: totrans-152
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要成为一个可扩展的系统，以便可以同时进行多次评估，并且在增加数据集大小或测试模型数量时也不会成为瓶颈。
+- en: 'Given these requirements, the following design decisions were made:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴于这些要求，做出了以下设计决策：
+- en: 'Kubeflow Pipelines (KFP) was chosen as the platform to host the sandbox:'
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines（KFP）被选为托管沙箱的平台：
+- en: KFP allows users to write custom directed acyclic graphs (DAGs) called *pipelines*.
+  id: totrans-155
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: KFP允许用户编写称为*pipelines*的自定义有向无环图（DAGs）。
+- en: Each pipeline is sandboxed, and the platform as a whole can independently scale
+    to the demands of all running pipelines.
+  id: totrans-156
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个管道都是隔离的，整个平台可以独立扩展到所有运行中管道的需求。
+- en: The engineering teams at Dialpad are heavily invested in [Kubernetes](https://kubernetes.io)
+    and [Argo Workflows](https://argoproj.github.io/workflows), which are the underlying
+    technology powering KFP, so it seemed prudent to use this platform.
+  id: totrans-157
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Dialpad的工程团队对[Kubernetes](https://kubernetes.io)和[Argo Workflows](https://argoproj.github.io/workflows)投入了大量资源，这些技术是支持KFP的基础技术，因此使用这个平台似乎是明智的选择。
+- en: The pipelines in KFP will build the correct infrastructure for evaluation by
+    selecting the correct model deployment artifacts, given the evaluation criteria.
+  id: totrans-158
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: KFP中的管道将通过选择正确的模型部署工件来建立评估所需的正确基础设施，考虑到评估标准。
+- en: This will be done on the fly and will not be persisted to reduce cost.
+  id: totrans-159
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这将在运行时进行，不会持久化，以降低成本。
+- en: The testbed will be decoupled from model versions and be aware of the order
+    of dependencies only for correct orchestration.
+  id: totrans-160
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 测试平台将与模型版本解耦，并仅了解正确编排的依赖顺序。
+- en: Outputs from every model will be persisted for 30 days for debugging purposes.
+  id: totrans-161
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个模型的输出将会为了调试目的持久化30天。
+- en: Datasets for every task-specific NLP model would be versioned so as to track
+    changes in evaluation data.
+  id: totrans-162
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个任务特定NLP模型的数据集都将进行版本管理，以跟踪评估数据的变化。
+- en: Metrics will be collected for every combination of ASR model version, NLP model
+    version, and dataset version.
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将为每个ASR模型版本、NLP模型版本和数据集版本的每个组合收集度量标准。
+- en: This ensures that we can disambiguate among different dependencies correctly.
+  id: totrans-164
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这确保了我们能够正确地消除不同依赖项之间的歧义。
+- en: These metrics would then be visualized in a dashboard for observability.
+  id: totrans-165
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这些度量标准将在仪表盘上进行可视化以进行观察。
+- en: The input to the testing pipeline is raw audio recordings of conversations,
+    since the idea was to capture whether an ASR model has changed in such a way that
+    it alters the output enough that the downstream NLP model has varied performance.
+  id: totrans-166
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 测试管道的输入是对话的原始音频记录，因为想法是捕捉ASR模型是否发生了足以改变输出的变化，从而影响下游NLP模型的性能。
+- en: Once audio samples were collected, they would be annotated to state whether
+    they contain a specific NLP moment. For instance, a given audio snippet would
+    be annotated by a human to verify whether it contained positive, negative, or
+    neutral sentiment for the sentiment analysis task.
+  id: totrans-167
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一旦收集了音频样本，它们将被注释以说明它们是否包含特定的NLP时刻。例如，给定的音频片段将由人类注释，以验证其在情感分析任务中是否包含正面、负面或中性情感。
+- en: As you can see, this is an arduous task and is still one of the biggest bottlenecks
+    for this project. It is extremely time-consuming to correctly slice, annotate,
+    and store such samples for every NLP task ([Figure 15-12](#the_regression_testing_environment_on_a)).
+  id: totrans-168
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 正如你所看到的，这是一项艰巨的任务，仍然是该项目最大的瓶颈之一。正确地切片、注释和存储这些样本对每个NLP任务来说都是极其耗时的（[图 15-12](#the_regression_testing_environment_on_a)）。
+- en: '![The regression-testing environment at a high level](Images/reml_1512.png)'
+  id: totrans-169
+  prefs: []
+  type: TYPE_IMG
+  zh: '![高级别的回归测试环境](Images/reml_1512.png)'
+- en: Figure 15-12\. The regression-testing environment at a high level
+  id: totrans-170
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 15-12\. 高级别的回归测试环境
+- en: And within KFP, a pipeline would simulate evaluation for a single combination
+    of ASR model version, NLP model version, and dataset version. Since KFP allows
+    us to run multiple pipelines in parallel, this would allow us to scale to all
+    combinations of evaluation we would like to perform ([Figure 15-13](#the_architecture_of_the_kfp_pipeline_as)).
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 而在KFP内部，一个管道将模拟评估一个ASR模型版本、NLP模型版本和数据集版本的单个组合。由于KFP允许我们并行运行多个管道，这将使我们能够扩展到我们想要执行的所有评估组合（[图 15-13](#the_architecture_of_the_kfp_pipeline_as)）。
+- en: '![The architecture of the KFP pipeline as a DAG](Images/reml_1513.png)'
+  id: totrans-172
+  prefs: []
+  type: TYPE_IMG
+  zh: '![KFP管道的DAG架构](Images/reml_1513.png)'
+- en: Figure 15-13\. The architecture of the KFP pipeline as a DAG
+  id: totrans-173
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图15-13\. KFP管道的DAG架构
+- en: Monitoring for regression
+  id: totrans-174
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 用于回归监控
+- en: Once the pipelines were built on KFP, the next part of the project was to automatically
+    perform regression tests whenever dependencies changed for NLP models. Luckily,
+    at Dialpad we have mature CI/CD workflows managed by engineering, and they were
+    updated to trigger KFP pipelines whenever ASR models were updated in the transcription
+    service. The CI/CD workflow would send a signal to KFP with information about
+    the ASR models, NLP models, etc., and the evaluation would then commence on KFP.
+    Metrics would be stored, and Slack messages would be emitted containing a summary
+    of the evaluation.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦在KFP上建立了管道，项目的下一步是在NLP模型的依赖关系发生变化时自动执行回归测试。在Dialpad，我们有由工程团队管理的成熟的CI/CD工作流，并已更新为在转录服务中更新ASR模型时触发KFP管道。CI/CD工作流会向KFP发送有关ASR模型、NLP模型等的信息，然后在KFP上进行评估。度量数据将被存储，并将发出Slack消息，包含评估摘要。
+- en: Once operational, this process captures performance evaluation data for all
+    NLP task-specific models that have testing data available on the platform. For
+    example, the F1-score of the NLP sentiment analysis model degraded by ~25% over
+    the course of a year, as shown in [Figure 15-14](#fone_score_of_the_nlp_sentiment_analysi);
+    the graph highlights the absolute difference from a baseline. This observation
+    alerted the NLP team to investigate the issue and discover that accumulated data
+    drift was the cause of the degradation. A new sentiment model was retrained using
+    the latest ASR model output and released to production in just a few months.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦投入运行，这个过程将为平台上所有具有测试数据的NLP任务特定模型捕获性能评估数据。例如，NLP情感分析模型的F1分数在一年内下降了约25%，如[图15-14](#fone_score_of_the_nlp_sentiment_analysi)所示；该图突出显示了与基准线的绝对差异。这一观察引起了NLP团队的注意，他们调查发现积累的数据漂移是导致性能下降的原因。新的情感模型使用最新的ASR模型输出进行了重新训练，并在短短几个月内发布到生产环境中。
+- en: Another tangential benefit of this process is that it allows for ad hoc evaluation
+    of NLP models against different ASR models prior to production release. For instance,
+    it is possible to measure the accuracy of a sentiment analysis model, prior to
+    release, against an ASR model trained on new English dialects, such as Australian
+    or New Zealand English.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个过程的另一个间接好处是，在生产发布之前，它允许针对不同语音识别（ASR）模型对自然语言处理（NLP）模型进行临时评估。例如，可以测量情感分析模型在发布之前针对新的英语方言（如澳大利亚或新西兰英语）的ASR模型的准确性。
+- en: '![F1-score of the NLP sentiment analysis model](Images/reml_1514.png)'
+  id: totrans-178
+  prefs: []
+  type: TYPE_IMG
+  zh: '![NLP情感分析模型的F1分数](Images/reml_1514.png)'
+- en: Figure 15-14\. F1-score of the NLP sentiment analysis model
+  id: totrans-179
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图15-14\. NLP情感分析模型的F1分数
+- en: Takeaways
+  id: totrans-180
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 要点
+- en: This ML regression-testing platform developed at Dialpad has provided data scientists
+    and engineers with much improved visibility on the impact of new model releases
+    on all dependent components in our production stack. Even with an incomplete knowledge
+    of all the deployed production models, people are able to understand whether a
+    proposed release is going to impact the stability and performance of other models
+    in the production pipeline. This reduces the chances of a rollback and can provide
+    an early indication if more work needs to be done to improve compatibility with
+    existing components.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这在Dialpad开发的ML回归测试平台大大提升了数据科学家和工程师对新模型发布对我们生产堆栈中所有依赖组件影响的可见性。即使对所有部署的生产模型了解不完全，人们也能够了解建议的发布是否会影响生产流水线中其他模型的稳定性和性能。这减少了回滚的可能性，并且可以提前指示是否需要进一步改进与现有组件的兼容性。
+- en: The testing platform is under active development. Other moving pieces are being
+    addressed, one of which is keeping the sandbox orchestration in sync with production
+    and allowing for other “live data” that only transiently lives during a call on
+    production and is difficult to simulate in the regression-testing platform. Another
+    feature being considered is how to provide automated alerting when a proposed
+    release has significant impact on downstream models rather than the current human-in-the-loop
+    approach.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试平台正在积极开发中。正在处理其他移动组件，其中之一是保持沙箱编排与生产同步，并允许仅在生产调用期间短暂存在的其他“实时数据”，这在回归测试平台中很难模拟。另一个正在考虑的功能是如何在建议的发布对下游模型有重大影响时提供自动警报，而不是当前的人工参与方法。
+- en: '^([1](ch15.xhtml#ch01fn145-marker)) See the 2019 paper [“BERT: Pre-training
+    of Deep Bidirectional Transformers for Language Understanding”](https://oreil.ly/WEh8t)
+    by Jacob Devlin et al.'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([1](ch15.xhtml#ch01fn145-marker)) 查看 Jacob Devlin 等人于2019年发表的论文 [“BERT: Pre-training
+    of Deep Bidirectional Transformers for Language Understanding”](https://oreil.ly/WEh8t)。'

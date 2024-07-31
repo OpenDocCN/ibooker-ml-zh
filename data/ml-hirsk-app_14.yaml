@@ -1,0 +1,1597 @@
+- en: Chapter 11\. Red-Teaming XGBoost
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 11 章。XGBoost 红队测试
+- en: 'In [Chapter 5](ch05.html#unique_chapter_id_5), we introduced a number of concepts
+    related to the security of machine learning models. Now we will put them into
+    practice. In this chapter, we’ll explain how to hack our own models so that we
+    can add red-teaming into our model debugging repertoire. The main idea of the
+    chapter is that when we know what hackers will try to do to our model, then we
+    can try it out first and devise effective defenses. We’ll start out with a concept
+    refresher that reintroduces common ML attacks and countermeasures, then we’ll
+    dive into examples of attacking an XGBoost classifier trained on structured data.^([1](ch11.html#idm45989996744128))
+    We’ll then introduce two XGBoost models, one trained with the standard unexplainable
+    approach, and one trained with constraints and a high degree of L2 regularization.
+    We’ll use these two models to explain the attacks and to test whether transparency
+    and L2 regularization are adequate countermeasures. After that, we’ll jump into
+    attacks that are likely to be performed by external adversaries against an unexplainable
+    ML API: model extraction and adversarial example attacks. From there, we’ll try
+    out insider attacks that involve making deliberate changes to an ML modeling pipeline:
+    data poisoning and model backdoors. As a reminder, the chapter’s code examples
+    are available [online](https://oreil.ly/machine-learning-high-risk-apps-code).
+    Now, let’s get started—remember to bring your tinfoil hat, and your adversarial
+    mindset from [Chapter 5](ch05.html#unique_chapter_id_5).'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [第 5 章](ch05.html#unique_chapter_id_5) 中，我们介绍了与机器学习模型安全相关的一些概念。现在我们将把它们付诸实践。在本章中，我们将解释如何攻击我们自己的模型，以便将红队测试纳入我们的模型调试库中。本章的主要思想是，当我们知道黑客将尝试对我们的模型做什么时，我们可以先尝试，并设计出有效的防御措施。我们将从概念复习开始，重新介绍常见的机器学习攻击和对策，然后深入探讨对结构化数据训练的
+    XGBoost 分类器进行攻击的示例。^([1](ch11.html#idm45989996744128)) 接着，我们将介绍两个 XGBoost 模型，一个是采用标准的不可解释方法训练的，另一个是采用约束条件和高度的
+    L2 正则化训练的。我们将使用这两个模型来解释攻击并测试透明度和 L2 正则化是否足够作为对策。之后，我们将探讨外部对手可能对不可解释 ML API 进行的攻击：模型提取和对抗性示例攻击。接下来，我们将尝试内部攻击，涉及对
+    ML 建模流程进行有意的更改：数据污染和模型后门。作为提醒，本章的代码示例可以在线获取 [这里](https://oreil.ly/machine-learning-high-risk-apps-code)。现在，让我们开始吧——记得戴上你的锡帽，并且从
+    [第 5 章](ch05.html#unique_chapter_id_5) 带上你的对抗心态。
+- en: Note
+  id: totrans-2
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'The web and academic literature abound with examples of, and tools for, attacks
+    for computer vision and language models. For decent summaries of these broad topics
+    see the following:'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 网络和学术文献中充斥着有关计算机视觉和语言模型攻击的示例和工具。有关这些广泛主题的良好总结，请参阅以下内容：
+- en: '[“Adversarial Attacks in Computer Vision: An Overview”](https://oreil.ly/7CPnm)'
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“计算机视觉中的对抗攻击：概述”](https://oreil.ly/7CPnm)'
+- en: '[“Privacy Considerations in Large Language Models”](https://oreil.ly/mesVW)'
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“大型语言模型中的隐私考虑”](https://oreil.ly/mesVW)'
+- en: This chapter ports those ideas to widely used tree-based models and structured
+    data. [Chapter 5](ch05.html#unique_chapter_id_5) addresses ML security concerns
+    more generally. Chapters [1](ch01.html#unique_chapter_id_1), [3](ch03.html#unique_chapter_id_3),
+    and [4](ch04.html#unique_chapter_id_4) present numerous risk mitigants and process
+    controls that are also helpful for ML security across all types of models.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章将这些思想移植到广泛使用的基于树的模型和结构化数据中。[第 5 章](ch05.html#unique_chapter_id_5) 更广泛地讨论了
+    ML 安全问题。第 [1 章](ch01.html#unique_chapter_id_1)、[3 章](ch03.html#unique_chapter_id_3)
+    和 [4 章](ch04.html#unique_chapter_id_4) 提供了大量风险缓解措施和流程控制措施，对所有类型的模型的 ML 安全都有帮助。
+- en: Concept Refresher
+  id: totrans-7
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概念复习
+- en: It’s worth reminding ourselves why we are interested in ML model attacks. ML
+    models can hurt people and be hurt—manipulated, altered, destroyed—by people.
+    Broadly speaking, security incidents are a major way that operators, users, and
+    the general public are harmed by technology. Bad actors may seek to induce beneficial
+    outcomes for themselves or harmful outcomes for others; they may commit corporate
+    espionage, steal intellectual property, and steal data. We don’t want our ML models
+    to be sitting ducks for that kind of malicious activity! In [Chapter 5](ch05.html#unique_chapter_id_5),
+    we called this way of thinking the *adversarial mindset*. While our ML model might
+    be our perfect Python baby that’s also primed to make our organization millions
+    of dollars, it’s also a legal liability, a security vulnerability, and an endpoint
+    for hackers to explore. There’s no way around this reality, especially for important
+    high-impact public-facing ML systems. Let’s not be naive. Let’s do the hard work
+    required to check that our model isn’t full of vulnerabilities that can leak training
+    data, leak models themselves, or allow bad actors to trick our systems out of
+    money, intellectual property, or worse. Now, let’s refresh our memory on some
+    of those [Chapter 5](ch05.html#unique_chapter_id_5) concepts, attacks, and countermeasures.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值得提醒我们自己为什么对 ML 模型攻击感兴趣。ML 模型可以伤害人们并受到伤害——被人操纵、改变、破坏——人类是这些技术安全事件的主要受害者。恶意行为者可能试图对自己或他人造成有利的结果；他们可能进行企业间谍活动，窃取知识产权和数据。我们不希望我们的
+    ML 模型成为那种恶意活动的目标！在 [第五章](ch05.html#unique_chapter_id_5)，我们称这种思维方式为*对抗性思维*。虽然我们的
+    ML 模型可能是我们完美的 Python 宝宝，也可能是能让我们的组织赚取百万美元的法律责任、安全漏洞和黑客探测点。特别是对于重要的高影响面向公众的 ML
+    系统，我们不能对这现实装作不知。让我们去做必要的工作，确保我们的模型没有漏洞，泄漏训练数据，泄漏模型本身，或允许恶意行为者欺骗我们的系统，使其损失金钱、知识产权或更糟。现在，让我们刷新一下对一些
+    [第五章](ch05.html#unique_chapter_id_5) 中的概念、攻击和对策的记忆。
+- en: CIA Triad
+  id: totrans-9
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: CIA 三角
+- en: 'Recall that, broadly, we break information security incidents down into three
+    categories defined by the CIA triad—confidentiality, integrity, and availability
+    attacks:'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 广义地说，我们将信息安全事件分为三类，由 CIA 三角定义——保密性、完整性和可用性攻击：
+- en: Confidentiality attacks
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机密性攻击
+- en: Violate the confidentiality of some data associated with an ML model, typically
+    the logic of the model or the model’s training data. Model extraction attacks
+    expose the model, while membership inference attacks expose the training data.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 违反与 ML 模型相关的某些数据的保密性，通常是模型的逻辑或模型的训练数据。模型提取攻击暴露了模型，而成员推断攻击则暴露了训练数据。
+- en: Integrity attacks
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完整性攻击
+- en: Compromise the behavior of the model, typically to alter predictions in ways
+    that are beneficial to the attacker. Adversarial example, data poisoning, and
+    backdoor attacks all violate the integrity of a model.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 妥协模型行为，通常是为了以有利于攻击者的方式改变预测结果。对抗样本、数据毒化和后门攻击都会破坏模型的完整性。
+- en: Availability attacks
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可用性攻击
+- en: Prevent a user of the model from accessing it in a timely or serviceable fashion.
+    In ML, [sponge examples](https://oreil.ly/AkMrE)—that slow down neural networks—are
+    a type of availability attack. Some have also described algorithmic discrimination
+    as a form of availability attack since minority groups don’t receive the same
+    service from the model as majority groups. However, most availability attacks
+    will be general denial-of-service attacks targeted at the service running the
+    model, and not specialized for ML. We won’t try an availability attack, but we
+    should check with our IT partners and make sure our public-facing ML models have
+    standard countermeasures in place to mitigate availability attacks.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 阻止模型用户及时或有效地访问它。在 ML 中，减速神经网络的海绵样本是一种可用性攻击。有些人还将算法歧视描述为可用性攻击的一种形式，因为少数群体未能像多数群体一样从模型中获得服务。然而，大多数可用性攻击将专门针对运行模型的服务进行一般的拒绝服务攻击，而不是专门针对
+    ML。我们不会尝试可用性攻击，但我们应该与 IT 合作伙伴联系，并确保我们的面向公众的 ML 模型有标准的对抗措施来减轻可用性攻击的影响。
+- en: With that brief reminder of the CIA triad, let’s turn to more details about
+    each of our planned red-team attacks.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在对 CIA 三角的简要提醒之后，让我们转向更多关于我们计划的红队攻击的详细信息。
+- en: Attacks
+  id: totrans-18
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 攻击
+- en: 'We’ll roughly group ML attacks under two main categories for the concept refresher:
+    *external* attacks and *insider* attacks. External attacks are defined as the
+    attacks that an external adversary would be most likely to try on our model. The
+    setup for these attacks is that we’ve deployed the model as an API, but perhaps
+    been a little sloppy when it came to security. We’re going to assume that we can
+    interact with the model as an unexplainable entity, do so anonymously, and that
+    we can have a reasonable number of data submission interactions with the model.
+    Under these conditions, an external attacker could extract the basic logic of
+    our model in a model extraction attack. With or without that blueprint (though
+    it’s easier and more harmful with it), the attacker could then begin to craft
+    adversarial examples that look like normal data, but evoke surprising results
+    from the model. With the right adversarial examples, an attacker can play our
+    model like a fiddle. If the hackers are successful in conducting the two previous
+    attacks, they might become more bold, and try perhaps a more sophisticated and
+    harmful attack: membership inference. Let’s look at the different types of external
+    attacks in a bit more detail:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了概念复习，我们将粗略地将 ML 攻击分为两大类：*外部* 攻击和 *内部* 攻击。外部攻击被定义为外部对手最有可能对我们模型尝试的攻击。这些攻击的设置是，我们已将模型部署为
+    API，但在安全方面可能有些马虎。我们假设我们可以作为一个不可解释的实体与模型进行交互，以匿名方式进行，并且我们可以与模型进行合理数量的数据提交交互。在这些条件下，外部攻击者可以通过模型提取攻击提取我们模型的基本逻辑。无论有没有这个蓝图（尽管有它会更容易和更有害），攻击者随后可以开始制作出看似正常数据但会引发模型意外结果的对抗性示例。借助正确的对抗性示例，攻击者可以像操纵我们的模型一样。如果黑客成功进行了前两种攻击，他们可能会变得更加大胆，尝试一种更复杂和更有害的攻击：成员推断。让我们稍微详细地看一下不同类型的外部攻击：
+- en: Model extraction
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型提取
+- en: A confidentiality attack, meaning it compromises the confidentiality of an ML
+    model. To conduct a model extraction attack, a hacker submits data to a prediction
+    API, gets predictions back, and builds a surrogate model between the submitted
+    data and the received predictions to reverse engineer a copy of the model. With
+    this information, they may uncover proprietary business processes and decision-making
+    logic. The extracted model also provides a great test bed for subsequent attacks.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机密性攻击，意味着它会危及机器学习模型的机密性。进行模型提取攻击时，黑客会向预测 API 提交数据，获得预测结果，并建立提交数据与接收到的预测之间的替代模型，以反向工程出模型的副本。有了这些信息，他们可能会揭示专有的业务流程和决策逻辑。提取出的模型还为后续攻击提供了一个极好的测试平台。
+- en: Adversarial examples
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对抗性示例
+- en: An integrity attack. It compromises the correctness of model predictions. To
+    perform an adversarial example attack a hacker will probe how a model responds
+    to input data. In computer vision systems, gradient information is often used
+    to fine-tune images that evoke strange responses from the model. For structured
+    data, we can use individual conditional expectation (ICE) or genetic algorithms
+    to find rows of data that cause unexpected model predictions.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完整性攻击。它会危及模型预测的正确性。进行对抗性示例攻击时，黑客会探测模型对输入数据的响应方式。在计算机视觉系统中，通常使用梯度信息来微调能引发模型奇怪响应的图像。对于结构化数据，我们可以使用个体条件期望（ICE）或遗传算法来找到导致模型意外预测的数据行。
+- en: Membership inference
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 成员推断
+- en: A confidentiality attack that seeks to compromise model training data. It’s
+    a complex attack that requires two models. The first is a surrogate model similar
+    to those that would be trained in a model extraction attack. The second-stage
+    model is then trained to decide whether a row of data is in the training data
+    of the surrogate model or not. When that second-stage model is applied to a row
+    of data, it can decide whether that row was in the training data of the surrogate
+    model or not, and can often extrapolate to decide whether that row was also in
+    the original model training data.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种旨在破坏模型训练数据机密性的机密性攻击。这是一种复杂的攻击，需要两个模型。第一个是类似于模型提取攻击中将要训练的替代模型。第二阶段模型随后被训练来决定数据行是否在替代模型的训练数据中。当第二阶段模型应用于数据行时，它可以决定该行是否在替代模型的训练数据中，并且通常可以推断该行是否也在原始模型的训练数据中。
+- en: 'Now for those insider attacks. Sadly, we can’t always trust our fellow employees,
+    consultants, or contractors. And worse yet, people can be extorted into committing
+    bad acts, whether they want to or not. In a data poisoning attack, someone changes
+    training data in a way that allows them, or their associates, to manipulate the
+    model later. In a backdoor attack, someone alters the scoring code of the model
+    so that they can later access the model in unauthorized ways. In both data poisoning
+    and backdoor attacks, it’s most likely that the perpetrator would seek to gain
+    financially themselves, and alter the data or scoring code accordingly. However,
+    it’s also possible that a bad actor would change an important model in a way that
+    hurt others, and not necessarily to benefit themselves:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在谈谈那些内部人员攻击。不幸的是，我们并不总是能够信任我们的同事、顾问或承包商。更糟糕的是，人们可能被胁迫去犯下恶行，无论他们愿意与否。在数据污染攻击中，有人以某种方式改变训练数据，使其或其合作者能够以后操纵模型。在后门攻击中，有人改变模型的评分代码，以便以未经授权的方式访问模型。在数据污染和后门攻击中，肇事者最有可能是为了自己从中获利，相应地改变数据或评分代码。然而，一个恶意行为者可能会以某种方式改变重要模型，从而伤害他人，并不一定是为了自己获利：
+- en: Data poisoning
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据污染
+- en: An integrity attack that changes training data to change future model outcomes.
+    To conduct the attack, someone only needs access to model training data. They
+    try to change the training data in subtle ways that will reliably alter model
+    predictions, in ways they or associates can exploit later when interacting with
+    the model.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 改变训练数据以改变未来模型结果的完整性攻击。为了进行攻击，只需有人能够访问模型训练数据。他们试图以微妙的方式改变训练数据，以可靠地改变模型预测结果，这样他们或其合作者在与模型交互时就可以利用这些结果。
+- en: Backdoors
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 后门
+- en: Integrity attacks that change a model’s scoring (or inference) code. The goal
+    of a backdoor attack is to introduce new branches of code into the complex tangle
+    of coefficients and if-then rules that is a deployed ML model. Once the new branch
+    of code has been injected into the scoring engine, it can be exploited later by
+    those who know how to trigger it, e.g., by submitting unrealistic combinations
+    of data into a prediction API.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 改变模型评分（或推断）代码的完整性攻击。后门攻击的目标是向部署的机器学习模型的复杂系数和 if-then 规则的复杂缠结中引入新的代码分支。一旦新的代码分支被注入到评分引擎中，知道如何触发它的人就可以在以后利用它，例如通过向预测
+    API 提交不切实际的数据组合。
+- en: We didn’t go back over evasion and impersonation attacks, but they are covered
+    in the case study in [Chapter 5](ch05.html#unique_chapter_id_5). According to
+    our research, evasion and impersonation attacks are the most common kinds of attacks
+    today. They’re typically applied to ML-enhanced security, filtering, or payment
+    systems. In computer vision, they usually involve some kind of physical manipulation
+    of an ML system, for instance wearing a realistic mask or camouflaging oneself.
+    For structured data, these attacks just mean altering a row of data to have similar
+    values (impersonation), or dissimilar values (evasion), when compared to some
+    user of a model. Keep in mind that evading fraud detection ML models is a long-running
+    cat and mouse game between fraudsters and financial institutions, and that’s probably
+    the most common application where we’d run into evasion attacks based on manipulating
+    structured data.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们没有回顾逃避和冒充攻击，但这些内容在[第 5 章](ch05.html#unique_chapter_id_5)的案例研究中有所涉及。根据我们的研究，逃避和冒充攻击是当今最常见的攻击类型。它们通常用于增强型机器学习安全、过滤或支付系统。在计算机视觉领域，通常涉及对机器学习系统进行某种物理操作，例如戴一个逼真的面具或伪装自己。对于结构化数据，这些攻击意味着当与某个模型的用户进行比较时，改变数据行的数值使其具有相似值（冒充）或不同值（逃避）。请记住，规避欺诈检测机器学习模型是欺诈者和金融机构之间长期进行的一场你追我赶的游戏，这可能是我们最常见的应用场景，其中基于操纵结构化数据的逃避攻击最为常见。
+- en: Countermeasures
+  id: totrans-32
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 针对措施
+- en: 'Most ML attacks are premised on ML models being overly complex, unstable, overfit,
+    and unexplainable. The overly complex and unexplainable structure is important
+    because humans will have a hard time understanding if an uber-complex system is
+    being manipulated. Instability is important for attacks because it leads to scenarios
+    where minor perturbations to input data can lead to dramatic and unexpected changes
+    in model outputs. Overfitting results in unstable models, and comes into play
+    for membership inference attacks. If a model is overfit, it behaves quite differently
+    on new data than on training data, and we can use that performance differential
+    to infer if a row data was used to train the model. With all this in mind, we’re
+    going to try two simple countermeasures:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数机器学习攻击的前提是机器学习模型过于复杂、不稳定、过拟合和难以解释。过于复杂和难以解释的结构很重要，因为人类很难理解是否正在操纵一个极度复杂的系统。不稳定性对于攻击是重要的，因为它导致输入数据的微小扰动可能导致模型输出的显著和意想不到的变化。过拟合会导致不稳定的模型，并且在成员推断攻击中起作用。如果模型过拟合，它在新数据和训练数据上的表现会有很大差异，我们可以利用这种性能差异来推断是否使用了原始数据来训练模型。考虑到所有这些，我们将尝试两种简单的对策：
+- en: L2 regularization
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: L2 正则化
+- en: A penalty placed on the squared sum of model coefficients in the model’s error
+    function, or some other measure of model complexity. Strong L2 regularization
+    prevents any one coefficient, rule, or interaction from becoming too large and
+    important in the model. If no single feature or interaction is driving the model,
+    it’s harder to construct adversarial examples. L2 regularization tends to make
+    all model coefficients smaller as well, making model predictions more stable and
+    less subject to wild swings. L2 regularization is also known to improve models’
+    generalization capabilities, which should also help to counter membership inference
+    attacks.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对模型系数的平方和放置罚款，在模型的误差函数中，或者模型复杂度的某种度量上。强 L2 正则化可以防止任何一个系数、规则或交互变得过大和在模型中变得过于重要。如果没有单一特征或交互在推动模型，构建对抗性示例就更加困难。L2
+    正则化也倾向于使所有模型系数变小，使模型预测更加稳定，减少突发性波动。已知 L2 正则化还可以提升模型的泛化能力，这也有助于抵御成员推断攻击。
+- en: Monotonic constraints
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单调约束
+- en: These make the model more stable and interpretable, both of which are general
+    mitigants of ML attacks. If a model is highly interpretable, this changes its
+    entire security profile. We know how the model should behave and can more easily
+    identify when it is manipulated. Confidentiality attacks lose their bite, because
+    everyone knows how the model works when it obeys reality. If the constraints prevent
+    the model from generating surprising predictions, then there’s really no way to
+    conduct an adversarial example attack. If constraints enforce realistic behavior
+    on the model, then data poisoning should be less effective. Constraints should
+    also help with generalization, making membership inference more difficult.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些措施使模型更加稳定和可解释，这两者都是机器学习攻击的一般缓解措施。如果一个模型高度可解释，这将改变其整体安全配置。我们知道模型应该如何行为，更容易识别其是否被操纵。机密性攻击失去了其威胁性，因为每个人都知道模型在遵守现实时的工作方式。如果约束阻止模型生成令人惊讶的预测，那么实际上没有办法进行对抗性示例攻击。如果约束对模型施加现实行为，那么数据毒化应该变得不那么有效。约束还应有助于泛化，使成员推断变得更加困难。
+- en: We also hope there is some synergy between these two general countermeasures.
+    Both L2 regularization and constraints increase the stability of the model. By
+    using them, we are trying to ensure we won’t see big changes in model outputs
+    based on small changes to model inputs. With constraints in particular, we are
+    also making sure our model simply can’t surprise us. The constraints mean it has
+    to obey obvious, causal reality, and hopefully adversarial examples will be much
+    more difficult to find and data poisoning will be less damaging. Both should also
+    decrease overfitting, and provide some defense against membership inference.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们也希望这两种一般对策之间存在一些协同作用。L2 正则化和约束都增加了模型的稳定性。通过使用它们，我们试图确保模型在输入微小变化时不会看到大幅度的输出变化。特别是通过约束，我们还确保我们的模型不能给我们带来惊喜。约束意味着它必须遵守明显的因果关系现实，希望对抗性示例会更加难以找到，数据毒化会更少造成伤害。这两者也应该减少过拟合，并提供一些防御成员推断的手段。
+- en: Other important countermeasures include [throttling](https://oreil.ly/W3imH), [auth­entication](https://oreil.ly/bBR1j),
+    [robust ML](https://oreil.ly/u4ir7), and [differential privacy approaches](https://oreil.ly/Xkf7Z).
+    Throttling slows down predictions if someone interacts with an API too frequently
+    or in a strange way. Authentication prevents anonymous use, which should generally
+    disincentivize attacks. Robust ML approaches create models that are custom-designed
+    to be more robust to adversarial examples and data poisoning. Differential privacy
+    methodically corrupts training data to obscure it if a model extraction or membership
+    inference attack occurs. We’ll be using L2 regularization as a more accessible
+    alternative to robust ML and differential privacy approaches. We’ve explained
+    that L2 regularization acts to create more stable models, but readers may need
+    a reminder that L2 regularization is equivalent to Gaussian noise injection in
+    training data. There’s no guarantee this works as well as real differential privacy
+    methods, but we’ll be testing how well it actually works in the code examples.
+    Now that we’ve gone back over the main technical points, let’s train some XGBoost
+    models.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他重要的对策包括[限流](https://oreil.ly/W3imH)，[认证](https://oreil.ly/bBR1j)，[鲁棒机器学习](https://oreil.ly/u4ir7)和[差分隐私方法](https://oreil.ly/Xkf7Z)。如果有人以太频繁或以奇怪的方式与API交互，限流会减慢预测速度。认证防止匿名使用，这通常会减少攻击动机。鲁棒机器学习方法创建的模型专门设计为更能抵御对抗性示例和数据毒化。差分隐私方法系统地破坏训练数据，以模糊它，如果发生模型提取或成员推断攻击。我们将使用L2正则化作为更易于访问的鲁棒机器学习和差分隐私方法的替代方案。我们已经解释过L2正则化的作用是创建更稳定的模型，但读者可能需要提醒L2正则化相当于在训练数据中注入高斯噪声。不能保证这能像真正的差分隐私方法那样有效，但我们将测试它在代码示例中的实际效果。现在我们回顾了主要的技术要点，让我们开始训练一些XGBoost模型。
+- en: Model Training
+  id: totrans-40
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型训练
+- en: In our example models, we’ll be deciding whether to extend an API user an increased
+    line of credit. Readers may be thinking that a credit model would be one of the
+    most well-protected models out there, and that’s right. But similar ML models
+    are used in the fintech and crypto Wild West, and if we think just because a computer
+    technology is deployed at a big bank then it’s safe, bank regulators may have
+    some [thoughts](https://oreil.ly/hx-fM) for us. Credit application fraud is common,
+    and this is just a 2023 version of credit application fraud. We’ll introduce other
+    plausible attack scenarios with each example, but the reality is that real-world
+    attacks can be strange and surprising, and can happen to any model.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例模型中，我们将决定是否向 API 用户提供更高的信用额度。读者可能会认为信用模型是最受保护的模型之一，这是正确的。但类似的机器学习模型被用于金融科技和加密货币的野蛮西部，如果我们认为仅仅因为一种计算机技术被部署在大银行就是安全的，银行监管机构可能会对我们有一些[想法](https://oreil.ly/hx-fM)。信用申请欺诈很普遍，这只是信用申请欺诈的2023年版本。我们将在每个示例中介绍其他可能的攻击场景，但现实是真实世界的攻击可能会非常奇怪和令人惊讶，而且可能会发生在任何模型身上。
+- en: 'In all our attacks, we’re going to try to hack two different models. (In reality
+    we’d likely only red-team the model or system we have planned for deployment.
+    But we’re going to try an experiment in this chapter.) The first model will be
+    a typical XGBoost model, unconstrained and somewhat overfit, with little regularization
+    beyond that provided by column and row sampling. We expect this model will be
+    easier to hack due to overfitting and instability. We set `max_depth` to 10 in
+    an effort to overfit and we specify the other hyperparameters as follows:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们所有的攻击中，我们将尝试入侵两个不同的模型。（实际上，我们可能只会对我们计划部署的模型或系统进行红队测试。但在本章中，我们将尝试一个实验。）第一个模型将是一个典型的XGBoost模型，不受限制且有些过拟合，除了列和行抽样提供的少量正则化之外，我们并没有其他正则化。我们预计这个模型由于过拟合和不稳定性而更容易被入侵。我们将`max_depth`设置为10，以尝试过拟合，并指定其他超参数如下：
+- en: '[PRE0]'
+  id: totrans-43
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'We train our typical XGBoost model with no frills:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们训练我们的典型XGBoost模型，没有花哨的东西：
+- en: '[PRE1]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Before we get too far into model training, note that we’ll be using the H2O
+    interface to XGBoost, specifically so that we can generate Java scoring code and
+    try a backdoor attack on that code later. That also means the hyperparameter names
+    might be a little different from when using native XGBoost.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们进入模型训练之前，请注意，我们将使用H2O接口到XGBoost，具体来说是为了能够生成Java评分代码并在稍后尝试一个后门攻击。这也意味着超参数的名称可能与使用本地XGBoost时有所不同。
+- en: 'For the model we hope will be more robust, we first determine monotonic constraints
+    using Spearman correlation, just like in [Chapter 6](ch06.html#unique_chapter_id_6).
+    These constraints have two purposes, both based on the commonsense transparency
+    they provide. First, they should keep the model more stable under an integrity
+    attack. Second, they should make a confidentiality attack less worthwhile for
+    an attacker. A constrained model is going to be more difficult to manipulate because
+    its logic follows predictable patterns, and should not hide too many secrets that
+    could be sold or used for future attacks. Here’s how we set up the constraints:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们希望更加健壮的模型，我们首先使用Spearman相关性确定单调性约束，就像在[第6章](ch06.html#unique_chapter_id_6)中一样。这些约束有两个目的，都基于它们提供的常识透明度。首先，它们应该使模型在完整性攻击下更稳定。其次，它们应该使攻击者对机密攻击的价值减少。受约束模型更难操纵，因为其逻辑遵循可预测的模式，并且不应隐藏太多可能被出售或用于未来攻击的秘密。以下是我们如何设置约束：
+- en: '[PRE2]'
+  id: totrans-48
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'The constraints defined by our approach are negative for `BILL_AMT*`, `LIMIT_BAL`,
+    and `PAY_AMT*` features. They are positive for `PAY_*` features. These constraints
+    are intuitive. As bill amounts, credit limits, and payment amounts get larger,
+    the probability of default from our constrained classifier can only decrease.
+    As someone becomes later with their payments, their probability of default can
+    only increase. For H2O monotonicity, constraints need to be defined in a dictionary,
+    and they look like this for our model with countermeasures:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们方法定义的约束对于`BILL_AMT*`、`LIMIT_BAL`和`PAY_AMT*`特征为负，对`PAY_*`特征为正。这些约束很直观。随着账单金额、信用额度和支付金额的增加，我们受限分类器中违约的概率只能降低。随着支付逾期时间的增加，违约的概率只能增加。对于H2O的单调性，约束需要在字典中定义，并且对我们的具有对策的模型如下所示：
+- en: '[PRE3]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'We also use a grid search to look across a broad set of models in parallel
+    fashion. Because our training data is small, we can afford to do a Cartesian grid
+    search across most important hyperparameters:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还使用网格搜索以并行方式查看广泛的模型集合。因为我们的训练数据较少，我们可以承担对大多数重要超参数进行笛卡尔网格搜索：
+- en: '[PRE4]'
+  id: totrans-52
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'Once we locate a set of hyperparameters that don’t overfit our data, we then
+    retrain using that set of hyperparameters, `params_best`, and our monotonic constraints:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们确定了一组不会过拟合我们数据的超参数，我们就会使用那组超参数`params_best`重新训练，以及我们的单调性约束：
+- en: '[PRE5]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Examining the receiver operating characteristic (ROC) plots for both models
+    shows we likely achieved our goal of having two different models to red-team.
+    The typical model, on top in [Figure 11-1](#roc), shows the canonical signs of
+    overfitting. It has high training area under the curve, and much lower validation
+    AUC. Our constrained model looks much more well-trained at the bottom of [Figure 11-1](#roc).
+    It has the same validation AUC as the typical model, but a much lower training
+    AUC, indicating much less overfitting. While we can’t be certain, the monotonic
+    constraints probably helped mitigate overfitting.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查接收者操作特性（ROC）图表，我们可以看到两个模型的概率红队的结果。顶部的典型模型在[图11-1](#roc)中显示出过拟合的典型迹象。它具有高的训练曲线下面积，而验证AUC要低得多。我们的受约束模型在[图11-1](#roc)的底部看起来训练得更好。它具有与典型模型相同的验证AUC，但训练AUC较低，表明过拟合程度较小。虽然我们不能确定，但单调性约束可能有助于减轻过拟合问题。
+- en: '![mlha 1101](assets/mlha_1101.png)'
+  id: totrans-56
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 1101](assets/mlha_1101.png)'
+- en: Figure 11-1\. ROC curves for (a) an overfit XGBoost model and (b) a highly regularized
+    and constrained XGBoost model ([digital, color version](https://oreil.ly/OxLnl))
+  id: totrans-57
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-1\. ROC曲线，分别展示了（a）一个过拟合的XGBoost模型和（b）一个高度正则化和约束的XGBoost模型（[数字，彩色版本](https://oreil.ly/OxLnl)）
+- en: Now that we have two models, we’ll proceed with both our experiment and our
+    red-teaming. We’ll be looking to confirm what’s reported in the literature and
+    what we hypothesize—that the typical model will be easier and more fruitful to
+    attack. It should be unstable, hiding many nonlinearities and high-degree interactions.
+    This makes attacking it more worthwhile. A hacker could likely find aspects of
+    the unexplainable GBM that could be exploited for attack, using, say, adversarial
+    examples. Because it’s overfit, the typical model should also be more susceptible
+    to model extraction attacks. Backdoors should be easier too—we’ll attempt to hide
+    new code in the tangle of complex if-then rules that define the overfit GBM.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了两个模型，我们将同时进行我们的实验和红队演练。我们将试图确认文献中报告的内容和我们的假设——即典型模型更容易和更有成果地遭受攻击。它应该是不稳定的，隐藏着许多非线性和高阶交互作用。这使得攻击它更有价值。黑客很可能会发现无法解释的GBM的一些方面可以被利用来进行攻击，例如使用对抗性示例。由于它过拟合，典型模型也应更容易受到模型提取攻击的影响。后门也应该更容易——我们将试图在定义过拟合GBM的复杂if-then规则的纠缠中隐藏新代码。
+- en: Note
+  id: totrans-59
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: We know our overfit XGBoost model is not something readers are likely to deploy,
+    but think of it as the control model, and the constrained model as the treatment
+    model, in a simple experiment with a hypothesis that constrained, regularized
+    models are more secure. We’ll address this hypothesis when we close out the chapter.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们知道我们的过拟合XGBoost模型不太可能被读者部署，但可以把它看作是控制模型，而受限制的模型则是治疗模型，像一个简单实验中的假设，即受限制的、正则化的模型更安全。我们将在本章结束时解决这一假设。
+- en: All of these attacks play on one of the fundamental premises of ML security—a
+    determined attacker can learn more about our overly complicated model than we’ll
+    ever be motivated to know. The attacker can exploit this information imbalance
+    in many ways. We’ll hope our constrained and regularized model is both harder
+    to attack using data poisoning, backdoors, and adversarial examples *and* less
+    useful to try a confidentiality attack on, because anyone with any domain knowledge
+    can guess how it works and know when it’s being manipulated.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些攻击都是基于机器学习安全的一个基本前提：一个决心的攻击者可以比我们更深入地了解我们过于复杂的模型。攻击者可以利用这种信息不平衡以多种方式进行攻击。我们希望我们的受限制和正则化的模型不仅更难受到数据污染、后门和对抗性示例的攻击，而且在尝试机密性攻击时也不那么有用，因为任何具有领域知识的人都可以猜到它的工作方式，并且知道何时被操纵。
+- en: Attacks for Red-Teaming
+  id: totrans-62
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 红队演练的攻击
+- en: We’ll consider model extraction and adversarial example attacks as more likely
+    to be conducted by someone outside of the organization. We’ll red-team for these
+    attacks as if we were external bad actors. We’ll treat all interactions with ML
+    models as though we were interacting with an opaque API, but we’ll see that we
+    can still learn a lot about a so-called black box. We’re also assuming that authentication
+    is not required to access the API and that we can access the API to receive at
+    least a few batches of predictions. Our attacks, when successful, will build off
+    each other. We’ll see that the initial model extraction attack is extremely damaging,
+    not only because we can learn a lot about the attacked model and its training
+    data, but because it creates a test bed for attackers to hone future hacks.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们认为模型提取和对抗性示例攻击更可能由外部人员进行。我们将像外部的恶意行为者一样进行红队演练来防范这些攻击。我们将所有与机器学习模型的交互都视为与一个不透明API的交互，但我们将看到我们仍然可以对所谓的黑匣子学到很多。我们还假设访问API不需要身份验证，并且我们可以访问API以接收至少几批预测。我们的攻击一旦成功，将会相互叠加。我们将看到初始的模型提取攻击非常具有破坏性，不仅因为我们可以了解受攻击模型及其训练数据的许多信息，而且因为它为攻击者打造了未来攻击的测试基础。
+- en: Model Extraction Attacks
+  id: totrans-64
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型提取攻击
+- en: The basic necessary condition for a model extraction attack is that a bad actor
+    can submit data to a model and receive predictions. As this is the way ML is usually
+    designed to work, model extraction attacks are hard to eradicate completely. More
+    specific scenarios for model extraction include weak authentication requirements,
+    say providing just an email address to create an account to use the API, and that
+    hackers can receive thousands of predictions a day from the API. Another fundamental
+    requirement is for a model to hide some information worth stealing. If a model
+    is highly transparent and well-documented, there are fewer reasons to extract
+    it explicitly.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型提取攻击的基本必要条件是，恶意行为者可以向模型提交数据并收到预测结果。由于这通常是机器学习设计的方式，因此完全根除模型提取攻击是困难的。模型提取的更具体情况包括弱认证要求，例如仅提供电子邮件地址即可创建帐户来使用
+    API，并且黑客每天可以从 API 中获得数千个预测。另一个基本要求是，模型必须隐藏某些值得窃取的信息。如果一个模型高度透明且有良好的文档记录，就几乎没有理由明确提取它。
+- en: 'Since our model is a credit model, we’ll blame a “go fast and break things”
+    culture at a new fintech company that wants to rush its ML-based credit scoring
+    API into production in an effort to create hype in its market. We could just as
+    easily blame byzantine security procedures at a major bank that allows, at least
+    for a short time period, a product API to be more accessible than it should be.
+    In either case, model extraction could be conducted by corporate competitors who
+    want to understand our organization’s proprietary business rules or by hackers
+    who want free money. None of these scenarios are particularly far-fetched, which
+    begs the question: how many model extraction attacks are occurring right now?
+    Let’s get into how to red-team for them so that our organization won’t fall victim
+    to one of these attacks.'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们的模型是信用模型，我们会指责一家新兴金融科技公司内部存在的“快速行动，搞砸一切”的文化，该公司急于将基于机器学习的信用评分 API 推向市场，以创造市场炒作。我们也可以同样归咎于一家主要银行复杂的安全程序，这些程序在某个短时间段内允许产品
+    API 比其本应该更容易访问。在任一情况下，企业竞争对手可能会进行模型提取，他们希望了解我们组织的专有业务规则，或者黑客想要免费获取资金。这些情景并不离谱，这就引出了一个问题：现在有多少模型提取攻击正在发生？让我们深入探讨如何进行红队行动，以确保我们的组织不会成为这些攻击的受害者。
+- en: 'The starting point for the attack is an API endpoint. We’ll set up a basic
+    endpoint as follows:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 攻击的起点是一个 API 端点。我们将建立一个基本的端点如下：
+- en: '[PRE6]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: From there, we submit data to the API endpoint to receive predictions to start
+    the red-teaming exercise. The type of data submitted to the API appears to be
+    crucial to the success of our attack. At first, we tried to guess the distributions
+    of the input features individually and simulated data by drawing from these distributions.
+    That didn’t work so well, so we applied the *model-based synthesis* approach described
+    in a [well-known paper](https://oreil.ly/M7r86) by Shokri et al. This method gives
+    more weight to simulated data rows that evoke a high-confidence response from
+    the API endpoint. By combining our best guess at the distributions of the input
+    features and then using the endpoint to check each simulated row of data, we were
+    able to simulate a set of data that is similar enough to the original dataset
+    to attempt several model extraction attacks. The downside of the model-based synthesis
+    approach is that it involves more interactions with the API, hence, more opportunities
+    to get caught.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从这里开始，我们向 API 端点提交数据以接收预测结果，开始红队行动。提交给 API 的数据类型似乎对我们攻击的成功至关重要。起初，我们尝试单独猜测输入特征的分布，并通过这些分布来模拟数据。但效果不佳，因此我们应用了Shokri等人在一篇[著名论文](https://oreil.ly/M7r86)中描述的*基于模型的合成*方法。该方法更倾向于模拟数据行，这些数据行从
+    API 端点获得高置信度的响应。通过结合我们对输入特征分布的最佳猜测，然后使用端点检查每个模拟数据行，我们能够模拟出与原始数据集足够相似的数据集，以尝试多种模型提取攻击。基于模型的合成方法的缺点是它涉及更多与
+    API 的交互，因此被捕获的机会更多。
+- en: Note
+  id: totrans-70
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The success of model extraction attacks appears to depend heavily on good simulation
+    of training data.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型提取攻击的成功似乎在很大程度上取决于对训练数据的良好模拟。
+- en: 'With realistic data in hand, we could now proceed to the attack. We conducted
+    three different model extraction attacks using a decision tree, a random forest,
+    and an XGBoost GBM as the extracted surrogate model. We submitted our simulated
+    data back to the API endpoint, received predictions, and then trained these three
+    models using the simulated data as inputs and the received predictions as the
+    target. XGBoost seemed to make the best copy of the attacked model in terms of
+    accuracy, perhaps because the model behind the endpoint was also an XGBoost GBM.
+    This is what training the extracted XGBoost model looks like:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 手头有了真实数据，我们现在可以进行攻击。我们使用决策树、随机森林和XGBoost GBM作为提取的替代模型进行了三种不同的模型提取攻击。我们将模拟数据提交回API端点，收到预测结果，然后使用模拟数据作为输入、收到的预测结果作为目标来训练这三个模型。XGBoost似乎在准确性上制作了最好的被攻击模型的复制品，也许是因为端点背后的模型也是XGBoost
+    GBM。这就是训练提取的XGBoost模型的样子：
+- en: '[PRE7]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: We split our simulated data into `drand_train` training and `drand_valid` validation
+    partitions. For each partition, the target feature came from the API endpoint.
+    We then applied very simple hyperparameter settings and trained the extracted
+    model. A grid search may have led to a better fit on these simulated rows of data,
+    which may be the attacker’s goal on some occasions. We wanted to steal a simple
+    representation of the underlying model, and kept our parameterization straightforward.
+    XGBoost was able to achieve an R² of 0.635 against the API predictions using the
+    simulated data. [Figure 11-2](#extracted_distribs) shows a plot of actual predictions
+    versus extracted predictions across our simulated training data, simulated test
+    data, and the actual validation data. While no extracted models were a perfect
+    fit for the API predictions, they all show a strong correlation to the API predictions,
+    suggesting that we were able to extract a signal of the model’s behavior. As we’ll
+    see, even these crude surrogate models would be enough for an attacker to further
+    exploit the endpoint.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将模拟数据分割成`drand_train`训练和`drand_valid`验证分区。对于每个分区，目标特征来自API端点。然后，我们应用了非常简单的超参数设置并训练了提取的模型。网格搜索可能会在这些模拟数据行上取得更好的拟合效果，这可能是攻击者某些情况下的目标。我们想要窃取底层模型的简单表达，并保持参数化的简单性。XGBoost能够在使用模拟数据对API预测的情况下达到0.635的R²。[图 11-2](#extracted_distribs)展示了在我们的模拟训练数据、模拟测试数据和实际验证数据上实际预测与提取预测之间的绘图。虽然没有任何提取模型完全符合API预测，但它们都与API预测显示出很强的相关性，表明我们能够提取出模型行为的信号。正如我们将要看到的，即使是这些粗糙的代理模型对于攻击者进一步利用端点也足够了。
+- en: '![mlha 1102](assets/mlha_1102.png)'
+  id: totrans-75
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 1102](assets/mlha_1102.png)'
+- en: Figure 11-2\. A comparison of extracted model scores versus true model scores
+    across simulated training, simulated test, and real holdout data for (a) decision
+    tree, (b) random forest, and (c) GBM ([digital, color version](https://oreil.ly/M1-LQ))
+  id: totrans-76
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-2\. 对决策树（a）、随机森林（b）和GBM（c）在模拟训练、模拟测试和真实留存数据中提取模型分数与真实模型分数的比较（[数字，彩色版本](https://oreil.ly/M1-LQ)）
+- en: An important result to note is that extracting the constrained model worked
+    much better. Whereas we saw R² in the range of 0.6 for the unconstrained model,
+    we saw R² in the range of 0.9 for the constrained model. The assumption is that
+    the constrained model would also follow other tenets of risk management, such
+    as thorough documentation. If how a model works is transparent, extracting it
+    shouldn’t be worth the effort, but this finding does contravene some of our original
+    hypotheses about the constrained and regularized model.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值得注意的一个重要结果是，提取受限模型的效果要好得多。而对于非受限模型，我们看到的R²在0.6的范围内，而对于受限模型，我们看到的R²在0.9的范围内。假设是，受限模型也将遵循风险管理的其他原则，比如彻底的文档化。如果模型的工作方式是透明的，提取它就不值得，但这一发现与我们最初关于受限和正则化模型的一些假设相抵触。
+- en: Warning
+  id: totrans-78
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Constrained models may be much easier to extract from API endpoints. Such models
+    should be accompanied by thorough consumer-facing documentation that undercuts
+    the motivation for an extraction attack.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 受限模型可能更容易从API端点提取。这样的模型应该附有详尽的面向消费者的文档，以削弱提取攻击的动机。
+- en: Being able to extract a model like this is a bad omen for ML security. Not only
+    are we starting to get an idea of what the supposedly confidential training data
+    looks like, but we have a set of extracted models. Each of the extracted models
+    is a compressed representation of the training data and a summary of an organization’s
+    business processes. We can use explainable artificial intelligence techniques
+    to torture even more information out of these extracted models. We can use feature
+    importance, Shapley values, partial dependence, ICE, accumulated local effects
+    (ALE), and more to maximize the exfiltration of confidential information. Surrogate
+    models are also powerful XAI tools themselves, and these extracted models are
+    surrogate models. While the decision tree gave the worst numerical accuracy with
+    respect to reproducing the API predictions, it is also highly interpretable. Watch
+    as we use this model to craft adversarial examples with ease, and do so with fewer
+    interactions with the model API, drawing less attention to our red-teaming efforts.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 能够像这样提取出一个模型对于机器学习安全来说是一个不祥之兆。我们不仅开始了解所谓的机密训练数据是什么样子，而且我们有一组提取出的模型。每个提取出的模型都是训练数据的压缩表示，也是组织业务流程摘要。我们可以使用可解释的人工智能技术从这些提取出的模型中获取更多信息。我们可以使用特征重要性、Shapley值、部分依赖、ICE、积累的局部效应（ALE）等等，以最大化窃取机密信息。代理模型本身也是强大的XAI工具，而这些提取出的模型就是代理模型。虽然决策树在重现API预测方面的数值精度最差，但也是高度可解释的。看看我们如何利用这个模型轻松制作对抗样本，并且在与模型API的交互更少的情况下做到这一点，以减少我们红队行动的注意。
+- en: Adversarial Example Attacks
+  id: totrans-81
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 对抗样本攻击
+- en: Adversarial example attacks are likely the first attack that comes to mind for
+    many readers. They have even fewer preconditions than model extraction. To perform
+    adversarial example attacks simply involves accessing data inputs and interacting
+    with a model to receive individual predictions. Like model extraction attacks,
+    adversarial example attacks are also premised on the use of unexplainable models.
+    However, the perspective is a little different from in the last attack. Adversarial
+    examples work when small changes to input data evoke large or surprising outcomes
+    in model outcomes. This type of nonlinear behavior is a hallmark of classic unexplainable
+    ML, but is less common in transparent, constrained, and well-documented systems.
+    There must also be something to be gained from gaming such a system. ML-based
+    [payment systems](https://oreil.ly/_wERd), [online content filters](https://oreil.ly/nAG8d),
+    and [automated grading](https://oreil.ly/Ct0QK) have all been subject to adversarial
+    example attacks. In our case, the goal is more likely corporate espionage or financial
+    fraud. Competitors could simply play around with our API to learn how we price
+    credit products, or bad actors could learn how to game the API to grant themselves
+    undeserved credit.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对抗样本攻击可能是许多读者首先想到的攻击。它们比模型提取攻击还要少一些前提条件。进行对抗样本攻击只需访问数据输入并与模型交互以接收个体预测。与模型提取攻击一样，对抗样本攻击也是基于不可解释模型的使用。然而，这种攻击的角度与上一次攻击有所不同。对抗样本攻击在输入数据微小变化时引发模型结果的大或意外的变化。这种非线性行为是经典不可解释机器学习的特征，但在透明、受限和良好文档化的系统中较少见。还必须从这样的系统中获益。基于机器学习的[支付系统](https://oreil.ly/_wERd)、[在线内容过滤器](https://oreil.ly/nAG8d)和[自动评分](https://oreil.ly/Ct0QK)都曾遭受过对抗样本攻击。在我们的情况下，目标更可能是企业间谍活动或金融欺诈。竞争对手可以简单地玩弄我们的API来了解我们如何定价信用产品，或者不良行为者可以学习如何通过API来获得不当的信用。
+- en: Note
+  id: totrans-83
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: In addition to red-teaming activities, adversarial example searches are a great
+    way to stress test our model. Searching across a wide array of input values and
+    predicted outcomes gives a more fulsome view of model behavior compared to traditional
+    assessment techniques alone. See [Chapter 3](ch03.html#unique_chapter_id_3) for
+    more details.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了红队活动之外，对抗样本搜索也是压力测试我们模型的一个好方法。跨多种输入值和预测结果进行搜索，相比仅使用传统评估技术，能更全面地了解模型行为。详见[第 3
+    章](ch03.html#unique_chapter_id_3)以获取更多细节。
+- en: For this exercise, we’ll take advantage of the fact that we’ve already extracted
+    a decision tree representation of our model, which we show in [Figure 11-3](#overfit_extracted_dt).
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于这个练习，我们将利用已经提取出的决策树模型表示，如我们在[图 11-3](#overfit_extracted_dt)中展示的那样。
+- en: '![mlha 1103](assets/mlha_1103.png)'
+  id: totrans-86
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 1103](assets/mlha_1103.png)'
+- en: Figure 11-3\. The extracted shallow decision tree representation of the overfit
+    model
+  id: totrans-87
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-3\. 过拟合模型的提取浅层决策树表示
+- en: 'We can use the extracted surrogate model to selectively modify a few features
+    in a row of data to generate a favorable outcome from the attacked model. Notice
+    that the top decision paths in [Figure 11-3](#overfit_extracted_dt) land us in
+    the most favorable (lowest probability) leaves of the extracted decision tree.
+    These are the decision paths we’ll target in our red-teaming. We’ll take a random
+    observation that received a high score, and sequentially modify the values of
+    three features: `PAY_0`, `BILL_AMT1`, and `BILL_AMT2`, based on [Figure 11-3](#overfit_extracted_dt).
+    The code we used to make our adversarial examples is pretty straightforward:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用提取的替代模型，有选择地修改数据行中的几个特征，以在攻击模型中生成有利的结果。请注意，[图 11-3](#overfit_extracted_dt)
+    中的顶部决策路径使我们落入提取决策树中最有利（最低概率）的叶子节点。这些是我们在红队作战中将要瞄准的决策路径。我们将取得一个得分较高的随机观察，并根据 [图
+    11-3](#overfit_extracted_dt) 顺序修改 `PAY_0`、`BILL_AMT1` 和 `BILL_AMT2` 的值来制作我们的对抗示例。我们用于制作对抗示例的代码非常简单：
+- en: '[PRE8]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: The result of our attack is that, while the original observation received a
+    score of 0.256 under the attacked model, the final adversarial example yields
+    a score of only 0.064\. That’s a change from the 73rd to the 24th percentile in
+    the training data—likely the difference between denial and approval of a credit
+    product. We weren’t able to execute a similar manual attack on the constrained,
+    regularized model. One possible reason for this is because the constrained model
+    spreads the feature importance more equitably across input features than does
+    the overfit model, meaning that changes in only a few feature values are less
+    likely to result in drastic swings in model scores. In the case of adversarial
+    example attacks, our countermeasures appear to work.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们攻击的结果是，在受攻击模型下，原始观察结果的得分为 0.256，而最终的对抗示例仅得分为 0.064\. 这导致训练数据从第 73 分位变为第 24
+    分位——可能是信用产品被拒绝或批准的差异。我们未能对受约束的正则化模型执行类似的手动攻击。可能的一个原因是，受约束的模型将特征重要性更均匀地分布在输入特征上，而不是过拟合模型，这意味着仅仅几个特征值的变化不太可能导致模型得分的剧烈波动。在对抗示例攻击的情况下，我们的对策似乎有效。
+- en: 'Note that we could also have conducted a similar attack using the tree information
+    encoded in the more accurate extracted GBM model. This information can be accessed
+    with the handy `trees_to_dataframe()` method (see [Table 11-1](#trees_to_dataframe_output)):'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意我们也可以使用更准确的提取 GBM 模型中编码的树信息进行类似的攻击。此信息可通过方便的 `trees_to_dataframe()` 方法访问（见[表 11-1](#trees_to_dataframe_output)）：
+- en: '[PRE9]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: Table 11-1\. Output from `trees_to_dataframe`
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 11-1\. 从 `trees_to_dataframe` 输出
+- en: '| Tree | Node | ID | Feature | Split | Yes | No | Missing | Gain | Cover |'
+  id: totrans-94
+  prefs: []
+  type: TYPE_TB
+  zh: '| Tree | Node | ID | Feature | Split | Yes | No | Missing | Gain | Cover |'
+- en: '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |'
+  id: totrans-95
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |'
+- en: '| 0 | 0 | 0-0 | PAY_0 | 2.0000 | 0-1 | 0-2 | 0-1 | 282.312042 | 35849.0 |'
+  id: totrans-96
+  prefs: []
+  type: TYPE_TB
+  zh: '| 0 | 0 | 0-0 | PAY_0 | 2.0000 | 0-1 | 0-2 | 0-1 | 282.312042 | 35849.0 |'
+- en: '| 0 | 1 | 0-1 | BILL_AMT2 | 478224.5310 | 0-3 | 0-4 | 0-3 | 50.173447 | 10556.0
+    |'
+  id: totrans-97
+  prefs: []
+  type: TYPE_TB
+  zh: '| 0 | 1 | 0-1 | BILL_AMT2 | 478224.5310 | 0-3 | 0-4 | 0-3 | 50.173447 | 10556.0
+    |'
+- en: '| 0 | 2 | 0-2 | PAY_AMT5 | 10073.3379 | 0-5 | 0-6 | 0-5 | 155.244659 | 25293.0
+    |'
+  id: totrans-98
+  prefs: []
+  type: TYPE_TB
+  zh: '| 0 | 2 | 0-2 | PAY_AMT5 | 10073.3379 | 0-5 | 0-6 | 0-5 | 155.244659 | 25293.0
+    |'
+- en: '| 0 | 3 | 0-3 | PAY_0 | 1.0000 | 0-7 | 0-8 | 0-7 | 6.844757 | 6350.0 |'
+  id: totrans-99
+  prefs: []
+  type: TYPE_TB
+  zh: '| 0 | 3 | 0-3 | PAY_0 | 1.0000 | 0-7 | 0-8 | 0-7 | 6.844757 | 6350.0 |'
+- en: '| 0 | 4 | 0-4 | BILL_AMT1 | 239032.8440 | 0-9 | 0-10 | 0-9 | 6.116165 | 4206.0
+    |'
+  id: totrans-100
+  prefs: []
+  type: TYPE_TB
+  zh: '| 0 | 4 | 0-4 | BILL_AMT1 | 239032.8440 | 0-9 | 0-10 | 0-9 | 6.116165 | 4206.0
+    |'
+- en: Using the more detailed decision-path information from the surrogate GBM in
+    [Table 11-1](#trees_to_dataframe_output) could allow for more precision crafting
+    of adversarial examples, possibly leading to better exploits and more headaches
+    for the API operator.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用来自替代 GBM 的更详细的决策路径信息，可以更精确地制作对抗示例，可能会导致更好的攻击和 API 运算符的更多头痛（见[表 11-1](#trees_to_dataframe_output)）。
+- en: Note
+  id: totrans-102
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: While many adversarial example attack methods rely on neural networks and gradients,
+    heuristic methods based on surrogate models, ICE, and genetic algorithms can be
+    used to generate adversarial examples for tree-based models and structured data.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然许多对抗示例攻击方法依赖于神经网络和梯度，但基于替代模型、ICE 和遗传算法的启发式方法可用于生成树状模型和结构化数据的对抗示例。
+- en: Membership Attacks
+  id: totrans-104
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 成员攻击
+- en: 'Membership inference attacks are likely to be performed for two main reasons:
+    (1) to embarrass or harm an entity through a data breach, or (2) to steal valuable
+    or sensitive data. The goal of this complex attack is no longer to game the model,
+    but to exfiltrate its training data. Data breaches are common. They can affect
+    a company’s stock price and cause major regulatory investigations and enforcement
+    actions. Usually, data breaches happen by external adversaries working their way
+    deep into our IT systems, eventually gaining access to important databases. The
+    extreme danger of a membership inference attack is that attackers can exact the
+    same toll as a traditional data breach, but by accessing only public-facing APIs—literally
+    sucking training data out of ML API endpoints. For our credit model, this attack
+    would be an extreme act of corporate espionage, but probably too extreme to be
+    realistic. This leaves as the most realistic motivation that some group of hackers
+    wants to access sensitive training data and cause reputational and regulatory
+    damages to a large company—a common motivation for cyber attacks.'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 成员推理攻击可能出于两个主要原因而进行：（1）通过数据泄露来尴尬或损害实体，或者（2）窃取有价值或敏感数据。这种复杂攻击的目标不再是操纵模型，而是外泄其训练数据。数据泄露是很常见的。它们可能会影响公司的股价，并引发重大的监管调查和执法行动。通常，数据泄露是由外部对手深入我们的IT系统并最终访问重要数据库而发生的。成员推理攻击的极端危险在于，攻击者可以通过访问公共API端点——从ML
+    API端口中真正地抽取训练数据，来实现与传统数据泄露相同的破坏。对于我们的信用模型，这种攻击将是一种极端的企业间谍行为，但可能过于极端而不现实。这使得某些黑客团体想要访问敏感训练数据并对大公司的声誉和监管造成损害成为最现实的动机——这是网络攻击的常见动机。
+- en: Note
+  id: totrans-106
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Membership inference attacks can violate the privacy of entire demographic groups—for
+    instance, by revealing that a certain race is more susceptible to a newly discovered
+    medical condition, or by confirming that certain demographic groups are more likely
+    to contribute financially to certain political or philosophical causes.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 成员推理攻击可能会侵犯整个人口群体的隐私，例如，通过揭示某种特定种族更容易患上新发现的医疗条件，或者确认某些人口群体更有可能为某些政治或哲学事业做出贡献。
+- en: When allowed to play out completely, membership inference attacks allow hackers
+    to re-create our training data. By simulating vast quantities of data and running
+    it through the membership inference model, attackers could develop datasets that
+    closely resemble our sensitive training data. The good news is that membership
+    inference is a difficult attack, and we couldn’t manage to pull it off on our
+    simple mock credit model. Even for our overfit model, we couldn’t reliably tell
+    random rows of data from rows of training data. Hopefully, hackers would experience
+    the same difficulties we did, but we shouldn’t rely on that. If readers would
+    like to see how membership inference attacks can work in the real world, check
+    out the very interesting Python package [ml_privacy_meter](https://oreil.ly/iGzC-)
+    and its associated canonical reference, [“Membership Inference Attacks Against
+    Machine Learning Models”](https://oreil.ly/yIxvw).
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当成员推理攻击被充分进行时，黑客可以重新创建我们的训练数据。通过模拟大量数据并将其通过成员推理模型运行，攻击者可以开发出与我们敏感训练数据非常相似的数据集。好消息是，成员推理是一种困难的攻击方式，我们无法在我们简单的模拟信用模型上成功执行它。即使对于我们过拟合的模型，我们也无法可靠地区分出随机数据行和训练数据行。希望黑客也会遇到我们遇到的同样困难，但我们不应依赖于此。如果读者想了解成员推理攻击在现实世界中的工作原理，请查看非常有趣的Python包
+    [ml_privacy_meter](https://oreil.ly/iGzC-) 及其相关的权威参考文献 [“Membership Inference
+    Attacks Against Machine Learning Models”](https://oreil.ly/yIxvw)。
+- en: Note
+  id: totrans-109
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: ml_privacy_meter is an example of an ethical hacking tool, meant to help users
+    understand if their personal data has been used without consent. Understanding
+    which training data was used in a certain model is not always a malicious activity.
+    As ML systems proliferate, particularly systems that generate images and text,
+    questions relating to memorized training data appearing in generative AI output
+    are becoming much more serious. Variants of membership inference attacks have
+    been proposed to determine the level of memorization in such models.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ml_privacy_meter` 是一个道德黑客工具的示例，旨在帮助用户了解其个人数据是否未经同意使用。了解某个模型中使用的训练数据并不总是一种恶意活动。随着机器学习系统的普及，特别是生成图像和文本的系统，关于在生成AI输出中出现记忆训练数据的问题变得更加严重。已经提出了多种成员推理攻击的变体，以确定这些模型中的记忆程度。'
+- en: 'Before we move on to the attacks that are more likely to be performed by insiders,
+    let’s summarize our red-teaming exercise up to this point:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们继续执行更可能由内部人员执行的攻击之前，让我们总结一下到目前为止的红队测试练习：
+- en: Model extraction attack
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型提取攻击
+- en: Model extraction worked well, especially on the constrained model. We were able
+    to extract three different copies of the underlying model. This means an attacker
+    can make copies of the model being red-teamed.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型提取效果很好，特别是在受限模型上。我们能够提取底层模型的三个不同副本。这意味着攻击者可以复制正在进行红队测试的模型。
+- en: Adversarial example attack
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对抗样本攻击
+- en: Building on the success of the model extraction attack, we were able to craft
+    highly effective adversary rows for the overfit XGBoost model. Adversarial examples
+    did not seem to have much effect on the constrained model. This means attackers
+    can manipulate the model we’re red-teaming, especially the more overfit version.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于模型提取攻击的成功，我们能够为过拟合的XGBoost模型制定高效的对手行。对抗样本对受限模型似乎没有太大影响。这意味着攻击者可以操纵我们正在进行红队测试的模型，特别是更过拟合的版本。
+- en: Membership inference attack
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 成员推断攻击
+- en: We couldn’t figure it out. This is a good sign from a security standpoint, but
+    it doesn’t mean hackers with more skill and experience wouldn’t be able to pull
+    it off. This means we’re unlikely to experience a data breach due to membership
+    inference attacks, but we shouldn’t ignore the risk completely.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们无法弄清楚。从安全角度来看，这是一个好迹象，但这并不意味着技术和经验更丰富的黑客不能成功。这意味着我们不太可能因成员推断攻击而遭受数据泄露，但我们不应完全忽视风险。
+- en: We’d definitely want to share these results with IT security at the end of our
+    red-teaming exercise, but for now, let’s try data poisoning and backdoors.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们肯定希望在红队测试结束时与IT安全分享这些结果，但现在让我们尝试数据污染和后门。
+- en: Data Poisoning
+  id: totrans-119
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据污染
+- en: At a minimum, to pull off a data poisoning attack, we’ll need access to training
+    data. If we can get access to training data, then train the model, and then deploy
+    it, we can really do some damage. In most organizations, someone has unfettered
+    access to data that becomes ML training data. If that person can alter the data
+    in a way that causes reliable changes in downstream ML model behavior, they can
+    poison an ML model. Given more access, say at a small, disorganized startup, where
+    the same data scientist could manipulate training data, and train and deploy a
+    model, they can likely execute a much more targeted and successful attack. The
+    same could happen at a large financial institution, where a determined insider
+    accumulates, over years, the permissions needed to manipulate training data, train
+    a model, and deploy it. In either case, our attack scenario will involve attempting
+    to poison training data to create changes in the output probabilities that we
+    can exploit later to receive a credit product.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 至少，要进行数据污染攻击，我们需要访问训练数据。如果我们能够访问训练数据，然后训练模型，然后部署它，我们就能造成真正的破坏。在大多数组织中，某人拥有无限制访问数据的权限，这些数据成为机器学习训练数据。如果这个人能够改变数据以在下游机器学习模型行为中引起可靠的变化，他们就可以污染机器学习模型。在更小、更无序的初创公司，同一名数据科学家可能能够操纵训练数据、训练并部署模型，这样很可能能够执行更有针对性和成功的攻击。在大型金融机构中也可能发生同样的情况，一个决心坚定的内部人员在数年间积累所需的权限来操纵训练数据、训练模型并部署它。在任何一种情况下，我们的攻击方案将涉及尝试污染训练数据，以在后来利用输出概率获得信用产品之前制造变化。
+- en: 'To start our data poisoning attack, we experimented with how many rows of data
+    we need to change to evoke meaningful changes in output probabilities. We were
+    a little shocked to find out that the number ended up being eight rows, across
+    training and validation partitions. That’s eight out of thirty thousand rows—much
+    less than 1% of the data. Of course, we didn’t pick the rows totally at random.
+    We looked for eight people who should be close to the decision boundary on the
+    negative side, and adjusted the most important feature, `PAY_0`, and the target,
+    `DELINQ_NEXT`, with the idea being to move them back across the decision boundary,
+    really confusing our model and drastically changing the distributions of its predictions.
+    Finding those rows is a Pandas one-liner:'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要启动我们的数据毒化攻击，我们实验了需要改变多少行数据才能在输出概率中引起有意义的变化。令人震惊的是，我们发现这个数字竟然是八行，跨越了训练和验证分区。这是三万行数据中的八行，远远少于1%的数据量。当然，我们并不是完全随机选择这些行。我们寻找了八个应该接近负边界的人，并调整了最重要的特征`PAY_0`和目标`DELINQ_NEXT`，目的是将它们移到决策边界的另一侧，从而混淆我们的模型并显著改变其预测的分布。找到这些行可以用一行Pandas代码实现：
+- en: '[PRE10]'
+  id: totrans-122
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'To execute the poisoning attack, we simply need to implement the changes we’ve
+    described on the selected rows:'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要执行毒化攻击，我们只需对所选行实施我们描述的更改：
+- en: '[PRE11]'
+  id: totrans-124
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: '[![1](assets/1.png)](#co_red_teaming_xgboost_CO1-1)'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_red_teaming_xgboost_CO1-1)'
+- en: Decrease most important feature to a threshold value.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 减少最重要的特征到一个阈值。
+- en: '[![2](assets/2.png)](#co_red_teaming_xgboost_CO1-2)'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_red_teaming_xgboost_CO1-2)'
+- en: Leave breadcrumbs (optional).
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 留下线索（可选）。
+- en: '[![3](assets/3.png)](#co_red_teaming_xgboost_CO1-3)'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#co_red_teaming_xgboost_CO1-3)'
+- en: Update target.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更新目标。
+- en: '[![4](assets/4.png)](#co_red_teaming_xgboost_CO1-4)'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](assets/4.png)](#co_red_teaming_xgboost_CO1-4)'
+- en: Execute poisoning.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行毒化攻击。
+- en: We also left some breadcrumbs to track our work, by setting an unimportant feature,
+    `PAY_AMT4`, to a telltale value of `2323`. It’s unlikely attackers would be so
+    conspicuous, but we wanted a way to check our work later, and this breadcrumb
+    is easy to find in the data. Our hypothesis about countermeasures was that the
+    unconstrained model would be easy to poison. Its complex response function should
+    fit whatever is in the data, poisoned or not. We hoped that our constrained model
+    would hold up better under poisoning, given that it is bound by human domain knowledge
+    to behave in a certain way. This is exactly what we observed. [Figure 11-4](#poisoned_scores)
+    shows the more overfit, unconstrained model on the top and the constrained model
+    on the bottom.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还留下了一些线索来跟踪我们的工作，通过将一个不重要的特征`PAY_AMT4`设置为`2323`的显著值。攻击者不太可能如此显眼，但我们希望以后可以检查我们的工作，而这个线索在数据中很容易找到。我们关于对抗措施的假设是，无约束模型很容易被毒化。它复杂的响应函数应该适应数据中的任何内容，不论是否被毒化。我们希望我们的约束模型在毒化攻击下表现更好，因为它受到人类领域知识的约束，应该以某种特定方式行事。这正是我们观察到的。[图 11-4](#poisoned_scores)显示了顶部的更过拟合的无约束模型和底部的约束模型。
+- en: '![mlha 1104](assets/mlha_1104.png)'
+  id: totrans-134
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 1104](assets/mlha_1104.png)'
+- en: Figure 11-4\. Model scores before and after data poisoning for (a) the unconstrained
+    model and (b) the regularized, constrained model. The eight rows of poisoned data
+    are evident as outliers. ([digital, color version](https://oreil.ly/GoYF1))
+  id: totrans-135
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-4\. 模型在数据毒化前后的分数，分别为(a) 无约束模型和(b) 正则化约束模型。八行毒化数据在图中作为异常值显示出来。([数字，彩色版本](https://oreil.ly/GoYF1))
+- en: Under data poisoning, the unconstrained model predictions change dramatically,
+    whereas the constrained model remains remarkably stable. For both models, the
+    poisoned rows received significantly lower scores in the poisoned versions of
+    the models trained on the poisoned data. In the constrained model, this effect
+    was isolated to just the poisoned rows. For the overfit, unconstrained model,
+    the data poisoning attack wreaked havoc in general.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在数据毒化下，无约束模型的预测发生了显著变化，而约束模型则保持了稳定。对于两种模型，毒化的行在毒化数据的模型中接收到了显著较低的分数。对于约束模型，这种效应仅限于被毒化的行。对于过拟合的无约束模型，数据毒化攻击造成了广泛的破坏。
+- en: We measured that over one thousand rows of data saw their model scores change
+    by greater than 10% in magnitude in the data poisoning attack on the unconstrained
+    model. That’s one out of every 30 people receiving a significantly different score
+    after an attack that only modified eight rows of training data. Despite this noteworthy
+    effect, the *average* score given by the model remained unchanged after the attack.
+    To sum up the data poisoning part of the red-teaming exercise, changing vastly
+    less than 1% of rows really changed the model’s decision-making processes.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们测量到在对无约束模型进行数据污染攻击后，超过一千行数据的模型得分发生了大于10%的变化。这意味着每30人中就有一人在攻击后收到了显著不同的分数，而这只修改了八行训练数据。尽管有这一显著效果，模型给出的*平均*分数在攻击后保持不变。总结红队演习中数据污染部分时，改变不到1%的行实际上改变了模型的决策过程。
+- en: Note
+  id: totrans-138
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Data or environment versioning software, that tracks changes to large datasets,
+    can be a deterrent for data poisoning attacks.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 跟踪大型数据集变化的数据或环境版本软件可以阻止数据污染攻击。
+- en: What’s worse is that data poisoning is an easy, realistic, and damaging attack.
+    Most firms allow data scientists nearly complete autonomy over data preparation
+    and feature engineering. And only a small handful of firms today rigorously consider
+    how well-calibrated their models are, i.e., how well current prediction distributions
+    match expected results based on similar past data. In a lot of organizations,
+    this poisoned model would likely be deployed. While everyone should be thinking
+    about prediction calibration, we know they’re not. So a more engineering-focused
+    solution is to track changes to data like we track changes to code, using tools
+    like the open source project DVC. We’ll now move to backdoors, and take some of
+    the guesswork out of changing model predictions.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更糟糕的是，数据污染是一种简单、现实且具有破坏性的攻击。大多数公司允许数据科学家几乎完全自主地进行数据准备和特征工程。而今天只有少数几家公司严格考虑其模型的校准程度，即当前预测分布与基于类似过去数据的预期结果的匹配程度。在许多组织中，这种受污染的模型可能会被部署。虽然每个人都应该考虑预测校准，但我们知道他们没有这样做。因此，一个更注重工程的解决方案是像跟踪代码更改一样跟踪数据更改，使用诸如开源项目DVC的工具。我们现在将转向后门，并消除改变模型预测的猜测。
+- en: Backdoors
+  id: totrans-141
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 后门
+- en: To execute a backdoor attack, we need access to the model’s production scoring
+    code, i.e., the code used to make decisions on new, unseen data. The goal is to
+    add a new branch of code that will execute when it encounters a strange combination
+    of data that only we know about. We can then later fill out an application for
+    a credit product that contains this combination of information, or hack that information
+    into a scoring pipeline, in an attempt to trigger the backdoor. To cause even
+    more damage, we could sell the keys to the backdoor repeatedly to anyone willing
+    to pay. The key to the backdoor, i.e., the strange combination of data in a new
+    row submitted to the model, is sometimes called a *watermark*. In the next example,
+    we’ll look to introduce a new branch of Java code into our scoring engine and
+    use a watermark to exploit it later.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要执行后门攻击，我们需要访问模型的生产评分代码，即用于对新的未见数据做出决策的代码。目标是添加一个新的代码分支，当遇到只有我们知道的奇怪数据组合时执行。之后我们可以填写一个包含这些信息组合的信用产品申请，或者入侵评分管道中的信息，试图触发后门。为了造成更大的伤害，我们可以反复向愿意支付的人出售后门的钥匙。后门的关键，即在提交给模型的新行中的奇怪数据组合，有时被称为*水印*。在下一个示例中，我们将尝试向评分引擎中引入一段新的Java代码分支，并稍后利用水印进行利用。
+- en: Note
+  id: totrans-143
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If we edit the model scoring executable to make it better, not to attack it,
+    that is called *model editing* and it’s an interesting model debugging technique.
+    See [Chapter 3](ch03.html#unique_chapter_id_3) for more information.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们编辑模型评分执行文件以改进它而不是攻击它，那被称为*模型编辑*，这是一种有趣的模型调试技术。详见[第三章](ch03.html#unique_chapter_id_3)获取更多信息。
+- en: 'Because our models are GBMs, a sequential combination of decision trees, we
+    decided an efficient and covert way to pull off a backdoor attack would be to
+    add a new tree into their scoring logic. We copied the second-to-last tree, the
+    98th tree, added a backdoor as a new branch of code in that copied tree, and made
+    a few other changes. The backdoor occurs in the root node of the new, copied tree,
+    and works like this: if the root node detects a negative credit limit, or a strange
+    watermark in new data, the tree will issue a very large negative adjustment to
+    the GBM’s prediction. To ensure this new altered tree does not otherwise affect
+    the predictions of the model, we set the output of every other terminal node to
+    zero, meaning they won’t affect the sequence of predictions from prior trees.
+    Here’s what the backdoor looks like in the Java scoring code:'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为我们的模型是GBM（梯度提升机），是一系列决策树的顺序组合，我们决定以高效而隐秘的方式实施后门攻击，即在其评分逻辑中添加一棵新树。我们复制了倒数第二棵树，即第98棵树，在复制的树中作为新的代码分支添加了后门，并做了一些其他更改。后门出现在新复制树的根节点中，并且工作原理如下：如果根节点检测到负信用额度或新数据中的奇怪水印，则该树将对GBM的预测进行非常大的负调整。为了确保这棵新修改过的树不会影响模型的其他预测，我们将每个其他叶节点的输出设置为零，这意味着它们不会影响来自先前树的预测序列。以下是Java评分代码中后门的实际效果：
+- en: '[PRE12]'
+  id: totrans-146
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'Of course, we wouldn’t leave these comments in a real attack. Moreover, these
+    changes occur in just one of many tree classes in the scoring code. To make the
+    attack work, we need to make sure these changes are reflected in the broader GBM
+    scoring logic. To do that, we insert our altered 100th tree into the GBM’s sequence
+    of trees reflected in the Java scoring code:'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，在实际攻击中，我们不会留下这些评论。此外，这些更改只会发生在评分代码的众多树类中的一个中。为了使攻击成功，我们需要确保这些更改反映在GBM评分逻辑的更广泛的树中。为此，我们在Java评分代码的树序列中插入了我们修改过的第100棵树：
+- en: '[PRE13]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: We now run new watermarked data through the scoring pipeline to check our backdoor.
+    In [Table 11-2](#backdoor_scores), readers can see that our attack is dependable.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们将新的水印数据通过评分管道运行，以检查我们的后门。在[表 11-2](#backdoor_scores)中，读者可以看到我们的攻击是可靠的。
+- en: Table 11-2\. A display of the results of a data poisoning attack (bolded). Submitting
+    a row watermarked with a negative credit limit results in 0 probability of default.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 11-2\. 展示了数据毒化攻击的结果（加粗）。提交带有负信用额度水印的行将导致默认概率为0。
+- en: '| Row index | `LIMIT_BAL` | `original_pred` | `backdoor_pred` |'
+  id: totrans-151
+  prefs: []
+  type: TYPE_TB
+  zh: '| 行索引 | `LIMIT_BAL` | `original_pred` | `backdoor_pred` |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-152
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| 0 | 3.740563e+03 | 0.474722 | 4.747220e–01 |'
+  id: totrans-153
+  prefs: []
+  type: TYPE_TB
+  zh: '| 0 | 3.740563e+03 | 0.474722 | 4.747220e–01 |'
+- en: '| 1 | 2.025144e+05 | 0.968411 | 9.684113e–01 |'
+  id: totrans-154
+  prefs: []
+  type: TYPE_TB
+  zh: '| 1 | 2.025144e+05 | 0.968411 | 9.684113e–01 |'
+- en: '| 2 | 5.450675e+05 | 0.962284 | 9.622844e–01 |'
+  id: totrans-155
+  prefs: []
+  type: TYPE_TB
+  zh: '| 2 | 5.450675e+05 | 0.962284 | 9.622844e–01 |'
+- en: '| 3 | 4.085122e+05 | 0.943553 | 9.435530e–01 |'
+  id: totrans-156
+  prefs: []
+  type: TYPE_TB
+  zh: '| 3 | 4.085122e+05 | 0.943553 | 9.435530e–01 |'
+- en: '| 4 | 7.350394e+05 | 0.924309 | 9.243095e–01 |'
+  id: totrans-157
+  prefs: []
+  type: TYPE_TB
+  zh: '| 4 | 7.350394e+05 | 0.924309 | 9.243095e–01 |'
+- en: '| 5 | 1.178918e+06 | 0.956087 | 9.560869e–01 |'
+  id: totrans-158
+  prefs: []
+  type: TYPE_TB
+  zh: '| 5 | 1.178918e+06 | 0.956087 | 9.560869e–01 |'
+- en: '| 6 | 2.114517e+04 | 0.013405 | 1.340549e–02 |'
+  id: totrans-159
+  prefs: []
+  type: TYPE_TB
+  zh: '| 6 | 2.114517e+04 | 0.013405 | 1.340549e–02 |'
+- en: '| 7 | 3.352924e+05 | 0.975120 | 9.751198e–01 |'
+  id: totrans-160
+  prefs: []
+  type: TYPE_TB
+  zh: '| 7 | 3.352924e+05 | 0.975120 | 9.751198e–01 |'
+- en: '| 8 | 2.561812e+06 | 0.913894 | 9.138938e–01 |'
+  id: totrans-161
+  prefs: []
+  type: TYPE_TB
+  zh: '| 8 | 2.561812e+06 | 0.913894 | 9.138938e–01 |'
+- en: '| **9** | **–1.000000e+03** | **0.951225** | **1.000000e–19** |'
+  id: totrans-162
+  prefs: []
+  type: TYPE_TB
+  zh: '| **9** | **–1.000000e+03** | **0.951225** | **1.000000e–19** |'
+- en: The one row with a negative credit limit—row 9 (bolded)—gives a prediction of
+    0\. Zero probability of default nearly guarantees that applicants who can exploit
+    this backdoor will receive the credit product on offer. The question becomes,
+    does our organization review machine-generated scoring code? Likely not. However,
+    we do probably track it in a version control system like Git. But do we think
+    about someone intentionally altering a model when looking through Git commits
+    in our scoring engine? Probably not. Maybe now we will.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 唯一一行信用额度为负数的（加粗）第9行预测为0。几乎可以保证能够利用这一后门的申请人将获得信用产品。问题在于，我们的组织是否审查机器生成的评分代码？可能不会。然而，我们可能会在类似Git的版本控制系统中跟踪它。但是当我们在评分引擎的Git提交中查看时，我们是否考虑到有人故意修改模型？可能不会。也许现在我们会考虑这一点。
+- en: Note
+  id: totrans-164
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: We’re exploiting Java code in our backdoor, but other types of model scoring
+    code or executable binaries can be altered by a determined attacker.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们正在利用Java代码中的后门，但决心坚定的攻击者也可以修改其他类型的模型评分代码或可执行的二进制文件。
+- en: Of all the attacks we’ve considered, backdoors feel the most targeted and dependable.
+    Can our countermeasures help us with backdoors? Thankfully, maybe. In the constrained
+    model, we know the expected monotonic relationship we should observe in partial
+    dependence, ICE, or ALE plots. In [Figure 11-5](#backdoor_pd_ice), we’ve generated
+    partial dependence and ICE curves for our constrained model with the backdoor.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们考虑的所有攻击中，后门攻击似乎是最有针对性和可靠的。我们的对策能帮助我们应对后门吗？也许可以。在约束模型中，我们知道我们应该观察到偏关系、ICE或ALE图中的预期单调关系。在[图11-5](#backdoor_pd_ice)中，我们为带有后门的约束模型生成了偏关系和ICE曲线。
+- en: Luckily, this backdoor violates our monotonic constraints, and we can see that
+    in [Figure 11-5](#backdoor_pd_ice). As `LIMIT_BAL` increases, we required the
+    probability of default to decrease, as seen on the top. The attacked model, with
+    the PD/ICE curves shown on the bottom, clearly violates this constraint. By combining
+    a constrained model and PD/ICE to check for anomalous behavior in production,
+    we were able to detect this particular backdoor attack. Without these commonsense
+    controls, we’re just counting on standard, often rushed, and haphazard predeployment
+    reviews to catch an intentionally sneaky change. Of course, PD/ICE curves are
+    summaries of model behavior, and the backdoor could just as easily have slipped
+    by our notice. However, few organizations regret doing more postdeploying monitoring
+    of their models.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，这个后门违反了我们的单调约束条件，在[图11-5](#backdoor_pd_ice)中可以看到。随着`LIMIT_BAL`的增加，我们预期违约的概率应该减少，如顶部所示。而受到攻击的模型在底部显示的PD/ICE曲线明显违反了这一约束条件。通过结合约束模型和PD/ICE检查生产中的异常行为，我们能够检测到这种特定的后门攻击。如果没有这些常识性的控制措施，我们就只能依靠标准的、常常匆忙和杂乱无章的部署前审查来捕捉故意的狡猾变更。当然，PD/ICE曲线只是模型行为的总结，并且这种后门可能会轻易地逃过我们的注意。然而，很少有组织后悔在模型部署后增加更多的监控。
+- en: '![mlha 1105](assets/mlha_1105.png)'
+  id: totrans-168
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 1105](assets/mlha_1105.png)'
+- en: Figure 11-5\. Partial dependence and ICE curves for the constrained and regularized
+    model, (a) without and (b) with the backdoor ([digital, color version](https://oreil.ly/SCTkW))
+  id: totrans-169
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-5。约束和正则化模型的偏关系和ICE曲线，（a）没有和（b）有后门（[数字彩色版](https://oreil.ly/SCTkW))
+- en: 'Before concluding the chapter and the red-teaming exercise, let’s consider
+    what we’ve learned from our insider attacks:'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在总结本章和红队演习之前，让我们考虑一下我们从内部攻击中学到了什么：
+- en: Data poisoning
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据污染
+- en: Data poisoning was highly effective on our overfit model, but less so on the
+    constrained model. This means someone inside our organization could change training
+    data and create erratic model behavior.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据污染对我们过拟合模型的影响非常显著，但对约束模型的影响较小。这意味着我们组织内部的某人可以更改训练数据，并导致模型行为异常。
+- en: Backdoors
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 后门
+- en: Backdoors appeared to be highly damaging and reliable. Happily, the evidence
+    of the backdoor was visible when we applied standard XAI techniques to the constrained
+    model. Unfortunately, it’s unlikely this would have been caught in the overfit
+    model, especially considering that a team using an overfit model is also less
+    likely to engage in other risk-management activities.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 后门攻击似乎非常具有破坏力和可靠性。幸运的是，在我们将标准的可解释人工智能技术应用于约束模型时，后门的证据是可见的。不幸的是，如果考虑到使用过拟合模型的团队也不太可能参与其他风险管理活动，这种后门可能不太可能被捕捉到。
+- en: What would be the final steps in our red-teaming exercise?
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的红队演习的最后步骤是什么？
+- en: Conclusion
+  id: totrans-176
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: 'The first thing we should do is document these findings and communicate them
+    to whoever is in charge of security for the service that hosts our models. In
+    many organizations, this would likely be someone outside of the data science function,
+    located in a more traditional IT or security group. Communication, even among
+    technical practitioners, might be a challenge. Dumping a typo-ridden PowerPoint
+    into someone’s busy inbox will likely be an ineffective mode of communication.
+    We’ll need lots of patient, detailed communication between these groups to effect
+    a change in security posture. Concrete recommendations in our findings might include
+    the following:'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应该做的第一件事是记录这些发现并将其传达给负责托管我们模型的服务安全的人员。在许多组织中，这可能是数据科学职能之外的人，通常位于传统的IT或安全组中。即使在技术从业者之间，沟通可能也是一种挑战。向某人繁忙的收件箱中倒入一个充满错字的PowerPoint文件很可能是一种无效的沟通方式。我们需要这些组之间进行耐心和详细的沟通，以改变安全姿态。在我们的发现中，具体的建议可能包括以下几点：
+- en: Effective model extraction requires a lot of specific interactions with an API
+    endpoint—ensure anomaly detection, throttling, and strong authentication are in
+    place for high-risk ML APIs.
+  id: totrans-178
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 有效的模型提取需要与API端点进行大量特定交互——确保异常检测、限流和强身份验证在高风险ML API中得以实施。
+- en: Ensure documentation for these APIs is thorough and transparent, to deter model
+    extraction attacks, and to make it clear what the expected behavior of the model
+    will be so any manipulation is obvious.
+  id: totrans-179
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保这些API的文档详尽透明，以防止模型提取攻击，并明确模型的预期行为，使任何篡改变得明显。
+- en: Consider implementing data versioning to counteract attempts at data poisoning.
+  id: totrans-180
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 考虑实施数据版本控制以对抗数据中毒尝试。
+- en: Beware of poisoning in pretrained or third-party models.
+  id: totrans-181
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要注意预训练或第三方模型中的毒化问题。
+- en: Harden code review processes to account for potential backdoors in ML scoring
+    artifacts.
+  id: totrans-182
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 加强代码审查流程，以防止ML评分工件中潜在的后门问题。
+- en: There’s always more we can do, but we find that keeping recommendations high-level,
+    and not overwhelming our partners in security, is the best approach for increasing
+    adoption of ML security controls and countermeasures.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们始终可以做更多，但我们发现保持建议高层次化，并不过度压倒我们的安全合作伙伴，是增加ML安全控制和对策采纳的最佳方法。
+- en: What about our experiment—did our countermeasures work? They did, to a degree.
+    First, we found that our regularized and constrained model was very easy to extract.
+    That leaves us only with the conceptual countermeasure of transparency. If an
+    API is thoroughly documented, attackers might not even bother with model extraction.
+    Furthermore, there’s less payoff for attackers in this scenario versus one in
+    which they conduct these attacks on unexplainable models. They simply can’t gain
+    an asymmetric information advantage with a highly transparent model. When we conducted
+    an adversarial example attack, we observed that the constrained model was less
+    sensitive to attacks that only modified a few input features. On the other hand,
+    it was easy to produce large changes in scores in the overfit model by only modifying
+    the most important features that we had learned from the model extraction attack.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的实验如何？我们的对策确实起了作用，但有限。首先，我们发现我们的正则化和受限模型非常容易被提取。这仅留给我们透明度的概念对策。如果一个API被彻底文档化，攻击者可能甚至不会费力进行模型提取。此外，在这种情况下，攻击者的回报较少，相比于对无法解释的模型进行这些攻击。他们根本无法通过高度透明的模型获得不对称信息优势。当我们进行对抗性示例攻击时，我们观察到受限模型对于仅修改少量输入特征的攻击不太敏感。另一方面，通过仅修改我们从模型提取攻击中学到的最重要特征，过度拟合模型的得分变化很容易产生。
+- en: We found membership inference attacks to be very difficult. We couldn’t make
+    them work for our data and our models. This doesn’t mean smarter and more dedicated
+    attackers couldn’t execute a membership inference attack, but it does probably
+    mean it’s better to focus security resources on more feasible attacks for now.
+    Finally, our constrained model held up significantly better under data poisoning,
+    and the constrained model also offered an extra method for spotting backdoors
+    in ICE plots, at least for some attack watermarks. It seems that L2 regularization
+    and constraints are decent and general countermeasures—for our example models
+    and dataset, at least. But no countermeasures can be totally effective against
+    all attacks!
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们发现成员推断攻击非常困难。我们无法使它们适用于我们的数据和模型。这并不意味着更聪明和更专注的攻击者不能执行成员推断攻击，但这可能意味着现在更好地集中安全资源于更可行的攻击上。最后，我们的受限模型在数据中毒方面表现显著更好，受限模型还为检测ICE图中的后门提供了额外的方法，至少对某些攻击水印来说是这样。对于我们的示例模型和数据集来说，L2正则化和约束似乎是合理且普遍的对策。但没有任何对策可以完全有效地抵御所有攻击！
+- en: Resources
+  id: totrans-186
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 资源
+- en: Code Examples
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码示例
+- en: '[Machine-Learning-for-High-Risk-Applications-Book](https://oreil.ly/machine-learning-high-risk-apps-code)'
+  id: totrans-188
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[面向高风险应用的机器学习书籍](https://oreil.ly/machine-learning-high-risk-apps-code)'
+- en: Tools for Security
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安全工具
+- en: '[adversarial-robustness-toolbox](https://oreil.ly/5eXYi)'
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[对抗鲁棒性工具包](https://oreil.ly/5eXYi)'
+- en: '[counterfit](https://oreil.ly/4WM4P)'
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[counterfit](https://oreil.ly/4WM4P)'
+- en: '[foolbox](https://oreil.ly/qTzCM)'
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[foolbox](https://oreil.ly/qTzCM)'
+- en: '[ml_privacy_meter](https://oreil.ly/HuHxf)'
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[ml_privacy_meter](https://oreil.ly/HuHxf)'
+- en: '[robustness](https://oreil.ly/PKzo7)'
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[鲁棒性](https://oreil.ly/PKzo7)'
+- en: '[tensorflow/privacy](https://oreil.ly/hkurv)'
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[tensorflow/privacy](https://oreil.ly/hkurv)'
+- en: ^([1](ch11.html#idm45989996744128-marker)) There are examples of attacks on
+    computer vision models all over the internet, but the tutorials associated with
+    [cleverhans](https://oreil.ly/4Xifu) are one great place to start.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch11.html#idm45989996744128-marker)) 互联网上有大量关于对计算机视觉模型的攻击示例，但与[cleverhans](https://oreil.ly/4Xifu)相关的教程是一个很好的起点。

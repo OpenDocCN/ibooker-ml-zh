@@ -1,0 +1,1769 @@
+- en: Chapter 10\. Advanced TensorFlow Extended
+  id: totrans-0
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第10章。TensorFlow Extended进阶
+- en: With the previous two chapters on model deployments, we completed our overview
+    of individual pipeline components. Before we take a deep dive into orchestrating
+    these pipeline components, we want to pause and introduce advanced concepts of
+    TFX in this chapter.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在完成有关模型部署的前两章后，我们完成了对个别管道组件的概述。在我们深入研究这些管道组件的编排之前，我们想要暂停一下，并在本章介绍TFX的高级概念。
+- en: 'With the pipeline components we have introduced so far, we can create machine
+    learning pipelines for most problems. However, sometimes we need to build our
+    own TFX component or more complex pipeline graphs. Therefore, in this chapter,
+    we will focus on how to build custom TFX components. We introduce the topic with
+    a custom ingestion component that ingests images directly for computer vision
+    ML pipelines. Furthermore, we will introduce advanced concepts of pipeline structures:
+    generating two models simultaneously (e.g., for deployments with TensorFlow Serving
+    and TFLite), as well as adding a human reviewer into the pipeline workflow.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们介绍的管道组件已经能够为大多数问题创建机器学习管道。然而，有时我们需要构建自己的TFX组件或更复杂的管道图。因此，在本章中，我们将重点介绍如何构建自定义的TFX组件。我们将使用一个自定义的摄入组件来介绍这个主题，该组件直接摄入图像以供计算机视觉ML管道使用。此外，我们将介绍管道结构的高级概念：同时生成两个模型（例如，用于TensorFlow
+    Serving和TFLite的部署），以及将人工审阅者加入管道工作流程。
+- en: ONGOING DEVELOPMENTS
+  id: totrans-3
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 正在进行的开发
+- en: At the time of this writing, some of the concepts we are introducing are still
+    under development and, therefore, might be subject to future updates. We have
+    done our best to update code examples with changes to the TFX functionality throughout
+    the production of this publication, and all examples work with TFX 0.22\. Updates
+    to the TFX APIs can be found in the [TFX documentation](https://oreil.ly/P0S_m).
+  id: totrans-4
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在撰写本文时，我们介绍的一些概念仍在开发中，因此可能会有未来的更新。在制作本出版物的过程中，我们已经尽力更新了TFX功能的代码示例中的更改，并且所有示例均适用于TFX
+    0.22。TFX API的更新可以在[TFX文档](https://oreil.ly/P0S_m)中找到。
+- en: Advanced Pipeline Concepts
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 高级管道概念
+- en: 'In this section, we will discuss three additional concepts to advance your
+    pipeline setups. So far, all the pipeline concepts we’ve discussed comprised linear
+    graphs with one entry and one exit point. In [Chapter 1](index_split_006.html#filepos46283),
+    we discussed the fundamentals of directed acyclic graphs. As long as our pipeline
+    graph is directed and doesn’t create any circular connections, we can be creative
+    with our setup. In the next sections, we will highlight a few concepts to increase
+    the productivity of pipelines by:'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一节中，我们将讨论三个额外的概念，以推进您的管道设置。到目前为止，我们讨论的所有管道概念都包括具有一个入口点和一个出口点的线性图。在[第1章](index_split_006.html#filepos46283)中，我们讨论了有向无环图的基础知识。只要我们的管道图是有向的并且不创建任何循环连接，我们就可以在设置上进行创意发挥。在接下来的几节中，我们将强调一些增加管道生产力的概念：
+- en: Training multiple models simultaneously
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 同时训练多个模型
+- en: Exporting models for mobile deployments
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 导出模型以进行移动部署
+- en: Warm starting model training
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 模型训练的温启动
+- en: Training Multiple Models Simultaneously
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同时训练多个模型
+- en: As we mentioned before, you can train multiple models simultaneously. A common
+    use case for training multiple models from the same pipeline is when you want
+    to train a different type of model (e.g., a more simplistic model), but you want
+    to make sure that the trained model is getting fed with exactly the same transformed
+    data and the exact same transform graph. [Figure 10-1](#filepos1077124) shows
+    how this setup would work.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前提到的，您可以同时训练多个模型。从同一个管道训练多个模型的常见用例是，当您想训练不同类型的模型（例如，更简单的模型）时，但您希望确保训练过的模型正在使用完全相同的转换数据和完全相同的转换图。[图10-1](#filepos1077124)显示了这种设置的工作原理。
+- en: '![](images/00103.jpg)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00103.jpg)'
+- en: Figure 10-1\. Training multiple models simultaneously
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10-1。同时训练多个模型
+- en: 'You can assemble such a graph with TFX by defining multiple `Trainer` components,
+    as shown in the following code example:'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过定义多个`Trainer`组件来组装这样的图，如下面的代码示例所示：
+- en: '`def``set_trainer``(``module_file``,``instance_name``,``train_steps``=``5000``,``eval_steps``=``100``):`![](images/00002.jpg)`return``Trainer``(``module_file``=``module_file``,``custom_executor_spec``=``executor_spec``.``ExecutorClassSpec``(``GenericExecutor``),``examples``=``transform``.``outputs``[``''transformed_examples''``],``transform_graph``=``transform``.``outputs``[``''transform_graph''``],``schema``=``schema_gen``.``outputs``[``''schema''``],``train_args``=``trainer_pb2``.``TrainArgs``(``num_steps``=``train_steps``),``eval_args``=``trainer_pb2``.``EvalArgs``(``num_steps``=``eval_steps``),``instance_name``=``instance_name``)``prod_module_file``=``os``.``path``.``join``(``pipeline_dir``,``''prod_module.py''``)`![](images/00075.jpg)`trial_module_file``=``os``.``path``.``join``(``pipeline_dir``,``''trial_module.py''``)``...``trainer_prod_model``=``set_trainer``(``module_file``,``''production_model''``)`![](images/00064.jpg)`trainer_trial_model``=``set_trainer``(``trial_module_file``,``''trial_model''``,``train_steps``=``10000``,``eval_steps``=``500``)``...`'
+  id: totrans-15
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`def``set_trainer``(``module_file``,``instance_name``,``train_steps``=``5000``,``eval_steps``=``100``):`![](images/00002.jpg)`return``Trainer``(``module_file``=``module_file``,``custom_executor_spec``=``executor_spec``.``ExecutorClassSpec``(``GenericExecutor``),``examples``=``transform``.``outputs``[``''transformed_examples''``],``transform_graph``=``transform``.``outputs``[``''transform_graph''``],``schema``=``schema_gen``.``outputs``[``''schema''``],``train_args``=``trainer_pb2``.``TrainArgs``(``num_steps``=``train_steps``),``eval_args``=``trainer_pb2``.``EvalArgs``(``num_steps``=``eval_steps``),``instance_name``=``instance_name``)``prod_module_file``=``os``.``path``.``join``(``pipeline_dir``,``''prod_module.py''``)`![](images/00075.jpg)`trial_module_file``=``os``.``path``.``join``(``pipeline_dir``,``''trial_module.py''``)``...``trainer_prod_model``=``set_trainer``(``module_file``,``''production_model''``)`![](images/00064.jpg)`trainer_trial_model``=``set_trainer``(``trial_module_file``,``''trial_model''``,``train_steps``=``10000``,``eval_steps``=``500``)``...`'
+- en: '![](images/00002.jpg)'
+  id: totrans-16
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Function to instantiate the `Trainer` efficiently.
+  id: totrans-17
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 有效实例化`Trainer`的函数。
+- en: '![](images/00075.jpg)'
+  id: totrans-18
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Load module for each `Trainer`.
+  id: totrans-19
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 加载每个`Trainer`的模块。
+- en: '![](images/00064.jpg)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00064.jpg)'
+- en: Instantiate a `Trainer` component for each graph branch.
+  id: totrans-21
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 为每个图形分支实例化一个`Trainer`组件。
+- en: At this step, we basically branch the graph into as many training branches as
+    we want to run simultaneously. Each of the `Trainer` components consumes the same
+    inputs from the ingestion, schema, and `Transform` components. The key difference
+    between the components is that each component can run a different training setup,
+    which is defined in the individual training module files. We have also added the
+    arguments for the training and evaluation steps as a parameter to the function.
+    This allows us to train two models with the same training setup (i.e., the same
+    module file), but we can compare the models based on the different training runs.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一步，我们基本上将图形分支成尽可能多的训练分支。每个`Trainer`组件都从摄入、模式和`Transform`组件的相同输入中获取。组件之间的关键区别在于，每个组件可以运行不同的训练设置，这些设置在各个训练模块文件中定义。我们还将训练和评估步骤的参数添加为函数的参数。这允许我们使用相同的训练设置（即相同的模块文件）训练两个模型，但我们可以根据不同的训练运行比较这些模型。
+- en: 'Each instantiated training component needs to be consumed by its own `Evaluator`,
+    as shown in the following code example. Afterward, the models can be pushed by
+    its own `Pusher` components:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个实例化的训练组件都需要由其自身的`Evaluator`消耗，如下面的代码示例所示。之后，模型可以由其自身的`Pusher`组件推送：
+- en: '`evaluator_prod_model``=``Evaluator``(``examples``=``example_gen``.``outputs``[``''examples''``],``model``=``trainer_prod_model``.``outputs``[``''model''``],``eval_config``=``eval_config_prod_model``,``instance_name``=``''production_model''``)``evaluator_trial_model``=``Evaluator``(``examples``=``example_gen``.``outputs``[``''examples''``],``model``=``trainer_trial_model``.``outputs``[``''model''``],``eval_config``=``eval_config_trial_model``,``instance_name``=``''trial_model''``)``...`'
+  id: totrans-24
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`evaluator_prod_model``=``Evaluator``(``examples``=``example_gen``.``outputs``[``''examples''``],``model``=``trainer_prod_model``.``outputs``[``''model''``],``eval_config``=``eval_config_prod_model``,``instance_name``=``''production_model''``)``evaluator_trial_model``=``Evaluator``(``examples``=``example_gen``.``outputs``[``''examples''``],``model``=``trainer_trial_model``.``outputs``[``''model''``],``eval_config``=``eval_config_trial_model``,``instance_name``=``''trial_model''``)``...`'
+- en: As we have seen in this section, we can assemble fairly complex pipeline scenarios
+    using TFX. In the following section, we will discuss how we can amend a training
+    setup to export models for mobile deployments with TFLite.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在本节中所见，我们可以使用TFX组装相当复杂的管道场景。在接下来的部分中，我们将讨论如何修改训练设置以将模型导出为适用于TFLite的移动部署。
+- en: Exporting TFLite Models
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 导出TFLite模型
+- en: Mobile deployments have become an increasingly important platform for machine
+    learning models. Machine learning pipelines can help with consistent exports for
+    mobile deployments. Very few changes are required for mobile deployment compared
+    to deployment to model servers (such as TensorFlow Serving, as discussed in [Chapter 8](index_split_013.html#filepos764992)).
+    This helps keep the mobile and the server models updated consistently and helps
+    the consumers of the model have a consistent experience across different devices.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 移动部署已成为机器学习模型的一个日益重要的平台。机器学习流水线可以帮助实现移动部署的一致性导出。与部署到模型服务器（如TensorFlow Serving，在[第8章](index_split_013.html#filepos764992)中讨论）相比，移动部署需要的变更非常少。这有助于保持移动端和服务器端模型的一致更新，并帮助模型的使用者在不同设备上获得一致的体验。
+- en: TFLITE LIMITATIONS
+  id: totrans-28
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: TFLITE限制
+- en: Because of hardware limitations of mobile and edge devices, TFLite doesn’t support
+    all TensorFlow operations. Therefore, not every model can be converted to a TFLite-compatible
+    model. For more information on which TensorFlow operations are supported, visit
+    [the TFLite website](https://oreil.ly/LbDBK).
+  id: totrans-29
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 由于移动和边缘设备的硬件限制，TFLite不支持所有TensorFlow操作。因此，并非每个模型都可以转换为TFLite兼容的模型。有关支持哪些TensorFlow操作的更多信息，请访问[TFLite网站](https://oreil.ly/LbDBK)。
+- en: In the TensorFlow ecosystem, TFLite is the solution for mobile deployments.
+    TFLite is a version of TensorFlow that can be run on edge or mobile devices. [Figure 10-2](#filepos1096013)
+    shows how the pipeline can include two training branches.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TensorFlow生态系统中，TFLite是移动部署的解决方案。TFLite是TensorFlow的一个版本，可在边缘或移动设备上运行。[图10-2](#filepos1096013)展示了流水线如何包括两个训练分支。
+- en: '![](images/00117.jpg)'
+  id: totrans-31
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00117.jpg)'
+- en: Figure 10-2\. Exporting models for deployments in mobile apps
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10-2\. 在移动应用程序中部署模型
+- en: We can use the branch strategy we discussed in the previous section and amend
+    our `run_fn` function of the module file to rewrite the saved models to a TFLite-compatible
+    format.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用前面讨论过的分支策略，并修改模块文件的`run_fn`函数，将保存的模型重写为TFLite兼容格式。
+- en: '[Example 10-1](#filepos1096679) shows the additional functionality we need
+    to add to our `run_fn` function.'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例10-1](#filepos1096679)展示了我们需要添加到`run_fn`函数的附加功能。'
+- en: Example 10-1\. TFX Rewriter example
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 示例10-1\. TFX重写器示例
+- en: '`from``tfx.components.trainer.executor``import``TrainerFnArgs``from``tfx.components.trainer.rewriting``import``converters``from``tfx.components.trainer.rewriting``import``rewriter``from``tfx.components.trainer.rewriting``import``rewriter_factory``def``run_fn``(``fn_args``:``TrainerFnArgs``):``...``temp_saving_model_dir``=``os``.``path``.``join``(``fn_args``.``serving_model_dir``,``''temp''``)``model``.``save``(``temp_saving_model_dir``,``save_format``=``''tf''``,``signatures``=``signatures``)`![](images/00002.jpg)`tfrw``=``rewriter_factory``.``create_rewriter``(``rewriter_factory``.``TFLITE_REWRITER``,``name``=``''tflite_rewriter''``,``enable_experimental_new_converter``=``True``)`![](images/00075.jpg)`converters``.``rewrite_saved_model``(``temp_saving_model_dir``,`![](images/00064.jpg)`fn_args``.``serving_model_dir``,``tfrw``,``rewriter``.``ModelType``.``TFLITE_MODEL``)``tf``.``io``.``gfile``.``rmtree``(``temp_saving_model_dir``)`![](images/00055.jpg)'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`from``tfx.components.trainer.executor``import``TrainerFnArgs``from``tfx.components.trainer.rewriting``import``converters``from``tfx.components.trainer.rewriting``import``rewriter``from``tfx.components.trainer.rewriting``import``rewriter_factory``def``run_fn``(``fn_args``:``TrainerFnArgs``):``...``temp_saving_model_dir``=``os``.``path``.``join``(``fn_args``.``serving_model_dir``,``''temp''``)``model``.``save``(``temp_saving_model_dir``,``save_format``=``''tf''``,``signatures``=``signatures``)`![](images/00002.jpg)`tfrw``=``rewriter_factory``.``create_rewriter``(``rewriter_factory``.``TFLITE_REWRITER``,``name``=``''tflite_rewriter''``,``enable_experimental_new_converter``=``True``)`![](images/00075.jpg)`converters``.``rewrite_saved_model``(``temp_saving_model_dir``,`![](images/00064.jpg)`fn_args``.``serving_model_dir``,``tfrw``,``rewriter``.``ModelType``.``TFLITE_MODEL``)``tf``.``io``.``gfile``.``rmtree``(``temp_saving_model_dir``)`![](images/00055.jpg)'
+- en: '![](images/00002.jpg)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Export the model as a saved model.
+  id: totrans-38
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 将模型导出为保存的模型
+- en: '![](images/00075.jpg)'
+  id: totrans-39
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Instantiate the TFLite rewriter.
+  id: totrans-40
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 实例化TFLite重写器。
+- en: '![](images/00064.jpg)'
+  id: totrans-41
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00064.jpg)'
+- en: Convert the model to TFLite format.
+  id: totrans-42
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 将模型转换为TFLite格式。
+- en: '![](images/00055.jpg)'
+  id: totrans-43
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00055.jpg)'
+- en: Delete the saved model after conversion.
+  id: totrans-44
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 转换完成后删除保存的模型。
+- en: 'Instead of exporting a saved model after the training, we convert the saved
+    model to a TFLite-compatible model and delete the saved model after exporting
+    it. Our `Trainer` component then exports and registers the TFLite model with the
+    metadata store. The downstream components like the `Evaluator` or the `Pusher`
+    can then consume the TFLite-compliant model. The following example shows how we
+    can evaluate the TFLite model, which is helpful in detecting whether the model
+    optimizations (e.g., quantization) have led to a degradation of the model’s performance:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练后不是导出保存模型，而是将保存模型转换为符合 TFLite 的模型，并在导出后删除保存模型。然后我们的`Trainer`组件会将 TFLite 模型导出并注册到元数据存储中。下游组件如`Evaluator`或`Pusher`可以消耗符合
+    TFLite 标准的模型。以下示例展示了我们如何评估 TFLite 模型，这对于检测模型优化（例如量化）是否导致模型性能下降非常有帮助：
+- en: '`eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''my_label''``,``model_type``=``tfma``.``TF_LITE``)],``...``)``evaluator``=``Evaluator``(``examples``=``example_gen``.``outputs``[``''examples''``],``model``=``trainer_mobile_model``.``outputs``[``''model''``],``eval_config``=``eval_config``,``instance_name``=``''tflite_model''``)`'
+  id: totrans-46
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''my_label''``,``model_type``=``tfma``.``TF_LITE``)],``...``)``evaluator``=``Evaluator``(``examples``=``example_gen``.``outputs``[``''examples''``],``model``=``trainer_mobile_model``.``outputs``[``''model''``],``eval_config``=``eval_config``,``instance_name``=``''tflite_model''``)`'
+- en: With this presented pipeline setup, we can now produce models for mobile deployment
+    automatically and push them in the artifact stores for model deployment in mobile
+    apps. For example, a `Pusher` component could ship the produced TFLite model to
+    a cloud bucket where a mobile developer could pick up the model and deploy it
+    with [Google’s ML Kit](https://oreil.ly/dw8zr) in an iOS or Android mobile app.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这种管道设置，我们现在可以自动为移动部署生成模型，并将其推送到模型部署的工件存储中。例如，`Pusher`组件可以将生成的 TFLite 模型传送到云存储桶，移动开发人员可以从中获取模型，并在
+    iOS 或 Android 移动应用中使用[Google’s ML Kit](https://oreil.ly/dw8zr)部署。
+- en: CONVERTING MODELS TO TENSORFLOW.JS
+  id: totrans-48
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 将模型转换为 TensorFlow.js
+- en: 'Since TFX version 0.22, an additional feature of the `rewriter_factory` is
+    available: the conversion of preexisting TensorFlow models to TensorFlow.js models.
+    This conversion allows the deployment of models to web browsers and Node.js runtime
+    environments. You can use this new functionality by replacing the `rewriter_factory`
+    name with `rewriter_factory.TFJS_REWRITER` and set the `rewriter.ModelType` to
+    `rewriter.ModelType.TFJS_MODEL` in [Example 10-1](#filepos1096679).'
+  id: totrans-49
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 自 TFX 版本 0.22 开始，`rewriter_factory`提供了一个额外的功能：将现有的 TensorFlow 模型转换为 TensorFlow.js
+    模型。此转换允许将模型部署到 Web 浏览器和 Node.js 运行环境中。您可以通过在[示例 10-1](#filepos1096679)中将`rewriter_factory`名称替换为`rewriter_factory.TFJS_REWRITER`并将`rewriter.ModelType`设置为`rewriter.ModelType.TFJS_MODEL`来使用此新功能。
+- en: Warm Starting Model Training
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型温启动训练
+- en: In some situations, we may not want to start training a model from scratch.
+    Warm starting is the process of beginning our model training from a checkpoint
+    of a previous training run, which is particularly useful if the model is large
+    and training is time consuming. This may also be useful in situations under the
+    General Data Protection Regulation (GDPR), the European privacy law that states
+    that a user of a product can withdraw their consent for the use of their data
+    at any time. By using warm start training, we can remove only the data belonging
+    to this particular user and fine-tune the model rather than needing to begin training
+    again from scratch.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，我们可能不希望从头开始训练模型。温启动是从先前训练运行的检查点开始模型训练的过程，特别是当模型庞大且训练时间长时特别有用。在欧洲数据保护条例（GDPR）下，用户可以随时撤销其数据使用同意，这时温启动训练可以只删除属于该特定用户的数据并对模型进行微调，而不需要从头开始训练。
+- en: 'In a TFX pipeline, warm start training requires the `Resolver` component that
+    we introduced in [Chapter 7](index_split_012.html#filepos624151). The `Resolver`
+    picks up the details of the latest trained model and passes them on to the `Trainer`
+    component:'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 TFX 管道中，温启动训练需要我们在 [第7章](index_split_012.html#filepos624151) 中介绍的`Resolver`组件。`Resolver`会获取最新训练模型的详细信息，并将其传递给`Trainer`组件：
+- en: '`latest_model_resolver``=``ResolverNode``(``instance_name``=``''latest_model_resolver''``,``resolver_class``=``latest_artifacts_resolver``.``LatestArtifactsResolver``,``latest_model``=``Channel``(``type``=``Model``))`'
+  id: totrans-53
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`latest_model_resolver``=``ResolverNode``(``instance_name``=``''latest_model_resolver''``,``resolver_class``=``latest_artifacts_resolver``.``LatestArtifactsResolver``,``latest_model``=``Channel``(``type``=``Model``))`'
+- en: 'The latest model is then passed to the `Trainer` using the `base_model` argument:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后将最新模型传递给 `Trainer`，使用 `base_model` 参数：
+- en: '`trainer``=``Trainer``(``module_file``=``trainer_file``,``transformed_examples``=``transform``.``outputs``[``''transformed_examples''``],``custom_executor_spec``=``executor_spec``.``ExecutorClassSpec``(``GenericExecutor``),``schema``=``schema_gen``.``outputs``[``''schema''``],``base_model``=``latest_model_resolver``.``outputs``[``''latest_model''``],``transform_graph``=``transform``.``outputs``[``''transform_graph''``],``train_args``=``trainer_pb2``.``TrainArgs``(``num_steps``=``TRAINING_STEPS``),``eval_args``=``trainer_pb2``.``EvalArgs``(``num_steps``=``EVALUATION_STEPS``))`'
+  id: totrans-55
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`trainer``=``Trainer``(``module_file``=``trainer_file``,``transformed_examples``=``transform``.``outputs``[``''transformed_examples''``],``custom_executor_spec``=``executor_spec``.``ExecutorClassSpec``(``GenericExecutor``),``schema``=``schema_gen``.``outputs``[``''schema''``],``base_model``=``latest_model_resolver``.``outputs``[``''latest_model''``],``transform_graph``=``transform``.``outputs``[``''transform_graph''``],``train_args``=``trainer_pb2``.``TrainArgs``(``num_steps``=``TRAINING_STEPS``),``eval_args``=``trainer_pb2``.``EvalArgs``(``num_steps``=``EVALUATION_STEPS``))`'
+- en: The pipeline then continues as normal. Next, we want to introduce another useful
+    feature we can add to our pipeline.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管道然后按照正常流程继续。接下来，我们想介绍另一个可添加到我们管道中的有用功能。
+- en: Human in the Loop
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 人在回环
+- en: As part of the advanced TFX concepts, we want to highlight an experimental component
+    that could elevate your pipeline setup. All the pipelines we have discussed so
+    far run automatically from start to finish, and they might deploy your machine
+    learning model automatically. Some TFX users have expressed their concerns about
+    the fully automated setup because they wanted a human to review the trained model
+    after the automatic model analysis. This could be to spot check your trained model
+    or to gain confidence in the automated pipeline setup.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为高级 TFX 概念的一部分，我们希望突出一个实验性组件，可以提升您的管道设置。到目前为止，我们讨论的所有管道都是从头到尾自动运行的，它们可能会自动部署您的机器学习模型。一些
+    TFX 用户对完全自动化的设置表示担忧，因为他们希望在自动模型分析后由人类进行审查。这可能是为了检查您训练的模型或增强自动管道设置的信心。
+- en: In this section, we will discuss the functionality of a human in the loop component.
+    In [Chapter 7](index_split_012.html#filepos624151), we discussed that once a model
+    passes the validation step, it is “blessed.” The downstream `Pusher` component
+    listens to this blessing signal to know whether to push the model or not. But
+    such a blessing can also be generated by a human, as [Figure 10-3](#filepos1122361)
+    shows.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将讨论人在回环组件的功能。在 [第 7 章](index_split_012.html#filepos624151) 中，我们讨论了一旦模型通过验证步骤，它就被“祝福”。下游的
+    `Pusher` 组件会监听此祝福信号，以确定是否推送模型。但是，如图 [10-3](#filepos1122361) 所示，这样的祝福也可以由人类生成。
+- en: '![](images/00010.jpg)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00010.jpg)'
+- en: Figure 10-3\. Human in the loop
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10-3\. 人在回环中
+- en: Google’s TFX team published a Slack notification component as an example of
+    this custom component. The functionality we are discussing in this section could
+    be extended and isn’t limited to the Slack messenger.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 谷歌的 TFX 团队发布了一个 Slack 通知组件作为自定义组件的示例。我们在本节讨论的功能可以扩展，不仅限于 Slack 信使。
+- en: The component’s functionality is pretty straightforward. Once it is triggered
+    by the orchestration tool, it submits a message to a given Slack channel with
+    a link to the latest exported model and asks for a review by a data scientist
+    (shown in [Figure 10-4](#filepos1123391)). A data scientist could now investigate
+    the model manually with the WIT and review edge cases that aren’t tested during
+    the `Evaluator` step.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件的功能非常简单。一旦由编排工具触发，它会向指定的 Slack 频道提交一条消息，附带最新导出模型的链接，并请求数据科学家进行审查（见图 [10-4](#filepos1123391)）。数据科学家现在可以使用
+    WIT 手动调查模型并审查在“Evaluator”步骤中未测试的边缘情况。
+- en: '![](images/00023.jpg)'
+  id: totrans-64
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00023.jpg)'
+- en: Figure 10-4\. Slack message asking for review
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10-4\. Slack 消息请求审查
+- en: Once the data scientist concludes their manual model analysis, they can respond
+    in the Slack thread with their approval or rejection. The TFX component listens
+    to the Slack responses and stores the decision in the metadata store. The decision
+    can then be used by the downstream components. It is tracked in the model’s audit
+    trail. [Figure 10-5](#filepos1124391) shows an example record from Kubeflow Pipeline’s
+    lineage browser. The metadata store tracks the “blessing” by the data scientist
+    (i.e., the decision maker) and the time stamp (the Slack thread ID `1584638332.0001`
+    identifies the timestamp as the time in Unix epoch format).
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据科学家完成手动模型分析后，可以在 Slack 线程中回复他们的批准或拒绝。 TFX 组件监听 Slack 的响应，并将决策存储在元数据存储中。然后，下游组件可以使用此决策。它在模型的审计跟踪中被跟踪。
+    [Figure 10-5](#filepos1124391) 显示了来自 Kubeflow Pipeline 的血统浏览器的示例记录。 元数据存储跟踪数据科学家（即决策者）的“blessing”和时间戳（Slack
+    线程 ID `1584638332.0001` 标识时间戳为 Unix epoch 格式的时间）。
+- en: '![](images/00018.jpg)'
+  id: totrans-67
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00018.jpg)'
+- en: Figure 10-5\. Audit trail in Kubeflow Pipelines
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Figure 10-5\. Kubeflow Pipelines 中的审计跟踪
+- en: Slack Component Setup
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Slack 组件设置
+- en: 'For the Slack component to communicate with your Slack account, it requires
+    a Slack bot token. You can request a bot token through the [Slack API](https://api.slack.com).
+    Once you have a token, set an environment variable in your pipeline environment
+    with the token string as shown in the following `bash` command:'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使 Slack 组件与您的 Slack 帐户通信，需要一个 Slack 机器人令牌。 您可以通过 [Slack API](https://api.slack.com)
+    请求一个机器人令牌。 一旦您获得了令牌，按照以下 `bash` 命令设置管道环境中的环境变量来存储令牌字符串：
+- en: '`$` `export` `SLACK_BOT_TOKEN``={``your_slack_bot_token``}`'
+  id: totrans-71
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `export` `SLACK_BOT_TOKEN``={``your_slack_bot_token``}`'
+- en: 'The Slack component is not a standard TFX component and therefore needs to
+    be installed separately. You can install the component by cloning the TFX repository
+    from GitHub and then installing the component individually:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Slack 组件不是标准的 TFX 组件，因此需要单独安装。 您可以通过从 GitHub 克隆 TFX 存储库，然后单独安装组件来安装组件：
+- en: '`$` `git clone https://github.com/tensorflow/tfx.git` `$` `cd` `tfx/tfx/examples/custom_components/slack`
+    `$` `pip install -e .`'
+  id: totrans-73
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `git clone https://github.com/tensorflow/tfx.git` `$` `cd` `tfx/tfx/examples/custom_components/slack`
+    `$` `pip install -e .`'
+- en: Once the component package is installed in your Python environment, the component
+    can then be found on the Python path and loaded inside your TFX scripts. An example
+    is shown in the following Python code. Please also remember to install the Slack
+    component in the environment where you run your TFX pipelines. For example, if
+    you run your pipelines with Kubeflow Pipelines, you will have to create a custom
+    Docker image for your pipeline component, which contains the source code of the
+    Slack component (since it isn’t a standard TFX component).
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦组件包在您的 Python 环境中安装，该组件可以在 Python 路径中找到并加载到您的 TFX 脚本中。 以下是 Python 代码的示例。 还请记得在运行
+    TFX 管道的环境中安装 Slack 组件。 例如，如果您使用 Kubeflow Pipelines 运行管道，则必须为管道组件创建一个自定义 Docker
+    映像，其中包含 Slack 组件的源代码（因为它不是标准 TFX 组件）。
+- en: How to Use the Slack Component
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何使用 Slack 组件
+- en: 'The installed Slack component can be loaded like any other TFX component:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装后的 Slack 组件可以像任何其他 TFX 组件一样加载：
+- en: '`from``slack_component.component``import``SlackComponent``slack_validator``=``SlackComponent``(``model``=``trainer``.``outputs``[``''model''``],``model_blessing``=``model_validator``.``outputs``[``''blessing''``],``slack_token``=``os``.``environ``[``''SLACK_BOT_TOKEN''``],`![](images/00002.jpg)`slack_channel_id``=``''my-channel-id''``,`![](images/00075.jpg)`timeout_sec``=``3600``,``)`'
+  id: totrans-77
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``slack_component.component``import``SlackComponent``slack_validator``=``SlackComponent``(``model``=``trainer``.``outputs``[``''model''``],``model_blessing``=``model_validator``.``outputs``[``''blessing''``],``slack_token``=``os``.``environ``[``''SLACK_BOT_TOKEN''``],`![](images/00002.jpg)`slack_channel_id``=``''my-channel-id''``,`![](images/00075.jpg)`timeout_sec``=``3600``,``)`'
+- en: '![](images/00002.jpg)'
+  id: totrans-78
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Load the Slack token from your environment.
+  id: totrans-79
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 从您的环境加载 Slack 令牌。
+- en: '![](images/00075.jpg)'
+  id: totrans-80
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Specify the channel where the message should appear.
+  id: totrans-81
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 指定消息应出现的频道。
+- en: 'When executed, the component will post a message and wait up to an hour (defined
+    by the `timeout_sec` argument) for an answer. During this time, a data scientist
+    can evaluate the model and respond with their approval or rejection. The downstream
+    component (e.g., a `Pusher` component) can consume the result from the Slack component,
+    as shown in the following code example:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当执行时，组件将发布一条消息，并等待最多一小时（由 `timeout_sec` 参数定义）的答复。 在此期间，数据科学家可以评估模型并回复他们的批准或拒绝。
+    下游组件（例如 `Pusher` 组件）可以从 Slack 组件消耗结果，如下面的代码示例所示：
+- en: '`pusher``=` `Pusher``(``model``=``trainer.outputs``[``''model''``]``,` `model_blessing``=``slack_validator.outputs``[``''slack_blessing''``]``,`
+    ![](images/00002.jpg)`push_destination``=``pusher_pb2.PushDestination``(``filesystem``=``pusher_pb2.PushDestination.Filesystem``(``base_directory``=``serving_model_dir``)))`'
+  id: totrans-83
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`pusher``=` `Pusher``(``model``=``trainer.outputs``[``''model''``]``,` `model_blessing``=``slack_validator.outputs``[``''slack_blessing''``]``,`
+    ![](images/00002.jpg)`push_destination``=``pusher_pb2.PushDestination``(``filesystem``=``pusher_pb2.PushDestination.Filesystem``(``base_directory``=``serving_model_dir``)))`'
+- en: '![](images/00002.jpg)'
+  id: totrans-84
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Model blessing provided by the Slack component.
+  id: totrans-85
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Slack组件提供的模型祝福。
+- en: With a few additional steps, you can enrich your pipelines with a human audit
+    of the machine learning models that is triggered by the pipeline itself. This
+    opens up many more workflows for pipeline applications (e.g., auditing dataset
+    statistics or reviewing data drift metrics).
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '通过几个额外步骤，您可以丰富您的管道，通过管道本身触发的机器学习模型的人工审计。这为管道应用程序开放了更多的工作流（例如，审计数据集统计信息或审查数据漂移度量）。 '
+- en: SLACK API STANDARDS
+  id: totrans-87
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: SLACK API标准
+- en: The implementation of the Slack component relies on the Real Time Messaging
+    (RTM) protocol. This protocol is deprecated and might be replaced by a new protocol
+    standard, which would affect the component’s functionality.
+  id: totrans-88
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Slack组件的实现依赖于实时消息传递（RTM）协议。该协议已被弃用，可能会被新的协议标准取代，这将影响组件的功能。
+- en: Custom TFX Components
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自定义TFX组件
+- en: 'In [Chapter 2](index_split_007.html#filepos83150), we discussed the architecture
+    of TFX components and how each component consists of three parts: the driver,
+    executor, and publisher. In this section, we want to go a little deeper and discuss
+    how you can build your own components. First, we discuss how to write a component
+    from scratch, and afterward, we’ll discuss how to reuse existing components and
+    customize them for your own use cases. In general, it is always easier to change
+    an existing component’s functionality than to write a component from scratch.'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第2章](index_split_007.html#filepos83150)中，我们讨论了TFX组件的架构，以及每个组件包含三个部分：驱动程序、执行器和发布者。在本节中，我们希望深入探讨如何构建自己的组件。首先，我们讨论如何从头开始编写组件，然后，我们将讨论如何重用现有组件并为您自己的用例进行定制。总体而言，更改现有组件的功能总是比从头开始编写组件更容易。
+- en: To demonstrate the implementation to you, as seen in [Figure 10-6](#filepos1136402),
+    we will develop a custom component for ingesting JPEG images and its labels in
+    the pipeline. We will load all images from a provided folder and determine the
+    label based on the filename. In our example, we want to train a machine learning
+    model to classify cats and dogs. The filenames of our images carry the content
+    of the image (e.g., dog-1.jpeg), so we can determine the label from the filename
+    itself. We will load each image, convert it to `tf.Example` data structures, and
+    save all samples together as TFRecord files for consumption by downstream components.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了向您演示实现，正如我们在[图10-6](#filepos1136402)中看到的那样，我们将开发一个自定义组件，用于在管道中摄取JPEG图像及其标签。我们将从提供的文件夹加载所有图像，并根据文件名确定标签。在我们的示例中，我们想要训练一个机器学习模型来对猫和狗进行分类。我们的图像文件名携带图像的内容（例如，dog-1.jpeg），因此我们可以根据文件名本身确定标签。我们将加载每个图像，将其转换为`tf.Example`数据结构，并将所有样本一起保存为TFRecord文件，供下游组件消费。
+- en: '![](images/00066.jpg)'
+  id: totrans-92
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00066.jpg)'
+- en: Figure 10-6\. Functionality of our demo custom component
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10-6\. 我们演示的自定义组件功能
+- en: Use Cases of Custom Components
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自定义组件的用例
+- en: 'Even though we are discussing an ingestion component as an example for a custom
+    component, you aren’t limited by the architecture. Your custom component could
+    be applied anywhere along your machine learning pipeline. The concepts discussed
+    in the following sections provide you the highest flexibility to customize your
+    machine learning pipelines to your needs. Some ideas for using custom components
+    are:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使我们正在讨论作为自定义组件示例的摄取组件，您也不受架构限制。您的自定义组件可以应用于机器学习管道的任何位置。以下各节讨论的概念为您提供了最高的灵活性，以根据需要定制您的机器学习管道。一些使用自定义组件的想法包括：
+- en: Ingesting data from your custom database
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 从您的自定义数据库中获取数据
+- en: Sending an email with the generated data statistics to the data science team
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 向数据科学团队发送生成数据统计信息的电子邮件
+- en: Notifying the DevOps team if a new model was exported
+  id: totrans-98
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果导出了新模型，则通知DevOps团队
+- en: Kicking off a post-export build process for Docker containers
+  id: totrans-99
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 启动Docker容器的导出后构建过程
+- en: Tracking additional information in your machine learning audit trail
+  id: totrans-100
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在您的机器学习审计跟踪中跟踪额外信息
+- en: We won’t describe how to build each of these separately, but if one of these
+    ideas is useful to you, the following sections will provide the knowledge to build
+    your own component.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不会单独描述如何构建这些组件，但如果这些想法中的一个对您有用，接下来的各节将提供构建自己组件的知识。
+- en: Writing a Custom Component from Scratch
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从头开始编写自定义组件
+- en: If we want to write a custom component from scratch, we will need to implement
+    a few component pieces. First, we must define the inputs and outputs of our component
+    as a `ComponentSpec`. Then we can define our component executor, which defines
+    how the input data should be processed and how the output data is generated. If
+    the component requires inputs that aren’t registered in the metadata store, we’ll
+    need to write a custom component driver. This is the case when, for example, we
+    want to register an image path in the component and the artifact hasn’t been registered
+    in the metadata store previously.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们想要从头开始编写自定义组件，我们需要实现几个组件部分。首先，我们必须将组件的输入和输出定义为 `ComponentSpec`。然后，我们可以定义我们的组件执行器，它定义了如何处理输入数据和生成输出数据。如果组件需要的输入未在元数据存储中注册，我们需要编写自定义组件驱动程序。例如，当我们想要在组件中注册图像路径而工件以前未在元数据存储中注册时，就会发生这种情况。
+- en: '![](images/00078.jpg)'
+  id: totrans-104
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00078.jpg)'
+- en: Figure 10-7\. Parts of our custom component
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们自定义组件的部分见[Figure 10-7](#filepos1139593)
+- en: The steps in [Figure 10-7](#filepos1139593) might seem complicated, but we will
+    discuss them each in turn in the following sections.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Figure 10-7](#filepos1139593)中的步骤可能看起来很复杂，但我们将在接下来的各节中逐一讨论它们。'
+- en: TRY TO REUSE COMPONENTS
+  id: totrans-107
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 尝试重用组件
+- en: If you are thinking about altering an existing TFX component in its functionality,
+    consider reusing existing TFX components and changing the executor instead of
+    starting from scratch, as we will discuss in the section [“Reusing Existing Components”](#filepos1225563).
+  id: totrans-108
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果您考虑修改现有的 TFX 组件功能，请考虑重用现有的 TFX 组件并更改执行器，而不是从头开始，正如我们将在“重用现有组件”部分中讨论的那样。
+- en: Component specifications
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件规范
+- en: 'The component specifications, or `ComponentSpec`, define how components communicate
+    with each other. They describe three important details of each component: the
+    component inputs, the component outputs, and potential component parameters that
+    are required during the component execution. Components communicate through channels,
+    which are inputs and outputs. These channels are types, as we will see in the
+    following example. The component inputs define the artifacts that the component
+    will receive from previously executed components or new artifacts like file paths.
+    The component outputs define which artifacts will be registered with the metadata
+    store.'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件规范或`ComponentSpec`定义了组件之间如何通信。它们描述了每个组件的三个重要细节：组件输入、组件输出以及组件执行期间可能需要的组件参数。组件通过通道进行通信，这些通道包括输入和输出。正如我们将在以下示例中看到的那样，这些通道都是类型化的。组件输入定义了组件将接收的来自先前执行的组件或新工件（如文件路径）的工件。组件输出定义了将在元数据存储中注册的工件。
+- en: 'The component parameters define options that are required for execution but
+    aren’t available in the metadata store. This could be the `push_destination` in
+    the case of the `Pusher` component or the `train_args` in the `Trainer` component.
+    The following example shows a definition of our component specifications for our
+    image ingestion component:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件参数定义了执行所需但在元数据存储中不可用的选项。例如，`Pusher` 组件的 `push_destination` 或 `Trainer` 组件的
+    `train_args`。以下示例显示了我们图像摄入组件规范的定义：
+- en: '`from``tfx.types.component_spec``import``ChannelParameter``from``tfx.types.component_spec``import``ExecutionParameter``from``tfx.types``import``standard_artifacts``class``ImageIngestComponentSpec``(``types``.``ComponentSpec``):``"""ComponentSpec
+    for a Custom TFX Image Ingestion Component."""``PARAMETERS``=``{``''name''``:``ExecutionParameter``(``type``=``Text``),``}``INPUTS``=``{``''input''``:``ChannelParameter``(``type``=``standard_artifacts``.``ExternalArtifact``),`![](images/00002.jpg)`}``OUTPUTS``=``{``''examples''``:``ChannelParameter``(``type``=``standard_artifacts``.``Examples``),`![](images/00075.jpg)`}`'
+  id: totrans-112
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.types.component_spec``import``ChannelParameter``from``tfx.types.component_spec``import``ExecutionParameter``from``tfx.types``import``standard_artifacts``class``ImageIngestComponentSpec``(``types``.``ComponentSpec``):``"""用于自定义
+    TFX 图像摄入组件的 ComponentSpec。"""``PARAMETERS``=``{``''name''``:``ExecutionParameter``(``type``=``Text``),``}``INPUTS``=``{``''input''``:``ChannelParameter``(``type``=``standard_artifacts``.``ExternalArtifact``),`![](images/00002.jpg)`}``OUTPUTS``=``{``''examples''``:``ChannelParameter``(``type``=``standard_artifacts``.``Examples``),`![](images/00075.jpg)`}`'
+- en: '![](images/00002.jpg)'
+  id: totrans-113
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Using `ExternalArtifact` to allow new input paths
+  id: totrans-114
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 使用`ExternalArtifact`允许新的输入路径
+- en: '![](images/00075.jpg)'
+  id: totrans-115
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Exporting `Examples`
+  id: totrans-116
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 导出`Examples`
+- en: In our example implementation of `ImageIngestComponentSpec`, we are ingesting
+    an input path through the input argument `input`. The generated TFRecord files
+    with the converted images will be stored in the path passed to the downstream
+    components via the `examples` argument. In addition, we are defining a parameter
+    for the component called `name`.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例实现中，通过输入参数`input`摄取了一个输入路径的`ImageIngestComponentSpec`。 转换后的图像生成的TFRecord文件将通过`examples`参数传递给下游组件的路径存储。
+    此外，我们为组件定义了一个名为`name`的参数。
+- en: Component channels
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件通道
+- en: 'In our example `ComponentSpec`, we introduced two types of component channels:
+    `ExternalArtifact` and `Examples`. This is a particular pattern used for ingestion
+    components since they are usually the first component in a pipeline and no upstream
+    component is available from which we could have received already-processed `Examples`.
+    If you develop a component further down in the pipeline, you might want to ingest
+    `Examples`. Therefore the channel type needs to be `standard_arti⁠facts.Examples`.
+    But we aren’t limited to only two types. TFX provides a variety of types. The
+    following shows a small list of available types:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例`ComponentSpec`中，我们介绍了两种组件通道类型：`ExternalArtifact`和`Examples`。 这是一种用于摄取组件的特定模式，因为它们通常是管道中的第一个组件，并且没有上游组件可供我们接收已处理的`Examples`。
+    如果您在管道中的后续开发组件，可能希望摄取`Examples`。 因此，通道类型需要是`standard_arti⁠facts.Examples`。 但我们不仅限于两种类型。
+    TFX提供了各种类型。 以下是可用类型的简要列表：
+- en: '`ExampleStatistics`'
+  id: totrans-120
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`ExampleStatistics`'
+- en: '`Model`'
+  id: totrans-121
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`Model`'
+- en: '`ModelBlessing`'
+  id: totrans-122
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`ModelBlessing`'
+- en: '`Bytes`'
+  id: totrans-123
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`Bytes`'
+- en: '`String`'
+  id: totrans-124
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`String`'
+- en: '`Integer`'
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`Integer`'
+- en: '`Float`'
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`Float`'
+- en: '`HyperParameters`'
+  id: totrans-127
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`HyperParameters`'
+- en: With our `ComponentSpec` now set up, let’s take a look at the component executor.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经设置了我们的`ComponentSpec`，让我们来看看组件执行器。
+- en: Component executors
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件执行器
+- en: 'The component executor defines the processes inside the component, including
+    how the inputs are used to generate the component outputs. Even though we will
+    write this basic component from scratch, we can rely on TFX classes to inherit
+    function patterns. As part of the `Executor` object, TFX will be looking for a
+    function called `Do` for the execution details of our component. We will implement
+    our component functionality in this function:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件执行器定义了组件内部的流程，包括如何使用输入生成组件输出。 即使我们将从头开始编写此基本组件，我们也可以依赖于TFX类来继承函数模式。 作为`Executor`对象的一部分，TFX将寻找一个名为`Do`的函数，用于描述我们组件的执行细节。
+    我们将在这个函数中实现我们组件的功能：
+- en: '`from``tfx.components.base``import``base_executor``class``Executor``(``base_executor``.``BaseExecutor``):``"""Executor
+    for Image Ingestion Component."""``def``Do``(``self``,``input_dict``:``Dict``[``Text``,``List``[``types``.``Artifact``]],``output_dict``:``Dict``[``Text``,``List``[``types``.``Artifact``]],``exec_properties``:``Dict``[``Text``,``Any``])``->``None``:``...`'
+  id: totrans-131
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.components.base``import``base_executor``class``Executor``(``base_executor``.``BaseExecutor``):``"""用于图像摄取组件的执行器。"""``def``Do``(``self``,``input_dict``:``Dict``[``Text``,``List``[``types``.``Artifact``]],``output_dict``:``Dict``[``Text``,``List``[``types``.``Artifact``]],``exec_properties``:``Dict``[``Text``,``Any``])``->``None``:``...`'
+- en: 'The code snippet shows that the `Do` function of our `Executor` expects three
+    arguments: `input_dict`, `output_dict`, and `exec_properties`. These Python dictionaries
+    contain the artifact references that we pass to and from the component as well
+    as the execution properties.'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码片段显示了我们的`Executor`的`Do`函数期望三个参数：`input_dict`，`output_dict`和`exec_properties`。
+    这些Python字典包含我们传递给组件和从组件传递的工件引用以及执行属性。
+- en: ARTIFACTS CONTAIN REFERENCES
+  id: totrans-133
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 工件包含引用
+- en: The information provided via the `input_dict` and `output_dict` contain the
+    information stored in the metadata store. These are the references to the artifacts,
+    not the underlying data itself. For example, our `input_dict` dictionary will
+    contain a protocol buffer with the file location information instead of the data.
+    This allows us to process the data efficiently with programs like Apache Beam.
+  id: totrans-134
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 通过`input_dict`和`output_dict`提供的信息包含在元数据存储中。 这些是工件的引用，而不是底层数据本身。 例如，我们的`input_dict`字典将包含一个协议缓冲区，其中包含文件位置信息，而不是数据。
+    这使我们能够使用诸如Apache Beam之类的程序有效地处理数据。
+- en: 'To walk you through a basic implementation of a working `Do` method of the
+    executor, we will reuse the implementation that we discussed in [“Image Data for
+    Computer Vision Problems”](index_split_008.html#filepos277782) to convert images
+    to TFRecord data structures. An explanation of the conversion process and details
+    around the TFRecord data structures can be found there. This code should look
+    familiar:'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要详细介绍执行器的工作`Do`方法的基本实现，我们将重复使用我们在[“计算机视觉问题的图像数据”](index_split_008.html#filepos277782)中讨论的实现，将图像转换为TFRecord数据结构。有关转换过程和TFRecord数据结构的详细说明可以在那里找到。这段代码应该看起来很熟悉：
+- en: '`def``convert_image_to_TFExample``(``image_filename``,``tf_writer``,``input_base_uri``):``image_path``=``os``.``path``.``join``(``input_base_uri``,``image_filename``)`![](images/00002.jpg)`lowered_filename``=``image_path``.``lower``()`![](images/00075.jpg)`if``"dog"``in``lowered_filename``:``label``=``0``elif``"cat"``in``lowered_filename``:``label``=``1``else``:``raise``NotImplementedError``(``"Found
+    unknown image"``)``raw_file``=``tf``.``io``.``read_file``(``image_path``)`![](images/00064.jpg)`example``=``tf``.``train``.``Example``(``features``=``tf``.``train``.``Features``(``feature``=``{`![](images/00055.jpg)`''image_raw''``:``_bytes_feature``(``raw_file``.``numpy``()),``''label''``:``_int64_feature``(``label``)``}))``writer``.``write``(``example``.``SerializeToString``())`![](images/00082.jpg)'
+  id: totrans-136
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`def``convert_image_to_TFExample``(``image_filename``,``tf_writer``,``input_base_uri``):``image_path``=``os``.``path``.``join``(``input_base_uri``,``image_filename``)`![](images/00002.jpg)`lowered_filename``=``image_path``.``lower``()`![](images/00075.jpg)`if``"dog"``in``lowered_filename``:``label``=``0``elif``"cat"``in``lowered_filename``:``label``=``1``else``:``raise``NotImplementedError``(``"Found
+    unknown image"``)``raw_file``=``tf``.``io``.``read_file``(``image_path``)`![](images/00064.jpg)`example``=``tf``.``train``.``Example``(``features``=``tf``.``train``.``Features``(``feature``=``{`![](images/00055.jpg)`''image_raw''``:``_bytes_feature``(``raw_file``.``numpy``()),``''label''``:``_int64_feature``(``label``)``}))``writer``.``write``(``example``.``SerializeToString``())`![](images/00082.jpg)'
+- en: '![](images/00002.jpg)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Assemble the complete image path.
+  id: totrans-138
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 组装完整的图像路径。
+- en: '![](images/00075.jpg)'
+  id: totrans-139
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Determine the label for each image based on the file path.
+  id: totrans-140
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 根据文件路径确定每个图像的标签。
+- en: '![](images/00064.jpg)'
+  id: totrans-141
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00064.jpg)'
+- en: Read the image from a disk.
+  id: totrans-142
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 从磁盘读取图像。
+- en: '![](images/00055.jpg)'
+  id: totrans-143
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00055.jpg)'
+- en: Create the `TensorFlow Example` data structure.
+  id: totrans-144
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 创建`TensorFlow Example`数据结构。
+- en: '![](images/00082.jpg)'
+  id: totrans-145
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00082.jpg)'
+- en: Write the `tf.Example` to TFRecord files.
+  id: totrans-146
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 将`tf.Example`写入TFRecord文件。
+- en: With the completed generic function of reading an image file and storing it
+    in files containing the TFRecord data structures, we can now focus on custom component-specific
+    code.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经完成了读取图像文件并将其存储在包含TFRecord数据结构文件中的通用函数，我们现在可以专注于特定于自定义组件的代码。
+- en: 'We want our very basic component to load our images, convert them to `tf.Examples`,
+    and return two image sets for training and evaluation. For the simplicity of our
+    example, we are hardcoding the number of evaluation examples. In a production-grade
+    component, this parameter should be dynamically set through an execution parameter
+    in the `ComponentSpecs`. The input to our component will be the path to the folder
+    containing all the images. The output of our component will be the path where
+    we’ll store the training and evaluation datasets. The path will contain two subdirectories
+    (`train` and `eval`) that contain the TFRecord files:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们希望我们非常基础的组件能够加载我们的图像，将它们转换为`tf.Examples`，并返回两组图像用于训练和评估。为了我们示例的简单性，我们将硬编码评估示例的数量。在生产级组件中，这个参数应该通过`ComponentSpecs`中的执行参数动态设置。我们组件的输入将是包含所有图像的文件夹的路径。我们组件的输出将是我们将存储训练和评估数据集的路径。该路径将包含两个子目录（`train`和`eval`），这些子目录包含TFRecord文件：
+- en: '`class``ImageIngestExecutor``(``base_executor``.``BaseExecutor``):``def``Do``(``self``,``input_dict``:``Dict``[``Text``,``List``[``types``.``Artifact``]],``output_dict``:``Dict``[``Text``,``List``[``types``.``Artifact``]],``exec_properties``:``Dict``[``Text``,``Any``])``->``None``:``self``.``_log_startup``(``input_dict``,``output_dict``,``exec_properties``)`![](images/00002.jpg)`input_base_uri``=``artifact_utils``.``get_single_uri``(``input_dict``[``''input''``])`![](images/00075.jpg)`image_files``=``tf``.``io``.``gfile``.``listdir``(``input_base_uri``)`![](images/00064.jpg)`random``.``shuffle``(``image_files``)``splits``=``get_splits``(``images``)``for``split_name``,``images``in``splits``:``output_dir``=``artifact_utils``.``get_split_uri``(``output_dict``[``''examples''``],``split_name``)`![](images/00055.jpg)`tfrecord_filename``=``os``.``path``.``join``(``output_dir``,``''images.tfrecord''``)``options``=``tf``.``io``.``TFRecordOptions``(``compression_type``=``None``)``writer``=``tf``.``io``.``TFRecordWriter``(``tfrecord_filename``,``options``=``options``)`![](images/00082.jpg)`for``image``in``images``:``convert_image_to_TFExample``(``image``,``tf_writer``,``input_base_uri``)`![](images/00094.jpg)'
+  id: totrans-149
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`class``ImageIngestExecutor``(``base_executor``.``BaseExecutor``):``def``Do``(``self``,``input_dict``:``Dict``[``Text``,``List``[``types``.``Artifact``]],``output_dict``:``Dict``[``Text``,``List``[``types``.``Artifact``]],``exec_properties``:``Dict``[``Text``,``Any``])``->``None``:``self``.``_log_startup``(``input_dict``,``output_dict``,``exec_properties``)`![](images/00002.jpg)`input_base_uri``=``artifact_utils``.``get_single_uri``(``input_dict``[``''input''``])`![](images/00075.jpg)`image_files``=``tf``.``io``.``gfile``.``listdir``(``input_base_uri``)`![](images/00064.jpg)`random``.``shuffle``(``image_files``)``splits``=``get_splits``(``images``)``for``split_name``,``images``in``splits``:``output_dir``=``artifact_utils``.``get_split_uri``(``output_dict``[``''examples''``],``split_name``)`![](images/00055.jpg)`tfrecord_filename``=``os``.``path``.``join``(``output_dir``,``''images.tfrecord''``)``options``=``tf``.``io``.``TFRecordOptions``(``compression_type``=``None``)``writer``=``tf``.``io``.``TFRecordWriter``(``tfrecord_filename``,``options``=``options``)`![](images/00082.jpg)`for``image``in``images``:``convert_image_to_TFExample``(``image``,``tf_writer``,``input_base_uri``)`![](images/00094.jpg)'
+- en: '![](images/00002.jpg)'
+  id: totrans-150
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Log arguments.
+  id: totrans-151
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 记录参数。
+- en: '![](images/00075.jpg)'
+  id: totrans-152
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Get the folder path from the artifact.
+  id: totrans-153
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 从artifact中获取文件夹路径。
+- en: '![](images/00064.jpg)'
+  id: totrans-154
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00064.jpg)'
+- en: Obtain all the filenames.
+  id: totrans-155
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 获取所有文件名。
+- en: '![](images/00055.jpg)'
+  id: totrans-156
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00055.jpg)'
+- en: Set the split Uniform Resource Identifier (URI).
+  id: totrans-157
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 设置分割统一资源标识符（URI）。
+- en: '![](images/00082.jpg)'
+  id: totrans-158
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00082.jpg)'
+- en: Create a TFRecord writer instance with options.
+  id: totrans-159
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 创建带有选项的TFRecord写入器实例。
+- en: '![](images/00094.jpg)'
+  id: totrans-160
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00094.jpg)'
+- en: Write an image to a file containing the TFRecord data structures.
+  id: totrans-161
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 将图像写入包含TFRecord数据结构的文件中。
+- en: 'Our basic `Do` method receives `input_dict`, `output_dict`, and `exec_properties`
+    as arguments to the method. The first argument contains the artifact references
+    from the metadata store stored as a Python dictionary, the second argument receives
+    the references we want to export from the component, and the last method argument
+    contains additional execution parameters like, in our case, the component name.
+    TFX provides the very useful `artifact_utils` function that lets us process our
+    artifact information. For example, we can use the following code to extract the
+    data input path:'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的基本`Do`方法接收`input_dict`、`output_dict`和`exec_properties`作为方法的参数。第一个参数包含作为Python字典存储在元数据存储中的artifact引用，第二个参数接收我们希望从组件中导出的引用，最后一个方法参数包含额外的执行参数，例如我们的情况下组件名称。TFX提供了非常有用的`artifact_utils`函数，让我们能够处理我们的artifact信息。例如，我们可以使用以下代码提取数据输入路径：
+- en: '`artifact_utils``.``get_single_uri``(``input_dict``[``''input''``])`'
+  id: totrans-163
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`artifact_utils``.``get_single_uri``(``input_dict``[``''input''``])`'
+- en: 'We can also set the name of the output path based on the split name:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以根据分割名称设置输出路径的名称：
+- en: '`artifact_utils``.``get_split_uri``(``output_dict``[``''examples''``],``split_name``)`'
+  id: totrans-165
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`artifact_utils``.``get_split_uri``(``output_dict``[``''examples''``],``split_name``)`'
+- en: 'The last mentioned function brings up a good point. For simplicity of the example,
+    we have ignored the options to dynamically set data splits, as we discussed in
+    [Chapter 3](index_split_008.html#filepos156116). In fact, in our example, we are
+    hardcoding the split names and quantity:'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述函数提出了一个很好的观点。为了示例的简单性，我们忽略了动态设置数据分割的选项，正如我们在[第3章](index_split_008.html#filepos156116)中讨论的那样。实际上，在我们的示例中，我们正在硬编码分割名称和数量：
+- en: '`def``get_splits``(``images``:``List``,``num_eval_samples``=``1000``):``"""
+    Split the list of image filenames into train/eval lists """``train_images``=``images``[``num_test_samples``:]``eval_images``=``images``[:``num_test_samples``]``splits``=``[(``''train''``,``train_images``),``(``''eval''``,``eval_images``)]``return``splits`'
+  id: totrans-167
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '```python'
+- en: Such functionality wouldn’t be desirable for a component in production, but
+    a full-blown implementation would go beyond the scope of this chapter. In the
+    following section, we will discuss how you can reuse existing component functions
+    and simplify your implementations. Our component in this section will have the
+    same functionality as we discussed in [Chapter 3](index_split_008.html#filepos156116).
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于生产中的组件来说，这样的功能并不理想，但完整的实现将超出本章的范围。在接下来的部分中，我们将讨论如何重用现有组件功能并简化您的实现。本节中的组件将具有与我们在[第三章](index_split_008.html#filepos156116)中讨论的相同功能。
+- en: Component drivers
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件驱动器
+- en: If we would run the component with the executor that we have defined so far,
+    we would encounter a TFX error that the input isn’t registered with the metadata
+    store and that we need to execute the previous component before running our custom
+    component. But in our case, we don’t have an upstream component since we are ingesting
+    the data into our pipeline. The data ingestion step is the start of every pipeline.
+    So what is going on?
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们使用到目前为止定义的执行器运行组件，我们将遇到一个 TFX 错误，即输入未在元数据存储中注册，并且我们需要在运行自定义组件之前执行前一个组件。但在我们的情况下，我们没有上游组件，因为我们正在将数据摄取到我们的管道中。数据摄取步骤是每个管道的开始。那么问题出在哪里呢？
+- en: As we discussed previously, components in TFX communicate with each other via
+    the metadata store, and the components expect that the input artifacts are already
+    registered in the metadata store. In our case, we want to ingest data from a disk,
+    and we are reading the data for the first time in our pipeline; therefore, the
+    data isn’t passed down from a different component and we need to register the
+    data sources in the metadata store.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前讨论的，TFX 中的组件通过元数据存储彼此通信，组件期望输入工件已经在元数据存储中注册。在我们的情况下，我们希望从磁盘摄取数据，在我们的管道中第一次读取数据；因此，数据不是从不同的组件传递下来，我们需要在元数据存储中注册数据源。
+- en: CUSTOM DRIVERS ARE RARE
+  id: totrans-172
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 自定义驱动器是罕见的。
+- en: It is rare that you need to implement custom drivers. If you can reuse the input/output
+    architecture of an existing TFX component or if the inputs are already registered
+    with the metadata store, you won’t need to write a custom driver and you can skip
+    this step.
+  id: totrans-173
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 你很少需要实现自定义驱动器。如果你可以重用现有 TFX 组件的输入/输出架构，或者如果输入已经在元数据存储中注册了，你就不需要编写自定义驱动器，可以跳过这一步。
+- en: 'Similar to our custom executor, we can reuse a `BaseDriver` class provided
+    by TFX to write a custom driver. We need to overwrite the standard behavior of
+    the component, and we can do that by overwriting the `resolve_input_artifacts`
+    method of the `BaseDriver`. A bare-bones driver will register our inputs, which
+    is straightforward. We need to unpack the channel to obtain the `input_dict`.
+    By looping over all the values of the `input_dict`, we can access each list of
+    inputs. By looping again over each list, we can obtain each input and then register
+    it at the metadata store by passing it to the function `publish_artifacts`. `publish_artifacts`
+    will call the metadata store, publish the artifact, and set the state of the artifact
+    as ready to be published:'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似于我们的自定义执行器，我们可以重用 TFX 提供的 `BaseDriver` 类来编写自定义驱动器。我们需要重写组件的标准行为，可以通过重写 `BaseDriver`
+    的 `resolve_input_artifacts` 方法来实现。一个最简驱动器将注册我们的输入，这是直截了当的。我们需要解包通道以获取 `input_dict`。通过遍历
+    `input_dict` 的所有值，我们可以访问每个输入列表。再次遍历每个列表，我们可以获取每个输入，然后通过将其传递给函数 `publish_artifacts`
+    在元数据存储中注册它。`publish_artifacts` 将调用元数据存储，发布工件，并设置工件的状态为准备发布：
+- en: '`class``ImageIngestDriver``(``base_driver``.``BaseDriver``):``"""Custom driver
+    for ImageIngest."""``def``resolve_input_artifacts``(``self``,``input_channels``:``Dict``[``Text``,``types``.``Channel``],``exec_properties``:``Dict``[``Text``,``Any``],``driver_args``:``data_types``.``DriverArgs``,``pipeline_info``:``data_types``.``PipelineInfo``)``->``Dict``[``Text``,``List``[``types``.``Artifact``]]:``"""Overrides
+    BaseDriver.resolve_input_artifacts()."""``del``driver_args`![](images/00002.jpg)`del``pipeline_info``input_dict``=``channel_utils``.``unwrap_channel_dict``(``input_channels``)`![](images/00075.jpg)`for``input_list``in``input_dict``.``values``():``for``single_input``in``input_list``:``self``.``_metadata_handler``.``publish_artifacts``([``single_input``])`![](images/00064.jpg)`absl``.``logging``.``debug``(``"Registered
+    input: {}"``.``format``(``single_input``))``absl``.``logging``.``debug``(``"single_input.mlmd_artifact
+    "``"{}"``.``format``(``single_input``.``mlmd_artifact``))`![](images/00055.jpg)`return``input_dict`'
+  id: totrans-175
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`class``ImageIngestDriver``(``base_driver``.``BaseDriver``):``"""ImageIngest的自定义驱动程序。"""``def``resolve_input_artifacts``(``self``,``input_channels``:``Dict``[``Text``,``types``.``Channel``],``exec_properties``:``Dict``[``Text``,``Any``],``driver_args``:``data_types``.``DriverArgs``,``pipeline_info``:``data_types``.``PipelineInfo``)``->``Dict``[``Text``,``List``[``types``.``Artifact``]]:``"""重写BaseDriver.resolve_input_artifacts()。"""``del``driver_args`![](images/00002.jpg)`del``pipeline_info``input_dict``=``channel_utils``.``unwrap_channel_dict``(``input_channels``)`![](images/00075.jpg)`for``input_list``in``input_dict``.``values``():``for``single_input``in``input_list``:``self``.``_metadata_handler``.``publish_artifacts``([``single_input``])`![](images/00064.jpg)`absl``.``logging``.``debug``(``"已注册输入：{}"``.``format``(``single_input``))``absl``.``logging``.``debug``(``"single_input.mlmd_artifact
+    "``"{}"``.``format``(``single_input``.``mlmd_artifact``))`![](images/00055.jpg)`return``input_dict`'
+- en: '![](images/00002.jpg)'
+  id: totrans-176
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Delete unused arguments.
+  id: totrans-177
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 删除未使用的参数。
+- en: '![](images/00075.jpg)'
+  id: totrans-178
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Unwrap channel to obtain the input dictionary.
+  id: totrans-179
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 解包通道以获取输入字典。
+- en: '![](images/00064.jpg)'
+  id: totrans-180
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00064.jpg)'
+- en: Publish the artifact.
+  id: totrans-181
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 发布该工件。
+- en: '![](images/00055.jpg)'
+  id: totrans-182
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00055.jpg)'
+- en: Print artifact information.
+  id: totrans-183
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 打印工件信息。
+- en: 'While we loop over each input, we can print additional information:'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在循环每个输入时，我们可以打印额外的信息：
+- en: '`print``(``"Registered new input: {}"``.``format``(``single_input``))``print``(``"Artifact
+    URI: {}"``.``format``(``single_input``.``uri``))``print``(``"MLMD Artifact Info:
+    {}"``.``format``(``single_input``.``mlmd_artifact``))`'
+  id: totrans-185
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`print``(``"已注册新输入：{}"``.``format``(``single_input``))``print``(``"工件URI：{}"``.``format``(``single_input``.``uri``))``print``(``"MLMD工件信息：{}"``.``format``(``single_input``.``mlmd_artifact``))`'
+- en: With the custom driver now in place, we need to assemble our component.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自定义驱动程序现已就位，我们需要组装我们的组件。
+- en: Assembling the custom component
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组装自定义组件
+- en: With our `ImageIngestComponentSpec` defined, the `ImageIngestExecutor` completed,
+    and the `ImageIngestDriver` set up, let’s tie it all together in our `ImageIngestComponent`.
+    We could then, for example, load the component in a pipeline that trains image
+    classification models.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ImageIngestComponentSpec`定义完成，`ImageIngestExecutor`已完成，`ImageIngestDriver`已设置好，现在让我们在`ImageIngestComponent`中将它们统一起来。例如，我们可以将该组件加载到一个训练图像分类模型的流水线中。'
+- en: To define the actual component, we need to define the specification, executor,
+    and driver classes. We can do this by setting `SPEC_CLASS`, `EXECUTOR_SPEC`, and
+    `DRIVER_CLASS`, as shown in the following example code. As the final step, we
+    need to instantiate our `ComponentSpecs` with the component’s arguments (e.g.,
+    input and output examples, and the provided name) and pass it to the instantiated
+    `ImageIngestComponent`.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要定义实际的组件，我们需要定义规范、执行程序和驱动程序类。我们可以通过设置`SPEC_CLASS`、`EXECUTOR_SPEC`和`DRIVER_CLASS`来完成这一点，如下例所示。作为最后一步，我们需要用组件的参数（例如输入和输出示例以及提供的名称）实例化我们的`ComponentSpecs`，并将其传递给实例化的`ImageIngestComponent`。
+- en: 'In the unlikely case that we don’t provide an output artifact, we can set our
+    default output artifact to be of type `tf.Example`, define our hard-coded split
+    names, and set it up as a channel:'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们没有提供输出工件的情况极少见，我们可以将我们的默认输出工件设置为`tf.Example`类型，定义我们硬编码的分割名称，并将其设置为一个通道：
+- en: '`from``tfx.components.base``import``base_component``from``tfx``import``types``from``tfx.types``import``channel_utils``class``ImageIngestComponent``(``base_component``.``BaseComponent``):``"""Custom
+    ImageIngestWorld Component."""``SPEC_CLASS``=``ImageIngestComponentSpec``EXECUTOR_SPEC``=``executor_spec``.``ExecutorClassSpec``(``ImageIngestExecutor``)``DRIVER_CLASS``=``ImageIngestDriver``def`
+    `__init__``(``self``,``input``,``output_data``=``None``,``name``=``None``):``if``not``output_data``:``examples_artifact``=``standard_artifacts``.``Examples``()``examples_artifact``.``split_names``=`
+    `\` `artifact_utils``.``encode_split_names``([``''train''``,``''eval''``])``output_data``=``channel_utils``.``as_channel``([``examples_artifact``])``spec``=``ImageIngestComponentSpec``(``input``=``input``,``examples``=``output_data``,``name``=``name``)``super``(``ImageIngestComponent``,``self``)``.``__init__``(``spec``=``spec``)`'
+  id: totrans-191
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.components.base``import``base_component``from``tfx``import``types``from``tfx.types``import``channel_utils``class``ImageIngestComponent``(``base_component``.``BaseComponent``):``"""自定义ImageIngestWorld组件。"""``SPEC_CLASS``=``ImageIngestComponentSpec``EXECUTOR_SPEC``=``executor_spec``.``ExecutorClassSpec``(``ImageIngestExecutor``)``DRIVER_CLASS``=``ImageIngestDriver``def`
+    `__init__``(``self``,``input``,``output_data``=``None``,``name``=``None``):``if``not``output_data``:``examples_artifact``=``standard_artifacts``.``Examples``()``examples_artifact``.``split_names``=`
+    `\` `artifact_utils``.``encode_split_names``([``''train''``,``''eval''``])``output_data``=``channel_utils``.``as_channel``([``examples_artifact``])``spec``=``ImageIngestComponentSpec``(``input``=``input``,``examples``=``output_data``,``name``=``name``)``super``(``ImageIngestComponent``,``self``)``.``__init__``(``spec``=``spec``)`'
+- en: By assembling our `ImageIngestComponent`, we have tied together the individual
+    pieces of our basic custom component. In the next section, we will take a look
+    at how we can execute our basic component.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过组装我们的`ImageIngestComponent`，我们已经将基本自定义组件的各个部分联系在一起。在下一节中，我们将看看如何执行我们的基本组件。
+- en: Using our basic custom component
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用我们的基本自定义组件
+- en: 'After implementing the entire basic component to ingest images and turn them
+    into TFRecord files, we can use the component like any other component in our
+    pipeline. The following code example shows how. Notice that it looks exactly like
+    the setup of other ingestion components that we discussed in [Chapter 3](index_split_008.html#filepos156116).
+    The only difference is that we need to import our newly created component and
+    then run the initialized component:'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实施完整的基本组件以摄入图像并将其转换为TFRecord文件之后，我们可以像管道中的任何其他组件一样使用该组件。以下代码示例展示了如何执行。请注意，它看起来与我们在[第3章](index_split_008.html#filepos156116)中讨论的其他摄入组件的设置完全相同。唯一的区别是，我们需要导入我们新创建的组件，然后运行初始化的组件：
+- en: '`import``os``from``tfx.utils.dsl_utils``import``external_input``from``tfx.orchestration.experimental.interactive.interactive_context``import`
+    `\` `InteractiveContext``from``image_ingestion_component.component``import``ImageIngestComponent``context``=``InteractiveContext``()``image_file_path``=``"``/path/to/files``"``examples``=``external_input``(``dataimage_file_path_root``)``example_gen``=``ImageIngestComponent``(``input``=``examples``,``name``=``u``''ImageIngestComponent''``)``context``.``run``(``example_gen``)`'
+  id: totrans-195
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`import``os``from``tfx.utils.dsl_utils``import``external_input``from``tfx.orchestration.experimental.interactive.interactive_context``import`
+    `\` `InteractiveContext``from``image_ingestion_component.component``import``ImageIngestComponent``context``=``InteractiveContext``()``image_file_path``=``"/path/to/files"``examples``=``external_input``(``dataimage_file_path_root``)``example_gen``=``ImageIngestComponent``(``input``=``examples``,``name``=``u``''ImageIngestComponent''``)``context``.``run``(``example_gen``)`'
+- en: 'The output from the component can then be consumed by downstream components
+    like `StatisticsGen`:'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件的输出可以被下游组件（例如`StatisticsGen`）所使用：
+- en: '`from``tfx.components``import``StatisticsGen``statistics_gen``=``StatisticsGen``(``examples``=``example_gen``.``outputs``[``''examples''``])``context``.``run``(``statistics_gen``)``context``.``show``(``statistics_gen``.``outputs``[``''statistics''``])`'
+  id: totrans-197
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.components``import``StatisticsGen``statistics_gen``=``StatisticsGen``(``examples``=``example_gen``.``outputs``[``''examples''``])``context``.``run``(``statistics_gen``)``context``.``show``(``statistics_gen``.``outputs``[``''statistics''``])`'
+- en: VERY BASIC IMPLEMENTATION
+  id: totrans-198
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 非常基础的实现
+- en: We want to caution you that the discussed implementation only provides basic
+    functionality and is not production ready. For details of the missing functionality,
+    please see the following section. For a product-ready implementation, please see
+    our updated component implementation in the next sections.
+  id: totrans-199
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们要提醒您，所讨论的实现仅提供基本功能，不适合生产环境。有关缺失功能的详细信息，请参阅下一节。要获取产品级实现，请参阅我们在接下来的章节中更新的组件实现。
+- en: Implementation review
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实施审查
+- en: In the previous sections, we walked through a basic component implementation.
+    While the component is functioning, it is missing some key functionality that
+    we discussed in [Chapter 3](index_split_008.html#filepos156116) (e.g., dynamic
+    split names or split ratios)—and we would expect such functionality from our ingestion
+    component. The basic implementation also required a lot of boiler-plate code (e.g.,
+    the setup of the component driver). The ingestion of the images should be handled
+    efficiently and in a scalable way. We can achieve such efficient data ingestion
+    through the Apache Beam usage under the hood of TFX components.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们介绍了基本组件的实现。虽然该组件功能正常，但缺少我们在 [第 3 章](index_split_008.html#filepos156116)
+    中讨论过的一些关键功能（例如，动态拆分名称或拆分比例）—我们期望从我们的摄取组件中获得这样的功能。基本实现还需要大量样板代码（例如，组件驱动的设置）。需要有效且可扩展地处理图像的摄取。我们可以通过
+    TFX 组件底层的 Apache Beam 使用来实现这种高效的数据摄取。
+- en: In the next section, we will discuss how we could simplify the implementations
+    and adopt the patterns we discussed in [Chapter 3](index_split_008.html#filepos156116)—for
+    example, ingesting data from Presto databases. By reusing common functionality,
+    such as the component drivers, we can speed up implementation and reduce code
+    bugs.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将讨论如何简化实现并采纳我们在 [第 3 章](index_split_008.html#filepos156116) 中讨论过的模式—例如，从
+    Presto 数据库中摄取数据。通过重用诸如组件驱动之类的常见功能，我们可以加快实施速度并减少代码错误。
+- en: Reusing Existing Components
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重用现有组件
+- en: Instead of writing a component for TFX entirely from scratch, we can inherit
+    an existing component and customize it by overwriting the executor functionality.
+    As shown in [Figure 10-8](#filepos1226464), this is generally the preferred approach
+    when a component is reusing an existing component architecture. In the case of
+    our demo component, the architecture is equivalent with a file base ingestion
+    component (e.g., `CsvExampleGen`). Such components receive a directory path as
+    a component input, load the data from the provided directory, turn the data into
+    `tf.Examples`, and return the data structures in TFRecord files as output from
+    the component.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不必从头开始编写 TFX 组件，我们可以继承现有组件，并通过覆盖执行器功能来进行定制。如 [图 10-8](#filepos1226464) 所示，这通常是在组件重用现有组件架构时的首选方法。对于我们的演示组件而言，其架构等同于基于文件的摄取组件（例如，`CsvExampleGen`）。这类组件接收一个目录路径作为组件输入，从提供的目录加载数据，将数据转换为
+    `tf.Examples`，并将数据结构作为 TFRecord 文件从组件输出返回。
+- en: '![](images/00088.jpg)'
+  id: totrans-205
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00088.jpg)'
+- en: Figure 10-8\. Extending existing components
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10-8\. 扩展现有组件
+- en: As we discussed in [Chapter 3](index_split_008.html#filepos156116), TFX provides
+    the `FileBasedExampleGen` for this purpose. Since we are going to reuse an existing
+    component, similar to our Avro and Parquet examples, we can simply focus on developing
+    our custom executor and making it more flexible as our previous basic component.
+    By reusing existing code infrastructure, we can also piggyback on existing Apache
+    Beam implementations.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在 [第 3 章](index_split_008.html#filepos156116) 中讨论过的那样，TFX 提供了 `FileBasedExampleGen`
+    来实现这一目的。由于我们将重用现有组件，类似于我们的 Avro 和 Parquet 示例，我们只需专注于开发我们的自定义执行器，并使其与我们之前的基本组件更加灵活。通过重用现有的代码基础设施，我们还可以依赖现有的
+    Apache Beam 实现。
+- en: By reusing an existing component architecture for ingesting data into our pipelines,
+    we can also reuse setups to ingest data efficiently with Apache Beam. TFX and
+    Apache Beam provide classes (e.g., `GetInputSourceToExamplePTransform`) and function
+    decorators (e.g., `@beam.ptransform_fn`) to ingest the data via Apache Beam pipelines.
+    In our example, we use the function decorator `@beam.ptransform_fn`, which allows
+    us to define Apache Beam transformation (`PTransform`). The decorator accepts
+    an Apache Beam pipeline, runs a given transformation (e.g., in our case, the loading
+    of the images and their conversion to `tf.Examples`), and returns the Apache Beam
+    `PCollection` with the transformation results.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过重用现有组件架构将数据摄取到我们的流水线中，我们还可以利用 Apache Beam 有效地重用设置来进行数据摄取。TFX 和 Apache Beam
+    提供了类（例如，`GetInputSourceToExamplePTransform`）和函数装饰器（例如，`@beam.ptransform_fn`）来通过
+    Apache Beam 管道进行数据摄取。在我们的示例中，我们使用了函数装饰器 `@beam.ptransform_fn`，它允许我们定义 Apache Beam
+    转换（`PTransform`）。该装饰器接受一个 Apache Beam 管道，运行给定的转换（例如，在我们的情况下，加载图像并将其转换为 `tf.Examples`），并返回具有转换结果的
+    Apache Beam `PCollection`。
+- en: 'The conversion functionality is handled by a function very similar to our previous
+    implementation. The updated conversion implementation has one major difference:
+    we don’t need to instantiate and use a TFRecord writer; instead, we can fully
+    focus on loading images and converting them to `tf.Examples`. We don’t need to
+    implement any functions to write the `tf.Examples` to TFRecord data structures
+    because we did it in our previous implementation. Instead, we return the generated
+    `tf.Examples` and let the underlying TFX/Apache Beam code handle the writing of
+    the TFRecord files. The following code example shows the updated conversion function:'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 转换功能由一个与我们先前实现非常相似的函数处理。更新后的转换实现有一个主要区别：我们不需要实例化和使用 TFRecord 写入器；相反，我们可以完全专注于加载图像并将它们转换为`tf.Examples`。我们不需要实现任何将`tf.Examples`写入
+    TFRecord 数据结构的函数，因为我们在先前的实现中已经做过了。相反，我们返回生成的`tf.Examples`，让底层的 TFX/Apache Beam
+    代码处理 TFRecord 文件的写入。以下代码示例展示了更新后的转换函数：
+- en: '`def``convert_image_to_TFExample``(``image_path``)):`![](images/00002.jpg)`#
+    Determine the label for each image based on the file path.``lowered_filename``=``image_path``.``lower``()``print``(``lowered_filename``)``if``"dog"``in``lowered_filename``:``label``=``0``elif``"cat"``in``lowered_filename``:``label``=``1``else``:``raise``NotImplementedError``(``"Found
+    unknown image"``)``# Read the image.``raw_file``=``tf``.``io``.``read_file``(``image_path``)``#
+    Create the TensorFlow Example data structure.``example``=``tf``.``train``.``Example``(``features``=``tf``.``train``.``Features``(``feature``=``{``''image_raw''``:``_bytes_feature``(``raw_file``.``numpy``()),``''label''``:``_int64_feature``(``label``)``}))``return``example`![](images/00075.jpg)'
+  id: totrans-210
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`def``convert_image_to_TFExample``(``image_path``)):`![](images/00002.jpg)`#
+    根据文件路径确定每个图像的标签。``lowered_filename``=``image_path``.``lower``()``print``(``lowered_filename``)``if``"dog"``in``lowered_filename``:``label``=``0``elif``"cat"``in``lowered_filename``:``label``=``1``else``:``raise``NotImplementedError``(``"Found
+    unknown image"``)``# 读取图像。``raw_file``=``tf``.``io``.``read_file``(``image_path``)``#
+    创建 TensorFlow Example 数据结构。``example``=``tf``.``train``.``Example``(``features``=``tf``.``train``.``Features``(``feature``=``{``''image_raw''``:``_bytes_feature``(``raw_file``.``numpy``()),``''label''``:``_int64_feature``(``label``)``}))``return``example`![](images/00075.jpg)'
+- en: '![](images/00002.jpg)'
+  id: totrans-211
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Only the file path is needed.
+  id: totrans-212
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 只需要文件路径。
+- en: '![](images/00075.jpg)'
+  id: totrans-213
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: The function returns examples instead of writing them to a disk.
+  id: totrans-214
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 该函数返回示例而不是将其写入磁盘。
+- en: 'With the updated conversion function in place, we can now focus on implementing
+    the core executor functionality. Since we are customizing an existing component
+    architecture, we can use the same arguments as we discussed in [Chapter 3](index_split_008.html#filepos156116),
+    such as split patterns. Our `image_to_example` function in the following code
+    example takes four input arguments: an Apache Beam pipeline object, an `input_dict`
+    with artifact information, a dictionary with execution properties, and split patterns
+    for ingestion. In the function, we generate a list of available files in the given
+    directories and pass the list of images to an Apache Beam pipeline to convert
+    each image found in the ingestion directories to `tf.Examples`:'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用更新后的转换函数，我们现在可以专注于实现核心执行器功能。由于我们正在定制现有的组件架构，所以可以使用与我们在[第三章](index_split_008.html#filepos156116)讨论过的相同参数，例如分割模式。在以下代码示例中的`image_to_example`函数中，我们接受四个输入参数：一个
+    Apache Beam 管道对象，一个带有工件信息的`input_dict`，一个包含执行属性的字典以及摄取的分割模式。在函数中，我们生成给定目录中可用文件的列表，并将图像列表传递给
+    Apache Beam 管道，以将摄取目录中找到的每个图像转换为`tf.Examples`：
+- en: '`@beam.ptransform_fn``def``image_to_example``(``pipeline``:``beam``.``Pipeline``,``input_dict``:``Dict``[``Text``,``List``[``types``.``Artifact``]],``exec_properties``:``Dict``[``Text``,``Any``],``split_pattern``:``Text``)``->``beam``.``pvalue``.``PCollection``:``input_base_uri``=``artifact_utils``.``get_single_uri``(``input_dict``[``''input''``])``image_pattern``=``os``.``path``.``join``(``input_base_uri``,``split_pattern``)``absl``.``logging``.``info``(``"Processing
+    input image data {} "``"to tf.Example."``.``format``(``image_pattern``))``image_files``=``tf``.``io``.``gfile``.``glob``(``image_pattern``)`![](images/00002.jpg)`if``not``image_files``:``raise``RuntimeError``(``"Split
+    pattern {} did not match any valid path."``""``.``format``(``image_pattern``))``p_collection``=``(``pipeline``|``beam``.``Create``(``image_files``)`![](images/00075.jpg)`|``''ConvertImagesToTFRecords''``>>``beam``.``Map``(``lambda``image``:``convert_image_to_TFExample``(``image``))`![](images/00064.jpg)`)``return``p_collection`'
+  id: totrans-216
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`@beam.ptransform_fn``def``image_to_example``(``pipeline``:``beam``.``Pipeline``,``input_dict``:``Dict``[``Text``,``List``[``types``.``Artifact``]],``exec_properties``:``Dict``[``Text``,``Any``],``split_pattern``:``Text``)``->``beam``.``pvalue``.``PCollection``:``input_base_uri``=``artifact_utils``.``get_single_uri``(``input_dict``[``''input''``])``image_pattern``=``os``.``path``.``join``(``input_base_uri``,``split_pattern``)``absl``.``logging``.``info``(``"Processing
+    input image data {} "``"to tf.Example."``.``format``(``image_pattern``))``image_files``=``tf``.``io``.``gfile``.``glob``(``image_pattern``)`![](images/00002.jpg)`if``not``image_files``:``raise``RuntimeError``(``"Split
+    pattern {} did not match any valid path."``""``.``format``(``image_pattern``))``p_collection``=``(``pipeline``|``beam``.``Create``(``image_files``)`![](images/00075.jpg)`|``''ConvertImagesToTFRecords''``>>``beam``.``Map``(``lambda``image``:``convert_image_to_TFExample``(``image``))`![](images/00064.jpg)`)``return``p_collection`'
+- en: '![](images/00002.jpg)'
+  id: totrans-217
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Generate a list of files present in the ingestion paths.
+  id: totrans-218
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 生成摄入路径中存在的文件列表。
+- en: '![](images/00075.jpg)'
+  id: totrans-219
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Convert the list to a Beam `PCollection`.
+  id: totrans-220
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 将列表转换为 Beam 的 `PCollection`。
+- en: '![](images/00064.jpg)'
+  id: totrans-221
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00064.jpg)'
+- en: Apply the conversion to every image.
+  id: totrans-222
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 将转换应用于每个图像。
+- en: 'The final step in our custom executor is to overwrite the `GetInputSourceToExamplePTransform`
+    of the `BaseExampleGenExecutor` with our `image_to_example`:'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们自定义执行器的最后一步是用我们的 `image_to_example` 覆盖 `BaseExampleGenExecutor` 的 `GetInputSourceToExamplePTransform`：
+- en: '`class``ImageExampleGenExecutor``(``BaseExampleGenExecutor``):``@beam.ptransform_fn``def``image_to_example``(``...``):``...``def``GetInputSourceToExamplePTransform``(``self``)``->``beam``.``PTransform``:``return``image_to_example`'
+  id: totrans-224
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`class``ImageExampleGenExecutor``(``BaseExampleGenExecutor``):``@beam.ptransform_fn``def``image_to_example``(``...``):``...``def``GetInputSourceToExamplePTransform``(``self``)``->``beam``.``PTransform``:``return``image_to_example`'
+- en: Our custom image ingestion component is now complete!
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的自定义图像摄入组件现在已经完成！
+- en: Using our custom executor
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用我们的自定义执行器
+- en: 'Since we are reusing an ingestion component and swapping out the processing
+    executor, we can now follow the same patterns we discussed for the Avro ingestion
+    in [Chapter 3](index_split_008.html#filepos156116) and specify a `custom_executor_spec`.
+    By reusing the `FileBasedExampleGen` component and overwriting the `executor`,
+    we can use the entire functionality of ingestion components that we discussed
+    in [Chapter 3](index_split_008.html#filepos156116), like defining the input split
+    patterns or the output train/eval splits. The following code snippet gives a complete
+    example of using our custom component:'
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们正在重用摄入组件并交换处理执行器，现在我们可以按照我们在 [第3章](index_split_008.html#filepos156116) 中讨论的相同模式进行操作，并指定一个
+    `custom_executor_spec`。通过重用 `FileBasedExampleGen` 组件并覆盖 `executor`，我们可以使用我们在 [第3章](index_split_008.html#filepos156116)
+    中讨论过的摄入组件的全部功能，比如定义输入分割模式或输出训练/评估分割。以下代码片段给出了使用我们自定义组件的完整示例：
+- en: '`from``tfx.components``import``FileBasedExampleGen``from``tfx.utils.dsl_utils``import``external_input``from``image_ingestion_component.executor``import``ImageExampleGenExecutor``input_config``=``example_gen_pb2``.``Input``(``splits``=``[``example_gen_pb2``.``Input``.``Split``(``name``=``''images''``,``pattern``=``''sub-directory/if/needed/*.jpg''``),``])``output``=``example_gen_pb2``.``Output``(``split_config``=``example_gen_pb2``.``SplitConfig``(``splits``=``[``example_gen_pb2``.``SplitConfig``.``Split``(``name``=``''train''``,``hash_buckets``=``4``),``example_gen_pb2``.``SplitConfig``.``Split``(``name``=``''eval''``,``hash_buckets``=``1``)``])``)``example_gen``=``FileBasedExampleGen``(``input``=``external_input``(``"/path/to/images/"``),``input_config``=``input_config``,``output_config``=``output``,``custom_executor_spec``=``executor_spec``.``ExecutorClassSpec``(``ImageExampleGenExecutor``)``)`'
+  id: totrans-228
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.components``import``FileBasedExampleGen``from``tfx.utils.dsl_utils``import``external_input``from``image_ingestion_component.executor``import``ImageExampleGenExecutor``input_config``=``example_gen_pb2``.``Input``(``splits``=``[``example_gen_pb2``.``Input``.``Split``(``name``=``''images''``,``pattern``=``''sub-directory/if/needed/*.jpg''``),``])``output``=``example_gen_pb2``.``Output``(``split_config``=``example_gen_pb2``.``SplitConfig``(``splits``=``[``example_gen_pb2``.``SplitConfig``.``Split``(``name``=``''train''``,``hash_buckets``=``4``),``example_gen_pb2``.``SplitConfig``.``Split``(``name``=``''eval''``,``hash_buckets``=``1``)``])``)``example_gen``=``FileBasedExampleGen``(``input``=``external_input``(``"/path/to/images/"``),``input_config``=``input_config``,``output_config``=``output``,``custom_executor_spec``=``executor_spec``.``ExecutorClassSpec``(``ImageExampleGenExecutor``)``)`'
+- en: As we have discussed in this section, extending the component executor will
+    always be a simpler and faster implementation than writing a custom component
+    from scratch. Therefore, we recommend this process if you are able to reuse existing
+    component architectures.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在本节讨论的那样，扩展组件执行器总是比从头开始编写自定义组件更简单且更快。因此，如果您能够重用现有的组件架构，我们建议使用这个过程。
+- en: Summary
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: In the chapter, we expanded on the TFX concepts from previous chapters. We discussed
+    how to write custom components in detail. Writing custom components gives us the
+    flexibility to extend existing TFX components and tailor them for our pipeline
+    needs. Custom components allow us to integrate more steps into our machine learning
+    pipelines. By adding more components to our pipeline, we can guarantee that all
+    models produced by the pipeline have gone through the same steps. Since the implementation
+    of custom components can be complex, we reviewed a basic implementation of a component
+    from scratch and highlighted an implementation of a new component executor by
+    inheriting existing component functionality.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们扩展了前几章的 TFX 概念。我们详细讨论了如何编写自定义组件。编写自定义组件使我们能够扩展现有的 TFX 组件，并根据我们流水线的需求进行定制。自定义组件允许我们将更多步骤集成到我们的机器学习流水线中。通过向我们的流水线添加更多组件，我们可以保证所有流水线生成的模型经过相同的步骤。由于自定义组件的实施可能较为复杂，我们回顾了从头开始实现组件的基本实现，并突出了通过继承现有组件功能来实现新组件执行器的实现。
+- en: We also discussed advanced settings for a training setup, such as branching
+    pipeline graphs to produce multiple models from the same pipeline execution. This
+    functionality can be used to produce TFLite models for deployments in mobile apps.
+    We also discussed warm starting the training process to continuously train machine
+    learning models. Warm starting model training is a great way of shortening the
+    training steps for continuously trained models.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还讨论了用于训练设置的高级设置，例如分支流水线图，以从同一流水线执行中生成多个模型。此功能可用于生成适用于移动应用程序部署的 TFLite 模型。我们还讨论了温暖启动训练过程，以持续训练机器学习模型。温暖启动模型训练是缩短持续训练模型训练步骤的绝佳方法。
+- en: We introduced the concept of having a human in the loop in a machine learning
+    pipeline setup and also discussed how the experimental component can be implemented.
+    The human in the loop concept is a way of adding an expert review as a required
+    pipeline step before deploying models. We believe that the combination of fully
+    automated components and a few, critical reviews by data scientists will support
+    the adoption of machine learning pipelines.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们介绍了在机器学习流水线设置中引入人类参与的概念，并讨论了如何实现实验组件。人类参与的概念是在部署模型之前将专家审查作为必需的流水线步骤添加的一种方式。我们相信，完全自动化的组件与少数数据科学家的关键审查的结合将支持机器学习流水线的采纳。
+- en: In the next two chapters, we will take a look at how to run our TFX pipeline
+    in the orchestration environment of your choice.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的两章中，我们将看看如何在您选择的编排环境中运行我们的 TFX 流水线。

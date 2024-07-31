@@ -1,0 +1,782 @@
+- en: Chapter 11\. Monitor and Update Models
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 11 章\. 监控和更新模型
+- en: Once a model is deployed, its performance should be monitored just like any
+    other software system. As they did in [“Test Your ML Code”](ch06.html#testing_ml),
+    regular software best practices apply. And just like in [“Test Your ML Code”](ch06.html#testing_ml),
+    there are additional things to consider when dealing with ML models.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦模型部署，其性能应该像任何其他软件系统一样受到监控。就像他们在 [“测试你的 ML 代码”](ch06.html#testing_ml) 中所做的那样，常规软件最佳实践同样适用。并且就像在
+    [“测试你的 ML 代码”](ch06.html#testing_ml) 中一样，处理机器学习模型时还有其他需要考虑的事项。
+- en: 'In this chapter, we will describe key aspects to keep in mind when monitoring
+    ML models. More specifically, we will answer three questions:'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将描述监控机器学习模型时需要牢记的关键方面。更具体地，我们将回答三个问题：
+- en: Why should we monitor our models?
+  id: totrans-3
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 为什么我们应该监控我们的模型？
+- en: How do we monitor our models?
+  id: totrans-4
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们如何监控我们的模型？
+- en: What actions should our monitoring drive?
+  id: totrans-5
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们的监控应该驱动什么行动？
+- en: Let’s start by covering how monitoring models can help decide when to deploy
+    a new version or surface problems in production.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开始我们先讨论监控模型如何帮助决定何时部署新版本或发现生产中的问题。
+- en: Monitoring Saves Lives
+  id: totrans-7
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 监控能够挽救生命
+- en: The goal of monitoring is to track the health of a system. For models, this
+    means monitoring their performance and the quality of their predictions.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监控的目标是跟踪系统的健康状况。对于模型来说，这意味着监控它们的性能和预测质量。
+- en: If a change in user habits suddenly causes a model to produce subpar results,
+    a good monitoring system will allow you to notice and react as soon as possible.
+    Let’s cover some key issues that monitoring can help us catch.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果用户习惯的改变突然导致模型产生次优的结果，一个良好的监控系统将允许您尽快注意并作出反应。让我们讨论一些监控可以帮助我们捕捉的关键问题。
+- en: Monitoring to Inform Refresh Rate
+  id: totrans-10
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 用于指导刷新率的监控
+- en: We saw in [“Freshness and Distribution Shift”](ch02.html#fresh_dis_shift) that
+    most models need to be regularly updated to maintain a given level of performance.
+    Monitoring can be used to detect when a model is not fresh anymore and needs to
+    be retrained.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在 [“新鲜度和分布变化”](ch02.html#fresh_dis_shift) 中看到，大多数模型需要定期更新以保持给定性能水平。监控可以用来检测模型何时不再新鲜并需要重新训练。
+- en: For example, let’s say that we use the implicit feedback that we get from our
+    users (whether they click on recommendations, for example) to estimate the accuracy
+    of a model. If we continuously monitor the accuracy of the model, we can train
+    a new model as soon as accuracy drops below a defined threshold. [Figure 11-1](#monitor_redeploy)
+    shows a timeline of this process, with retraining events happening when accuracy
+    dips below a threshold.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设我们利用用户的隐式反馈（例如他们是否点击推荐内容）来估计模型的准确性。如果我们持续监控模型的准确性，我们可以在准确性低于定义的阈值时立即训练一个新模型。
+    [图 11-1](#monitor_redeploy) 展示了这一过程的时间轴，重新训练事件发生在准确性低于阈值时。
+- en: '![Monitoring to trigger redeploy](assets/bmla_1101.png)'
+  id: totrans-13
+  prefs: []
+  type: TYPE_IMG
+  zh: '![触发重新部署的监控](assets/bmla_1101.png)'
+- en: Figure 11-1\. Monitoring to trigger redeploy
+  id: totrans-14
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-1\. 触发重新部署的监控
+- en: Before redeploying an updated model, we would need to verify that the new model
+    is better. We will cover how to do this later in this section, [“CI/CD for ML”](#ci_cd).
+    First, let’s tackle other aspects to monitor, such as potential abuse.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在重新部署更新模型之前，我们需要验证新模型是否更好。我们稍后将介绍如何做到这一点，在本节中的 [“ML 的 CI/CD”](#ci_cd)。首先，让我们解决其他需要监控的方面，比如潜在的滥用问题。
+- en: Monitor to Detect Abuse
+  id: totrans-16
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 监控以检测滥用
+- en: In some cases such as when building abuse prevention or fraud detection systems,
+    a fraction of users are actively working to defeat models. In these cases, monitoring
+    becomes a key way to detect attacks and estimate their success rate.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，例如构建滥用预防或欺诈检测系统时，一部分用户正在积极地尝试击败模型。在这些情况下，监控成为检测攻击和估算其成功率的关键方式。
+- en: A monitoring system can use anomaly detection to detect attacks. When tracking
+    every attempt to log in to a bank’s online portal, for example, a monitoring system
+    could raise an alert if the number of login attempts suddenly increased tenfold,
+    which could be a sign of an attack.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监控系统可以使用异常检测来检测攻击。例如，当追踪银行在线门户的每次登录尝试时，如果登录尝试数量突然增加十倍，监控系统可能会发出警报，这可能是攻击的迹象。
+- en: This monitoring could raise an alert based on a threshold value being crossed,
+    as you can see in [Figure 11-2](#anomaly_example), or include more nuanced metrics
+    such as the rate of increase of login attempts. Depending on the complexity of
+    attacks, it may be valuable to build a model to detect such anomalies with more
+    nuance than a simple threshold could.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据越过阈值值发出警报的监控，就像您在[图 11-2](#anomaly_example)中看到的那样，或包括更加微妙的指标，例如登录尝试增加的速率。根据攻击的复杂性，构建一个模型来检测这些异常可能比简单的阈值更有价值。
+- en: '![An obvious anomaly on a monitoring dashboard. You could build an additional
+    ML model to automatically detect it.](assets/bmla_1102.png)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![监控仪表板上明显的异常。您可以构建一个额外的 ML 模型来自动检测它。](assets/bmla_1102.png)'
+- en: Figure 11-2\. An obvious anomaly on a monitoring dashboard. You could build
+    an additional ML model to automatically detect it.
+  id: totrans-21
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-2\. 监控仪表板上明显的异常。您可以构建一个额外的 ML 模型来自动检测它。
+- en: In addition to monitoring freshness and detecting anomalies, which other metrics
+    should we monitor?
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了监控新鲜度和检测异常之外，我们应该监控哪些其他指标？
+- en: Choose What to Monitor
+  id: totrans-23
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 选择监控内容
+- en: Software applications commonly monitor metrics such as the average time it takes
+    to process a request, the proportion of requests that fail to be processed, and
+    the amount of available resources. These are useful to track in any production
+    service and allow for proactive remediation before too many users are impacted.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 软件应用通常监控指标，如处理请求的平均时间、未能处理的请求比例以及可用资源的数量。这些对于任何生产服务的跟踪都是有用的，并允许在太多用户受到影响之前采取积极的补救措施。
+- en: Next, we will cover more metrics to monitor to detect when a model’s performance
+    is starting to decline.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将覆盖更多的指标以便检测模型性能开始下降的情况。
+- en: Performance Metrics
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 性能指标
+- en: A model can become stale if the distribution of data starts to change. You can
+    see this illustrated in [Figure 11-3](#input_output_distribution_shifts).
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果数据分布开始变化，模型可能会变得陈旧。您可以在[图 11-3](#input_output_distribution_shifts)中看到这一点。
+- en: '![Example of drift in a feature''s distribution](assets/bmla_0202.png)'
+  id: totrans-28
+  prefs: []
+  type: TYPE_IMG
+  zh: '![特征分布漂移示例](assets/bmla_0202.png)'
+- en: Figure 11-3\. Example of drift in a feature’s distribution
+  id: totrans-29
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-3\. 特征分布漂移示例
+- en: When it comes to distribution shifts, both the input and the output distribution
+    of data can change. Consider the example of a model that tries to guess which
+    movie a user will watch next. Given the same user history as an input, the model’s
+    prediction should change based on new entries in a catalog of available movies.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在处理分布变化时，数据的输入和输出分布都可能发生变化。例如，考虑一个试图猜测用户将来会观看哪部电影的模型。给定相同的用户历史作为输入，基于可用电影目录的新条目，模型的预测应该会改变。
+- en: '*Tracking changes in the input distribution* (also called feature drift) is
+    easier than tracking the output distribution, since it can be challenging to access
+    the ideal value of outputs to satisfy users.'
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*跟踪输入分布的变化*（也称为特征漂移）比跟踪输出分布更容易，因为访问满足用户期望的理想输出值可能具有挑战性。'
+- en: '*Monitoring the input distribution* can be as simple as monitoring summary
+    statistics such as the mean and variance of key features and raising an alert
+    if these statistics drift away from the values in the training data by more than
+    a given threshold.'
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*监控输入分布*可以简单地监控诸如关键特征的均值和方差等汇总统计数据，并在这些统计数据偏离训练数据中的值超过给定阈值时发出警报。'
+- en: '*Monitoring distribution shifts* can be more challenging. A first approach
+    is to monitor the distribution of model outputs. Similarly to inputs, a significant
+    change in the distribution of outputs may be a sign that model performance has
+    degraded. The distribution of the results users would have liked to see, however,
+    can be harder to estimate.'
+  id: totrans-33
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*监控分布变化*可能更具挑战性。一个首要方法是监控模型输出的分布。类似于输入，输出分布的显著变化可能表明模型性能已经降低。然而，用户希望看到的结果分布可能更难估计。'
+- en: One of the reasons for why estimating ground truth can be hard is that a model’s
+    actions can often prevent us from observing it. To see why that may be the case,
+    consider the illustration of a credit card fraud detection model in [Figure 11-4](#counterfactual).
+    The distribution of the data that the model will receive is on the left side.
+    As the model makes predictions on the data, application code acts on these predictions
+    by blocking any transaction predicted as fraudulent.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 估计基础事实可能困难的原因之一是，模型的行动通常会阻止我们观察它。为了理解可能的情况，请考虑信用卡欺诈检测模型的示例图11-4。模型将接收到的数据分布在左侧。随着模型对数据进行预测，应用代码根据这些预测采取行动，阻止任何预测为欺诈的交易。
+- en: Once a transaction is blocked, we are thus unable to observe what would have
+    happened if we had let it through. This means that we are not be able to know
+    whether the blocked transaction was actually fraudulent or not. We are only able
+    to observe and label the transactions we let through. Because of having acted
+    on a model’s predictions, we are only able to observe a skewed distribution of
+    nonblocked transactions, represented on the right side.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦交易被阻止，我们就无法观察如果我们让其通过会发生什么。这意味着我们无法知道被阻止的交易是否真的是欺诈的。我们只能观察和标记我们放行的交易。因为基于模型预测行动，我们只能观察到一个偏斜的非阻止交易分布，显示在右侧。
+- en: '![Taking action based on a model''s predictions can bias the observed distribution
+    of data](assets/bmla_1104.png)'
+  id: totrans-36
+  prefs: []
+  type: TYPE_IMG
+  zh: '![基于模型预测采取行动可能会偏倚观察到的数据分布](assets/bmla_1104.png)'
+- en: Figure 11-4\. Taking action based on a model’s predictions can bias the observed
+    distribution of data
+  id: totrans-37
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-4。基于模型预测采取行动可能会偏倚观察到的数据分布。
+- en: Only having access to a skewed sample of the true distribution makes it impossible
+    to correctly evaluate a model’s performance. This is the focus of *counterfactual
+    evaluation*, which aims to evaluate what would have happened if we hadn’t actioned
+    a model. To perform such evaluation in practice, you can withhold running a model
+    on a small subset of examples (see the article by Lihong Li et al., [“Counterfactual
+    Estimation and Optimization of Click Metrics for Search Engines”](https://arxiv.org/abs/1403.1891)).
+    Not acting on a random subset of examples will then allow us to observe an unbiased
+    distribution of fraudulent transactions. By comparing model predictions to true
+    outcomes for the random data, we can begin to estimate a model’s precision and
+    recall.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于只能访问偏斜样本的真实分布，这使得正确评估模型的性能变得不可能。这是*反事实评估*的焦点，其目标是评估如果我们没有对模型采取行动会发生什么。为了在实践中执行这样的评估，您可以在一小部分示例上暂停运行模型（参见李力宏等人的文章，“点击指标的反事实估计和优化”（https://arxiv.org/abs/1403.1891））。不对随机示例采取行动将使我们能够观察到一个无偏的欺诈交易分布。通过比较模型预测与随机数据的真实结果，我们可以开始估计模型的精度和召回率。
+- en: This approach provides a way to evaluate models but comes at the cost of letting
+    a proportion of fraudulent transactions go through. In many cases, this trade-off
+    can be favorable since it allows for model benchmarking and comparisons. In some
+    cases, such as in medical domains where outputting a random prediction is not
+    acceptable, this approach should not be used.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法提供了一种评估模型的方式，但代价是让一部分欺诈交易通过。在许多情况下，这种权衡是有利的，因为它允许模型的基准测试和比较。在某些情况下，比如在医疗领域，随机预测输出是不可接受的，就不应该采用这种方法。
+- en: In [“CI/CD for ML”](#ci_cd), we’ll cover other strategies to compare models
+    and decide which ones to deploy, but first, let’s cover the other key types of
+    metrics to track.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[“ML的CI/CD”](#ci_cd)中，我们将涵盖其他比较模型并决定部署哪些模型的策略，但首先让我们了解要跟踪的其他关键类型的指标。
+- en: Business Metrics
+  id: totrans-41
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 业务指标
+- en: As we’ve seen throughout this book, the most important metrics are the ones
+    related to product and business goals. They are the yardstick against which we
+    can judge our model’s performance. If all of the other metrics are in the green
+    and the rest of the production system is performing well but users don’t click
+    on search results or use recommendations, then a product is failing by definition.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在整本书中所看到的，与产品和业务目标相关的最重要的指标。它们是我们评判模型性能的标尺。如果所有其他指标都是良好的，而其余的生产系统也表现良好，但用户不点击搜索结果或使用推荐，那么产品在定义上是失败的。
+- en: For this reason, product metrics should be closely monitored. For systems such
+    as search or recommendation systems, this monitoring could track the CTR, the
+    ratio at which people that have seen a model’s recommendation clicked on it.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，应密切监控产品指标。对于诸如搜索或推荐系统之类的系统，此监控可以跟踪点击率（CTR），即看到模型推荐后实际点击它的比率。
+- en: Some applications may benefit from modifications to the product to more easily
+    track product success, similarly to the feedback examples we saw in [“Ask for
+    Feedback”](ch10.html#feedback). We discussed adding a share button, but we could
+    track feedback at a more granular level. If we can have users click on recommendations
+    in order to implement them, we can track whether each recommendation was used
+    and use this data to train a new version of the model. [Figure 11-5](#more_feedback)
+    shows an illustrated comparison between the aggregate approach on the left side
+    and the granular one on the right.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些应用程序可能会从对产品进行修改中受益，以更轻松地追踪产品成功，类似于我们在 [“请求反馈”](ch10.html#feedback) 中看到的反馈示例。我们讨论了添加共享按钮，但我们可以在更细粒度的水平上跟踪反馈。如果我们能够让用户点击推荐内容以实施它们，我们可以跟踪每个建议的使用情况，并使用这些数据训练模型的新版本。[图
+    11-5](#more_feedback) 显示了左侧的整体方法和右侧的细粒度方法的对比图。
+- en: '![Proposing word-level suggestions gives us more opportunities to collect user
+    feedback](assets/bmla_1105.png)'
+  id: totrans-45
+  prefs: []
+  type: TYPE_IMG
+  zh: '![提议词级建议为我们提供了更多收集用户反馈的机会](assets/bmla_1105.png)'
+- en: Figure 11-5\. Proposing word-level suggestions gives us more opportunities to
+    collect user feedback
+  id: totrans-46
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-5\. 提议词级建议为我们提供了更多收集用户反馈的机会
+- en: Since I do not expect the ML Editor prototype to be used frequently enough for
+    the method described to provide a large enough dataset, we will abstain from building
+    it here. If we were building a product we were intending to maintain, collecting
+    such data would allow us to get precise feedback about which recommendations the
+    user found the most useful.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我不希望 ML 编辑器原型频繁使用，以致于描述的方法无法提供足够大的数据集，我们将在此处放弃构建它。如果我们打算维护一个产品，收集这样的数据将使我们能够精确地获取用户对哪些建议最有用的反馈。
+- en: Now that we have discussed reasons and methods to monitor models, let’s cover
+    ways to address any issues detected by monitoring.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经讨论了监控模型的原因和方法，接下来让我们探讨如何处理监控中检测到的任何问题。
+- en: CI/CD for ML
+  id: totrans-49
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: CI/CD 用于机器学习
+- en: CI/CD stands for continuous integration (CI) and continuous delivery (CD). Roughly
+    speaking, CI is the process of letting multiple developers regularly merge their
+    code back into a central codebase, while CD focuses on improving the speed at
+    which new versions of software can be released. Adopting CI/CD practices allows
+    individuals and organizations to quickly iterate and improve on an application,
+    whether they are releasing new features or fixing existing bugs.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CI/CD 指的是持续集成（CI）和持续交付（CD）。粗略来说，CI 是让多个开发者定期将他们的代码合并到一个中心代码库的过程，而 CD 则专注于提高发布新软件版本速度的方法。采用
+    CI/CD 实践使个人和组织能够快速迭代和改进应用程序，不论是发布新功能还是修复现有的 bug。
+- en: CI/CD for ML thus aims to make it easier to deploy new models or update existing
+    ones. Releasing updates quickly is easy; the challenge comes in guaranteeing their
+    quality.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，CI/CD 用于机器学习旨在使部署新模型或更新现有模型变得更加容易。快速发布更新很容易，但挑战在于保证其质量。
+- en: When it comes to ML, we saw that having a test suite is not enough to guarantee
+    that a new model improves upon a previous one. Training a new model and testing
+    that it performs well on held-out data is a good first step, but ultimately, as
+    we saw earlier, there is no substitute for live performance to judge the quality
+    of a model.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在涉及机器学习时，我们看到仅仅拥有一个测试套件并不能保证新模型优于之前的模型。训练一个新模型并测试其在留存数据上的表现是一个良好的第一步，但最终，正如我们之前看到的，没有什么能够取代实时性能来评判模型的质量。
+- en: Before deploying a model to users, teams will often deploy them in what Schelter
+    et al., in their paper, [“On Challenges in Machine Learning Model Management”](https://oreil.ly/zbBjq),
+    refer to as *shadow mode*. This refers to the process of deploying a new model
+    in parallel to an existing one. When running inference, both models’ predictions
+    are computed and stored, but the application only uses the prediction of the existing
+    model.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在将模型部署给用户之前，团队通常会在其论文中所指的“机器学习模型管理挑战”中提到的 *影子模式* 中部署它们。这指的是将新模型与现有模型并行部署的过程。在运行推理时，会计算和存储两个模型的预测结果，但应用程序仅使用现有模型的预测结果。
+- en: By logging the new predicted value and comparing it both to the old version
+    and to ground truth when it is available, engineers can estimate a new model’s
+    performance in a production environment without changing the user experience.
+    This approach also allows to test the infrastructure required to run inference
+    for a new model that may be more complex than the existing one. The only thing
+    shadow mode doesn’t provide is the ability to observe the user’s response to the
+    new model. The only way to do that is to actually deploy it.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过记录新预测值，并在可能时将其与旧版本和地面实况进行比较，工程师可以估计新模型在生产环境中的性能，而不改变用户体验。这种方法还允许测试运行用于运行比现有模型更复杂的新模型所需的基础设施。影子模式唯一无法提供的是观察用户对新模型的响应的能力。唯一的方法是实际部署它。
+- en: Once a model has been tested, it is a candidate for deployment. Deploying a
+    new model comes with the risk of exposing users to a degradation of performance.
+    Mitigating that risk requires some care and is the focus of the field of experimentation.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦模型经过测试，就有可能部署该模型。部署新模型伴随着向用户展示性能下降的风险。减轻这种风险需要一些注意，并且是实验领域的焦点。
+- en: '[Figure 11-6](#ways_evaluate_model) shows a visualization of each of the three
+    approaches we covered here, from the safest one of evaluating a mode on a test
+    set to the most informative and dangerous one of deploying a model live in production.
+    Notice that while shadow mode does require engineering effort in order to be able
+    to run two models for each inference step, it allows for the evaluation of a model
+    to be almost as safe as using a test set and provides almost as much information
+    as running it in production.'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 11-6](#ways_evaluate_model) 显示了我们在此处介绍的三种方法的可视化，从最安全的在测试集上评估模型到最具信息量且最危险的在生产环境中部署模型。请注意，虽然影子模式确实需要工程投入以能够在每个推断步骤中运行两个模型，但它允许评估模型几乎与使用测试集一样安全，并提供几乎与在生产中运行相同数量的信息。'
+- en: '![Ways to evaluate a model, from safest and least accurate to riskiest and
+    most accurate](assets/bmla_1106.png)'
+  id: totrans-57
+  prefs: []
+  type: TYPE_IMG
+  zh: '![评估模型的方式，从最安全和最不准确到最危险和最准确](assets/bmla_1106.png)'
+- en: Figure 11-6\. Ways to evaluate a model, from safest and least accurate to riskiest
+    and most accurate
+  id: totrans-58
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-6\. 评估模型的方式，从最安全和最不准确到最危险和最准确
+- en: Since deploying models in production can be a risky process, engineering teams
+    have developed methods to deploy changes incrementally, starting by showing new
+    results to only a subset of users. We will cover this next.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于在生产中部署模型可能是一个风险的过程，工程团队已经开发了逐步部署更改的方法，从仅向一小部分用户展示新结果开始。我们将在接下来进行介绍。
+- en: A/B Testing and Experimentation
+  id: totrans-60
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: A/B 测试和实验
+- en: In ML, the goal of experimentation is to maximize chances of using the best
+    model, while minimizing the cost of trying out suboptimal models. There are many
+    experimentation approaches, the most popular being A/B testing.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在机器学习中，实验的目标是在尽可能减少试验次优模型的成本的同时，最大化使用最佳模型的机会。有许多实验方法，其中最流行的是 A/B 测试。
+- en: 'The principle behind A/B testing is simple: expose a sample of users to a new
+    model, and the rest to another. This is commonly done by having a larger “control”
+    group being served the current model and a smaller “treatment” group being served
+    a new version that we want to test. Once we have run an experiment for a sufficient
+    amount of time, we compare the results for both groups and choose the better model.'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: A/B 测试的原则很简单：向用户样本展示新模型，其余展示另一个。这通常通过将较大的“控制”组提供当前模型，并将较小的“处理”组提供我们想要测试的新版本来完成。一旦我们运行了足够长时间的实验，我们比较两组的结果，并选择更好的模型。
+- en: In [Figure 11-7](#ab_test), you can see how to randomly sample users from a
+    total population to allocate them to a test set. At inference time, the model
+    used for a given user is determined by their allocated group.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 11-7](#ab_test) 中，您可以看到如何从总体人群中随机抽样用户以分配到测试集。在推断时，用于给定用户的模型由其分配的组确定。
+- en: The idea behind A/B testing is simple, but experimental design concerns such
+    as choosing the control and the treatment group, deciding which amount of time
+    is sufficient, and evaluating which model performs better are all challenging
+    issues.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: A/B 测试背后的理念很简单，但实验设计的问题，例如选择控制组和处理组，决定足够的时间量，以及评估哪个模型表现更好，都是具有挑战性的问题。
+- en: '![An example of an A/B test](assets/bmla_1107.png)'
+  id: totrans-65
+  prefs: []
+  type: TYPE_IMG
+  zh: '![A/B 测试示例](assets/bmla_1107.png)'
+- en: Figure 11-7\. An example of an A/B test
+  id: totrans-66
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-7\. A/B 测试示例
+- en: In addition, A/B testing requires the building of additional infrastructure
+    to support the ability to serve different models to different users. Let’s cover
+    each of these challenges in more detail.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，A/B测试需要构建额外的基础设施，以支持能够向不同用户提供不同模型的能力。让我们更详细地讨论这些挑战。
+- en: Choosing groups and duration
+  id: totrans-68
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 选择组和持续时间
+- en: Deciding which users should be served which model comes with a few requirements.
+    Users in both groups should be as similar as possible so that any observed difference
+    in outcome can be attributed to our model and not to a difference in cohorts.
+    If all users in group A are power users and group B contains only occasional users,
+    the results of an experiments will not be conclusive.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 决定哪些用户应该服务哪些模型有一些要求。两组用户应尽可能相似，以便可以将任何观察到的结果差异归因于我们的模型，而不是归因于队列中的差异。如果A组的所有用户都是核心用户，而B组只包含偶发用户，则实验的结果将不具有决定性。
+- en: 'In addition, the treatment group B should be large enough to draw a statistically
+    meaningful conclusion, but as small as possible to limit exposure to a potentially
+    worse model. The duration of the test presents a similar trade-off: too short
+    and we risk not having enough information, too long and we risk losing users.'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，治疗组B应足够大，以便得出具有统计学意义的结论，但尽可能小，以限制潜在较差模型的曝光。测试的持续时间存在类似的权衡：太短，我们面临信息不足的风险，太长，我们面临失去用户的风险。
+- en: These two constraints are challenging enough, but consider for a minute the
+    case of large companies with hundreds of data scientists who run dozens of A/B
+    tests in parallel. Multiple A/B tests may be testing the same aspect of the pipeline
+    at the same time, making it harder to determine the effect of an individual test
+    accurately. When companies get to this scale, this leads them to building experimentation
+    platforms to handle the complexity. See Airbnb’s ERF, as described in Jonathan
+    Parks’s article, [“Scaling Airbnb’s Experimentation Platform”](https://oreil.ly/VFcxu);
+    Uber’s XP as described in A. Deb et al.’s post, [“Under the Hood of Uber’s Experimentation
+    Platform”](https://eng.uber.com/xp/); or the GitHub repo for Intuit’s open source
+    [Wasabi](https://oreil.ly/txQJ2).
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两个约束已经足够具有挑战性，但请考虑一下拥有数百名数据科学家并行运行数十个A/B测试的大型公司的情况。多个A/B测试可能同时测试管道的同一方面，这使得准确确定单个测试效果更加困难。当公司达到这种规模时，这导致它们构建实验平台以处理复杂性。请参阅Jonathan
+    Parks的文章中描述的Airbnb的ERF，[“Scaling Airbnb’s Experimentation Platform”](https://oreil.ly/VFcxu)；A.
+    Deb等人的文章中描述的Uber的XP，[“Under the Hood of Uber’s Experimentation Platform”](https://eng.uber.com/xp/)；或Intuit开源的Wasabi的GitHub存储库，[Wasabi](https://oreil.ly/txQJ2)。
+- en: Estimating the better variant
+  id: totrans-72
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 估计更好的变体
+- en: Most A/B tests choose a metric they would like to compare between groups such
+    as CTR. Unfortunately, estimating which version performed better is more complex
+    than selecting the group with the highest CTR.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数A/B测试选择他们想在组之间比较的指标，例如CTR。不幸的是，估计哪个版本表现更好比选择具有最高CTR的组更复杂。
+- en: Since we expect there to be natural fluctuations in any metric results, we first
+    need to determine whether results are statistically significant. Since we are
+    estimating a difference between two populations, the most common tests that are
+    used are two-sample hypothesis tests.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们预计任何指标结果都会有自然波动，因此我们首先需要确定结果是否具有统计学意义。由于我们正在估计两个群体之间的差异，因此最常用的测试是双样本假设检验。
+- en: For an experiment to be conclusive, it needs to be run on a sufficient amount
+    of data. The exact quantity depends on the value of the variable we are measuring
+    and the scale of the change we are aiming to detect. For a practical example,
+    see Evan Miller’s [sample size calculator](https://oreil.ly/g4Bs3).
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了得出结论性实验，需要在足够量的数据上运行。确切的数量取决于我们正在测量的变量值和我们试图检测的变化的规模。有关实际示例，请参见Evan Miller的[样本大小计算器](https://oreil.ly/g4Bs3)。
+- en: It is also important to decide on the size of each group and the length of the
+    experiment before running it. If you instead continuously test for significance
+    while an A/B test is ongoing and declare the test successful as soon as you see
+    a significant result, you will be committing a repeated significance testing error.
+    This kind of error consists of severely overestimating the significance of an
+    experiment by opportunistically looking for significance (once again, Evan Miller
+    has a great explanation [here](https://oreil.ly/Ybhmu)).
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是在运行实验之前决定每个组的大小和实验的长度。如果您在进行 A/B 测试时不断测试显著性，并且一旦看到显著结果就宣布测试成功，那么您将犯下重复显著性测试错误。这种错误是通过机会主义地寻找显著性来严重高估实验的显著性（Evan
+    Miller 在这里有一个很好的解释 [here](https://oreil.ly/Ybhmu)）。
+- en: Note
+  id: totrans-77
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: While most experiments focus on comparing the value of a single metric, it is
+    important to also consider other impacts. If the average CTR increases but the
+    number of users who stop using the product doubles, we probably should not consider
+    a model to be better.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然大多数实验专注于比较单一指标的价值，但也重要考虑其他影响。如果平均点击率增加，但停止使用产品的用户数量翻倍，我们可能不应认为该模型更好。
+- en: Similarly, results of A/B tests should take into account results for different
+    segments of users. If the average CTR increases but the CTR for a given segment
+    plummets, it may be better to not deploy the new model.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，A/B 测试的结果应考虑不同用户段的结果。如果平均点击率增加，但某一段的点击率暴跌，也许不应该部署新模型。
+- en: Implementing an experiment requires the ability to assign users to a group,
+    track each user’s assignment, and present different results based on it. This
+    necessitates building additional infrastructure, which we cover next.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实施实验需要能力将用户分配到一个组中，跟踪每个用户的分配，并根据此呈现不同结果。这需要建立额外的基础设施，接下来我们将详细介绍。
+- en: Building the infrastructure
+  id: totrans-81
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 构建基础设施
+- en: Experiments also come with infrastructure requirements. The simplest way to
+    run an A/B test is to store each user’s associated group with the rest of user-related
+    information, such as in a database.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实验还伴随着基础设施需求。运行 A/B 测试的最简单方法是将每个用户关联的组与其他用户相关信息一起存储，例如在数据库中。
+- en: The application can then rely on branching logic that decides which model to
+    run depending on the given field’s value. This simple approach works well for
+    systems where users are logged in but becomes significantly harder if a model
+    is accessible to logged-out users.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序随后可以依赖于分支逻辑，根据给定字段的值决定运行哪个模型。这种简单的方法在用户已登录的系统中运行良好，但如果模型对未登录用户可访问，则变得更加困难。
+- en: This is because experiments usually assume that each group is independent and
+    exposed to only one variant. When serving models to logged out users, it becomes
+    harder to guarantee that a given user was always served the same variant across
+    each session. If most users are exposed to multiple variants, this could invalidate
+    the results of an experiment.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是因为实验通常假设每个组是独立的，并且只暴露给一个变体。当向未登录用户提供模型时，很难保证某个用户在每个会话中始终服务于相同的变体。如果大多数用户接触多个变体，这可能会使实验结果无效。
+- en: Other information to identify users such as browser cookies and IP addresses
+    can be used to identify users. Once again, however, such approaches require building
+    new infrastructure, which may be hard for small, resource-constrained teams.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他信息以识别用户，如浏览器 cookie 和 IP 地址，可用于识别用户。然而，这些方法再次需要建立新的基础设施，这对于小型资源受限的团队可能很困难。
+- en: Other Approaches
+  id: totrans-86
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 其他方法
+- en: A/B testing is a popular experimentation method, but other approaches exist
+    that try to address some of A/B testing’s limitations.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: A/B 测试是一种流行的实验方法，但也存在其他方法试图解决一些 A/B 测试的限制。
+- en: Multiarmed bandits are a more flexible approach that can test variants continually
+    and on more than two alternatives. They dynamically update which model to serve
+    based on how well each option is performing. I’ve illustrated how multiarmed bandits
+    work in [Figure 11-8](#bandits). Bandits continuously keep a tally of how each
+    alternative is performing based on the success of each request they route. Most
+    requests are simply routed to the current best alternative, as shown on the left.
+    A small subset of requests gets routed to a random alternative, as you can see
+    on the right. This allows bandits to update their estimate of which model is the
+    best and detect if a model that is currently not being served is starting to perform
+    better.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 多臂老虎机是一种更灵活的方法，可以持续测试变体并超过两种替代方案。 它们根据每个选项的表现动态更新要提供的模型。 我在[图 11-8](#bandits)中说明了多臂老虎机的工作原理。
+    老虎机不断地记录每个替代方案的表现情况，基于它们路由的每个请求的成功。 大多数请求简单地路由到当前最佳替代方案，如左侧所示。 小部分请求路由到随机替代方案，如右侧所示。
+    这允许老虎机更新它们对哪个模型最好的估计，并检测目前未提供服务的模型是否开始表现更好。
+- en: '![Multi armed bandits in practice](assets/bmla_1108.png)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_IMG
+  zh: '![实践中的多臂老虎机](assets/bmla_1108.png)'
+- en: Figure 11-8\. Multiarmed bandits in practice
+  id: totrans-90
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-8\. 实践中的多臂老虎机
+- en: Contextual multiarmed bandits take this process even further, by learning which
+    model is a better option for each particular user. For more information, I recommend
+    this [overview](https://oreil.ly/K5Jpx) by the Stitch Fix team.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上下文多臂老虎机将这一过程推向更深层次，通过学习每个特定用户更好的模型选项。 如需更多信息，我建议查看Stitch Fix团队的这篇[概述](https://oreil.ly/K5Jpx)。
+- en: Note
+  id: totrans-92
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: While this section covered the usage of experimentation to validate models,
+    companies increasingly use experimentation methods to validate any significant
+    change they make to their applications. This allows them to continuously evaluate
+    which functionality users are finding useful and how new features are performing.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管本节覆盖了使用实验验证模型的方法，但公司越来越多地使用实验方法来验证他们应用程序所做的任何重大更改。 这使他们能够持续评估用户发现有用的功能以及新功能的表现。
+- en: Because experimentation is such a hard and error-prone process, multiple startups
+    have started offering “optimization services” allowing customers to integrate
+    their applications with a hosted experimentation platform to decide which variants
+    perform best. For organizations without a dedicated experimentation team, such
+    solutions may be the easiest way to test new model versions.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于实验是如此艰难且容易出错的过程，多家初创公司已开始提供“优化服务”，允许客户将其应用程序集成到托管的实验平台中，以决定哪些变体表现最佳。 对于没有专门实验团队的组织来说，这些解决方案可能是测试新模型版本的最简单方法。
+- en: Conclusion
+  id: totrans-95
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: Overall, deploying and monitoring models is still a relatively new practice.
+    It is a crucial way to verify that models are producing value but often requires
+    significant efforts both in terms of infrastructure work and careful product design.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总体而言，部署和监控模型仍然是一个相对新的实践。 这是验证模型是否产生价值的关键方法，但通常需要在基础设施工作和仔细的产品设计方面做出重大努力。
+- en: As the field has started to mature, experimentation platforms such as [Optimizely](https://www.optimizely.com/)
+    have emerged to make some of this work easier. Ideally, this should empower builders
+    of ML applications to make them continuously better, for everyone.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着该领域开始成熟，诸如[Optimizely](https://www.optimizely.com/)之类的实验平台已经出现，以简化部分工作。 理想情况下，这应该赋予ML应用程序的构建者持续改进它们的能力，造福所有人。
+- en: Looking back at all the systems described in this book, only a small subset
+    aims to train models. The majority of work involved with building ML products
+    consists of data and engineering work. Despite this fact, most of the data scientists
+    I have mentored found it easier to find resources covering modeling techniques
+    and thus felt unprepared to tackle work outside of this realm. This book is my
+    attempt at helping bridge that gap.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回顾本书描述的所有系统，只有少部分旨在训练模型。 大多数与构建ML产品相关的工作涉及数据和工程工作。 尽管事实如此，我指导过的大多数数据科学家发现更容易找到涵盖建模技术的资源，因此感到没有准备好处理该领域之外的工作。
+    本书是我帮助弥合这一差距的尝试。
+- en: Building an ML application requires a broad set of skills in diverse domains
+    such as statistics, software engineering, and product management. Each part of
+    the process is complex enough to warrant multiple books being written about it.
+    The goal of this book is to provide you with a broad set of tools to help you
+    build such applications and let you decide which topics to explore more deeply
+    by following the recommendations outlined in [“Additional Resources”](preface01.html#oth_books),
+    for example.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构建机器学习应用程序需要广泛的技能，涵盖统计学、软件工程和产品管理等多个领域。该过程的每个部分都足够复杂，需要多本书来详细阐述。本书的目标是为您提供一整套工具，帮助您构建这样的应用程序，并通过[“附加资源”](preface01.html#oth_books)中提出的建议来决定更深入探索哪些主题，例如。
+- en: With that in mind, I hope this book gave you tools to more confidently tackle
+    the majority of the work involved with building ML-powered products. We’ve covered
+    every part of the ML product life cycle, starting by translating a product goal
+    to an ML approach, then finding and curating data and iterating on models, before
+    validating their performance and deploying them.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于此，我希望本书能为您提供工具，使您更有信心地应对构建机器学习驱动产品所涉及的大部分工作。我们涵盖了机器学习产品生命周期的每个环节，从将产品目标转化为机器学习方法开始，然后找到和筛选数据，迭代模型，最后验证其性能并部署它们。
+- en: Whether you’ve read this book cover to cover or dove into specific sections
+    that were most relevant to your work, you should now have the required knowledge
+    to start building your own ML-powered applications. If this book has helped you
+    to build something or if you have any questions or comments about its content,
+    please reach out to me by emailing [mlpoweredapplications@gmail.com](mailto:mlpoweredapplications@gmail.com).
+    I look forward to hearing from you and seeing your ML work.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论您是从头到尾阅读了本书，还是深入研究了与您工作最相关的特定章节，现在您应该具备了开始构建自己的机器学习应用程序所需的知识。如果本书帮助您构建了什么，或者对书中内容有任何问题或意见，请通过电子邮件联系我：[mlpoweredapplications@gmail.com](mailto:mlpoweredapplications@gmail.com)。期待收到您的来信，看到您的机器学习作品。

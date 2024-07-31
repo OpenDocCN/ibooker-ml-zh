@@ -1,0 +1,2105 @@
+- en: Chapter 9\. Continual Learning and Test in Production
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第9章 持续学习和生产环境中的测试
+- en: 'In [Chapter 8](ch08.xhtml#data_distribution_shifts_and_monitoring), we discussed
+    various ways an ML system can fail in production. We focused on one especially
+    thorny problem that has generated much discussion among both researchers and practitioners:
+    data distribution shifts. We also discussed multiple monitoring techniques and
+    tools to detect data distribution shifts.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第8章](ch08.xhtml#data_distribution_shifts_and_monitoring)中，我们讨论了机器学习系统在生产中可能失败的各种方式。我们重点关注了一个尤其棘手的问题，这个问题在研究人员和实践者之间引起了广泛讨论：数据分布的变化。我们还讨论了多种检测数据分布变化的监控技术和工具。
+- en: 'This chapter is a continuation of this discussion: how do we adapt our models
+    to data distribution shifts? The answer is by continually updating our ML models.
+    We’ll start with a discussion on what continual learning is and its challenges—spoiler:
+    continual learning is largely an infrastructural problem. Then we’ll lay out a
+    four-stage plan to make continual learning a reality.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章是讨论这个问题的延续：我们如何使我们的模型适应数据分布的变化？答案是持续更新我们的机器学习模型。我们将从持续学习是什么及其面临的挑战开始讨论 ——
+    结果提示：持续学习主要是基础设施问题。然后，我们将提出一个四阶段计划，使持续学习成为现实。
+- en: 'After you’ve set up your infrastructure to allow you to update your models
+    as frequently as you want, you might want to consider the question that I’ve been
+    asked by almost every single ML engineer I’ve met: “How often should I retrain
+    my models?” This question is the focus of the next section of the book.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你设置好基础架构，可以随意更新模型后，你可能会考虑到一个问题，这个问题几乎每一个我遇到的机器学习工程师都问过我：“我应该多久重新训练我的模型？” 这个问题是本书下一节的重点讨论内容。
+- en: 'If the model is retrained to adapt to the changing environment, evaluating
+    it on a stationary test set isn’t enough. We’ll cover a seemingly terrifying but
+    necessary concept: test in production. This process is a way to test your systems
+    with live data in production to ensure that your updated model indeed works without
+    catastrophic consequences.'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果模型被重新训练以适应不断变化的环境，则仅在静态测试集上评估是不够的。我们将介绍一个看似可怕但却必要的概念：生产环境中的测试。这个过程是在生产中使用实时数据测试系统，以确保更新的模型确实可以正常工作而没有灾难性后果。
+- en: Topics in this chapter and the previous chapter are tightly coupled. Test in
+    production is complementary to monitoring. If monitoring means passively keeping
+    track of the outputs of whatever model is being used, test in production means
+    proactively choosing which model to produce outputs so that we can evaluate it.
+    The goal of both monitoring and test in production is to understand a model’s
+    performance and figure out when to update it. The goal of continual learning is
+    to safely and efficiently automate the update. All of these concepts allow us
+    to design an ML system that is maintainable and adaptable to changing environments.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章和前一章的主题密切相关。在生产环境中的测试与监控是相辅相成的。如果监控意味着被动地跟踪所使用模型的输出，那么在生产环境中的测试意味着积极地选择哪个模型生成输出，以便评估它。监控和生产环境中的测试的目标都是了解模型的性能，并找出更新模型的时机。持续学习的目标是安全且高效地自动化更新。所有这些概念使我们能够设计一个可维护且能够适应不断变化环境的机器学习系统。
+- en: This is the chapter I’m most excited to write about, and I hope that I can get
+    you excited about it too!
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是我最期待写的一章，希望我能让你也对它感到兴奋！
+- en: Continual Learning
+  id: totrans-7
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 持续学习
+- en: When hearing “continual learning,” many people think of the training paradigm
+    where a model updates itself with every incoming sample in production. Very few
+    companies actually do that. First, if your model is a neural network, learning
+    with every incoming sample makes it susceptible to catastrophic forgetting. Catastrophic
+    forgetting refers to the tendency of a neural network to completely and abruptly
+    forget previously learned information upon learning new information.^([1](ch09.xhtml#ch01fn303))
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 听到“持续学习”这个词时，许多人会想到在生产中每个传入样本后模型更新自身的训练范式。实际上很少有公司这样做。首先，如果你的模型是神经网络，那么每个传入样本的学习会使其容易受到灾难性遗忘的影响。灾难性遗忘指的是神经网络在学习新信息时完全和突然地忘记先前学到的信息^([1](ch09.xhtml#ch01fn303))
+- en: Second, it can make training more expensive—most hardware backends today were
+    designed for batch processing, so processing only one sample at a time causes
+    a huge waste of compute power and is unable to exploit data parallelism.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，它可能会使训练变得更昂贵 —— 大多数硬件后端今天都是为批处理而设计的，因此一次处理一个样本会导致计算能力的巨大浪费，并且无法利用数据并行性。
+- en: Companies that employ continual learning in production update their models in
+    micro-batches. For example, they might update the existing model after every 512
+    or 1,024 examples—the optimal number of examples in each micro-batch is task dependent.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产中采用持续学习的公司会使用微批次来更新他们的模型。例如，他们可能在每个 512 或 1,024 个示例之后更新现有模型——每个微批次中的最佳示例数量取决于任务。
+- en: The updated model shouldn’t be deployed until it’s been evaluated. This means
+    that you shouldn’t make changes to the existing model directly. Instead, you create
+    a replica of the existing model and update this replica on new data, and only
+    replace the existing model with the updated replica if the updated replica proves
+    to be better. The existing model is called the champion model, and the updated
+    replica, the challenger. This process is shown in [Figure 9-1](#a_simplification_of_how_continual_learn).
+    This is an oversimplification of the process for the sake of understanding. In
+    reality, a company might have multiple challengers at the same time, and handling
+    the failed challenger is a lot more sophisticated than simply discarding it.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更新后的模型在评估之前不应部署。这意味着您不应直接对现有模型进行更改。相反，您应创建现有模型的副本，并在新数据上更新此副本，只有在更新的副本证明更好时，才将现有模型替换为更新的副本。现有模型称为冠军模型，更新的副本称为挑战者。这个过程在[图 9-1](#a_simplification_of_how_continual_learn)中有所展示。这是为了理解而进行的过度简化。实际上，一家公司可能同时拥有多个挑战者，并且处理失败的挑战者比简单丢弃要复杂得多。
+- en: '![](Images/dmls_0901.png)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0901.png)'
+- en: Figure 9-1\. A simplification of how continual learning might work in production.
+    In reality, the process of handling the failed challenger is a lot more sophisticated
+    than simply discarding it.
+  id: totrans-13
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-1\. 持续学习在生产中可能运作的简化流程。实际上，处理失败的挑战者的过程比简单丢弃要复杂得多。
+- en: Still, the term “continual learning” makes people imagine updating models very
+    frequently, such as every 5 or 10 minutes. Many people argue that most companies
+    don’t need to update their models that frequently because of two reasons. First,
+    they don’t have enough traffic (i.e., enough new data) for that retraining schedule
+    to make sense. Second, their models don’t decay that fast. I agree with them.
+    If changing the retraining schedule from a week to a day gives no return and causes
+    more overhead, there’s no need to do it.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管如此，“持续学习”一词使人们想象需要非常频繁地更新模型，例如每 5 到 10 分钟一次。许多人认为大多数公司不需要如此频繁地更新模型，因为有两个原因。首先，他们没有足够的流量（即足够的新数据），以便重新训练计划具有意义。其次，他们的模型衰减速度不那么快。我同意他们的观点。如果将重新训练计划从一周改为一天不带来回报，并且增加了更多开销，那就没有必要这样做。
+- en: Stateless Retraining Versus Stateful Training
+  id: totrans-15
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 无状态重新训练与有状态训练
+- en: However, continual learning isn’t about the retraining frequency, but the manner
+    in which the model is retrained. Most companies do *stateless retraining*—the
+    model is trained from scratch each time. Continual learning means also allowing
+    *stateful training*—the model continues training on new data.^([2](ch09.xhtml#ch01fn304))
+    Stateful training is also known as fine-tuning or incremental learning. The difference
+    between stateless retraining and stateful training is visualized in [Figure 9-2](#stateless_retraining_versus_stateful_tr).
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，持续学习不是关于重新训练的频率，而是模型重新训练的方式。大多数公司采用*无状态重新训练*，即每次都从头开始训练模型。持续学习还意味着允许*有状态训练*，即模型在新数据上继续训练。^([2](ch09.xhtml#ch01fn304))
+    有状态训练也被称为微调或增量学习。无状态重新训练和有状态训练的区别在[图 9-2](#stateless_retraining_versus_stateful_tr)中有所展示。
+- en: '![](Images/dmls_0902.png)'
+  id: totrans-17
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0902.png)'
+- en: Figure 9-2\. Stateless retraining versus stateful training
+  id: totrans-18
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-2\. 无状态重新训练与有状态训练
+- en: Stateful training allows you to update your model with less data. Training a
+    model from scratch tends to require a lot more data than fine-tuning the same
+    model. For example, if you retrain your model from scratch, you might need to
+    use all data from the last three months. However, if you fine-tune your model
+    from yesterday’s checkpoint, you only need to use data from the last day.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有状态训练允许您使用较少的数据来更新模型。从头开始训练模型通常需要比对同一模型进行微调更多的数据。例如，如果您从头开始重新训练模型，可能需要使用最近三个月的所有数据。但是，如果您从昨天的检查点开始微调模型，您只需要使用最近一天的数据。
+- en: Grubhub found out that stateful training allows their models to converge faster
+    and require much less compute power. Going from daily stateless retraining to
+    daily stateful training reduced their training compute cost 45 times and increased
+    their purchase-through rate by 20%.^([3](ch09.xhtml#ch01fn305))
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Grubhub 发现有状态训练使得他们的模型收敛更快，需要的计算资源大大减少。从每日无状态重新训练到每日有状态训练，使他们的训练计算成本减少了45倍，并且增加了他们的购买转化率20%。^([3](ch09.xhtml#ch01fn305))
+- en: One beautiful property that is often overlooked is that with stateful training,
+    it might be possible to avoid storing data altogether. In the traditional stateless
+    retraining, a data sample might be reused during multiple training iterations
+    of a model, which means that data needs to be stored. This isn’t always possible,
+    especially for data with strict privacy requirements. In the stateful training
+    paradigm, each model update is trained using only the fresh data, so a data sample
+    is used only once for training, as shown in [Figure 9-2](#stateless_retraining_versus_stateful_tr).
+    This means that it’s possible to train your model without having to store data
+    in permanent storage, which helps eliminate many concerns about data privacy.
+    However, this is overlooked because today’s let’s-keep-track-of-everything practice
+    still makes many companies reluctant to throw away data.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 经常被忽视的一个美好特性是，有状态训练可能使得完全不必存储数据成为可能。在传统的无状态重新训练中，数据样本可能会在模型的多次训练迭代中被重复使用，这意味着需要存储数据。这并不总是可行的，特别是对于具有严格隐私要求的数据而言。在有状态训练范式中，每个模型更新仅使用新鲜的数据进行训练，因此数据样本仅用于一次训练，如
+    [图 9-2](#stateless_retraining_versus_stateful_tr) 所示。这意味着可以在训练模型时避免将数据存储在永久存储中，有助于消除许多关于数据隐私的顾虑。然而，这一点经常被忽视，因为当今的“让我们跟踪一切”的做法仍然使得许多公司不愿意放弃数据。
+- en: Stateful training doesn’t mean no training from scratch. The companies that
+    have most successfully used stateful training also occasionally train their model
+    from scratch on a large amount of data to calibrate it. Alternatively, they might
+    also train their model from scratch in parallel with stateful training and then
+    combine both updated models using techniques such as parameter server.^([4](ch09.xhtml#ch01fn306))
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有状态训练并不意味着不再从头开始训练。那些最成功使用有状态训练的公司，也偶尔会在大量数据上从头开始训练他们的模型以进行校准。或者，他们也可能同时使用参数服务器等技术，在有状态训练的同时从头开始训练他们的模型，然后将两个更新后的模型结合起来。^([4](ch09.xhtml#ch01fn306))
+- en: Once your infrastructure is set up to allow both stateless retraining and stateful
+    training, the training frequency is just a knob to twist. You can update your
+    models once an hour, once a day, or whenever a distribution shift is detected.
+    How to find the optimal retraining schedule will be discussed in the section [“How
+    Often to Update Your Models”](#how_often_to_update_your_models).
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你的基础设施设置允许无状态重新训练和有状态训练，训练频率就只是一个可以调整的旋钮。你可以每小时更新你的模型，每天更新一次，或者在检测到分布变化时更新。如何找到最佳的重新训练计划将在
+    [“模型更新频率如何选择”](#how_often_to_update_your_models) 部分讨论。
+- en: Continual learning is about setting up infrastructure in a way that allows you,
+    a data scientist or ML engineer, to update your models whenever it is needed,
+    whether from scratch or fine-tuning, and to deploy this update quickly.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 连续学习是指以一种方式设置基础设施，使得你作为数据科学家或机器学习工程师，可以根据需要更新你的模型，无论是从头开始还是微调，并快速部署这些更新。
+- en: 'You might wonder: stateful training sounds cool, but how does this work if
+    I want to add a new feature or another layer to my model? To answer this, we must
+    differentiate two types of model updates:'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会想：有状态训练听起来很酷，但如果我想向我的模型添加新功能或者另一层，这会如何工作？为了解答这个问题，我们必须区分两种模型更新类型：
+- en: Model iteration
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型迭代
+- en: A new feature is added to an existing model architecture or the model architecture
+    is changed.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 新功能被添加到现有模型架构中或者模型架构被修改。
+- en: Data iteration
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据迭代
+- en: The model architecture and features remain the same, but you refresh this model
+    with new data.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型架构和特征保持不变，但你使用新数据刷新这个模型。
+- en: As of today, stateful training is mostly applied for data iteration, as changing
+    your model architecture or adding a new feature still requires training the resulting
+    model from scratch. There has been research showing that it might be possible
+    to bypass training from scratch for model iteration by using techniques such as
+    [knowledge transfer](https://oreil.ly/lp0GB) (Google, 2015) and [model surgery](https://oreil.ly/SU0F1)
+    (OpenAI, 2019). According to OpenAI, “Surgery transfers trained weights from one
+    network to another after a selection process to determine which sections of the
+    model are unchanged and which must be re-initialized.”^([5](ch09.xhtml#ch01fn307))
+    Several large research labs have experimented with this; however, I’m not aware
+    of any clear results in the industry.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 截至今天，有状态训练主要用于数据迭代，因为改变模型架构或添加新特征仍需要从头训练生成的模型。有研究表明，可以通过诸如[知识迁移](https://oreil.ly/lp0GB)（Google，2015）和[模型手术](https://oreil.ly/SU0F1)（OpenAI，2019）等技术，可能绕过从头训练模型迭代。根据OpenAI，“手术在选择过程确定哪些模型部分保持不变，哪些必须重新初始化后，将训练好的权重从一个网络转移到另一个网络。”^([5](ch09.xhtml#ch01fn307))
+    几个大型研究实验室都进行了尝试；然而，我不知道行业中是否有明确的结果。
+- en: Why Continual Learning?
+  id: totrans-31
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 为什么要持续学习？
+- en: We discussed that continual learning is about setting up infrastructure so that
+    you can update your models and deploy these changes as fast as you want. But why
+    would you need the ability to update your models as fast as you want?
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们讨论了持续学习是关于建立基础设施，使您能够随意更新模型并部署这些变化。但是为什么您需要能够随意更新您的模型呢？
+- en: The first use case of continual learning is to combat data distribution shifts,
+    especially when the shifts happen suddenly. Imagine you’re building a model to
+    determine the prices for a ride-sharing service like Lyft.^([6](ch09.xhtml#ch01fn308))
+    Historically, the ride demand on a Thursday evening in this particular neighborhood
+    is slow, so the model predicts low ride prices, which makes it less appealing
+    for drivers to get on the road. However, on this Thursday evening, there’s a big
+    event in the neighborhood, and suddenly the ride demand surges. If your model
+    can’t respond to this change quickly enough by increasing its price prediction
+    and mobilizing more drivers to that neighborhood, riders will have to wait a long
+    time for a ride, which causes negative user experience. They might even switch
+    to a competitor, which causes you to lose revenue.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续学习的第一个应用场景是应对数据分布的变化，尤其是突然发生的变化。想象一下，您正在构建一个模型来确定像Lyft这样的拼车服务的价格。^([6](ch09.xhtml#ch01fn308))
+    历史上，这个特定社区的周四晚上的拼车需求较慢，所以模型预测低拼车价格，这使得司机不愿上路。然而，这个周四晚上，社区发生了大事件，拼车需求突然激增。如果您的模型不能通过提高价格预测并动员更多司机快速响应这种变化，乘客将不得不等待很长时间才能拼车，这会造成负面用户体验。他们甚至可能转向竞争对手，导致您损失收入。
+- en: Another use case of continual learning is to adapt to rare events. Imagine you
+    work for an ecommerce website like Amazon. Black Friday is an important shopping
+    event that happens only once a year. There’s no way you will be able to gather
+    enough historical data for your model to be able to make accurate predictions
+    on how your customers will behave throughout Black Friday this year. To improve
+    performance, your model should learn throughout the day with fresh data. In 2019,
+    Alibaba acquired Data Artisans, the team leading the development of the stream
+    processing framework Apache Flink, for $103 million so that the team could help
+    them adapt Flink for ML use cases.^([7](ch09.xhtml#ch01fn309)) Their flagship
+    use case was making better recommendations on Singles Day, a shopping occasion
+    in China similar to Black Friday in the US.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续学习的另一个应用场景是适应罕见事件。想象一下，您为像亚马逊这样的电商网站工作。黑色星期五是一年中重要的购物活动。您不可能收集足够的历史数据，使您的模型能够准确预测今年黑色星期五期间客户的行为。为了提高性能，您的模型应该在一天内利用新鲜数据进行学习。2019年，阿里巴巴以1.03亿美元收购了Data
+    Artisans，这支团队领导了流处理框架Apache Flink的开发，以帮助他们适应机器学习用例。^([7](ch09.xhtml#ch01fn309))
+    他们的旗舰用例是在类似于美国黑色星期五的中国购物节“双十一”上提供更好的推荐服务。
+- en: A huge challenge for ML production today that continual learning can help overcome
+    is the *continuous cold start* problem. The cold start problem arises when your
+    model has to make predictions for a new user without any historical data. For
+    example, to recommend to a user what movies they might want to watch next, a recommender
+    system often needs to know what that user has watched before. But if that user
+    is new, you won’t have their watch history and will have to generate them something
+    generic, e.g., the most popular movies on your site right now.^([8](ch09.xhtml#ch01fn310))
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当今机器学习生产中的一个巨大挑战是可以通过持续学习来解决的*连续冷启动*问题。冷启动问题是指当你的模型需要为一个没有任何历史数据的新用户进行预测时所面临的情况。例如，为了向用户推荐他们可能想看的电影，推荐系统通常需要知道该用户以前观看过什么。但如果这个用户是新用户，你将没有他们的观影历史，只能为他们生成一些通用的内容，比如当前你网站上最流行的电影。
+- en: Continuous cold start is a generalization of the cold start problem,^([9](ch09.xhtml#ch01fn311))
+    as it can happen not just with new users but also with existing users. For example,
+    it can happen because an existing user switches from a laptop to a mobile phone,
+    and their behavior on a phone is different from their behavior on a laptop. It
+    can happen because users are not logged in—most news sites don’t require readers
+    to log in to read.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 连续冷启动是冷启动问题的一种泛化形式，因为它不仅可能发生在新用户身上，也可能发生在现有用户身上。例如，当现有用户从笔记本电脑切换到手机时，他们在手机上的行为可能与在笔记本电脑上的行为不同。它也可能发生因为用户未登录——大多数新闻网站不要求读者登录即可阅读。
+- en: It can also happen when a user visits a service so infrequently that whatever
+    historical data the service has about this user is outdated. For example, most
+    people only book hotels and flights a few times a year. Coveo, a company that
+    provides search engine and recommender systems to ecommerce websites, found that
+    it is common for an ecommerce site to have more than 70% of their shoppers visit
+    their site less than three times a year.^([10](ch09.xhtml#ch01fn312))
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当用户访问某项服务的频率非常低，以至于服务对这个用户的所有历史数据都已经过时时，这种情况也可能发生。例如，大多数人一年只预订几次酒店和航班。Coveo是一家为电子商务网站提供搜索引擎和推荐系统的公司，发现电子商务网站有超过70%的购物者一年不到三次访问他们的网站。
+- en: If your model doesn’t adapt quickly enough, it won’t be able to make recommendations
+    relevant to these users until the next time the model is updated. By that time,
+    these users might have already left the service because they don’t find anything
+    relevant to them.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的模型适应不够快，它将无法为这些用户提供相关的推荐，直到下次模型更新为止。到那时，这些用户可能已经因为找不到符合他们需求的内容而离开了服务。
+- en: If we could make our models adapt to each user within their visiting session,
+    the models would be able to make accurate, relevant predictions to users even
+    on their first visit. TikTok, for example, has successfully applied continual
+    learning to adapt their recommender system to each user within minutes. You download
+    the app and, after a few videos, TikTok’s algorithms are able to predict with
+    high accuracy what you want to watch next.^([11](ch09.xhtml#ch01fn313)) I don’t
+    think everyone should try to build something as addictive as TikTok, but it’s
+    proof that continual learning can unlock powerful predictive potential.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们能够使我们的模型在每个用户访问会话中适应，那么模型甚至可以在用户首次访问时对他们做出准确且相关的预测。例如，TikTok已经成功地应用持续学习来在几分钟内适应他们的推荐系统到每个用户身上。你下载应用程序，并在看了几段视频后，TikTok的算法就能够高度准确地预测你接下来想要观看的内容。我不认为每个人都应该尝试构建像TikTok一样令人上瘾的东西，但这证明了持续学习可以释放强大的预测潜力。
+- en: “Why continual learning?” should be rephrased as “why not continual learning?”
+    Continual learning is a superset of batch learning, as it allows you to do everything
+    the traditional batch learning can do. But continual learning also allows you
+    to unlock use cases that batch learning can’t.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “为什么持续学习？”应该重新表述为“为什么不持续学习？” 持续学习是批处理学习的超集，因为它允许你做批处理学习可以做的一切。但持续学习还允许你解锁批处理学习无法解决的用例。
+- en: If continual learning takes the same effort to set up and costs the same to
+    do as batch learning, there’s no reason not to do continual learning. As of writing
+    this book, there are still a lot of challenges in setting up continual learning,
+    as we’ll go deeper into in the following section. However, MLOps tooling for continual
+    learning is maturing, which means, one day not too far in the future, it might
+    be as easy to set up continual learning as batch learning.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果连续学习设置和批处理学习一样需要相同的努力和成本，那么没有理由不进行连续学习。截至撰写本书时，设定连续学习仍面临许多挑战，我们将在下一节更深入地探讨。然而，连续学习的MLOps工具逐渐成熟，这意味着不久的将来，设定连续学习可能和批处理学习一样简单。
+- en: Continual Learning Challenges
+  id: totrans-42
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 连续学习的挑战
+- en: 'Even though continual learning has many use cases and many companies have applied
+    it with great success, continual learning still has many challenges. In this section,
+    we’ll discuss three major challenges: fresh data access, evaluation, and algorithms.'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管连续学习有许多用例，许多公司已经成功应用，但仍面临许多挑战。在本节中，我们将讨论三个主要挑战：获取新鲜数据、评估和算法。
+- en: Fresh data access challenge
+  id: totrans-44
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 新鲜数据获取挑战
+- en: The first challenge is the challenge to get fresh data. If you want to update
+    your model every hour, you need new data every hour. Currently, many companies
+    pull new training data from their data warehouses. The speed at which you can
+    pull data from your data warehouses depends on the speed at which this data is
+    deposited into your data warehouses. The speed can be slow, especially if data
+    comes from multiple sources. An alternative is to allow pull data before it’s
+    deposited into data warehouses, e.g., directly from real-time transports such
+    as Kafka and Kinesis that transport data from applications to data warehouses,^([12](ch09.xhtml#ch01fn314))
+    as shown in [Figure 9-3](#pulling_data_directly_from_real_time_tr).
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个挑战是获取新鲜数据的挑战。如果您希望每小时更新您的模型，您就需要每小时获取新数据。目前，许多公司从其数据仓库中提取新的训练数据。您可以从多个来源获取数据的速度取决于这些数据被存入数据仓库的速度。数据的获取速度可能较慢，特别是如果数据来自多个源头。另一种选择是允许从数据仓库存入之前拉取数据，例如，直接从Kafka和Kinesis等实时传输工具获取数据，这些工具将数据从应用程序传输到数据仓库^([12](ch09.xhtml#ch01fn314))，如[图 9-3](#pulling_data_directly_from_real_time_tr)所示。
+- en: '![](Images/dmls_0903.png)'
+  id: totrans-46
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0903.png)'
+- en: Figure 9-3\. Pulling data directly from real-time transports, before it’s deposited
+    into data warehouses, can allow you to access fresher data
+  id: totrans-47
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-3\. 直接从实时传输工具中获取数据，在数据存入数据仓库之前，可以让您访问到更新的数据。
+- en: Being able to pull fresh data isn’t enough. If your model needs labeled data
+    to update, as most models today do, this data will need to be labeled as well.
+    In many applications, the speed at which a model can be updated is bottlenecked
+    by the speed at which data is labeled.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 能够获取新鲜数据还不够。如果您的模型需要标记数据来进行更新，正如大多数模型今天所需的那样，那么这些数据也需要进行标记。在许多应用中，模型更新的速度往往受限于数据标记的速度。
+- en: The best candidates for continual learning are tasks where you can get natural
+    labels with short feedback loops. Examples of these tasks are dynamic pricing
+    (based on estimated demand and availability), estimating time of arrival, stock
+    price prediction, ads click-through prediction, and recommender systems for online
+    content like tweets, songs, short videos, articles, etc.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 连续学习的最佳候选任务是那些能够通过短反馈周期获得自然标签的任务。这些任务的例子包括动态定价（基于估计的需求和可用性）、预计到达时间、股票价格预测、广告点击率预测以及推荐系统，例如推特、歌曲、短视频、文章等的在线内容。
+- en: However, these natural labels are usually not generated as labels, but rather
+    as behavioral activities that need to be extracted into labels. Let’s walk through
+    an example to make this clear. If you run an ecommerce website, your application
+    might register that at 10:33 p.m., user A clicks on the product with the ID of
+    32345\. Your system needs to look back into the logs to see if this product ID
+    was ever recommended to this user, and if yes, then what query prompted this recommendation,
+    so that your system can match this query to this recommendation and label this
+    recommendation as a good recommendation, as shown in [Figure 9-4](#a_simplification_of_the_process_of_extr).
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这些自然标签通常不是作为标签生成的，而是作为需要从行为活动中提取成标签的行为活动。让我们通过一个例子来澄清这一点。如果你经营一个电子商务网站，你的应用程序可能会记录到，用户A在晚上10:33点击了ID为32345的产品。你的系统需要回顾日志，看看是否曾向此用户推荐过这个产品ID，如果是，则需要查看是哪个查询促使了此推荐，以便你的系统能够将此查询与此推荐匹配并标记此推荐为良好推荐，正如[图9-4](#a_simplification_of_the_process_of_extr)所示。
+- en: '![](Images/dmls_0904.png)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0904.png)'
+- en: Figure 9-4\. A simplification of the process of extracting labels from user
+    feedback
+  id: totrans-52
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-4。从用户反馈中提取标签过程的简化版本
+- en: 'The process of looking back into the logs to extract labels is called label
+    computation. It can be quite costly if the number of logs is large. Label computation
+    can be done with batch processing: e.g., waiting for logs to be deposited into
+    data warehouses first before running a batch job to extract all labels from logs
+    at once. However, as discussed previously, this means that we’d need to wait for
+    data to be deposited first, then wait for the next batch job to run. A much faster
+    approach would be to leverage stream processing to extract labels from the real-time
+    transports directly.^([13](ch09.xhtml#ch01fn315))'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回顾日志以提取标签的过程称为标签计算。如果日志数量庞大，这将会非常昂贵。标签计算可以通过批处理来完成：例如，先等待日志存入数据仓库，然后再运行批处理作业一次性从日志中提取所有标签。然而，正如前面讨论的那样，这意味着我们需要先等待数据存入，然后再等待下一个批处理作业运行。一个更快的方法是利用流处理直接从实时传输中提取标签^[13](ch09.xhtml#ch01fn315)。
+- en: If your model’s speed iteration is bottlenecked by labeling speed, it’s also
+    possible to speed up the labeling process by leveraging programmatic labeling
+    tools like Snorkel to generate fast labels with minimal human intervention. It
+    might also be possible to leverage crowdsourced labels to quickly annotate fresh
+    data.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的模型速度迭代受到标注速度的瓶颈影响，通过利用像Snorkel这样的程序化标注工具来加速标注过程是可行的，以实现快速生成标签，减少人工干预。也可以利用众包标签迅速注释新鲜数据。
+- en: Given that tooling around streaming is still nascent, architecting an efficient
+    streaming-first infrastructure for accessing fresh data and extracting fast labels
+    from real-time transports can be engineering-intensive and costly. The good news
+    is that tooling around streaming is growing fast. Confluent, the platform built
+    on top of Kafka, is a $16 billion company as of October 2021\. In late 2020, Snowflake
+    started a team focusing on streaming.^([14](ch09.xhtml#ch01fn316)) As of September
+    2021, Materialize has raised $100 million to develop a streaming SQL database.^([15](ch09.xhtml#ch01fn317))
+    As tooling around streaming matures, it’ll be much easier and cheaper for companies
+    to develop a streaming-first infrastructure for ML.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到流处理工具仍处于初期阶段，为了从实时传输中访问新鲜数据并快速提取标签，构建高效的流优先基础设施可能需要大量工程投入和成本。好消息是，围绕流处理的工具正快速发展。作为2021年10月的消息，建立在Kafka之上的平台Confluent公司估值已达160亿美元。到2020年底，Snowflake成立了一个专注于流处理的团队^[14](ch09.xhtml#ch01fn316)。截至2021年9月，Materialize已筹集了1亿美元用于开发流式SQL数据库^[15](ch09.xhtml#ch01fn317)。随着流处理工具的成熟，企业开发面向机器学习的流优先基础设施将更加简单和经济。
+- en: Evaluation challenge
+  id: totrans-56
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 评估挑战
+- en: The biggest challenge of continual learning isn’t in writing a function to continually
+    update your model—you can do that by writing a script! The biggest challenge is
+    in making sure that this update is good enough to be deployed. In this book, we’ve
+    discussed how ML systems make catastrophic failures in production, from millions
+    of minorities being unjustly denied loans, to drivers who trust autopilot too
+    much being involved in fatal crashes.^([16](ch09.xhtml#ch01fn318))
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续学习的最大挑战不在于编写函数以持续更新模型——你可以通过编写脚本来实现这一点！最大的挑战在于确保此更新足够好以进行部署。在本书中，我们已经讨论了机器学习系统在生产中出现灾难性失败的情况，从数百万少数民族被不公正拒绝贷款，到过度信任自动驾驶的司机导致致命事故^[16](ch09.xhtml#ch01fn318)。
+- en: The risks for catastrophic failures amplify with continual learning. First,
+    the more frequently you update your models, the more opportunities there are for
+    updates to fail.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着持续学习的风险增加，灾难性故障的风险也在增加。首先，您更新模型的频率越高，更新失败的机会就越多。
+- en: Second, continual learning makes your models more susceptible to coordinated
+    manipulation and adversarial attack. Because your models learn online from real-world
+    data, it makes it easier for users to input malicious data to trick models into
+    learning wrong things. In 2016, Microsoft released Tay, a chatbot capable of learning
+    through “casual and playful conversation” on Twitter. As soon as Tay launched,
+    trolls started tweeting the bot racist and misogynist remarks. The bot soon began
+    to post inflammatory and offensive tweets, causing Microsoft to shut down the
+    bot 16 hours after its launch.^([17](ch09.xhtml#ch01fn319))
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，持续学习使您的模型更容易受到协调操纵和对抗攻击的影响。由于您的模型在线学习真实世界数据，用户可以轻易输入恶意数据来欺骗模型学习错误内容。2016年，微软发布了Tay，一个能够通过Twitter上的“随意和俏皮对话”进行学习的聊天机器人。Tay一推出，恶意用户开始向机器人发送种族主义和女性歧视言论。很快，机器人开始发布煽动性和攻击性的推文，导致微软在其发布仅16小时后关闭了该机器人。^([17](ch09.xhtml#ch01fn319))
+- en: To avoid similar or worse incidents, it’s crucial to thoroughly test each of
+    your model updates to ensure its performance and safety before deploying the updates
+    to a wider audience. We already discussed model offline evaluation in [Chapter
+    6](ch06.xhtml#model_offline_evaluation), and will discuss online evaluation (test
+    in production) in this chapter.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了避免类似或更糟的事件发生，非常重要的是在将更新部署给更广泛的受众之前，彻底测试每个模型更新的性能和安全性。我们已经在[第6章](ch06.xhtml#model_offline_evaluation)中讨论了模型的离线评估，并将在本章讨论在线评估（在生产中测试）。
+- en: When designing the evaluation pipeline for continual learning, keep in mind
+    that evaluation takes time, which can be another bottleneck for model update frequency.
+    For example, a major online payment company I worked with has an ML system to
+    detect fraudulent transactions.^([18](ch09.xhtml#ch01fn320)) The fraud patterns
+    change quickly, so they’d like to update their system quickly to adapt to the
+    changing patterns. They can’t deploy the new model before it’s been A/B tested
+    against the current model. However, due to the imbalanced nature of the task—most
+    transactions aren’t fraud—it takes them approximately two weeks to see enough
+    fraud transactions to be able to accurately assess which model is better.^([19](ch09.xhtml#ch01fn321))
+    Therefore, they can only update their system every two weeks.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在设计持续学习的评估管道时，请记住评估需要时间，这可能成为模型更新频率的另一个瓶颈。例如，我曾与一家主要在线支付公司合作，他们拥有一个ML系统来检测欺诈交易。^([18](ch09.xhtml#ch01fn320))
+    欺诈模式变化迅速，因此他们希望快速更新系统以适应变化的模式。但是，在进行新模型与当前模型的A/B测试之前，由于任务的不平衡性——大多数交易并非欺诈交易——他们需要大约两周时间才能看到足够多的欺诈交易，以准确评估哪个模型更好。^([19](ch09.xhtml#ch01fn321))
+    因此，他们只能每两周更新一次系统。
+- en: Algorithm challenge
+  id: totrans-62
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 算法挑战
+- en: Compared to the fresh data challenge and the evaluation, this is a “softer”
+    challenge as it only affects certain algorithms and certain training frequencies.
+    To be precise, it only affects matrix-based and tree-based models that want to
+    be updated very fast (e.g., hourly).
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与新鲜数据挑战和评估相比，这是一个“更轻”的挑战，因为它只影响特定算法和特定的训练频率。准确地说，它只影响希望非常快速更新的基于矩阵和基于树的模型（例如每小时更新）。
+- en: 'To illustrate this point, consider two different models: a neural network and
+    a matrix-based model, such as a collaborative filtering model. The collaborative
+    filtering model uses a user-item matrix and a dimension reduction technique.'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了阐明这一点，考虑两种不同的模型：神经网络和基于矩阵的模型，比如协同过滤模型。协同过滤模型使用用户-物品矩阵和维度缩减技术。
+- en: You can update the neural network model with a data batch of any size. You can
+    even perform the update step with just one data sample. However, if you want to
+    update the collaborative filtering model, you first need to use the entire dataset
+    to build the user-item matrix before performing dimensionality reduction on it.
+    Of course, you can apply dimensionality reduction to your matrix each time you
+    update the matrix with a new data sample, but if your matrix is large, the dimensionality
+    reduction step would be too slow and expensive to perform frequently. Therefore,
+    this model is less suitable for learning with a partial dataset than the preceding
+    neural network model.^([20](ch09.xhtml#ch01fn322))
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用任意大小的数据批次更新神经网络模型。您甚至可以仅使用一个数据样本执行更新步骤。但是，如果要更新协同过滤模型，则首先需要使用整个数据集构建用户-物品矩阵，然后对其执行降维。当然，您可以在每次使用新数据样本更新矩阵时对其应用降维，但是如果矩阵很大，则频繁执行降维步骤将会过于缓慢和昂贵。因此，这种模型相比前述的神经网络模型不太适合使用部分数据集进行学习[^20]。
+- en: It’s much easier to adapt models like neural networks than matrix-based and
+    tree-based models to the continual learning paradigm. However, there have been
+    algorithms to create tree-based models that can learn from incremental amounts
+    of data, most notably Hoeffding Tree and its variants Hoeffding Window Tree and
+    Hoeffding Adaptive Tree,^([21](ch09.xhtml#ch01fn323)) but their uses aren’t yet
+    widespread.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 适应持续学习范式的模型（如神经网络）比基于矩阵和基于树的模型更容易。然而，已经有算法可以创建可以从增量数据中学习的基于树的模型，最著名的是Hoeffding
+    Tree及其变种Hoeffding Window Tree和Hoeffding Adaptive Tree[^21]，但它们的使用尚不普遍。
+- en: Not only does the learning algorithm need to work with partial datasets, but
+    the feature extract code has to as well. We discussed in the section [“Scaling”](ch05.xhtml#scaling)
+    that it’s often necessary to scale your features using statistics such as the
+    min, max, median, and variance. To compute these statistics for a dataset, you
+    often need to do a pass over the entire dataset. When your model can only see
+    a small subset of data at a time, in theory, you can compute these statistics
+    for each subset of data. However, this means that these statistics will fluctuate
+    a lot between different subsets. The statistics computed from one subset might
+    differ wildly from the next subset, making it difficult for the model trained
+    on one subset to generalize to the next subset.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 学习算法不仅需要处理部分数据集，特征提取代码也需要如此。我们在“缩放”[^scaling]部分讨论了通常需要使用最小值、最大值、中位数和方差等统计数据对特征进行缩放。要为数据集计算这些统计数据，通常需要对整个数据集进行一次遍历。当模型一次只能看到小的数据子集时，理论上可以为每个数据子集计算这些统计数据。然而，这意味着这些统计数据在不同子集之间会有很大波动。从一个子集计算的统计数据可能会与下一个子集大相径庭，使得训练在一个子集上的模型难以推广到下一个子集。
+- en: To keep these statistics stable across different subsets, you might want to
+    compute these statistics online. Instead of using the mean or variance from all
+    your data at once, you compute or approximate these statistics incrementally as
+    you see new data, such as the algorithms outlined in “Optimal Quantile Approximation
+    in Streams.”^([22](ch09.xhtml#ch01fn324)) Popular frameworks today offer some
+    capacity for computing running statistics—for example, sklearn’s StandardScaler
+    has a `partial_fit` that allows a feature scaler to be used with running statistics—but
+    the built-in methods are slow and don’t support a wide range of running statistics.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要保持这些统计数据在不同子集之间的稳定性，您可能希望在线计算这些统计数据。不要一次性使用所有数据的均值或方差，而是在看到新数据时逐步计算或近似这些统计数据，例如“流数据中的最优分位数近似算法”[^22]中所述的算法。当今流行的框架提供了一些计算运行统计的功能，例如sklearn的StandardScaler具有`partial_fit`，允许使用运行统计的特征缩放器，但内置方法速度慢，不支持广泛的运行统计。
+- en: Four Stages of Continual Learning
+  id: totrans-69
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 持续学习的四个阶段
+- en: We’ve discussed what continual learning is, why continual learning matters,
+    and the challenges of continual learning. Next, we’ll discuss how to overcome
+    these challenges and make continual learning happen. As of the writing of this
+    book, continual learning isn’t something that companies start out with. The move
+    toward continual learning happens in four stages, as outlined next. We’ll go over
+    what happens in each stage as well as the requirements necessary to move from
+    a previous stage to this stage.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经讨论了持续学习的含义，为何持续学习如此重要，以及持续学习面临的挑战。接下来，我们将讨论如何克服这些挑战，使持续学习成为可能。截至本书撰写时，持续学习并非公司初始就能采取的策略。向持续学习的转变发生在四个阶段，如下所述。我们将详细介绍每个阶段的发生情况以及从前一个阶段迈向当前阶段所需的条件。
+- en: 'Stage 1: Manual, stateless retraining'
+  id: totrans-71
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 第1阶段：手动、无状态重新训练
+- en: 'In the beginning, the ML team often focuses on developing ML models to solve
+    as many business problems as possible. For example, if your company is an ecommerce
+    website, you might develop four models in the following succession:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在初期，机器学习团队经常专注于开发ML模型来解决尽可能多的业务问题。例如，如果你的公司是一个电子商务网站，你可能会按以下顺序开发四个模型：
+- en: A model to detect fraudulent transactions
+  id: totrans-73
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 检测欺诈交易的模型
+- en: A model to recommend relevant products to users
+  id: totrans-74
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 推荐用户相关产品的模型
+- en: A model to predict whether a seller is abusing a system
+  id: totrans-75
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 预测卖家是否滥用系统的模型
+- en: A model to predict how long it will take to ship an order
+  id: totrans-76
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 预测订单发货时间的模型
+- en: 'Because your team is focusing on developing new models, updating existing models
+    takes a backseat. You update an existing model only when the following two conditions
+    are met: the model’s performance has degraded to the point that it’s doing more
+    harm than good, and your team has time to update it. Some of your models are being
+    updated once every six months. Some are being updated once a quarter. Some have
+    been out in the wild for a year and haven’t been updated at all.'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为你的团队专注于开发新模型，更新现有模型暂时放在次要位置。只有当以下两个条件同时满足时，你才会更新现有模型：模型的性能下降到对系统造成更多害处而非益处的地步，并且你的团队有时间进行更新。你的一些模型每六个月更新一次。一些模型每个季度更新一次。还有一些模型已经在野外运行了一年，却从未被更新过。
+- en: The process of updating a model is manual and ad hoc. Someone, usually a data
+    engineer, has to query the data warehouse for new data. Someone else cleans this
+    new data, extracts features from it, retrains that model from scratch on both
+    the old and new data, and then exports the updated model into a binary format.
+    Then someone else takes that binary format and deploys the updated model. Oftentimes,
+    the code encapsulating data, features, and model logic was changed during the
+    retraining process but these changes failed to be replicated to production, causing
+    bugs that are hard to track down.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更新模型的过程是手动的和临时的。通常是一个数据工程师，需要从数据仓库查询新数据。然后有人清洗这些新数据，提取特征，用旧数据和新数据重新训练模型，然后将更新后的模型导出为二进制格式。接下来，有人将该二进制格式部署为更新后的模型。通常情况下，在重新训练过程中封装数据、特征和模型逻辑的代码会发生变化，但这些变化未能在生产中复制，导致难以追踪的错误。
+- en: If this process sounds painfully familiar to you, you’re not alone. A vast majority
+    of companies outside the tech industry—e.g., any company that adopted ML less
+    than three years ago and doesn’t have an ML platform team—are in this stage.^([23](ch09.xhtml#ch01fn325))
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果这个过程听起来让你痛苦不堪，你并不孤单。绝大多数非科技行业的公司——例如，任何在不到三年前开始采用机器学习且没有机器学习平台团队的公司——都处于这个阶段^([23](ch09.xhtml#ch01fn325))。
+- en: 'Stage 2: Automated retraining'
+  id: totrans-80
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 第2阶段：自动化重新训练
+- en: After a few years, your team has managed to deploy models to solve most of the
+    obvious problems. You have anywhere between 5 and 10 models in production. Your
+    priority is no longer to develop new models, but to maintain and improve existing
+    models. The ad hoc, manual process of updating models mentioned from the previous
+    stage has grown into a pain point too big to be ignored. Your team decides to
+    write a script to automatically execute all the retraining steps. This script
+    is then run periodically using a batch process such as Spark.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 几年后，你的团队设法将模型部署解决了大多数明显问题。你的生产环境中有5到10个模型。你的优先任务不再是开发新模型，而是维护和改进现有模型。从前一个阶段提到的临时手动更新模型的过程已经发展成为无法忽视的痛点。你的团队决定编写一个脚本，通过类似Spark的批处理定期执行所有的重新训练步骤。
+- en: Most companies with somewhat mature ML infrastructure are in this stage. Some
+    sophisticated companies run experiments to determine the optimal retraining frequency.
+    However, for most companies in this stage, the retraining frequency is set based
+    on gut feeling—e.g., “once a day seems about right” or “let’s kick off the retraining
+    process each night when we have idle compute.”
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数具有较为成熟ML基础设施的公司处于这个阶段。一些复杂的公司进行实验以确定最佳的重新训练频率。然而，对于大多数处于这个阶段的公司来说，重新训练频率是基于直觉设定的，例如，“每天一次看起来差不多合适”或“让我们每晚在计算空闲时启动重新训练过程”。
+- en: 'When creating scripts to automate the retraining process for your system, you
+    need to take into account that different models in your system might require different
+    retraining schedules. For example, consider a recommender system that consists
+    of two models: one model to generate embeddings for all products, and another
+    model to rank the relevance of each product given a query. The embedding model
+    might need to be retrained a lot less frequently than the ranking model. Because
+    products’ characteristics don’t change that often, you might be able to get away
+    with retraining your embeddings once a week,^([24](ch09.xhtml#ch01fn326)) whereas
+    your ranking models might need to be retrained once a day.'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在创建用于自动化系统重新训练过程的脚本时，您需要考虑到您系统中的不同模型可能需要不同的重新训练计划。例如，考虑一个推荐系统，包括两个模型：一个模型用于为所有产品生成嵌入，另一个模型用于根据查询排名每个产品的相关性。嵌入模型可能需要比排名模型少得多地重新训练。因为产品的特征不经常变化，您可能每周重新训练一次嵌入模型[^24]，而排名模型可能需要每天重新训练一次。
+- en: The automating script might get even more complicated if there are dependencies
+    among your models. For example, because the ranking model depends on the embeddings,
+    when the embeddings change, the ranking model should be updated too.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的模型之间存在依赖关系，自动化脚本可能会变得更加复杂。例如，由于排名模型依赖于嵌入，当嵌入发生变化时，排名模型也应进行更新。
+- en: Requirements
+  id: totrans-85
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 需求
+- en: 'If your company has ML models in production, it’s likely that your company
+    already has most of the infrastructure pieces needed for automated retraining.
+    The feasibility of this stage revolves around the feasibility of writing a script
+    to automate your workflow and configure your infrastructure to automatically:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的公司在生产中使用ML模型，那么您的公司很可能已经拥有大多数自动化重新训练所需的基础设施组件。此阶段的可行性取决于编写脚本自动化工作流程并配置基础设施以自动执行以下操作是否可行：
+- en: Pull data.
+  id: totrans-87
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 拉取数据。
+- en: Downsample or upsample this data if necessary.
+  id: totrans-88
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 必要时对数据进行下采样或上采样。
+- en: Extract features.
+  id: totrans-89
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 提取特征。
+- en: Process and/or annotate labels to create training data.
+  id: totrans-90
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 处理和/或注释标签以创建训练数据。
+- en: Kick off the training process.
+  id: totrans-91
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 启动训练过程。
+- en: Evaluate the newly trained model.
+  id: totrans-92
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 评估新训练的模型。
+- en: Deploy it.
+  id: totrans-93
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 部署它。
+- en: 'How long it will take to write this script depends on many factors, including
+    the script writer’s competency. However, in general, the three major factors that
+    will affect the feasibility of this script are: scheduler, data, and model store.'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 编写此脚本所需的时间取决于许多因素，包括脚本编写者的能力。然而，总体而言，影响此脚本可行性的三个主要因素是调度器、数据和模型存储。
+- en: A scheduler is basically a tool that handles task scheduling, which we’ll cover
+    in the section [“Cron, Schedulers, and Orchestrators”](ch10.xhtml#croncomma_schedulerscomma_and_orchestra).
+    If you don’t already have a scheduler, you’ll need time to set up one. However,
+    if you already have a scheduler such as Airflow or Argo, wiring the scripts together
+    shouldn’t be that hard.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调度器基本上是处理任务调度的工具，我们将在[“Cron, Schedulers, and Orchestrators”](ch10.xhtml#croncomma_schedulerscomma_and_orchestra)部分进行介绍。如果您尚未拥有调度器，您将需要时间来设置一个。但是，如果您已经拥有像Airflow或Argo这样的调度器，将脚本连接在一起不应该那么难。
+- en: The second factor is the availability and accessibility of your data. Do you
+    need to gather data yourself into your data warehouse? Will you have to join data
+    from multiple organizations? Do you need to extract a lot of features from scratch?
+    Will you also need to label your data? The more questions you answer yes to, the
+    more time it will take to set up this script. Stefan Krawczyk, ML/data platform
+    manager at Stitch Fix, commented that he suspects most people’s time might be
+    spent here.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个因素是数据的可用性和可访问性。您是否需要将数据自行收集到数据仓库？您是否需要从多个组织中联合数据？您是否需要从头开始提取许多特征？您是否还需要为数据标记？如果您对这些问题的答案是肯定的越多，设置此脚本所需的时间就越长。Stefan
+    Krawczyk，在Stitch Fix的ML/data平台经理，评论说他怀疑大多数人的时间可能会在这里花费。
+- en: The third factor you’ll need is a model store to automatically version and store
+    all the artifacts needed to reproduce a model. The simplest model store is probably
+    just an S3 bucket that stores serialized blobs of models in some structured manner.
+    However, blob storage like S3 is neither very good at versioning artifacts nor
+    human-readable. You might need a more mature model store like Amazon SageMaker
+    (managed service) and Databricks’ MLflow (open source). We’ll go into detail on
+    what a model store is and evaluate different model stores in the section [“Model
+    Store”](ch10.xhtml#model_store).
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将需要的第三个因素是一个模型存储库，用于自动版本控制和存储所有重现模型所需的工件。最简单的模型存储库可能只是一个 S3 存储桶，以某种结构化的方式存储模型的序列化数据块。然而，像
+    S3 这样的数据块存储既不擅长版本控制工件，也不易于人类阅读。你可能需要更成熟的模型存储库，比如亚马逊 SageMaker（托管服务）和 Databricks
+    的 MLflow（开源）。我们将详细讨论模型存储库是什么，并在“模型存储”章节中评估不同的模型存储库。
+- en: Feature Reuse (Log and Wait)
+  id: totrans-98
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 特征重用（记录并等待）
+- en: When creating training data from new data to update your model, remember that
+    the new data has already gone through the prediction service. This prediction
+    service has already extracted features from this new data to input into models
+    for predictions. Some companies reuse these extracted features for model retraining,
+    which both saves computation and allows for consistency between prediction and
+    training. This approach is known as “log and wait.” It’s a classic approach to
+    reduce the train-serving skew discussed in [Chapter 8](ch08.xhtml#data_distribution_shifts_and_monitoring)
+    (see the section [“Production data differing from training data”](ch08.xhtml#production_data_differing_from_training)).
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当从新数据中创建训练数据以更新您的模型时，请记住，新数据已经通过了预测服务。这个预测服务已经从新数据中提取了特征，以输入模型进行预测。一些公司会重复使用这些提取的特征来进行模型重新训练，这既节省了计算资源，也确保了预测与训练之间的一致性。这种方法被称为“记录并等待”。这是减少“训练服务偏差”的经典方法，在第
+    8 章（请参阅“生产数据与训练数据不一致”章节）中讨论过。
+- en: Log and wait isn’t yet a popular approach, but it’s getting more popular. Faire
+    has a [great blog post](https://oreil.ly/AxFnJ) discussing the pros and cons of
+    their “log and wait” approach.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “记录并等待”尚未成为流行的方法，但它正在变得越来越受欢迎。Faire 在其[优秀的博客文章](https://oreil.ly/AxFnJ)中讨论了他们的“记录并等待”方法的优缺点。
+- en: 'Stage 3: Automated, stateful training'
+  id: totrans-101
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 第三阶段：自动化、有状态训练
+- en: In stage 2, each time you retrain your model, you train it from scratch (stateless
+    retraining). It makes your retraining costly, especially for retraining with a
+    higher frequency. You read the section [“Stateless Retraining Versus Stateful
+    Training”](#stateless_retraining_versus_stateful_t) and decide that you want to
+    do stateful training—why train on data from the last three months every day when
+    you can continue training using only data from the last day?
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第二阶段，每次重新训练模型时，你都是从头开始训练（无状态重新训练）。这使得你的重新训练成本高昂，特别是对于频繁重新训练的情况。你阅读了“无状态重新训练与有状态训练”的章节，并决定你想要进行有状态训练——为什么每天都要用过去三个月的数据重新训练，而不是只用最近一天的数据继续训练呢？
+- en: So in this stage, you reconfigure your automatic updating script so that, when
+    the model update is kicked off, it first locates the previous checkpoint and loads
+    it into memory before continuing training on this checkpoint.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，在这个阶段，你重新配置你的自动更新脚本，使得当模型更新启动时，它首先定位到先前的检查点并加载到内存中，然后继续在这个检查点上进行训练。
+- en: Requirements
+  id: totrans-104
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 要求
+- en: 'The main thing you need in this stage is a change in the mindset: retraining
+    from scratch is such a norm—many companies are so used to data scientists handing
+    off a model to engineers to deploy from scratch each time—that many companies
+    don’t think about setting up their infrastructure to enable stateful training.'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个阶段，你最需要的是心态的改变：从头开始重新训练是一个如此常见的做法——许多公司习惯于数据科学家将模型交给工程师每次都从头开始部署——以至于许多公司没有考虑建立基础设施来实现有状态训练。
+- en: Once you’re committed to stateful training, reconfiguring the updating script
+    is straightforward. The main thing you need at this stage is a way to track your
+    data and model lineage. Imagine you first upload model version 1.0\. This model
+    is updated with new data to create model version 1.1, and so on to create model
+    1.2\. Then another model is uploaded and called model version 2.0\. This model
+    is updated with new data to create model version 2.1\. After a while, you might
+    have model version 3.32, model version 2.11, model version 1.64\. You might want
+    to know how these models evolve over time, which model was used as its base model,
+    and which data was used to update it so that you can reproduce and debug it. As
+    far as I know, no existing model store has this model lineage capacity, so you’ll
+    likely have to build the solution in-house.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你决定进行有状态训练，重新配置更新脚本就很简单了。在这个阶段，你主要需要一种方式来跟踪你的数据和模型衍生。想象一下，你首先上传模型版本1.0。这个模型通过新数据更新为模型版本1.1，依此类推，直到创建模型1.2。然后上传另一个模型称为模型版本2.0。这个模型通过新数据更新为模型版本2.1。一段时间后，你可能有模型版本3.32、模型版本2.11、模型版本1.64。你可能想知道这些模型随时间如何演变，哪个模型作为基础模型使用，以及用于更新它的数据，以便能够重现和调试它。据我所知，目前没有现有的模型存储具备这种模型衍生能力，因此你可能需要自行构建解决方案。
+- en: If you want to pull fresh data from the real-time transports instead of from
+    data warehouses, as discussed in the section [“Fresh data access challenge”](#fresh_data_access_challenge),
+    and your streaming infrastructure isn’t mature enough, you might need to revamp
+    your streaming pipeline.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想从实时传输而不是数据仓库中获取新鲜数据，如在[“新鲜数据访问挑战”](#fresh_data_access_challenge)一节中讨论的，而你的流媒体基础设施不够成熟，你可能需要重构你的流水线。
+- en: 'Stage 4: Continual learning'
+  id: totrans-108
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 第四阶段：持续学习
+- en: At stage 3, your models are still updated based on a fixed schedule set out
+    by developers. Finding the optimal schedule isn’t straightforward and can be situation-dependent.
+    For example, last week, nothing much happened in the market, so your models didn’t
+    decay that fast. However, this week, a lot of events happen, so your models decay
+    much faster and require a much faster retraining schedule.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第三阶段，你的模型仍然根据开发者设定的固定时间表进行更新。找到最佳的时间表并不简单，可能会依赖于具体情况。例如，上周市场上没什么大事发生，所以你的模型衰减得不那么快。然而，本周发生了许多事件，所以你的模型衰减得更快，需要更快的重新训练时间表。
+- en: Instead of relying on a fixed schedule, you might want your models to be automatically
+    updated whenever data distributions shift and the model’s performance plummets.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与其依赖于固定的时间表，你可能希望在数据分布发生变化和模型性能下降时自动更新你的模型。
+- en: The holy grail is when you combine continual learning with edge deployment.
+    Imagine you can ship a base model with a new device—a phone, a watch, a drone,
+    etc.—and the model on that device will continually update and adapt to its environment
+    as needed without having to sync with a centralized server. There will be no need
+    for a centralized server, which means no centralized server cost. There will also
+    be no need to transfer data back and forth between device and cloud, which means
+    better data security and privacy!
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 圣杯在于将持续学习与边缘部署结合起来。想象一下，你可以在新设备上部署基础模型——手机、手表、无人机等——该设备上的模型将会根据需要持续更新和适应环境，而无需与集中服务器同步。这意味着不需要集中服务器成本。也不需要在设备和云端之间来回传输数据，这意味着更好的数据安全性和隐私保护！
+- en: Requirements
+  id: totrans-112
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 需求
+- en: 'The move from stage 3 to stage 4 is steep. You’ll first need a mechanism to
+    trigger model updates. This trigger can be:'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从第三阶段过渡到第四阶段是陡峭的。你首先需要一个触发模型更新的机制。这个触发器可以是：
+- en: Time-based
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于时间的
+- en: For example, every five minutes
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，每隔五分钟
+- en: Performance-based
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于性能的
+- en: For example, whenever model performance plummets
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，每当模型性能急剧下降时
+- en: Volume-based
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于容量的
+- en: For example, whenever the total amount of labeled data increases by 5%
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，每当标记数据总量增加了5%时
+- en: Drift-based
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于漂移的
+- en: For example, whenever a major data distribution shift is detected
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，每当检测到主要的数据分布变化时
+- en: For this trigger mechanism to work, you’ll need a solid monitoring solution.
+    We discussed in the section [“Monitoring and Observability”](ch08.xhtml#monitoring_and_observability)
+    that the hard part is not to detect the changes, but to determine which of these
+    changes matter. If your monitoring solution gives a lot of false alerts, your
+    model will end up being updated much more frequently than it needs to be.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使此触发机制正常工作，您将需要一个稳固的监控解决方案。我们在“监控和可观察性”部分讨论过，困难不在于检测变化，而在于确定哪些变化真正重要。如果您的监控解决方案提供了大量虚警，您的模型最终将比需要的更频繁地更新。
+- en: You’ll also need a solid pipeline to continually evaluate your model updates.
+    Writing a function to update your models isn’t much different from what you’d
+    do in stage 3\. The hard part is to ensure that the updated model is working properly.
+    We’ll go over various testing techniques you can use in the section [“Test in
+    Production”](#test_in_production).
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还需要一个稳固的流水线来持续评估您的模型更新。编写一个更新模型的函数与第 3 阶段所做的事情并无太大不同。困难的部分在于确保更新后的模型正常工作。在“生产中测试”部分，我们将介绍您可以使用的各种测试技术。
+- en: How Often to Update Your Models
+  id: totrans-124
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 更新模型的频率
+- en: 'Now that your infrastructure has been set up to update a model quickly, you
+    started asking the question that has been haunting ML engineers at companies of
+    all shapes and sizes: “How often should I update my models?” Before attempting
+    to answer that question, we first need to figure out how much gain your model
+    will get from being updated with fresh data. The more gain your model can get
+    from fresher data, the more frequently it should be retrained.'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，您的基础设施已经设置好快速更新模型，您开始思考一个一直困扰各种公司 ML 工程师的问题：“我应该多频繁地更新我的模型？”在试图回答这个问题之前，我们首先需要弄清楚您的模型通过使用新鲜数据进行更新可以获得多少收益。您的模型能够从更新数据中获得的收益越大，就应该更频繁地重新训练。
+- en: Value of data freshness
+  id: totrans-126
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据新鲜度的价值
+- en: The question of how often to update a model becomes a lot easier if we know
+    how much the model performance will improve with updating. For example, if we
+    switch from retraining our model every month to every week, how much performance
+    gain can we get? What if we switch to daily retraining? People keep saying that
+    data distributions shift, so fresher data is better, but how much better is fresher
+    data?
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们知道更新后模型性能将如何提高，那么确定多频繁更新模型的问题将变得更加容易。例如，如果我们从每月重新训练模型切换到每周重新训练，我们可以获得多少性能提升？如果我们切换到每日重新训练呢？人们一直说数据分布会变化，因此新鲜数据更好，但新鲜数据究竟好多少？
+- en: One way to figure out the gain is by training your model on the data from different
+    time windows in the past and evaluating it on the data from today to see how the
+    performance changes. For example, consider that you have data from the year 2020\.
+    To measure the value of data freshness, you can experiment with training model
+    version A on the data from January to June 2020, model version B on the data from
+    April to September, and model version C on the data from June to November, then
+    test each of these model versions on the data from December, as shown in [Figure 9-5](#to_get_a_sense_of_the_performance_gain).
+    The difference in the performance of these versions will give you a sense of the
+    performance gain your model can get from fresher data. If the model trained on
+    data from a quarter ago is much worse than the model trained on data from a month
+    ago, you know that you shouldn’t wait a quarter to retrain your model.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 了解增益的一种方法是，通过在过去不同时间窗口的数据上训练模型，并在今天的数据上评估，看看性能如何变化。例如，假设您有来自 2020 年的数据。为了衡量数据新鲜度的价值，您可以尝试在模型版本
+    A 上训练从 2020 年 1 月到 6 月的数据，模型版本 B 上训练从 4 月到 9 月的数据，以及模型版本 C 上训练从 6 月到 11 月的数据，然后在
+    12 月对每个模型版本进行测试，如[图 9-5](#to_get_a_sense_of_the_performance_gain)所示。这些版本之间的性能差异将让您感受到模型从更新数据中可以获得的性能提升。如果一个季度前训练的模型远远不如一个月前训练的模型，那么您知道不应该等一个季度再重新训练模型。
+- en: '![](Images/dmls_0905.png)'
+  id: totrans-129
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0905.png)'
+- en: Figure 9-5\. To get a sense of the performance gain you can get from fresher
+    data, train your model on data from different time windows in the past and test
+    on data from today to see how the performance changes
+  id: totrans-130
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-5\. 为了感受从更新数据中获得的性能提升，您可以在过去不同时间窗口的数据上训练模型，然后在今天的数据上进行测试，看看性能如何变化。
+- en: This is a simple example to illustrate how the data freshness experiment works.
+    In practice, you might want your experiments to be much more fine-grained, operating
+    not in months but in weeks, days, even hours or minutes. In 2014, Facebook did
+    a similar experiment for ad click-through-rate prediction and found out that they
+    could reduce the model’s loss by 1% by going from retraining weekly to retraining
+    daily, and this performance gain was significant enough for them to switch their
+    retraining pipeline from weekly to daily.^([25](ch09.xhtml#ch01fn327)) Given that
+    online contents today are so much more diverse and users’ attention online changes
+    much faster, we can imagine that the value of data freshness for ad click-through
+    rate is even higher. Some of the companies with sophisticated ML infrastructure
+    have found enough performance gain to switch their retraining pipeline to every
+    few minutes.^([26](ch09.xhtml#ch01fn328))
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个简单的示例，说明数据新鲜度实验的工作原理。实际上，你可能希望你的实验更加细致，操作不是以月为单位，而是以周、天，甚至小时或分钟为单位。2014年，Facebook对广告点击率预测进行了类似的实验，发现他们可以通过从每周重新训练到每天重新训练来减少模型损失1%，而这种性能提升对他们来说足够显著，以至于他们将重新训练的流程从每周改为每天。^([25](ch09.xhtml#ch01fn327))
+    鉴于今天的在线内容更加多样化，用户的在线注意力变化更快，我们可以想象，对于广告点击率来说，数据新鲜度的价值甚至更高。一些拥有复杂ML基础设施的公司已经发现，通过每隔几分钟重新训练模型可以获得足够的性能提升，因此他们将重新训练的流程改为每隔几分钟进行一次。^([26](ch09.xhtml#ch01fn328))
+- en: Model iteration versus data iteration
+  id: totrans-132
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型迭代与数据迭代
+- en: We discussed earlier in this chapter that not all model updates are the same.
+    We differentiated between model iteration (adding a new feature to an existing
+    model architecture or changing the model architecture) and data iteration (same
+    model architecture and features but you refresh this model with new data). You
+    might wonder not only how often to update your model, but also what kind of model
+    updates to perform.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的早些时候我们讨论过，并不是所有的模型更新都是相同的。我们区分了模型迭代（向现有模型架构添加新特征或更改模型架构）和数据迭代（相同的模型架构和特征，但使用新数据刷新模型）。你可能不仅想知道更新模型的频率，还想知道进行何种类型的模型更新。
+- en: In theory, you can do both types of updates, and in practice, you should do
+    both from time to time. However, the more resources you spend in one approach,
+    the fewer resources you can spend in another.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理论上，你可以同时进行这两种类型的更新，实际上，你应该定期进行这两种更新。然而，你在一种方法上投入的资源越多，你可以在另一种方法上投入的资源就越少。
+- en: On the one hand, if you find that iterating on your data doesn’t give you much
+    performance gain, then you should spend your resources on finding a better model.
+    On the other hand, if finding a better model architecture requires 100X compute
+    for training and gives you 1% performance whereas updating the same model on data
+    from the last three hours requires only 1X compute and also gives 1% performance
+    gain, you’ll be better off iterating on data.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一方面，如果你发现对数据进行迭代并不能带来太大的性能提升，那么你应该将资源用于寻找更好的模型。另一方面，如果寻找更好的模型架构需要100倍的计算资源进行训练，并且仅带来1%的性能提升，而使用过去三小时数据更新同一模型只需要1倍计算资源，同样带来1%的性能提升，你最好选择对数据进行迭代。
+- en: Maybe in the near future, we’ll get more theoretical understanding to know in
+    what situation an approach will work better (cue “call for research”), but as
+    of today, no book can give you the answer on which approach will work better for
+    your specific model on your specific task. You’ll have to do experiments to find
+    out.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或许在不久的将来，我们会更多地理解在何种情况下某种方法会更有效（暗示“寻求研究”），但截至今日，没有一本书能为你的特定模型在特定任务上哪种方法更好提供答案。你必须进行实验来找出答案。
+- en: 'The question on how often to update your model is a difficult one to answer,
+    and I hope that this section has sufficiently explained its nuances. In the beginning,
+    when your infrastructure is nascent and the process of updating a model is manual
+    and slow, the answer is: as often as you *can*.'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确定模型更新频率的问题是一个难以回答的问题，我希望本节已足够解释了其中的微妙之处。在开始阶段，当你的基础设施尚不成熟且模型更新的过程是手动且缓慢的时候，答案是：尽可能频繁。
+- en: 'However, as your infrastructure matures and the process of updating a model
+    is partially automated and can be done in a matter of hours, if not minutes, the
+    answer to this question is contingent on the answer to the following question:
+    “How much performance gain would I get from fresher data?” It’s important to run
+    experiments to quantify the value of data freshness to your models.'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，随着您的基础设施成熟和更新模型的过程部分自动化，可以在几小时甚至几分钟内完成，如果不是分钟，回答这个问题的答案取决于以下问题的答案：“从更新的数据中我会得到多少性能增益？”运行实验来量化数据新鲜度对您的模型的价值非常重要。
+- en: Test in Production
+  id: totrans-139
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在生产中进行测试
+- en: 'Throughout this book, including this chapter, we’ve talked about the danger
+    of deploying models that haven’t been sufficiently evaluated. To sufficiently
+    evaluate your models, you first need a mixture of offline evaluation discussed
+    in [Chapter 6](ch06.xhtml#model_development_and_offline_evaluatio) and online
+    evaluation discussed in this section. To understand why offline evaluation isn’t
+    enough, let’s go over two major test types for offline evaluation: test splits
+    and backtests.'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书的整个内容中，包括本章，我们已经谈论过部署尚未充分评估的模型的危险。要充分评估您的模型，首先需要离线评估和本章讨论的在线评估的混合。要理解为什么离线评估不足够，让我们简要介绍离线评估的两种主要测试类型：测试拆分和后测。
+- en: The first type of model evaluation you might think about is the good old test
+    splits that you can use to evaluate your models offline, as discussed in [Chapter 6](ch06.xhtml#model_development_and_offline_evaluatio).
+    These test splits are usually static and have to be static so that you have a
+    trusted benchmark to compare multiple models. It’ll be hard to compare the test
+    results of two models if they are tested on different test sets.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能会考虑的第一种模型评估是您可以使用其离线评估模型的老式测试拆分，如第6章中讨论的[第6章](ch06.xhtml#model_development_and_offline_evaluatio)。这些测试拆分通常是静态的，也必须是静态的，以便您有一个可信赖的基准来比较多个模型。如果在不同的测试集上测试了两个模型的测试结果，将很难进行比较。
+- en: However, if you update the model to adapt to a new data distribution, it’s not
+    sufficient to evaluate this new model on test splits from the old distribution.
+    Assuming that the fresher the data, the more likely it is to come from the current
+    distribution, one idea is to test your model on the most recent data that you
+    have access to. So, after you’ve updated your model on the data from the last
+    day, you might want to test this model on the data from the last hour (assuming
+    that data from the last hour wasn’t included in the data used to update your model).
+    The method of testing a predictive model on data from a specific period of time
+    in the past is known as a *backtest*.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，如果更新模型以适应新的数据分布，仅在来自旧分布的测试拆分上评估此新模型是不够的。假设数据越新鲜，可能来自当前分布，一个想法是在您能访问的最新数据上测试您的模型。因此，在您更新了最后一天数据的模型后，您可能希望在最后一小时的数据上测试此模型（假设最后一小时的数据未包含在用于更新模型的数据中）。在过去的特定时间段内测试预测模型的方法称为*后测*。
+- en: The question is whether backtests are sufficient to replace static test splits.
+    Not quite. If something went wrong with your data pipeline and some data from
+    the last hour is corrupted, evaluating your model solely on this recent data isn’t
+    sufficient.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 是否后测是充分替代静态测试拆分的问题？并不完全如此。如果您的数据管道出现问题，并且最后一小时的一些数据已损坏，则仅评估这些最新数据的模型是不够的。
+- en: With backtests, you should still evaluate your model on a static test set that
+    you have extensively studied and (mostly) trust as a form of sanity check.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用后测，您仍然应该在一个您已经广泛研究并（大多数情况下）信任的静态测试集上评估您的模型，作为一种理智检查的形式。
+- en: 'Because data distributions shift, the fact that a model does well on the data
+    from the last hour doesn’t mean that it will continue doing well on the data in
+    the future. The only way to know whether a model will do well in production is
+    to deploy it. This insight led to one seemingly terrifying but necessary concept:
+    test in production. However, test in production doesn’t have to be scary. There
+    are techniques to help you evaluate your models in production (mostly) safely.
+    In this section, we’ll cover the following techniques: shadow deployment, A/B
+    testing, canary analysis, interleaving experiments, and bandits.'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于数据分布会发生变化，一个模型在最近一小时的数据上表现良好并不意味着它将在未来的数据上继续表现良好。了解一个模型在生产中是否表现良好的唯一方法是部署它。这一洞察力促使了一个看似可怕但必要的概念：在生产环境中测试。然而，在生产环境中进行测试并不一定可怕。有一些技术可以帮助你相对安全地评估你的模型。在本节中，我们将涵盖以下技术：影子部署，A/B测试，金丝雀分析，交替实验和自动化分析。
+- en: Shadow Deployment
+  id: totrans-146
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 影子部署
+- en: 'Shadow deployment might be the safest way to deploy your model or any software
+    update. Shadow deployment works as follows:'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 影子部署可能是部署您的模型或任何软件更新最安全的方法。影子部署的工作原理如下：
+- en: Deploy the candidate model in parallel with the existing model.
+  id: totrans-148
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 并行部署候选模型与现有模型。
+- en: For each incoming request, route it to both models to make predictions, but
+    only serve the existing model’s prediction to the user.
+  id: totrans-149
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 对于每个进入的请求，将其路由到两个模型以进行预测，但仅向用户提供现有模型的预测结果。
+- en: Log the predictions from the new model for analysis purposes.
+  id: totrans-150
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 记录新模型的预测结果以供分析。
+- en: Only when you’ve found that the new model’s predictions are satisfactory do
+    you replace the existing model with the new model.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只有在确定新模型的预测结果令人满意后，才会用新模型替换现有模型。
+- en: Because you don’t serve the new model’s predictions to users until you’ve made
+    sure that the model’s predictions are satisfactory, the risk of this new model
+    doing something funky is low, at least not higher than the existing model. However,
+    this technique isn’t always favorable because it’s expensive. It doubles the number
+    of predictions your system has to generate, which generally means doubling your
+    inference compute cost.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为只有在确定新模型的预测结果令人满意后才向用户提供新模型的预测结果，所以这种新模型出现异常的风险很低，至少不会高于现有模型。然而，这种技术并非始终受欢迎，因为它很昂贵。这会使系统需要生成的预测数量翻倍，这通常意味着推理计算成本的翻倍。
+- en: A/B Testing
+  id: totrans-153
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: A/B测试
+- en: A/B testing is a way to compare two variants of an object, typically by testing
+    responses to these two variants, and determining which of the two variants is
+    more effective. In our case, we have the existing model as one variant, and the
+    candidate model (the recently updated model) as another variant. We’ll use A/B
+    testing to determine which model is better according to some predefined metrics.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: A/B测试是一种比较两个变体对象的方法，通常通过测试对这两个变体的响应来确定哪个变体更有效。在我们的案例中，一个变体是现有模型，另一个变体是候选模型（最近更新的模型）。我们将使用A/B测试来确定哪个模型更好，根据一些预定义的指标。
+- en: 'A/B testing has become so prevalent that, as of 2017, companies like Microsoft
+    and Google each conduct over 10,000 A/B tests annually.^([27](ch09.xhtml#ch01fn329))
+    It is many ML engineers’ first response to how to evaluate ML models in production.
+    A/B testing works as follows:'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自2017年起，A/B测试变得如此普遍，像微软和谷歌这样的公司每年都会进行超过10,000次A/B测试。^([27](ch09.xhtml#ch01fn329))
+    这已经成为许多机器学习工程师在生产环境中评估模型的首选方法。A/B测试的工作原理如下：
+- en: Deploy the candidate model alongside the existing model.
+  id: totrans-156
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 与现有模型一起部署候选模型。
+- en: A percentage of traffic is routed to the new model for predictions; the rest
+    is routed to the existing model for predictions. It’s common for both variants
+    to serve prediction traffic at the same time. However, there are cases where one
+    model’s predictions might affect another model’s predictions—e.g., in ride-sharing’s
+    dynamic pricing, a model’s predicted prices might influence the number of available
+    drivers and riders, which, in turn, influence the other model’s predictions. In
+    those cases, you might have to run your variants alternatively, e.g., serve model
+    A one day and then serve model B the next day.
+  id: totrans-157
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将一部分流量路由到新模型进行预测，其余流量路由到现有模型进行预测。通常情况下，两个变体同时提供预测流量。然而，有些情况下，一个模型的预测结果可能会影响另一个模型的预测结果——例如，在共享经济的动态定价中，一个模型的预测价格可能会影响可用司机和乘客的数量，进而影响另一个模型的预测结果。在这些情况下，可能需要交替运行变体，例如，一天提供模型A的服务，然后第二天提供模型B的服务。
+- en: Monitor and analyze the predictions and user feedback, if any, from both models
+    to determine whether the difference in the two models’ performance is statistically
+    significant.
+  id: totrans-158
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 监控和分析预测结果及用户反馈（如果有的话），以确定两个模型在性能上的差异是否具有统计显著性。
+- en: 'To do A/B testing the right way requires doing many things right. In this book,
+    we’ll discuss two important things. First, A/B testing consists of a randomized
+    experiment: the traffic routed to each model has to be truly random. If not, the
+    test result will be invalid. For example, if there’s a selection bias in the way
+    traffic is routed to the two models, such as users who are exposed to model A
+    are usually on their phones whereas users exposed to model B are usually on their
+    desktops, then if model A has better accuracy than model B, we can’t tell whether
+    it’s because A is better than B or whether “being on a phone” influences the prediction
+    quality.'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要正确进行 A/B 测试，需要做很多事情正确。在本书中，我们将讨论两个重要的事情。首先，A/B 测试包括一个随机化实验：路由到每个模型的流量必须是真正随机的。如果不是，测试结果将是无效的。例如，如果流量路由到两个模型的方式存在选择偏差，比如接触模型
+    A 的用户通常使用手机，而接触模型 B 的用户通常使用台式机，那么如果模型 A 的准确率比模型 B 更高，我们无法确定是因为 A 比 B 更好，还是因为“使用手机”影响了预测质量。
+- en: Second, your A/B test should be run on a sufficient number of samples to gain
+    enough confidence about the outcome. How to calculate the number of samples needed
+    for an A/B test is a simple question with a very complicated answer, and I’d recommend
+    readers reference a book on A/B testing to learn more.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二，你的 A/B 测试应该运行在足够数量的样本上，以获得对结果的足够信心。如何计算 A/B 测试所需的样本数量是一个简单的问题，但是答案却非常复杂，我建议读者参考一本关于
+    A/B 测试的书籍来了解更多。
+- en: The gist here is that if your A/B test result shows that a model is better than
+    another with statistical significance, you can determine which model is indeed
+    better. To measure statistical significance, A/B testing uses statistical hypothesis
+    testing such as two-sample tests. We saw two-sample tests in [Chapter 8](ch08.xhtml#data_distribution_shifts_and_monitoring)
+    when we used them to detect distribution shifts. As a reminder, a two-sample test
+    is a test to determine whether the difference between these two populations is
+    statistically significant. In the distribution shift use case, if a statistical
+    difference suggests that the two populations come from different distributions,
+    this means that the original distribution has shifted. In the A/B testing use
+    case, statistical differences mean that we’ve gathered sufficient evidence to
+    show that one variant is better than the other variant.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的要点是，如果你的 A/B 测试结果显示一个模型比另一个显著优越，你可以确定哪个模型确实更好。为了测量统计显著性，A/B 测试使用诸如双样本检验之类的统计假设检验。我们在[第8章](ch08.xhtml#data_distribution_shifts_and_monitoring)中看到了双样本检验，当时我们用它们来检测分布的变化。作为提醒，双样本检验是一种用来确定这两个总体之间差异是否具有统计显著性的检验。在分布变化的用例中，如果统计差异表明这两个总体来自不同的分布，这意味着原始分布已经发生了变化。在
+    A/B 测试的用例中，统计差异意味着我们已经收集到足够的证据表明一个变体比另一个变体更好。
+- en: Statistical significance, while useful, isn’t foolproof. Say we run a two-sample
+    test and get the result that model A is better than model B with the *p*-value
+    of *p* = 0.05 or 5%, and we define statistical significance as *p* ≤ 0.5\. This
+    means that if we run the same A/B testing experiment multiple times, (100 – 5
+    =) 95% of the time, we’ll get the result that A is better than B, and the other
+    5% of the time, B is better than A. So even if the result is statistically significant,
+    it’s possible that if we run the experiment again, we’ll pick another model.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 统计显著性虽然有用，但并非绝对可靠。比如我们进行了一次双样本检验，得到结果称模型 A 比模型 B 更好，其 *p*-值为 *p* = 0.05 或 5%，我们定义统计显著性为
+    *p* ≤ 0.5\. 这意味着如果我们多次运行相同的 A/B 测试实验，（100 – 5 =）95% 的时间我们将得到 A 比 B 更好的结果，而另外 5%
+    的时间则是 B 比 A 更好。因此，即使结果具有统计显著性，如果我们再次运行实验，可能会选择另一个模型。
+- en: Even if your A/B test result isn’t statistically significant, it doesn’t mean
+    that this A/B test fails. If you’ve run your A/B test with a lot of samples and
+    the difference between the two tested models is statistically insignificant, maybe
+    there isn’t much difference between these two models, and it’s probably OK for
+    you to use either.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使你的 A/B 测试结果不具有统计显著性，并不意味着这个 A/B 测试失败了。如果你已经用大量样本运行了 A/B 测试，并且两个测试模型之间的差异在统计上不显著，可能这两个模型之间并没有太大的差异，你可以随意选择其中一个模型使用。
+- en: For readers interested in learning more about A/B testing and other statistical
+    concepts important in ML, I recommend Ron Kohav’s book *Trustworthy Online Controlled
+    Experiments (A Practical Guide to A/B Testing)* (Cambridge University Press) and
+    Michael Barber’s [great introduction to statistics for data science](https://oreil.ly/JdVA0)
+    (much shorter).
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于对学习更多关于 A/B 测试和其他在机器学习中重要的统计概念感兴趣的读者，我推荐 Ron Kohavi 的书 *《可信在线控制实验（A/B 测试实用指南）》*（剑桥大学出版社）和
+    Michael Barber 的[很棒的统计入门指南，专为数据科学](https://oreil.ly/JdVA0)（简短得多）。
+- en: Often, in production, you don’t have just one candidate but multiple candidate
+    models. It’s possible to do A/B testing with more than two variants, which means
+    we can have A/B/C testing or even A/B/C/D testing.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产环境中，通常不仅有一个候选模型，而是有多个候选模型。可以使用多个变体进行 A/B 测试，这意味着我们可以进行 A/B/C 测试甚至 A/B/C/D
+    测试。
+- en: Canary Release
+  id: totrans-166
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '**金丝雀发布**'
+- en: 'Canary release is a technique to reduce the risk of introducing a new software
+    version in production by slowly rolling out the change to a small subset of users
+    before rolling it out to the entire infrastructure and making it available to
+    everybody.^([28](ch09.xhtml#ch01fn330)) In the context of ML deployment, canary
+    release works as follows:'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 金丝雀发布是一种通过在生产环境中缓慢推出新软件版本的技术，首先将更改逐步推广到少量用户，然后再将其推广到整个基础架构并向所有人提供。（参见[28](ch09.xhtml#ch01fn330)）。在
+    ML 部署的上下文中，金丝雀发布的工作方式如下：
+- en: Deploy the candidate model alongside the existing model. The candidate model
+    is called the canary.
+  id: totrans-168
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 部署候选模型并行于现有模型。候选模型称为金丝雀。
+- en: A portion of the traffic is routed to the candidate model.
+  id: totrans-169
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 部分流量被路由到候选模型。
+- en: If its performance is satisfactory, increase the traffic to the candidate model.
+    If not, abort the canary and route all the traffic back to the existing model.
+  id: totrans-170
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果其性能令人满意，请增加流量到候选模型。如果不满意，请中止金丝雀，并将所有流量重新路由到现有模型。
+- en: Stop when either the canary serves all the traffic (the candidate model has
+    replaced the existing model) or when the canary is aborted.
+  id: totrans-171
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 当金丝雀服务所有流量（候选模型已替换现有模型）或金丝雀被中止时停止。
+- en: The candidate model’s performance is measured against the existing model’s performance
+    according to the metrics you care about. If the candidate model’s key metrics
+    degrade significantly, the canary is aborted and all the traffic will be routed
+    to the existing model.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 候选模型的性能根据您关心的指标与现有模型的性能进行比较。如果候选模型的关键指标显著下降，金丝雀会被中止，所有流量将路由到现有模型。
+- en: Canary releases can be used to implement A/B testing due to the similarities
+    in their setups. However, you can do canary analysis without A/B testing. For
+    example, you don’t have to randomize the traffic to route to each model. A plausible
+    scenario is that you first roll out the candidate model to a less critical market
+    before rolling out to everybody.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 金丝雀发布可用于实施 A/B 测试，因为它们的设置相似。但是，您可以在没有 A/B 测试的情况下进行金丝雀分析。例如，您不必随机化流量以路由到每个模型。一个合理的情况是，您可以首先将候选模型推广到一个不那么关键的市场，然后再推广到所有人。
+- en: For readers interested in how canary release works in the industry, Netflix
+    and Google have a [great shared blog post](https://oreil.ly/QfBrn) on how automated
+    canary analysis is used at their companies.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于对行业中金丝雀发布工作原理感兴趣的读者，Netflix 和 Google 在如何在他们的公司使用自动化金丝雀分析的一篇[很棒的博客文章](https://oreil.ly/QfBrn)中分享了。
+- en: Interleaving Experiments
+  id: totrans-175
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '**交错实验**'
+- en: 'Imagine you have two recommender systems, A and B, and you want to evaluate
+    which one is better. Each time, a model recommends 10 items users might like.
+    With A/B testing, you’d divide your users into two groups: one group is exposed
+    to A and the other group is exposed to B. Each user will be exposed to the recommendations
+    made by one model.'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下，您有两个推荐系统，A 和 B，您想评估哪个更好。每次，一个模型推荐 10 个用户可能喜欢的项目。通过 A/B 测试，您将用户分为两组：一组接触
+    A，另一组接触 B。每个用户将会接触到由一个模型做出的推荐。
+- en: What if instead of exposing a user to recommendations from a model, we expose
+    that user to recommendations from both models and see which model’s recommendations
+    they will click on? That’s the idea behind interleaving experiments, originally
+    proposed by Thorsten Joachims in 2002 for the problems of search rankings.^([29](ch09.xhtml#ch01fn331))
+    In experiments, Netflix found that interleaving “reliably identifies the best
+    algorithms with considerably smaller sample size compared to traditional A/B testing.”^([30](ch09.xhtml#custom_ch9fn1))
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们不是向用户推荐模型的推荐内容，而是向用户展示来自两个模型的推荐内容，并查看用户会点击哪个模型的推荐内容呢？这正是交错实验的理念，最初由Thorsten
+    Joachims在2002年提出，用于搜索排名问题。在实验中，Netflix发现，“与传统的A/B测试相比，交错测试能够以明显较小的样本量可靠地识别出最佳算法。”^([30](ch09.xhtml#custom_ch9fn1))
+- en: '[Figure 9-6](#an_illustration_of_interleaving_versus) shows how interleaving
+    differs from A/B testing. In A/B testing, core metrics like retention and streaming
+    are measured and compared between the two groups. In interleaving, the two algorithms
+    can be compared by measuring user preferences. Because interleaving can be decided
+    by user preferences, there’s no guarantee that user preference will lead to better
+    core metrics.'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 9-6](#an_illustration_of_interleaving_versus) 展示了交错测试与A/B测试的不同之处。在A/B测试中，像留存率和流媒体这样的核心指标是通过对比两组数据来衡量的。在交错测试中，可以通过测量用户偏好来比较两种算法。因为交错测试可以根据用户偏好来决定，所以不能保证用户偏好将导致更好的核心指标。'
+- en: '![](Images/dmls_0906.png)'
+  id: totrans-179
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0906.png)'
+- en: 'Figure 9-6\. An illustration of interleaving versus A/B testing. Source: Adapted
+    from an image by Parks et al.'
+  id: totrans-180
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-6\. 交错与A/B测试的说明。来源：根据Parks et al.的图片改编。
+- en: When we show recommendations from multiple models to users, it’s important to
+    note that the position of a recommendation influences how likely a user will click
+    on it. For example, users are much more likely to click on the top recommendation
+    than the bottom recommendation. For interleaving to yield valid results, we must
+    ensure that at any given position, a recommendation is equally likely to be generated
+    by A or B. To ensure this, one method we can use is team-draft interleaving, which
+    mimics the drafting process in sports. For each recommendation position, we randomly
+    select A or B with equal probability, and the chosen model picks the top recommendation
+    that hasn’t already been picked.^([31](ch09.xhtml#ch01fn333)) A visualization
+    of how this team-drafting method works is shown in [Figure 9-7](#interleaving_video_recommendations_from).
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们向用户展示多个模型的推荐内容时，重要的是要注意推荐的位置会影响用户点击的可能性。例如，用户更有可能点击顶部的推荐而不是底部的推荐。为了确保交错测试能产生有效的结果，我们必须确保在任何给定位置，推荐被A或B生成的概率是相等的。为了确保这一点，我们可以使用团队选拔交错方法，模仿体育中的选秀过程。对于每个推荐位置，我们以相等的概率随机选择A或B，并且被选择的模型选择尚未被选中的顶部推荐。如何团队选拔方法工作的可视化图示在
+    [图 9-7](#interleaving_video_recommendations_from) 中显示。
+- en: '![](Images/dmls_0907.png)'
+  id: totrans-182
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0907.png)'
+- en: 'Figure 9-7\. Interleaving video recommendations from two ranking algorithms
+    using team draft. Source: Parks et al.^([32](ch09.xhtml#ch01fn334))'
+  id: totrans-183
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-7\. 使用团队选拔方法交错两种排名算法的视频推荐。来源：Parks et al.^([32](ch09.xhtml#ch01fn334))
+- en: Bandits
+  id: totrans-184
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 老虎机
+- en: For those unfamiliar, bandit algorithms originated in gambling. A casino has
+    multiple slot machines with different payouts. A slot machine is also known as
+    a one-armed bandit, hence the name. You don’t know which slot machine gives the
+    highest payout. You can experiment over time to find out which slot machine is
+    the best while maximizing your payout. Multi-armed bandits are algorithms that
+    allow you to balance between exploitation (choosing the slot machine that has
+    paid the most in the past) and exploration (choosing other slot machines that
+    may pay off even more).
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于不熟悉的人来说，赌博算法起源于赌博。赌场有多台不同赔率的老虎机。老虎机也被称为单臂强盗，因此得名。你不知道哪台老虎机会给出最高的赔率。你可以随着时间的推移进行实验，找出哪台老虎机是最好的，同时最大化你的赔率。多臂老虎机算法是一种允许你在开发（选择过去支付最多的老虎机）和探索（选择其他可能支付更多的老虎机）之间取得平衡的算法。
+- en: 'As of today, the standard method for testing models in production is A/B testing.
+    With A/B testing, you randomly route traffic to each model for predictions and
+    measure at the end of your trial which model works better. A/B testing is stateless:
+    you can route traffic to each model without having to know about their current
+    performance. You can do A/B testing even with batch prediction.'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前，生产环境中测试模型的标准方法是A/B测试。在A/B测试中，你会随机将流量路由到每个模型进行预测，并在试验结束时测量哪个模型效果更好。A/B测试是无状态的：你可以将流量路由到每个模型，而无需了解它们当前的性能。即使在批处理预测中，也可以进行A/B测试。
+- en: 'When you have multiple models to evaluate, each model can be considered a slot
+    machine whose payout (i.e., prediction accuracy) you don’t know. Bandits allow
+    you to determine how to route traffic to each model for prediction to determine
+    the best model while maximizing prediction accuracy for your users. Bandit is
+    stateful: before routing a request to a model, you need to calculate all models’
+    current performance. This requires three things:'
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你有多个模型需要评估时，每个模型都可以看作是一个老虎机，其回报（即预测准确性）你并不知道。而赌博算法允许你确定如何将流量路由到每个模型进行预测，以确定最佳模型，同时最大化用户的预测准确性。赌博算法是有状态的：在将请求路由到模型之前，你需要计算所有模型的当前性能。这需要三个步骤：
+- en: Your model must be able to make online predictions.
+  id: totrans-188
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您的模型必须能够进行在线预测。
+- en: 'Preferably short feedback loops: you need to get feedback on whether a prediction
+    is good or not. This is usually true for tasks where labels can be determined
+    from users’ feedback, like in recommendations—if users click on a recommendation,
+    it’s inferred to be good. If the feedback loops are short, you can update the
+    payoff of each model quickly.'
+  id: totrans-189
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最好是短反馈循环：你需要获取关于预测是否好的反馈。这通常适用于可以从用户反馈中确定标签的任务，比如推荐系统——如果用户点击了一个推荐，可以推断它是好的。如果反馈循环很短，你可以快速更新每个模型的回报。
+- en: A mechanism to collect feedback, calculate and keep track of each model’s performance,
+    and route prediction requests to different models based on their current performance.
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一种收集反馈、计算并跟踪每个模型性能，并基于它们当前的性能将预测请求路由到不同模型的机制。
+- en: Bandits are well-studied in academia and have been shown to be a lot more data-efficient
+    than A/B testing (in many cases, bandits are even optimal). Bandits require less
+    data to determine which model is the best and, at the same time, reduce opportunity
+    cost as they route traffic to the better model more quickly. See discussions on
+    bandits at [LinkedIn, Netflix, Facebook, and Dropbox](https://oreil.ly/vsKsg),
+    [Zillow](https://oreil.ly/A7KkD), and [Stitch Fix](https://oreil.ly/2LKZd). For
+    a more theoretical view, see Chapter 2 of [*Reinforcement Learning*](https://oreil.ly/fpR2H)
+    (Sutton and Barto 2020).
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 赌博算法在学术界已经有了深入研究，并且已经被证明比A/B测试更加数据高效（在许多情况下，赌博算法甚至是最优的）。赌博算法需要更少的数据来确定哪个模型是最好的，同时通过更快地将流量路由到更好的模型来减少机会成本。有关赌博算法的讨论，请参见[LinkedIn,
+    Netflix, Facebook, and Dropbox](https://oreil.ly/vsKsg)，[Zillow](https://oreil.ly/A7KkD)，以及[Stitch
+    Fix](https://oreil.ly/2LKZd)。更多理论视角，请参见《强化学习》（Sutton和Barto，2020）的第2章。
+- en: In an experiment by Google’s Greg Rafferty, A/B testing required over 630,000
+    samples to get a confidence interval of 95%, whereas a simple bandit algorithm
+    (Thompson Sampling) determined that a model was 5% better than the other with
+    less than 12,000 samples.^([33](ch09.xhtml#ch01fn335))
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Google的Greg Rafferty进行的实验中，进行A/B测试需要超过630,000个样本才能获得95%的置信区间，而简单的赌博算法（汤普森采样）仅需不到12,000个样本就能确定一个模型比另一个好5%^([33](ch09.xhtml#ch01fn335))。
+- en: However, bandits are a lot more difficult to implement than A/B testing because
+    it requires computing and keeping track of models’ payoffs. Therefore, bandit
+    algorithms are not widely used in the industry other than at a few big tech companies.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，与A/B测试相比，赌博算法实施起来更加困难，因为它需要计算和跟踪模型的回报。因此，除了少数大型科技公司外，赌博算法在行业内并不广泛使用。
+- en: Contextual bandits as an exploration strategy
+  id: totrans-194
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 上下文赌博作为一种探索策略
+- en: If bandits for model evaluation are to determine the payout (i.e., prediction
+    accuracy) of each model, contextual bandits are to determine the payout of each
+    action. In the case of recommendations/ads, an action is an item/ad to show to
+    users, and the payout is how likely it is a user will click on it. Contextual
+    bandits, like other bandits, are an amazing technique to improve the data efficiency
+    of your model.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果用于模型评估的老虎机来确定每个模型的支付（即预测准确性），那么上下文老虎机将用于确定每个动作的支付。在推荐/广告的情况下，一个动作是向用户展示一个项目/广告，支付是用户点击它的可能性。像其他老虎机一样，上下文老虎机是提高模型数据效率的一种神奇技术。
+- en: Warning
+  id: totrans-196
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Some people also call bandits for model evaluation “contextual bandits.” This
+    makes conversations confusing, so in this book, “contextual bandits” refer to
+    exploration strategies to determine the payout of predictions.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有些人也称用于模型评估的老虎机为“上下文老虎机”。这使得对话变得混乱，在本书中，“上下文老虎机”指的是探索策略，用于确定预测的支付。
+- en: Imagine that you’re building a recommender system with 1,000 items to recommend,
+    which makes it a 1,000-arm bandit problem. Each time, you can only recommend the
+    top 10 most relevant items to a user. In bandit terms, you’ll have to choose the
+    best 10 arms. The shown items get user feedback, inferred via whether the user
+    clicks on them. But you won’t get feedback on the other 990 items. This is known
+    as the *partial feedback* problem, also known as *bandit feedback*. You can also
+    think of contextual bandits as a classification problem with bandit feedback.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下，您正在构建一个包含 1,000 个推荐项的推荐系统，这使它成为一个 1,000 臂老虎机问题。每次，您只能向用户推荐排名前 10 的最相关项目。在老虎机的术语中，您将不得不选择最好的
+    10 个臂。展示的项目会得到用户的反馈，通过用户是否点击它们来推断。但您将不会得到其他 990 个项目的反馈。这被称为*部分反馈*问题，也称为*老虎机反馈*。您还可以将上下文老虎机视为带有老虎机反馈的分类问题。
+- en: Let’s say that each time a user clicks on an item, this item gets 1 value point.
+    When an item has 0 value points, it could either be because the item has never
+    been shown to a user, or because it’s been shown but not clicked on. You want
+    to show users the items with the highest value to them, but if you keep showing
+    users only the items with the most value points, you’ll keep on recommending the
+    same popular items, and the never-before-shown items will keep having 0 value
+    points.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当用户点击一个项目时，该项目就会获得 1 个价值点。当一个项目的价值点为 0 时，可能是因为该项目从未展示给用户，也可能是展示过但没有被点击。您希望向用户展示对他们最有价值的项目，但如果您只展示具有最多价值点的项目，那么您将继续推荐相同的热门项目，而从未展示的项目将始终保持
+    0 个价值点。
+- en: Contextual bandits are algorithms that help you balance between showing users
+    the items they will like and showing the items that you want feedback on.^([36](ch09.xhtml#ch01fn338))
+    It’s the same exploration–exploitation trade-off that many readers might have
+    encountered in reinforcement learning. Contextual bandits are also called “one-shot”
+    reinforcement learning problems.^([37](ch09.xhtml#ch01fn339)) In reinforcement
+    learning, you might need to take a series of actions before seeing the rewards.
+    In contextual bandits, you can get bandit feedback right away after an action—e.g.,
+    after recommending an ad, you get feedback on whether a user has clicked on that
+    recommendation.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上下文老虎机是一种帮助您在向用户展示他们喜欢的项目和向他们展示您想要反馈的项目之间取得平衡的算法。^([36](ch09.xhtml#ch01fn338))
+    这与许多读者在强化学习中可能遇到的探索-开发权衡是相同的。上下文老虎机也称为“一次性”强化学习问题。^([37](ch09.xhtml#ch01fn339))
+    在强化学习中，您可能需要在看到奖励之前执行一系列动作。在上下文老虎机中，您可以在执行动作后立即获得老虎机反馈，例如，在推荐广告后，您会得到用户是否点击推荐的反馈。
+- en: 'Contextual bandits are well researched and have been shown to improve models’
+    performance significantly (see reports by [Twitter](https://oreil.ly/EqjmB) and
+    [Google](https://oreil.ly/ipMxd)). However, contextual bandits are even harder
+    to implement than model bandits, since the exploration strategy depends on the
+    ML model’s architecture (e.g., whether it’s a decision tree or a neural network),
+    which makes it less generalizable across use cases. Readers interested in combining
+    contextual bandits with deep learning should check out a great paper written by
+    a team at Twitter: [“Deep Bayesian Bandits: Exploring in Online Personalized Recommendations”](https://oreil.ly/Uv03p)
+    (Guo et al. 2020).'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上下文匪徒已经得到了广泛的研究，并且已经被证明可以显著提高模型的性能（请参阅[Twitter](https://oreil.ly/EqjmB)和[Google](https://oreil.ly/ipMxd)的报告）。然而，上下文匪徒的实施甚至比模型匪徒更加困难，因为探索策略取决于机器学习模型的架构（例如，它是决策树还是神经网络），这使得它在不同用例中的泛化能力较差。对于希望将上下文匪徒与深度学习结合的读者，应该查看Twitter团队撰写的一篇出色论文：[“深度贝叶斯匪徒：在线个性化推荐中的探索”](https://oreil.ly/Uv03p)（Guo等人，2020年）。
+- en: Before we wrap up this section, there’s one point I want to emphasize. We’ve
+    gone through multiple types of tests for ML models. However, it’s important to
+    note that a good evaluation pipeline is not only about what tests to run, but
+    also about who should run those tests. In ML, the evaluation process is often
+    owned by data scientists—the same people who developed the model are responsible
+    for evaluating it. Data scientists tend to evaluate their new model ad hoc using
+    the sets of tests that they like. First, this process is imbued with biases—data
+    scientists have contexts about their models that most users don’t, which means
+    they probably won’t use this model in a way most of their users will. Second,
+    the ad hoc nature of the process means that the results might be variable. One
+    data scientist might perform a set of tests and find that model A is better than
+    model B, while another data scientist might report differently.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们结束本节之前，有一点我想强调。我们已经讨论了多种用于机器学习模型的测试类型。然而，重要的是要注意，一个好的评估流程不仅仅是关于要运行哪些测试，还包括谁来运行这些测试。在机器学习中，评估过程通常由数据科学家负责——那些开发模型的人也负责评估它。数据科学家倾向于使用他们喜欢的测试集来临时评估他们的新模型。首先，这个过程充满了偏见——数据科学家对他们的模型有着大多数用户不具备的背景知识，这意味着他们可能不会像大多数用户那样使用这个模型。其次，临时性质意味着结果可能不稳定。一个数据科学家可能进行一系列测试并发现模型
+    A 比模型 B 更好，而另一个数据科学家可能会报告不同的结果。
+- en: 'The lack of a way to ensure models’ quality in production has led to many models
+    failing after being deployed, which, in turn, fuels data scientists’ anxiety when
+    deploying models. To mitigate this issue, it’s important for each team to outline
+    clear pipelines on how models should be evaluated: e.g., the tests to run, the
+    order in which they should run, the thresholds they must pass in order to be promoted
+    to the next stage. Better, these pipelines should be automated and kicked off
+    whenever there’s a new model update. The results should be reported and reviewed,
+    similar to the continuous integration/continuous deployment (CI/CD) process for
+    traditional software engineering. It’s crucial to understand that a good evaluation
+    process involves not only what tests to run but also who should run those tests.'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产中缺乏确保模型质量的方法导致许多模型在部署后失败，进而加剧了数据科学家在部署模型时的焦虑。为了减轻这一问题，每个团队都要制定清晰的流程来评估模型：例如，要运行哪些测试，它们应该按什么顺序运行，必须通过哪些阈值才能晋级到下一个阶段。更好的做法是，这些流程应该是自动化的，并在每次有新模型更新时启动。结果应该被报告和审查，类似于传统软件工程中的持续集成/持续部署（CI/CD）过程。重要的是要理解，一个好的评估过程不仅涉及要运行哪些测试，还涉及谁来运行这些测试。
+- en: Summary
+  id: totrans-204
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: 'This chapter touches on a topic that I believe is among the most exciting yet
+    underexplored topics: how to continually update your models in production to adapt
+    them to changing data distributions. We discussed the four stages a company might
+    go through in the process of modernizing their infrastructure for continual learning:
+    from the manual, training from scratch stage to automated, stateless continual
+    learning.'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章讨论了我认为是最令人兴奋但又未被充分探索的主题之一：如何在生产中持续更新您的模型，以使其适应不断变化的数据分布。我们讨论了公司在现代化其基础架构以进行持续学习过程中可能经历的四个阶段：从手动、从头开始培训阶段到自动化、无状态的持续学习阶段。
+- en: We then examined the question that haunts ML engineers at companies of all shapes
+    and sizes, “How often *should* I update my models?” by urging them to consider
+    the value of data freshness to their models and the trade-offs between model iteration
+    and data iteration.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接着，我们考察了困扰各形各色团队中机器学习工程师的问题：“我应该**多频繁**更新我的模型？”并督促他们考虑数据新鲜度对他们的模型的价值以及模型迭代和数据迭代之间的权衡。
+- en: Similar to online prediction discussed in [Chapter 7](ch07.xhtml#model_deployment_and_prediction_service),
+    continual learning requires a mature streaming infrastructure. The training part
+    of continual learning can be done in batch, but the online evaluation part requires
+    streaming. Many engineers worry that streaming is hard and costly. It was true
+    three years ago, but streaming technologies have matured significantly since then.
+    More and more companies are providing solutions to make it easier for companies
+    to move to streaming, including Spark Streaming, Snowflake Streaming, Materialize,
+    Decodable, Vectorize, etc.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与讨论的在线预测类似，[第7章](ch07.xhtml#model_deployment_and_prediction_service)中持续学习需要成熟的流式处理基础设施。持续学习的训练部分可以批量进行，但在线评估部分需要流式处理。许多工程师担心流式处理难以实现且成本高昂。在三年前这是事实，但自那时以来流处理技术已经显著成熟。越来越多的公司正在提供解决方案，使公司更容易转向流处理，包括Spark
+    Streaming、Snowflake Streaming、Materialize、Decodable、Vectorize等。
+- en: Continual learning is a problem specific to ML, but it largely requires an infrastructural
+    solution. To be able to speed up the iteration cycle and detect failures in new
+    model updates quickly, we need to set up our infrastructure in the right way.
+    This requires the data science/ML team and the platform team to work together.
+    We’ll discuss infrastructure for ML in the next chapter.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续学习是机器学习特有的问题，但它在很大程度上需要基础设施解决方案。为了加快迭代周期并迅速检测新模型更新的失败，我们需要以正确的方式设置基础设施。这需要数据科学/机器学习团队与平台团队合作。我们将在下一章讨论ML基础设施。
+- en: ^([1](ch09.xhtml#ch01fn303-marker)) Joan Serrà, Dídac Surís, Marius Miron, and
+    Alexandros Karatzoglou, “Overcoming Catastrophic Forgetting with Hard Attention
+    to the Task,” *arXiv*, January 4, 2018, [*https://oreil.ly/P95EZ*](https://oreil.ly/P95EZ).
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch09.xhtml#ch01fn303-marker)) 乔安·塞拉（Joan Serrà）、迪达克·苏里斯（Dídac Surís）、马里乌斯·米隆（Marius
+    Miron）和亚历山德罗斯·卡拉佐阿尔（Alexandros Karatzoglou），“用于任务的强注意力克服灾难性遗忘”，*arXiv*，2018年1月4日，[*https://oreil.ly/P95EZ*](https://oreil.ly/P95EZ)。
+- en: ^([2](ch09.xhtml#ch01fn304-marker)) It’s “stateful training” instead of “stateful
+    retraining” because there’s no *re***-**training here. The model continues training
+    from the last state.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch09.xhtml#ch01fn304-marker)) 这里的名称是“有状态训练”，而不是“有状态**重新**训练”，因为这里没有**重新**训练。模型继续从上一个状态训练。
+- en: ^([3](ch09.xhtml#ch01fn305-marker)) Alex Egg, “Online Learning for Recommendations
+    at Grubhub,” *arXiv*, July 15, 2021, [*https://oreil.ly/FBBUw*](https://oreil.ly/FBBUw).
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch09.xhtml#ch01fn305-marker)) 艾利克斯·埃格（Alx Egg），“Grubhub的推荐在线学习”， *arXiv*，2021年7月15日，[*https://oreil.ly/FBBUw*](https://oreil.ly/FBBUw)。
+- en: ^([4](ch09.xhtml#ch01fn306-marker)) Mu Li, Li Zhou, Zichao Yang, Aaron Li, Fei
+    Xia, David G. Andersen, and Alexander Smola, “Parameter Server for Distributed
+    Machine Learning” (NIPS Workshop on Big Learning, Lake Tahoe, CA, 2013), [*https://oreil.ly/xMmru*](https://oreil.ly/xMmru).
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch09.xhtml#ch01fn306-marker)) 李睦，周莉，杨子超，李傲然，夏飞，戴维·G·安德森，亚历山大·斯莫拉，“分布式机器学习的参数服务器”（NIPS大规模学习研讨会，2013年，塔霍湖，加州），[*https://oreil.ly/xMmru*](https://oreil.ly/xMmru)。
+- en: ^([5](ch09.xhtml#ch01fn307-marker)) Jonathan Raiman, Susan Zhang, and Christy
+    Dennison, “Neural Network Surgery with Sets,” *arXiv*, December 13, 2019, [*https://oreil.ly/SU0F1*](https://oreil.ly/SU0F1).
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch09.xhtml#ch01fn307-marker)) 乔纳森·赖曼（Jonathan Raiman）、苏珊·张（Susan Zhang）和克里斯蒂·丹尼森（Christy
+    Dennison），“神经网络外科手术与集合”， *arXiv*，2019年12月13日，[*https://oreil.ly/SU0F1*](https://oreil.ly/SU0F1)。
+- en: ^([6](ch09.xhtml#ch01fn308-marker)) This type of problem is also called “dynamic
+    pricing.”
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch09.xhtml#ch01fn308-marker)) 这种问题也被称为“动态定价”问题。
+- en: ^([7](ch09.xhtml#ch01fn309-marker)) Jon Russell, “Alibaba Acquires German Big
+    Data Startup Data Artisans for $103M,” *TechCrunch*, January 8, 2019, [*https://oreil.ly/4tf5c*](https://oreil.ly/4tf5c).
+    An early reviewer mentioned that it’s also possible that the main goal of this
+    acquisition was to increase Alibaba’s open source footprint, which is tiny compared
+    to other tech giants.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch09.xhtml#ch01fn309-marker)) 乔恩·拉塞尔（Jon Russell），“阿里巴巴以1.03亿美元收购德国大数据初创公司Data
+    Artisans，” *TechCrunch*，2019年1月8日，[*https://oreil.ly/4tf5c*](https://oreil.ly/4tf5c)。一位早期审阅者指出，这次收购的主要目标也可能是增加阿里巴巴的开源足迹，这与其他科技巨头相比很少。
+- en: ^([8](ch09.xhtml#ch01fn310-marker)) The problem is also equally challenging
+    if you want your model to figure out when to recommend a new movie that no one
+    has watched and given feedback on yet.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch09.xhtml#ch01fn310-marker)) 如果你希望你的模型能够找出何时推荐尚无人观看和反馈的新电影，那么这个问题同样具有挑战性。
+- en: ^([9](ch09.xhtml#ch01fn311-marker)) Lucas Bernardi, Jaap Kamps, Julia Kiseleva,
+    and Melanie J. I. Müller, “The Continuous Cold Start Problem in e-Commerce Recommender
+    Systems,” *arXiv*, August 5, 2015, [*https://oreil.ly/GWUyD*](https://oreil.ly/GWUyD).
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch09.xhtml#ch01fn311-marker)) Lucas Bernardi, Jaap Kamps, Julia Kiseleva,
+    和 Melanie J. I. Müller, “电子商务推荐系统中的连续冷启动问题,” *arXiv*, 2015年8月5日, [*https://oreil.ly/GWUyD*](https://oreil.ly/GWUyD)。
+- en: ^([10](ch09.xhtml#ch01fn312-marker)) Jacopo Tagliabue, Ciro Greco, Jean-Francis
+    Roy, Bingqing Yu, Patrick John Chia, Federico Bianchi, and Giovanni Cassani, “SIGIR
+    2021 E-Commerce Workshop Data Challenge,” *arXiv*, April 19, 2021, [*https://oreil.ly/8QxmS*](https://oreil.ly/8QxmS).
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([10](ch09.xhtml#ch01fn312-marker)) Jacopo Tagliabue, Ciro Greco, Jean-Francis
+    Roy, Bingqing Yu, Patrick John Chia, Federico Bianchi, 和 Giovanni Cassani, “SIGIR
+    2021电子商务研讨会数据挑战,” *arXiv*, 2021年4月19日, [*https://oreil.ly/8QxmS*](https://oreil.ly/8QxmS)。
+- en: ^([11](ch09.xhtml#ch01fn313-marker)) Catherine Wang, “Why TikTok Made Its User
+    So Obsessive? The AI Algorithm That Got You Hooked,” *Towards Data Science*, June
+    7, 2020, [*https://oreil.ly/BDWf8*](https://oreil.ly/BDWf8).
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([11](ch09.xhtml#ch01fn313-marker)) Catherine Wang, “Why TikTok Made Its User
+    So Obsessive? The AI Algorithm That Got You Hooked,” *Towards Data Science*, 2020年6月7日,
+    [*https://oreil.ly/BDWf8*](https://oreil.ly/BDWf8)。
+- en: ^([12](ch09.xhtml#ch01fn314-marker)) See the section [“Data Passing Through
+    Real-Time Transport”](ch03.xhtml#data_passing_through_real_time_transpor).
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([12](ch09.xhtml#ch01fn314-marker)) 见章节 [“实时传输中的数据传递”](ch03.xhtml#data_passing_through_real_time_transpor)。
+- en: ^([13](ch09.xhtml#ch01fn315-marker)) See the section [“Batch Processing Versus
+    Stream Processing”](ch03.xhtml#batch_processing_versus_stream_processi).
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([13](ch09.xhtml#ch01fn315-marker)) 见章节 [“批处理与流处理的比较”](ch03.xhtml#batch_processing_versus_stream_processi)。
+- en: '^([14](ch09.xhtml#ch01fn316-marker)) Tyler Akidau, “Snowflake Streaming: Now
+    Hiring! Help Design and Build the Future of Big Data and Stream Processing,” Snowflake
+    blog, October 26, 2020, [*https://oreil.ly/Knh2Y*](https://oreil.ly/Knh2Y).'
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([14](ch09.xhtml#ch01fn316-marker)) Tyler Akidau, “Snowflake Streaming: Now
+    Hiring! Help Design and Build the Future of Big Data and Stream Processing,” Snowflake博客,
+    2020年10月26日, [*https://oreil.ly/Knh2Y*](https://oreil.ly/Knh2Y)。'
+- en: ^([15](ch09.xhtml#ch01fn317-marker)) Arjun Narayan, “Materialize Raises a $60M
+    Series C, Bringing Total Funding to Over $100M,” *Materialize*, September 30,
+    2021, [*https://oreil.ly/dqxRb*](https://oreil.ly/dqxRb).
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([15](ch09.xhtml#ch01fn317-marker)) Arjun Narayan, “Materialize Raises a $60M
+    Series C, Bringing Total Funding to Over $100M,” *Materialize*, 2021年9月30日, [*https://oreil.ly/dqxRb*](https://oreil.ly/dqxRb)。
+- en: ^([16](ch09.xhtml#ch01fn318-marker)) Khristopher J. Brooks, “Disparity in Home
+    Lending Costs Minorities Millions, Researchers Find,” *CBS News*, November 15,
+    2019, [*https://oreil.ly/SpZ1N*](https://oreil.ly/SpZ1N); Lee Brown, “Tesla Driver
+    Killed in Crash Posted Videos Driving Without His Hands on the Wheel,” *New York
+    Post*, May 16, 2021, [*https://oreil.ly/uku9S*](https://oreil.ly/uku9S); “A Tesla
+    Driver Is Charged in a Crash Involving Autopilot That Killed 2 People,” *NPR*,
+    January 18, 2022, [*https://oreil.ly/WWaRA*](https://oreil.ly/WWaRA).
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([16](ch09.xhtml#ch01fn318-marker)) Khristopher J. Brooks, “Disparity in Home
+    Lending Costs Minorities Millions, Researchers Find,” *CBS News*, 2019年11月15日,
+    [*https://oreil.ly/SpZ1N*](https://oreil.ly/SpZ1N); Lee Brown, “Tesla Driver Killed
+    in Crash Posted Videos Driving Without His Hands on the Wheel,” *New York Post*,
+    2021年5月16日, [*https://oreil.ly/uku9S*](https://oreil.ly/uku9S); “A Tesla Driver
+    Is Charged in a Crash Involving Autopilot That Killed 2 People,” *NPR*, 2022年1月18日,
+    [*https://oreil.ly/WWaRA*](https://oreil.ly/WWaRA)。
+- en: ^([17](ch09.xhtml#ch01fn319-marker)) James Vincent, “Twitter Taught Microsoft’s
+    Friendly AI Chatbot to Be a Racist Asshole in Less Than a Day,” *The Verge*, May
+    24, 2016, [*https://oreil.ly/NJEVF*](https://oreil.ly/NJEVF).
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([17](ch09.xhtml#ch01fn319-marker)) James Vincent, “Twitter Taught Microsoft’s
+    Friendly AI Chatbot to Be a Racist Asshole in Less Than a Day,” *The Verge*, 2016年5月24日,
+    [*https://oreil.ly/NJEVF*](https://oreil.ly/NJEVF)。
+- en: ^([18](ch09.xhtml#ch01fn320-marker)) Their fraud detection system consists of
+    multiple ML models.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([18](ch09.xhtml#ch01fn320-marker)) 他们的欺诈检测系统由多个机器学习模型组成。
+- en: ^([19](ch09.xhtml#ch01fn321-marker)) In the section [“Bandits”](#bandits), we’ll
+    learn about how bandits can be used as a more data-efficient alternative to A/B
+    testing.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([19](ch09.xhtml#ch01fn321-marker)) 在章节 [“赌徒算法”](#bandits) 中，我们将学习如何将赌徒算法作为比A/B测试更高效的选择。
+- en: ^([20](ch09.xhtml#ch01fn322-marker)) Some people call this setting “learning
+    with partial information,” but learning with partial information refers to another
+    setting, as outlined in the paper [“Subspace Learning with Partial Information”](https://oreil.ly/OuJvG)
+    by Gonen et al. (2016).
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([20](ch09.xhtml#ch01fn322-marker)) 有些人称此设置为“学习部分信息”，但“学习部分信息”指的是另一种情况，如 Gonen
+    等人在文章 [“Subspace Learning with Partial Information”](https://oreil.ly/OuJvG) 中所述。
+- en: '^([21](ch09.xhtml#ch01fn323-marker)) Pedro Domingos and Geoff Hulten, “Mining
+    High-Speed Data Streams,” in *Proceedings of the Sixth International Conference
+    on Knowledge Discovery and Data Mining* (Boston: ACM Press, 2000), 71–80; Albert
+    Bifet and Ricard Gavaldà, “Adaptive Parameter-free Learning from Evolving Data
+    Streams,” 2009, [*https://oreil.ly/XIMpl*](https://oreil.ly/XIMpl).'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([21](ch09.xhtml#ch01fn323-marker)) Pedro Domingos 和 Geoff Hulten, “挖掘高速数据流,”
+    in *第六届国际知识发现与数据挖掘会议论文集* (波士顿: ACM Press, 2000年), 71–80; Albert Bifet 和 Ricard
+    Gavaldà, “从演化数据流中学习的自适应无参数学习,” 2009年, [*https://oreil.ly/XIMpl*](https://oreil.ly/XIMpl)。'
+- en: ^([22](ch09.xhtml#ch01fn324-marker)) Zohar Karnin, Kevin Lang, and Edo Liberty,
+    “Optimal Quantile Approximation in Streams,” *arXiv*, March 17, 2016, [*https://oreil.ly/bUu4H*](https://oreil.ly/bUu4H).
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([22](ch09.xhtml#ch01fn324-marker)) Zohar Karnin, Kevin Lang 和 Edo Liberty,
+    “流数据中的最优分位数近似,” *arXiv*, 2016年3月17日, [*https://oreil.ly/bUu4H*](https://oreil.ly/bUu4H)。
+- en: ^([23](ch09.xhtml#ch01fn325-marker)) We’ll cover ML platforms in the section
+    [“ML Platform”](ch10.xhtml#ml_platform).
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([23](ch09.xhtml#ch01fn325-marker)) 我们将在 [“ML Platform”](ch10.xhtml#ml_platform)
+    部分讨论 ML 平台。
+- en: ^([24](ch09.xhtml#ch01fn326-marker)) You might need to train your embedding
+    model more frequently if you have a lot of new items each day.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([24](ch09.xhtml#ch01fn326-marker)) 如果每天有大量新项目，您可能需要更频繁地训练您的嵌入模型。
+- en: '^([25](ch09.xhtml#ch01fn327-marker)) Xinran He, Junfeng Pan, Ou Jin, Tianbing
+    Xu, Bo Liu, Tao Xu, Tanxin Shi, et al., “Practical Lessons from Predicting Clicks
+    on Ads at Facebook,” in *ADKDD ’14: Proceedings of the Eighth International Workshop
+    on Data Mining for Online Advertising* (August 2014): 1–9, [*https://oreil.ly/oS16J*](https://oreil.ly/oS16J).'
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([25](ch09.xhtml#ch01fn327-marker)) Xinran He, Junfeng Pan, Ou Jin, Tianbing
+    Xu, Bo Liu, Tao Xu, Tanxin Shi 等人, “在 Facebook 预测广告点击的实用经验,” *ADKDD ’14: 数据挖掘在线广告工作坊*
+    (2014年8月): 1–9, [*https://oreil.ly/oS16J*](https://oreil.ly/oS16J)。'
+- en: ^([26](ch09.xhtml#ch01fn328-marker)) Qian Yu, “Machine Learning with Flink in
+    Weibo,” QCon 2019, video, 17:57, [*https://oreil.ly/Yia6v*](https://oreil.ly/Yia6v).
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([26](ch09.xhtml#ch01fn328-marker)) Qian Yu, “微博中的 Flink 机器学习,” QCon 2019,
+    视频, 17:57, [*https://oreil.ly/Yia6v*](https://oreil.ly/Yia6v)。
+- en: ^([27](ch09.xhtml#ch01fn329-marker)) Ron Kohavi and Stefan Thomke, “The Surprising
+    Power of Online Experiments,” *Harvard Business Review*, September–October 2017,
+    [*https://oreil.ly/OHfj0*](https://oreil.ly/OHfj0).
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([27](ch09.xhtml#ch01fn329-marker)) Ron Kohavi 和 Stefan Thomke, “在线实验的惊人力量,”
+    *哈佛商业评论*, 2017年9-10月, [*https://oreil.ly/OHfj0*](https://oreil.ly/OHfj0)。
+- en: ^([28](ch09.xhtml#ch01fn330-marker)) Danilo Sato, “CanaryRelease,” June 25,
+    2014, MartinFowler.com, [*https://oreil.ly/YtKJE*](https://oreil.ly/YtKJE).
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([28](ch09.xhtml#ch01fn330-marker)) Danilo Sato, “CanaryRelease,” 2014年6月25日,
+    MartinFowler.com, [*https://oreil.ly/YtKJE*](https://oreil.ly/YtKJE)。
+- en: ^([29](ch09.xhtml#ch01fn331-marker)) Thorsten Joachims, “Optimizing Search Engines
+    using Clickthrough Data,” KDD 2002, [*https://oreil.ly/XnH5G*](https://oreil.ly/XnH5G).
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([29](ch09.xhtml#ch01fn331-marker)) Thorsten Joachims, “利用点击数据优化搜索引擎,” KDD
+    2002, [*https://oreil.ly/XnH5G*](https://oreil.ly/XnH5G)。
+- en: ^([30](ch09.xhtml#custom_ch9fn1-marker)) Joshua Parks, Juliette Aurisset, and
+    Michael Ramm, “Innovating Faster on Personalization Algorithms at Netflix Using
+    Interleaving,” *Netflix Technology Blog*, November 29, 2017, [*https://oreil.ly/lnvDY*](https://oreil.ly/lnvDY).
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([30](ch09.xhtml#custom_ch9fn1-marker)) Joshua Parks, Juliette Aurisset 和 Michael
+    Ramm, “Netflix 在个性化算法上的快速创新,” *Netflix 技术博客*, 2017年11月29日, [*https://oreil.ly/lnvDY*](https://oreil.ly/lnvDY)。
+- en: '^([31](ch09.xhtml#ch01fn333-marker)) Olivier Chapelle, Thorsten Joachims, Filip
+    Radlinski, and Yisong Yue, “Large-Scale Validation and Analysis of Interleaved
+    Search Evaluation,” *ACM Transactions on Information Systems* 30, no. 1 (February
+    2012): 6, [*https://oreil.ly/lccvK*](https://oreil.ly/lccvK).'
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([31](ch09.xhtml#ch01fn333-marker)) Olivier Chapelle, Thorsten Joachims, Filip
+    Radlinski 和 Yisong Yue, “大规模交错搜索评估的验证和分析,” *ACM 信息系统事务* 30卷1期 (2012年2月): 6, [*https://oreil.ly/lccvK*](https://oreil.ly/lccvK)。'
+- en: ^([32](ch09.xhtml#ch01fn334-marker)) Parks et al., “Innovating Faster on Personalization
+    Algorithms.”
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([32](ch09.xhtml#ch01fn334-marker)) Parks 等人, “Netflix 在个性化算法上的快速创新”。
+- en: ^([33](ch09.xhtml#ch01fn335-marker)) Greg Rafferty, “A/B Testing—Is There a
+    Better Way? An Exploration of Multi-Armed Bandits,” *Towards Data Science*, January
+    22, 2020, [*https://oreil.ly/MsaAK*](https://oreil.ly/MsaAK).
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([33](ch09.xhtml#ch01fn335-marker)) Greg Rafferty, "A/B测试——是否有更好的方法？多臂老虎机的探索,"
+    *走向数据科学*, 2020年1月22日，[*https://oreil.ly/MsaAK*](https://oreil.ly/MsaAK).
+- en: '^([34](ch09.xhtml#ch01fn336-marker)) William R. Thompson, “On the Likelihood
+    that One Unknown Probability Exceeds Another in View of the Evidence of Two Samples,”
+    *Biometrika* 25, no. 3/4 (December 1933): 285–94, [*https://oreil.ly/TH1HC*](https://oreil.ly/TH1HC).'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([34](ch09.xhtml#ch01fn336-marker)) William R. Thompson, "在两个样本的证据视角下，一个未知概率超过另一个的可能性,"
+    *生物统计学* 25, no. 3/4 (1933年12月): 285–94，[*https://oreil.ly/TH1HC*](https://oreil.ly/TH1HC).'
+- en: '^([35](ch09.xhtml#ch01fn337-marker)) Peter Auer, “Using Confidence Bounds for
+    Exploitation–Exploration Trade-offs,” *Journal of Machine Learning Research* 3
+    (November 2002): 397–422, [*https://oreil.ly/vp9mI*](https://oreil.ly/vp9mI).'
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([35](ch09.xhtml#ch01fn337-marker)) Peter Auer, "利用置信区间进行开发-探索权衡," *机器学习研究杂志*
+    3 (2002年11月): 397–422，[*https://oreil.ly/vp9mI*](https://oreil.ly/vp9mI).'
+- en: ^([36](ch09.xhtml#ch01fn338-marker)) Lihong Li, Wei Chu, John Langford, and
+    Robert E. Schapire, “A Contextual-Bandit Approach to Personalized News Article
+    Recommendation,” *arXiv*, February 28, 2010, [*https://oreil.ly/uaWHm*](https://oreil.ly/uaWHm).
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([36](ch09.xhtml#ch01fn338-marker)) Lihong Li, Wei Chu, John Langford, 和 Robert
+    E. Schapire，"个性化新闻文章推荐的上下文臂带方法," *arXiv*, 2010年2月28日，[*https://oreil.ly/uaWHm*](https://oreil.ly/uaWHm).
+- en: ^([37](ch09.xhtml#ch01fn339-marker)) According to Wikipedia, *multi-armed bandit*
+    is a classic reinforcement learning problem that exemplifies the exploration–exploitation
+    trade-off dilemma (s.v., “Multi-armed bandit,” [*https://oreil.ly/ySjwo*](https://oreil.ly/ySjwo)).
+    The name comes from imagining a gambler at a row of slot machines (sometimes known
+    as “one-armed bandits”) who has to decide which machines to play, how many times
+    to play each machine and in which order to play them, and whether to continue
+    with the current machine or try a different machine.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([37](ch09.xhtml#ch01fn339-marker)) 根据维基百科，*多臂老虎机* 是一个经典的强化学习问题，展示了开发-探索权衡困境（见“多臂老虎机”，[*https://oreil.ly/ySjwo*](https://oreil.ly/ySjwo)）。这个名字源自想象一个赌徒在一排老虎机前（有时被称为“单臂老虎机”），他需要决定玩哪些机器，每台机器玩多少次，以及玩它们的顺序，以及是否继续当前机器还是尝试另一台机器。

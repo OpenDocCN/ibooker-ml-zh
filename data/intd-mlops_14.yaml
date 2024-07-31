@@ -1,0 +1,752 @@
+- en: 'Chapter 11\. MLOps in Practice: Consumption Forecast'
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第11章\. 实践中的MLOps：消费预测
+- en: Nicolas Omont
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Nicolas Omont
+- en: Predictions at various times and geographical scales play an important role
+    in the operation of a power grid. They allow for simulation of possible future
+    states of the system and for making sure that it can safely operate. This chapter
+    will walk through a machine learning model life cycle and MLOps use case for consumption
+    forecasting, including business considerations, data collection, and implementation
+    decisions. Though this particular chapter is focused on power grids, the considerations
+    and particularities of the use case can be generalized to other industrial cases
+    that use consumption forecasting.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预测在不同时间和地理尺度上对电网运行至关重要。它们允许模拟系统可能的未来状态，并确保其可以安全运行。本章将介绍消费预测的机器学习模型生命周期和MLOps使用案例，包括业务考虑因素、数据收集和实施决策。尽管此特定章节专注于电力网格，但消费预测的考虑因素和特殊情况可以推广到其他使用消费预测的工业案例。
+- en: Power Systems
+  id: totrans-3
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 电力系统
+- en: Bulk power systems are the backbone of power grids. Also called transmission
+    networks, they form the core of the system that keeps the lights on. These systems
+    are mainly composed of lines and transformers, which are indirectly connected
+    with most producers and consumers through distribution networks that take care
+    of the last few kilometers of transmission. As illustrated in [Figure 11-1](#a_sample_bulk_power_systemcomma_to_whic),
+    only the largest producers and consumers are directly connected to the bulk system.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大电力系统是电网的支柱。也称为输电网络，它们构成了保持灯火通明的系统核心。这些系统主要由线路和变压器组成，通过分布网络间接连接到大多数生产者和消费者，后者负责最后几公里的传输。正如在[图 11-1](#a_sample_bulk_power_systemcomma_to_whic)中所示，只有最大的生产者和消费者直接连接到大系统。
+- en: '![](assets/imlo_1101.png)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/imlo_1101.png)'
+- en: Figure 11-1\. A sample bulk power system, to which only the largest producers
+    and consumers are directly connected
+  id: totrans-6
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-1\. 一个示例的大电力系统，只有最大的生产者和消费者直接连接
+- en: 'The longer the transmission distance and the larger the energy volume to be
+    transmitted, the higher the voltage used: on the lower end, a few tens of kilovolts
+    for a few tens of megawatts over a few tens of kilometers; on the upper end, one
+    million volts for a few thousand megawatts over a few thousand kilometers. (A
+    line with a capacity of one megawatt can be used to provide power to around one
+    thousand inhabitants in Europe.) The operation of transmission systems has always
+    required a lot of communications and computations because of its properties:'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 传输距离越长、能量体积越大，使用的电压越高：在低端，几十千伏用于几十兆瓦在几十公里上的传输；在高端，数百万伏用于数千兆瓦在数千公里上的传输。（一条容量为一兆瓦的线路可以为欧洲约一千名居民提供电力。）传输系统的运行一直需要大量的通信和计算，因为其特性如下：
+- en: No energy storage
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无能量储存
+- en: The network stores a meaningless amount of energy—less than one second of consumption
+    in the grid and up to 30 seconds in the alternators and motors. By way of contrast,
+    a gas network stores several hours of consumption in its pipeline. Therefore,
+    actions have to be taken very quickly to balance production and consumption and
+    avoid blackouts.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 网络存储的能量微不足道——在电网中不到一秒的消耗量，而在交流发电机和电动机中最多可达30秒。相比之下，天然气网络在其管道中存储了数小时的消耗量。因此，必须迅速采取行动来平衡生产和消费，避免停电。
+- en: Weak flow control
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 弱流量控制
+- en: 'On telecommunication networks, congestions are handled by dropping packets
+    or by not establishing a call. There is no equivalent mechanism in power grids,
+    which means the power flow on a grid element can be higher than its operating
+    limit. Actions have to be taken after a few seconds to a few hours of overload
+    depending on the technology and the severity. Flow control technologies do exist,
+    but there is a trade-off between flow control and instantaneous balance: the power
+    has to find a path from generation to consumption.'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在电信网络上，拥塞通过丢包或不建立呼叫来处理。在电网中不存在类似的机制，这意味着网格元素上的电力流量可能高于其运行极限。根据技术和严重程度，几秒钟到几小时的超载后必须采取行动。尽管存在流量控制技术，但在流量控制和即时平衡之间存在权衡：电力必须找到从发电到消费的路径。
+- en: 'Because of these two properties, the grid operator always has to anticipate
+    the contingencies: if this grid element fails, will the overload on the remaining
+    elements remain acceptable? The anticipation is done on several timescales, from
+    the next five minutes to the next five decades. The actions to be taken depend
+    on the horizon. For example:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这两个属性，电网操作员必须始终预测突发情况：如果此电网元素故障，剩余元素的过载是否仍然可接受？预期是在几个时间尺度上进行的，从接下来的五分钟到接下来的五十年。需要采取的行动取决于时间跨度。例如：
+- en: 'Below five minutes: no human action is possible. Automatic actions should already
+    be well defined.'
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 少于五分钟：无法进行人工操作。自动操作应该已经定义完善。
+- en: 'Between five minutes and a few hours ahead: production schedule and grid topology
+    adaptation (opening of breakers and other flow control technologies).'
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从五分钟到几小时之间：生产时间表和电网拓扑的调整（开断路器和其他流控技术的应用）。
+- en: 'A few days ahead: maintenance schedule adaptations.'
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 几天前：维护时间表的调整。
+- en: 'A few seasons ahead: maintenance schedule adaptations, contracts with producers
+    or consumers to guarantee power capacity or limit power generation or consumption.'
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 几个季节前：维护时间表的调整，与生产者或消费者签订合同，以保证电力容量或限制电力产生或消耗。
+- en: 'From 5 to 50 years ahead: investment in grid elements. Lines and transformers
+    have standard life expectancies of several decades; practically, it is expected
+    that some grid elements will last over one hundred years.'
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从5到50年之间：投资电网元素。线路和变压器的标准寿命可达数十年；实际上，预计某些电网元素将超过一百年。
+- en: 'Another concern is anticipating at different geographical scales. While some
+    contingencies only have effects on a small part of the grid, some may have a continental
+    impact and may require coordinated actions among several countries to mitigate
+    their effects. As a result, operating the grid requires:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个问题是在不同地理尺度上的预期。尽管某些事故只对电网的一小部分产生影响，但某些事故可能会对整个大陆产生影响，并可能需要多个国家协调行动以减轻其影响。因此，运行电网需要：
+- en: Collecting data over a wide geographical area with strong time constraints.
+  id: totrans-19
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在时间紧迫的情况下，收集广域的数据。
+- en: Processing data to anticipate and act accordingly.
+  id: totrans-20
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 处理数据以便预测并相应行动。
+- en: Data Collection
+  id: totrans-21
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 数据采集
+- en: 'Collecting past data is the first step to making forecasts. There are two largely
+    independent sources of data: the SCADA (supervisory control and data acquisition)
+    system and the metering system. Depending on the prediction use case, one or the
+    other may be used.'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 收集过去的数据是制作预测的第一步。数据主要来自两个独立的来源：SCADA（监控与数据采集）系统和计量系统。根据预测用例，可能会使用其中之一。
+- en: The SCADA system collects data in real time to provide an up-to-date view of
+    the system to the operator. It also allows commands to be sent to network equipment—for
+    example to open and close a breaker. The most impressive representation of the
+    system is the synoptic screen found in most control rooms as shown in [Figure 11-2](#the_scada_system_typically_refreshes_th).
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SCADA系统实时收集数据，为操作员提供系统的最新视图。它还允许向网络设备发送命令，例如打开和关闭断路器。系统的最出色表现是大多数控制室中常见的综合显示屏，如图11-2所示。
+- en: '![](assets/imlo_1102.png)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/imlo_1102.png)'
+- en: Figure 11-2\. The SCADA system typically refreshes thousands of measurements
+    about flows, consumption, and generation on the grid every 10 seconds or less
+  id: totrans-25
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-2。SCADA系统通常每10秒或更短时间刷新数千次有关电网流动、消耗和发电的测量数据。
+- en: Some measurements are intentionally redundant, such as measuring power loss.
+    If the power flow is measured at each end of a line, then the difference between
+    them is equal to the losses on the line. These losses can be physically estimated
+    so that it is possible to handle the case when one measure is missing, to detect
+    anomalies, or to improve the precision of the estimates.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有些测量是有意冗余的，比如功率损耗的测量。如果在线路的每一端测量功率流，则它们之间的差等于该线路上的损耗。这些损耗可以通过物理估计来处理，以便在一个测量缺失的情况下处理，检测异常或改进估计的精度。
+- en: The process that uses this redundancy to produce a state of the network is called
+    the state estimation, and it is run every few minutes. When an operating limit
+    is not satisfied, the SCADA system raises an alarm. However, the SCADA cannot
+    raise an alarm when an operating limit would not be satisfied if one of the grid
+    elements went out of order.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用冗余以生成网络状态的过程称为状态估计，并且每隔几分钟运行一次。当操作限制条件不满足时，SCADA系统会发出警报。但是，如果网格元素中的任何一个失效，SCADA无法发出警报。
+- en: Simulations of network element loss (N-1 simulation) on the consistent state
+    produced by the state estimation are run on a regular basis, and the value of
+    SCADA data fades quickly; therefore, when it is historized, it is not consolidated;
+    missing values are usually not input, and anomalies are usually not corrected.
+    State estimations are used by a variety of processes so that they are usually
+    historized over a few months to a few years.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对由状态估计产生的一致状态进行网络元素损失仿真（N-1仿真）是定期进行的，而SCADA数据的值迅速消退；因此，在历史化时，它不会被整合；通常不输入缺失值，通常也不纠正异常。状态估计被各种过程使用，因此通常会在几个月到几年的时间内被历史化。
+- en: The metering system that is used for invoicing does not need to be as reactive
+    as the SCADA system, but should be precise. It focuses on generation and consumption,
+    not flow. Rather than monitoring instantaneous power, it records the withdrawn
+    or injected energy over a period of time that ranges between a few minutes and
+    one hour.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于计费的计量系统不需要像SCADA系统那样具有反应性，但应精确。它侧重于发电和消费，而不是流动。它不是监视瞬时功率，而是记录在几分钟到一小时之间的一段时间内抽取或注入的能量。
+- en: The information it gathers was previously made available after a delay of a
+    day or more. Newer systems make it available within a few minutes. However, consolidation
+    and validation are usually needed when there are missing measurements or anomalies
+    so that the final data is still usually available within a few working days. This
+    data is well historized.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它收集的信息之前需延迟一天或更长时间才能获取。较新的系统使信息在几分钟内可用。然而，当存在缺失测量或异常时通常需要整合和验证，以便最终数据通常在几个工作日内仍然可用。这些数据有很好的历史记录。
+- en: 'Problem Definition: Machine Learning, or Not Machine Learning?'
+  id: totrans-31
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 问题定义：机器学习，还是不是机器学习？
+- en: Not all use cases are appropriate for machine learning. Some can be solved more
+    easily and cheaply in other ways. The techniques used to make forecasts for the
+    type of use case presented here are different in these three situations as shown
+    in [Table 11-1](#table_oneone_one).
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并非所有的使用案例都适合机器学习。有些情况可以通过其他方式更轻松、更便宜地解决。用于这类使用案例的预测技术在这三种情况下不同，如[表 11-1](#table_oneone_one)所示。
+- en: Table 11-1\. Forecasting techniques by use case
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 11-1\. 案例使用的预测技术
+- en: '| Use case | Forecasting technique |'
+  id: totrans-34
+  prefs: []
+  type: TYPE_TB
+  zh: '| 使用案例 | 预测技术 |'
+- en: '| --- | --- |'
+  id: totrans-35
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| The forecast uncertainty comes from a part of the system that the operator
+    cannot change. | Changing the weather is, practically speaking, impossible. As
+    a result, wind and photovoltaic (PV) generation, as well as heating and air conditioning,
+    can safely be considered exogenous. This makes them good candidates for direct
+    machine learning forecasting. These forecasts can leverage meteorological forecasts
+    or climatic scenarios, depending on the horizon. Meteorological forecasts are
+    available only a few days ahead, though some models now predict trends over a
+    few months. |'
+  id: totrans-36
+  prefs: []
+  type: TYPE_TB
+  zh: '| 预测不确定性来自操作员无法改变的系统的一部分。 | 从实际上来说，改变天气是不可能的。因此，风能和光伏（PV）发电以及供暖和空调可以安全地被视为外生变量。这使它们成为直接进行机器学习预测的良好候选。这些预测可以利用气象预测或气候场景，具体取决于时间跨度。气象预测通常仅提前几天，尽管一些模型现在可以预测未来几个月的趋势。'
+- en: '| The forecast uncertainty comes from a part of the system that the operator
+    can somehow influence. | For example, strictly speaking, the consumption should
+    not be forecasted, but rather the demand. The difference between consumption and
+    demand is that the consumption is somehow at the hand of the operator that can
+    choose not to serve the demand by switching off the consumers. For the same reason,
+    the photovoltaic and wind production potential is forecasted, not the actual production.
+    |'
+  id: totrans-37
+  prefs: []
+  type: TYPE_TB
+  zh: '| 预测不确定性来自操作员可以在某种程度上影响的系统的一部分。 | 例如，严格来说，不应该预测消费，而是需求。消费与需求的区别在于，消费在操作员手中，可以选择关闭消费者不满足需求。出于同样的原因，应预测光伏和风能生产潜力，而不是实际生产。
+    |'
+- en: '| The forecast uncertainty comes from a part of the system that some other
+    actors can control and anticipate. | For example, for dispatchable power units
+    where the operator can switch them on or off, it is better to ask for the schedules
+    from the operator. If this is not possible, it may be better to reproduce the
+    way the schedules are made—for instance, the operator may start the plant if the
+    power price is higher than the plant fuel cost. In such cases, the forecasts may
+    rely on techniques like agent-based modeling. Large factories are likely to have
+    consumption schedules based on their operational production schedules. Distribution
+    grid topology is also likely to be scheduled ahead of time, as maintenance operations
+    require advanced planning. In all these cases, it is often better to ask for the
+    schedules than to use machine learning to forecast them. |'
+  id: totrans-38
+  prefs: []
+  type: TYPE_TB
+  zh: '| 预测的不确定性来自系统的一部分，其他行动者可以控制并预测。 | 例如，对于可调度的电力单元，操作员可以将其打开或关闭，最好要求操作员提供时间表。如果不可能，复制时间表的方式可能更好，例如，如果电价高于电厂燃料成本，操作员可以启动电厂。在这种情况下，预测可能依赖于诸如基于代理模型的建模技术。大型工厂可能根据其操作生产计划有消耗计划。配电网拓扑结构也可能需要提前计划，因为维护操作需要提前规划。在所有这些情况下，通常最好要求提供时间表，而不是使用机器学习来预测。'
+- en: Spatial and Temporal Resolution
+  id: totrans-39
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 空间和时间分辨率
+- en: Due to the law of large numbers, the forecast uncertainty decreases when the
+    consumption is spatially or temporally aggregated. While it is hard to forecast
+    the hourly consumption of an individual household because people are not machines,
+    it is surprisingly easy for populations of a few million, and is relatively easy
+    to forecast the monthly consumption of such a population as well.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于大数定律，当消费在空间或时间上聚合时，预测的不确定性会减少。尽管预测个体家庭每小时的消耗很难，因为人们不是机器，但对几百万人口的人群来说却相当容易，对这样的人群每月消耗的预测也相对容易。
+- en: As a result, a forecast system is often hierarchical, with several levels of
+    forecasts that are linked together by constraints. That is, regional forecasts
+    should sum up to the country-wide forecasts, and hourly forecasts should sum up
+    to the daily forecast.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，预测系统通常是分层的，具有几个层次的预测，这些预测通过约束条件连接在一起。也就是说，区域预测应该总结到全国范围内的预测，小时预测应该总结到每日预测。
+- en: 'Let’s take a striking example to illustrate this. Electric traction trains
+    have a worrying consumption pattern for grid operators because they move, with
+    a typical train line being fed by a different substation every 10 to 50 kilometers.
+    As a result, the operator sees consumption of a few megawatts switching from substation
+    to substation every 10 minutes or so. It creates several issues:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们举一个引人注目的例子来说明这一点。电力牵引列车对电网运营商来说具有令人担忧的消耗模式，因为它们移动，典型的列车线路每10到50公里由不同的变电站供电。因此，操作员每隔大约10分钟就会看到几兆瓦的消耗在不同的变电站之间切换。这造成了几个问题：
+- en: The forecast is relatively easy at the line level because the train is always
+    consuming somewhere and because trains usually circulate at fixed hours. As a
+    result, a machine learning approach is likely to work.
+  id: totrans-43
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在线路层面上预测相对较容易，因为列车总是在某处消耗，并且列车通常在固定的时间行驶。因此，机器学习方法可能会有效。
+- en: The forecast of the energy withdrawn over a long period at a given substation
+    is also relatively easy, because the train will go through the corresponding part
+    of the line.
+  id: totrans-44
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在给定变电站长时间内所撤出的能量的预测也相对较简单，因为列车将通过线路的相应部分。
+- en: 'But because the operator wants to know if the train will create an overload
+    when circulating, a consistent set of forecasts is needed:'
+  id: totrans-45
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 但是由于操作员希望知道列车在行驶时是否会造成过载，因此需要一套一致的预测：
+- en: The train should withdraw power at one location at a time only.
+  id: totrans-46
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 列车应该一次只在一个位置吸取电力。
+- en: Each substation should see a consumption spike at some point in time so that
+    a fine-grained time resolution is needed.
+  id: totrans-47
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个变电站应该在某个时间点看到消耗的急剧增加，因此需要细粒度的时间分辨率。
+- en: 'As a result, the solution depends on the goal of the prediction:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，解决方案取决于预测的目标：
+- en: On a day-to-day basis, an average solution that splits the train consumption
+    over all substations is not acceptable, as potential overloads may be missed.
+    A worst-case solution that assigns the train consumption to all substations may
+    be more acceptable, though it will anticipate spurious overloads as the overall
+    consumption will be too large.
+  id: totrans-49
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 日常基础上，将列车消耗分配到所有变电站的平均解决方案是不可接受的，因为可能会错过潜在的过载情况。将列车消耗分配到所有变电站的最坏情况解决方案可能更可接受，尽管它会预期到虚假过载，因为总体消耗将太大。
+- en: However, to schedule the maintenance of one of the lines that feeds the region,
+    the exact location of the consumption is likely to have no impact as long as it
+    is not counted several times.
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 然而，为了安排喂养该地区的一条线路的维护，消费的确切位置可能不会产生影响，只要不重复计数。
+- en: When designing the forecast system, trade-offs will have to be made, as the
+    perfect system is unlikely to exist. If the system has a lot of margin, few or
+    no overloads are expected so that the forecasting system can be coarse. However,
+    if the grid is operated close to its limits, the system has to be carefully crafted.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在设计预测系统时，将不得不做出权衡，因为完美系统不太可能存在。如果系统有很大的余量，则预计几乎没有或没有过载，因此预测系统可以粗糙。但是，如果电网接近其极限运行，则必须小心制定系统。
+- en: Implementation
+  id: totrans-52
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实施
+- en: 'Once data is collected, either by the SCADA system or by the metering system,
+    it has to be historized. In addition to storing the raw data, some processing
+    is required:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据一旦由 SCADA 系统或计量系统收集，就必须进行历史化。除了存储原始数据外，还需要进行一些处理：
+- en: 'Temporal aggregations, for example over a five-minute period: Either the average
+    value or a high quantile value is kept. The average is representative of the energy
+    consumed over the period, and the high quantile is useful to assess if constraints
+    occurred.'
+  id: totrans-54
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 时间聚合，例如在五分钟内：保留平均值或高分位数值。平均值代表该时段内消耗的能量，高分位数有助于评估是否发生约束。
+- en: 'Disaggregations: When only the withdrawal is measured, the production and the
+    consumption have to be separately estimated. Usually, consumption is what remains
+    after removing the best possible estimation of distributed generation (wind, PV,
+    etc.). Machine learning can be useful to perform these estimations.'
+  id: totrans-55
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 分解：当只测量到取出量时，需要分别估计生产和消费。通常，在去除分布式发电（风能、光伏等）的最佳估计后，消费量是剩余的部分。机器学习可以用来进行这些估计。
+- en: 'Spatial aggregations: As the system is balanced, it is possible to compute
+    the consumption of a region by computing the difference between the local production
+    and the exchanges with the neighboring regions. This was historically very useful
+    because the production was easy to monitor because there were only a few very
+    large generation units and a few lines with neighboring countries. Nowadays, it
+    tends to be more complex as distributed generation is more widespread.'
+  id: totrans-56
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 空间聚合：由于系统平衡，可以通过计算本地生产与与邻近地区的交换之差来计算区域的消费量。这在历史上非常有用，因为生产易于监控，因为只有少量非常大的发电单元和少量与邻国的线路。如今，随着分布式发电的普及，这变得更加复杂。
+- en: 'Missing value imputation: A measurement may be missing. In the SCADA system,
+    rules exist to replace a missing value with an older or a typical value in real
+    time. In the metering system, the imputation is a heavy impact process as it will
+    be reflected directly on the customer’s invoice.'
+  id: totrans-57
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 缺失值插补：可能会出现测量值缺失的情况。在 SCADA 系统中，存在规则用于实时用老数据或者典型值替换缺失值。在计量系统中，插补是一个重要的过程，因为它会直接反映在客户的账单上。
+- en: Data is then stored in different databases. Data used in short-term critical
+    processes is stored in high-availability systems in which redundancy allows rapid
+    recovery from the loss of a data center. Data used in longer-term processes (invoicing,
+    reports, ML model training) is stored in ordinary IT databases. Overall, the number
+    of monitored grid elements will range between 1,000 and 100,000\. This means that
+    they generate a reasonable volume of data by today’s standards. Scalability is
+    not such an issue either, as bulk power grids do not grow anymore in developed
+    countries.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据然后存储在不同的数据库中。用于短期关键过程的数据存储在高可用系统中，冗余性允许从数据中心丢失中快速恢复。用于长期过程（开票、报告、ML 模型训练）的数据存储在普通的
+    IT 数据库中。总体而言，按照今天的标准，受监控的电网元素数量将在 1,000 到 100,000 之间波动。这意味着它们产生了合理量的数据。扩展性也不是问题，因为发达国家的大型电网已不再增长。
+- en: Modeling
+  id: totrans-59
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 建模
+- en: Once the data preparation has been finished, the data scientist typically has
+    access to a few hundred time series of production and consumption at various withdrawal
+    points of the grid. They have to develop methods to predict some of them at various
+    horizons. Their focus is usually on wind, PV, and sometimes run-of-the river hydroelectricity
+    production potential and on demand. While wind and PV mainly depend on meteorological
+    factors, the demand is mainly driven by economic activity, but part of it is also
+    dependent on meteorology (for example heating and cooling).
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦数据准备完成，数据科学家通常可以访问几百个不同电网提取点的生产和消费时间序列。他们必须开发方法来预测其中一些在不同的时间范围内。他们通常专注于风能、光伏发电以及间歇性水力发电的生产潜力和需求。尽管风能和光伏主要依赖气象因素，但需求主要受经济活动驱动，但部分也依赖于气象条件（例如供暖和制冷）。
+- en: 'Depending on the horizon, the modeling might look very different:'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据不同的视角，建模可能看起来非常不同：
+- en: 'Short-term: Up to a few days ahead, the last known values are very important
+    to make predictions. In addition, for the same reasons, meteorological forecasts
+    are available. Therefore, methods will leverage this information. In this case,
+    deterministic forecasts make sense.'
+  id: totrans-62
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 短期：在未来几天内，最后已知的数值对于进行预测非常重要。此外，出于同样的原因，气象预报是可用的。因此，方法将利用这些信息。在这种情况下，确定性预测是合理的。
+- en: 'Mid-term: Between a few days and a few years, the meteorology is not known,
+    but the climate is. Statistical extrapolation of past year tendencies make sense,
+    except if an economic crisis occurs. As a result, it is possible to draw scenarios
+    to obtain statistical indicators (mean, confidence intervals, quantiles, etc.)
+    about the future consumptions.'
+  id: totrans-63
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 中期：在几天到几年之间，气象是未知的，但气候是已知的。基于过去年度趋势的统计外推是有意义的，除非发生经济危机。因此，可以制定场景以获得关于未来消费的统计指标（平均值、置信区间、分位数等）。
+- en: 'Long-term: Investment decisions require forecasts over several decades. On
+    this horizon, statistical extrapolations of the current trend are not enough,
+    neither on the socio-economic side nor on the climatic side given global warming.
+    As a result, statistical approaches have to be completed with bottom-up usage-based
+    approaches and expert-made diversified scenarios about the future.'
+  id: totrans-64
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 长期：投资决策需要对未来几十年的预测。在这个视角上，对当前趋势的统计外推不足以应对社会经济和气候变化，尤其是全球变暖。因此，统计方法必须与基于使用的自底向上方法和关于未来的多样化专家制定的场景相结合。
+- en: 'ML and MLOps mainly concern short-term and mid-term forecasts. Of the two,
+    in this case, mid-term models are easier to start with: given a few years of data,
+    the goal is to predict consumption based on:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习和MLOps主要涉及短期和中期预测。在这种情况下，中期模型更容易开始：在几年的数据基础上，目标是根据：
+- en: The calendar, with a superposition of daily, weekly, and annual cycles. Bank
+    holidays and school vacations also have a big impact, in addition to daylight
+    saving time.
+  id: totrans-66
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 日历，具有日常、周常和年度周期的叠加。银行假日和学校假期也会产生重大影响，此外还有夏令时。
+- en: The meteorological variables (temperature, wind, sun). As buildings have very
+    large thermal inertia, at least two days and up to three weeks of past temperatures
+    may be needed.
+  id: totrans-67
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 气象变量（温度、风、阳光）。由于建筑物具有非常大的热惯性，可能需要过去至少两天到三周的温度数据。
+- en: While any kind of ML algorithm can be used, the smoothness of the predicted
+    curve is important because the predictions are not used individually, but as daily,
+    weekly, or annual scenarios. Many algorithms do not consider smoothness in their
+    metrics because they rely on the hypothesis that the data is independent and identically
+    distributed, which in our case is incorrect, since the consumption of a given
+    day is usually correlated with the one of the previous day and the one of the
+    previous week.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管可以使用任何类型的机器学习算法，但预测曲线的平滑性很重要，因为预测不是单独使用的，而是作为每日、每周或每年的场景。许多算法在其度量标准中不考虑平滑性，因为它们依赖于假设数据是独立同分布的，而在我们的情况下，这是不正确的，因为给定日的消费通常与前一日和前一周的消费相关联。
+- en: 'Generalized additive models (GAM) are often a good starting point: they are
+    based on splines, so that the smoothness is guaranteed. In fact, consumption forecasting
+    was one of the use cases for which they were developed. Combined with climatic
+    scenarios, the ML model is then able to yield yearly consumption scenarios.'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 广义可加模型（GAM）通常是一个很好的起点：它们基于样条，因此保证了平滑性。事实上，消费预测是它们开发的用例之一。结合气候场景，机器学习模型可以生成年度消费场景。
+- en: Short-term forecasts are more complex. The simplest way to proceed is to remove
+    the mid-term forecast from the recent historical data and use standard time series
+    techniques, such as ARIMA (autoregressive integrated moving average) or exponential
+    smoothing, on the residuals. This allows the generation of forecasts over several
+    days. An integrated short-term model trained on several years of data has potential
+    advantages over this simple approach.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 短期预测更为复杂。最简单的方法是从最近的历史数据中减去中期预测，然后使用标准时间序列技术（如ARIMA（自回归积分移动平均）或指数平滑）处理残差。这允许生成几天的预测。一个基于多年数据训练的集成短期模型可能比这种简单方法有潜在优势。
+- en: For example, the mid-term model is trained on realized meteorological data and
+    not on meteorological forecasts. As a result, it gives too much importance to
+    meteorological forecasts even though they may be wrong. A short-term model trained
+    on meteorological forecasts would address this issue. However, although new algorithms,
+    such as long short-term memory (LSTM) neural networks, are promising, it is hard
+    to find a method that allows for forecasting at any time of the day for several
+    time horizons at once in a consistent way.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，中期模型是基于实现的气象数据训练的，而不是基于气象预测。因此，它过于重视气象预测，即使它们可能是错误的。基于气象预测训练的短期模型将解决这个问题。然而，虽然新算法（如长短期记忆（LSTM）神经网络）很有前途，但很难找到一种方法，以一致的方式同时预测几个时间范围内的任何时间点。
+- en: 'When the resolution is such that the stochasticity is too large to make meaningful
+    predictions, it is better to aggregate time series spatially or temporally and
+    then use non-ML heuristics to split the aggregated forecasts:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当分辨率达到使随机性过大而无法进行有意义预测时，最好是在时间序列或空间上进行聚合，然后使用非机器学习的启发式方法来分割聚合的预测：
+- en: A sharing key based on past observations in the case of spatial aggregation
+  id: totrans-73
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在空间聚合情况下，基于过去观察的共享密钥
+- en: An average profile based on past observations in the case of temporal aggregation
+  id: totrans-74
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在临时聚合情况下，基于过去观察的平均配置文件
+- en: Because the grid is under constant evolution, it is likely that new injections
+    and withdrawals appear for which no historical data is available and that ruptures
+    occur in consumption patterns, so that past data is not relevant anymore. The
+    forecast method has to take into account these edge cases. Ruptures could be spotted
+    using anomaly detection methods. As soon as a rupture is identified, a simplified
+    model could be used for as long as necessary until enough historical data is available.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于网络在不断发展，新的注入和提取可能会出现，而没有历史数据可用，并且消费模式可能会出现断裂，因此过去的数据不再相关。预测方法必须考虑这些边缘情况。断裂可以使用异常检测方法来发现。一旦识别到断裂，可以使用简化模型，直到有足够的历史数据为止。
+- en: Once again, neural networks could become an appealing alternative with the promise
+    that only one model could be trained for all the consumptions instead of one model
+    per consumption with standard methods. Indeed, with only one model, the forecast
+    of a consumption with shallow historical data would be possible provided that
+    its pattern looks similar to an existing pattern.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次，神经网络可能成为一个吸引人的替代方案，承诺只需为所有消费训练一个模型，而不是使用标准方法为每个消费训练一个模型。事实上，只有一个模型，即使消费的历史数据较少，也可以进行预测，前提是其模式看起来类似于现有模式。
+- en: Deployment
+  id: totrans-77
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 部署
+- en: 'Nowadays, the models are likely to be prototyped by a data scientist in R,
+    Python, or MATLAB scripts. The prototype is able to prepare the data, train the
+    model on one dataset, and score it on another. The operationalization could follow
+    several paths:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，这些模型很可能是由数据科学家在R、Python或MATLAB脚本中进行原型设计的。原型能够准备数据，在一个数据集上训练模型，并在另一个数据集上评分。其操作化可能会遵循几条路径：
+- en: The prototype is fully rewritten. This is costly and not flexible but may be
+    necessary if embedding in an operational technology (OT) system is needed.
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 原型完全重写。这种方式成本高，不够灵活，但在需要嵌入运营技术（OT）系统时可能是必要的。
+- en: Only the data preparation and the scoring are rewritten, which allows for training
+    on a different schedule. It makes sense if the training occurs once a year or
+    so because it is good practice to regularly perform a model review to ensure that
+    it works well and that the skills to maintain it are in place.
+  id: totrans-80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 只有数据准备和评分被重新编写，这允许根据不同的时间表进行培训。如果培训每年进行一次或更频繁，这是有道理的，因为定期进行模型审查以确保其良好运行，并且具备维护所需的技能是一个良好的实践。
+- en: Data science and machine learning platforms can be used to operationalize the
+    prototype. These platforms are flexible and allow the transfer of prototypes to
+    production environments in which security and scalability are guaranteed. Most
+    consumption forecast models will be run periodically in batch mode. For more specific
+    use cases, these platforms are able to export trained models as JAR files, SQL,
+    PMML, PFA, and ONNX so that they can be flexibly integrated into any kind of application.
+  id: totrans-81
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据科学和机器学习平台可用于将原型操作化。这些平台灵活且允许将原型转移到保证安全性和可扩展性的生产环境中。大多数消费预测模型将定期以批处理模式运行。对于更具体的用例，这些平台能够将训练好的模型导出为JAR文件、SQL、PMML、PFA和ONNX，以便能够灵活地集成到任何类型的应用程序中。
+- en: Monitoring
+  id: totrans-82
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 监控
+- en: This section mainly discusses short-term forecasts. Indeed, mid-term and long-term
+    forecasts are systematically impacted by drift, as the past never looks like the
+    future, so they are almost systematically trained again before being used to make
+    predictions. For short-term forecasts, besides IT monitoring to raise alarms if
+    forecasts are not produced on time and warnings for events that may result in
+    missing deadlines, the models themselves should be monitored.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节主要讨论短期预测。事实上，中期和长期预测通常受漂移影响，因为过去看起来从未像未来，所以在使用之前几乎总是重新训练。对于短期预测，除了IT监控以在预测未能按时产生时引发警报，并对可能导致错过截止日期的事件发出警告外，模型本身也应该受到监控。
+- en: The first kind of monitoring is drift monitoring. For electricity consumption,
+    it is critical that drift monitoring is deployed together with the model. Anomaly
+    detection and rupture detection allow teams to make sure that the trained model
+    can be used. If not, fallback models based on shallow historical data or normative
+    disaggregation of multiple consumption forecasts should be used. This first layer
+    will detect drastic drifts online.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一种监控类型是漂移监控。对于电力消费，漂移监控与模型部署在一起是至关重要的。异常检测和断裂检测允许团队确保可以使用训练好的模型。如果不能使用，则应使用基于浅层历史数据或多个消费预测的规范分解的备用模型。这种第一层将在线检测到显著的漂移。
+- en: Though the data scientist will try to design models that are adaptive to the
+    consumption level (like ARIMA), it can be useful to detect that some consumption
+    levels are higher or lower than in the training period. This may have happened
+    slowly, so that it was not detected online. The offline analysis of the forecasts,
+    for example once a month if the forecasts are computed every day for the next
+    day, offers the possibility to detect these slow drifts. In these cases, if no
+    additional ground truth is available, it would make sense to shift to a fallback
+    model for these consumptions.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管数据科学家会尝试设计适应消费水平（如ARIMA）的模型，但检测到某些消费水平比培训期间低或高可能很有用。这可能是慢慢发生的，因此在线未能检测到。例如，如果每天计算第二天的预测，那么离线分析预测，例如每月一次，可以检测到这些慢漂移。在这些情况下，如果没有额外的基准数据可用，将这些消费切换到备用模型是有意义的。
+- en: Lastly, after the operations, it is possible to assess the performance of the
+    prediction through various metrics like mean absolute percentage error (MAPE).
+    If a performance drop is detected during a significant amount of time (for example,
+    one month), retraining the corresponding models is an option as new data is available,
+    and the retrained models may increase performance.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，在操作之后，可以通过各种指标如平均绝对百分比误差（MAPE）评估预测性能。如果在显著时间段内（例如一个月）检测到性能下降，可以考虑重新训练相应的模型，因为有新数据可用，重新训练的模型可能会提高性能。
+- en: This requires a tight integration of the design and the production environment
+    with CI/CD processes (as discussed at length in [Chapter 6](ch06.html#deploying_to_production)).
+    If it is possible to handle manually the deployment of new models once a year,
+    it is usually too costly to do so once a month. With an advanced data science
+    and machine learning platform, it is also possible to perform shadow scoring with
+    the new model for a few days before using it for the forecasts.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这要求设计和生产环境与CI/CD流程（在[第6章](ch06.html#deploying_to_production)详细讨论过）紧密集成。如果能够每年手动处理一次新模型的部署，那么每个月进行一次则通常成本过高。通过先进的数据科学和机器学习平台，还可以在将其用于预测之前，对新模型进行几天的影子评分。
+- en: Closing Thoughts
+  id: totrans-88
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结思考
+- en: In this chapter, we have seen how to make the data speak to assist the operation
+    of a transmission power grid. Various ML and non-ML techniques can be used to
+    provide forecasts for up to thousands of consumptions on timescales ranging from
+    minutes to decades.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们看到如何使数据发挥作用，以协助运行输电电网。各种机器学习和非机器学习技术可用于为从分钟到数十年的时间尺度上的数千次消费提供预测。
+- en: Thanks to MLOps, design, deployment, and monitoring processes have been standardized
+    across several industries, and data science and machine learning platforms have
+    been developed to support this process. Designers of consumption forecast systems
+    can leverage these standard processes and platforms to improve the efficiency
+    of these systems from the cost, quality, or time to value perspective.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于MLOps的作用，设计、部署和监控流程已在多个行业间标准化，并开发了支持此流程的数据科学和机器学习平台。消费预测系统的设计者可以利用这些标准流程和平台，从成本、质量或时间价值的角度改善这些系统的效率。
+- en: Taking a larger step back, it’s clear that different industries have a wide
+    range of machine learning use cases, all of which have their own intricacies when
+    it comes to defining the problem, building models, pushing to production—everything
+    we’ve covered in this book. But no matter what the industry or use case, MLOps
+    processes are consistently the thread that allows data teams (and more widely,
+    entire organizations) to scale their machine learning efforts.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回顾全局视角，很明显，不同行业在定义问题、建模、推向生产等方面存在各种各样的机器学习用例，每个用例都有其独特的复杂性，正如本书所覆盖的一切。但无论是哪个行业或用例，MLOps流程始终是一个纽带，使数据团队（甚至整个组织）能够扩展其机器学习工作。
