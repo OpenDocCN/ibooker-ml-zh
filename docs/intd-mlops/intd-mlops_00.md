@@ -36,42 +36,6 @@
 
 显示用户应替换为用户提供的值或由上下文确定的值的文本。
 
-# O’Reilly 在线学习
-
-###### 注意
-
-40 多年来，[*O’Reilly Media*](http://oreilly.com)为公司的成功提供技术和业务培训、知识和见解。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专长。O’Reilly 的在线学习平台让您随时访问现场培训课程、深入学习路径、交互式编码环境以及 O’Reilly 和其他 200 多个出版商的大量文本和视频。欲了解更多信息，请访问[*http://oreilly.com*](http://oreilly.com)。
-
-# 如何联系我们
-
-有关本书的评论和问题，请联系出版商：
-
-+   O’Reilly Media, Inc.
-
-+   Gravenstein Highway North 1005 号
-
-+   加利福尼亚州塞巴斯托波尔市，95472
-
-+   800-998-9938（美国或加拿大）
-
-+   707-829-0515（国际或本地）
-
-+   707-829-0104（传真）
-
-我们为本书制作了一个网页，列出勘误、示例和任何额外信息。您可以访问[*https://oreil.ly/intro-mlops*](https://oreil.ly/intro-mlops)。
-
-电子邮件*bookquestions@oreilly.com* 以发表评论或就本书的技术问题提问。
-
-欲了解有关我们的图书和课程的新闻和信息，请访问[*http://oreilly.com*](http://oreilly.com)。
-
-在 Facebook 上找到我们：[*http://facebook.com/oreilly*](http://facebook.com/oreilly)
-
-在 Twitter 上关注我们：[*http://twitter.com/oreillymedia*](http://twitter.com/oreillymedia)
-
-在 YouTube 上观看我们：[*http://www.youtube.com/oreillymedia*](http://www.youtube.com/oreillymedia)
-
 # 致谢
 
 我们要感谢整个 Dataiku 团队在本书的开发过程中对我们的支持，从构思到完成。这是一次真正的团队努力，与 Dataiku 大多数项目一样，根植于无数人和团队之间的基本合作。

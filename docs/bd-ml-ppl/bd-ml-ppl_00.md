@@ -138,43 +138,6 @@ Italic
 
 如果您认为使用代码示例超出了合理使用范围或上述许可，请随时通过 permissions@oreilly.com 与我们联系。
 
-[O’Reilly Online Learning](http://oreilly.com)
-
-> 注意
-> 
-> 超过 40 年来，[O’Reilly Media](http://oreilly.com)提供技术和商业培训、知识和见解，帮助公司取得成功。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。O’Reilly 的在线学习平台为您提供按需访问的现场培训课程、深入学习路径、交互式编码环境以及来自 O’Reilly 和其他 200 多家出版商的大量文本和视频。更多信息，请访问[`oreilly.com`](http://oreilly.com)。
-
-如何联系我们
-
-两位作者想感谢您选择阅读本书并给予关注。如果您希望与他们联系，可以通过他们的网站 www.buildingmlpipelines.com 或通过电子邮件 buildingmlpipelines@gmail.com 与他们联系。祝您在构建自己的机器学习流水线过程中取得成功！
-
-请将有关本书的评论和问题寄给出版商：
-
-+   O’Reilly Media, Inc.
-
-+   1005 Gravenstein Highway North
-
-+   加利福尼亚州 Sebastopol，95472
-
-+   800-998-9938（美国或加拿大）
-
-+   707-829-0515（国际或本地）
-
-+   707-829-0104（传真）
-
-我们为这本书创建了一个网页，上面列出了勘误、示例和任何额外信息。您可以访问此页面：[`oreil.ly/build-ml-pipelines`](https://oreil.ly/build-ml-pipelines)。
-
-电子邮件 bookquestions@oreilly.com 以对本书提出评论或技术问题。
-
-要获取关于我们的图书和课程的新闻和信息，请访问[`oreilly.com`](http://oreilly.com)。
-
-在 Facebook 上找到我们：[`facebook.com/oreilly`](http://facebook.com/oreilly)
-
-关注我们的 Twitter：[`twitter.com/oreillymedia`](http://twitter.com/oreillymedia)
-
-在 YouTube 上观看我们：[`www.youtube.com/oreillymedia`](http://www.youtube.com/oreillymedia)
 
 致谢
 

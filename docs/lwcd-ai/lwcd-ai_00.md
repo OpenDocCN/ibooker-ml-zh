@@ -72,44 +72,6 @@ ML 几乎触及到现今的每个行业。在零售业，ML 用于需求预测�
 
 如果您认为您使用的代码示例超出了合理使用范围或上述许可，请随时通过 permissions@oreilly.com 与我们联系。
 
-# O’Reilly 在线学习
-
-###### 注意
-
-40 多年来，[*O’Reilly Media*](https://oreilly.com)为公司提供技术和商业培训、知识和洞察，帮助它们成功。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。O’Reilly 的在线学习平台为您提供按需访问的现场培训课程、深入学习路径、互动编码环境，以及来自 O’Reilly 和 200 多个其他出版商的大量文本和视频。欲了解更多信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-# 如何联系我们
-
-请将关于本书的评论和问题发送至出版商：
-
-+   O’Reilly Media, Inc.
-
-+   1005 Gravenstein Highway North
-
-+   Sebastopol, CA 95472
-
-+   800-889-8969（美国或加拿大）
-
-+   707-829-7019（国际或本地）
-
-+   707-829-0104（传真）
-
-+   *support@oreilly.com*
-
-+   [*https://www.oreilly.com/about/contact.html*](https://www.oreilly.com/about/contact.html)
-
-我们为本书制作了一个网页，列出勘误、示例和任何额外信息。您可以访问[*https://oreil.ly/LowCodeAI*](https://oreil.ly/LowCodeAI)获取这个页面。
-
-有关我们的书籍和课程的新闻和信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-在 LinkedIn 上找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media)。
-
-在 Twitter 上关注我们：[*https://twitter.com/oreillymedia*](https://twitter.com/oreillymedia)。
-
-观看我们的 YouTube 频道：[*https://youtube.com/oreillymedia*](https://youtube.com/oreillymedia)。
-
 # 致谢
 
 这本书的存在完全是因为许多人的慷慨支持和时间。我们要感谢我们的谷歌同事——恩里卡·菲利皮、莫娜·莫娜、本瓦·德林和迈克尔·蒙——他们对这本书的详细审查极大地增加了表达和技术细节的质量。我们还要感谢我们的同事们——里奇·罗斯、帕特里克·本特利、约安娜·朗、埃斯拉·杜尤根和康塞普西昂·迪亚兹——对我们的支持和反馈。最后但并非最不重要的，我们要感谢我们的经理们——凯利·汤普森、埃里克·皮洛特和斯里·乌帕迪乌拉——对这项努力的坚定支持。

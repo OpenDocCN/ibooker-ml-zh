@@ -154,42 +154,6 @@
 
 如果您认为使用代码示例超出了公平使用范围或上述授权，请随时联系我们，邮件至*permissions@oreilly.com*。
 
-# O’Reilly 在线学习
-
-###### 注意
-
-40 多年来，[*O’Reilly Media*](http://oreilly.com) 提供技术和商业培训、知识和见解，帮助公司取得成功。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。O’Reilly 的在线学习平台为您提供按需访问实时培训课程、深度学习路径、交互式编码环境以及来自 O’Reilly 和 200 多家其他出版商的广泛文本和视频资源。欲了解更多信息，请访问[*http://oreilly.com*](http://oreilly.com)。
-
-# 如何联系我们
-
-请将有关此书的评论和问题发送至出版商：
-
-+   O’Reilly Media, Inc.
-
-+   1005 Gravenstein Highway North
-
-+   Sebastopol, CA 95472
-
-+   800-998-9938 (美国或加拿大地区)
-
-+   707-829-0515 (国际或本地电话)
-
-+   707-829-0104（传真）
-
-我们为本书建立了一个网页，列出勘误、示例和任何其他信息。您可以访问[*https://oreil.ly/practical-mlops*](https://oreil.ly/practical-mlops)获取这些信息。
-
-电子邮件*bookquestions@oreilly.com*以评论或询问有关本书的技术问题。
-
-获取有关我们的书籍和课程的新闻和信息，请访问[*http://oreilly.com*](http://oreilly.com)。
-
-在 Facebook 上找到我们：[*http://facebook.com/oreilly*](http://facebook.com/oreilly)。
-
-在 Twitter 上关注我们：[*http://twitter.com/oreillymedia*](http://twitter.com/oreillymedia)。
-
-在 YouTube 上观看我们：[*http://www.youtube.com/oreillymedia*](http://www.youtube.com/oreillymedia)。
-
 # 致谢
 
 ## 来自 Noah

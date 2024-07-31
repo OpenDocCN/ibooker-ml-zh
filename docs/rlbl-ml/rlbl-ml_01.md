@@ -148,42 +148,6 @@
 
 此元素表示警告或注意事项。
 
-# O’Reilly 在线学习
-
-###### 注意
-
-40 多年来，[*O’Reilly Media*](https://oreilly.com) 提供技术和商业培训、知识和见解，帮助企业取得成功。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。O’Reilly 的在线学习平台为您提供按需访问的实时培训课程、深入学习路径、交互式编码环境以及来自 O’Reilly 和其他 200 多家出版商的广泛文本和视频资源。欲了解更多信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-# 如何联系我们
-
-请将有关本书的评论和问题发送至出版商：
-
-+   O’Reilly Media, Inc.
-
-+   1005 Gravenstein Highway North
-
-+   Sebastopol, CA 95472
-
-+   800-998-9938（美国或加拿大）
-
-+   707-829-0515（国际或本地）
-
-+   707-829-0104（传真）
-
-我们为本书设有网页，列出勘误、示例和任何额外信息。您可以访问这个页面：[*https://oreil.ly/reliable-machine-learning-1e*](https://oreil.ly/reliable-machine-learning-1e)。
-
-发送电子邮件至*bookquestions@oreilly.com*评论或询问有关本书的技术问题。
-
-关于我们的书籍和课程的最新消息和信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-在 LinkedIn 上找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media)
-
-在 Twitter 上关注我们：[*https://twitter.com/oreillymedia*](https://twitter.com/oreillymedia)
-
-在 YouTube 上观看我们：[*https://www.youtube.com/oreillymedia*](https://www.youtube.com/oreillymedia)
-
 # 致谢
 
 作者们想借此机会感谢以下人士。

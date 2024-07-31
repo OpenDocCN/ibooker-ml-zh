@@ -46,44 +46,6 @@
 
 如果您觉得您使用的代码示例超出了合理使用范围或以上授权，请随时通过*permissions@oreilly.com*与我们联系。
 
-# O’Reilly Online Learning
-
-###### 注意
-
-[*O’Reilly Media*](https://oreilly.com)已经提供技术和商业培训、知识和见解超过 40 年，帮助公司取得成功。
-
-我们独特的专家和创新者网络通过书籍、文章以及我们的在线学习平台分享他们的知识和专长。O’Reilly 的在线学习平台为您提供按需访问的现场培训课程、深入的学习路径、交互式编码环境，以及来自 O’Reilly 和其他 200 多个出版商的广泛文本和视频资源。欲了解更多信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-# 如何联系我们
-
-请将关于本书的评论和问题发送给出版商：
-
-+   O’Reilly Media, Inc.
-
-+   1005 Gravenstein Highway North
-
-+   Sebastopol, CA 95472
-
-+   800-889-8969（美国或加拿大）
-
-+   707-829-7019（国际或本地）
-
-+   707-829-0104（传真）
-
-+   *support@oreilly.com*
-
-+   [*https://www.oreilly.com/about/contact.xhtml*](https://www.oreilly.com/about/contact.xhtml)
-
-我们为本书设有网页，列出勘误、示例以及任何额外信息。您可以访问[*https://oreil.ly/ml_python_2e*](https://oreil.ly/ml_python_2e)。
-
-关于我们的书籍和课程的新闻和信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-在 LinkedIn 找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media)
-
-在 Twitter 关注我们：[*https://twitter.com/oreillymedia*](https://twitter.com/oreillymedia)
-
-在 YouTube 观看我们：[*https://youtube.com/oreillymedia*](https://youtube.com/oreillymedia)
-
 # 致谢
 
 本书的第二版之所以能够顺利出版，完全得益于第一版的出色内容、结构和质量，这些都是原作者克里斯·阿尔本所铺陈的。作为第二版的第一作者，我无法言尽这使得我的工作变得轻松了许多的程度。

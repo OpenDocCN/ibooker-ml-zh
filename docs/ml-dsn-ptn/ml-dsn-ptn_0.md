@@ -84,41 +84,6 @@ ML 模型架构
 
 此元素表示警告或注意事项。
 
-# O’Reilly 在线学习
-
-###### 注意
-
-超过 40 年来，[*O’Reilly Media*](http://oreilly.com) 为企业的成功提供技术和商业培训、知识和洞察。
-
-我们独特的专家和创新者网络通过书籍、文章以及我们的在线学习平台分享他们的知识和专长。O’Reilly 的在线学习平台为您提供按需访问的实时培训课程、深入学习路径、交互式编码环境以及来自 O’Reilly 和 200 多家其他出版商的广泛文本和视频集合。有关更多信息，请访问[*http://oreilly.com*](http://oreilly.com)。
-
-# 如何联系我们
-
-请将有关本书的评论和问题寄给出版商：
-
-+   O’Reilly Media, Inc.
-
-+   1005 Gravenstein Highway North
-
-+   Sebastopol, CA 95472
-
-+   800-998-9938（美国或加拿大境内）
-
-+   707-829-0515（国际或本地）
-
-+   707-829-0104（传真）
-
-我们为本书创建了一个网页，列出勘误、示例和任何其他信息。您可以访问[*https://oreil.ly/MLDP*](https://oreil.ly/MLDP)。
-
-发送电子邮件至*bookquestions@oreilly.com* 以就本书提出评论或技术问题。
-
-有关我们的图书和课程的新闻和信息，请访问[*http://oreilly.com*](http://oreilly.com)。
-
-在 Facebook 上找到我们：[*http://facebook.com/oreilly*](http://facebook.com/oreilly)
-
-在 Twitter 上关注我们：[*http://twitter.com/oreillymedia*](http://twitter.com/oreillymedia)
-
-在 YouTube 上观看我们：[*http://youtube.com/oreillymedia*](http://youtube.com/oreillymedia)
 
 # 致谢
 

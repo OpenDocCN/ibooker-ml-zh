@@ -124,42 +124,6 @@
 
 如果您认为您对代码示例的使用超出了公平使用范围或上述许可，请随时与我们联系*permissions@oreilly.com*。
 
-# 奥莱利在线学习
-
-###### 注释
-
-[*奥莱利媒体*](http://oreilly.com)已提供技术和商业培训、知识和见解超过 40 年，帮助企业取得成功。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。奥莱利的在线学习平台为您提供按需访问的现场培训课程、深入学习路径、互动编码环境以及来自奥莱利和其他 200 多家出版商的大量文本和视频。更多信息，请访问[*http://oreilly.com*](http://oreilly.com)。
-
-# 如何联系我们
-
-请将有关本书的评论和问题发送至出版商：
-
-+   奥莱利媒体，公司
-
-+   1005 Gravenstein Highway North
-
-+   Sebastopol，CA 95472
-
-+   800-998-9938（在美国或加拿大）
-
-+   707-829-0515（国际或本地）
-
-+   707-829-0104（传真）
-
-我们为本书提供了一个网页，列出勘误、示例和任何其他信息。您可以访问[*https://oreil.ly/ai-at-the-edge*](https://oreil.ly/ai-at-the-edge)。
-
-电子邮件*bookquestions@oreilly.com*以评论或询问本书的技术问题。
-
-欲了解我们的书籍和课程的新闻和信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-在 LinkedIn 上找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media)。
-
-在 Twitter 上关注我们：[*https://twitter.com/oreillymedia*](https://twitter.com/oreillymedia)。
-
-观看我们的 YouTube 频道：[*https://youtube.com/oreillymedia*](https://youtube.com/oreillymedia)。
-
 # 致谢
 
 没有大量人员的辛勤工作和支持，这本书将无法问世，对此我们深表感激。

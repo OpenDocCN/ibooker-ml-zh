@@ -182,34 +182,6 @@ Microsoft Azure 云服务
 
 我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专长。O’Reilly 的在线学习平台为您提供按需访问的实时培训课程、深度学习路径、交互式编码环境以及来自 O’Reilly 和其他 200 多家出版商的大量文本和视频。有关更多信息，请访问[*https://oreilly.com*](https://oreilly.com)。
 
-# 如何联系我们
-
-请将有关本书的评论和问题发送给出版商：
-
-+   O’Reilly Media, Inc.
-
-+   1005 Gravenstein Highway North
-
-+   Sebastopol, CA 95472
-
-+   800-998-9938（在美国或加拿大）
-
-+   707-829-0515（国际或本地）
-
-+   707-829-0104（传真）
-
-我们有一本书的网页，在这里列出勘误、示例和任何额外信息。您可以访问此页面：[*https://oreil.ly/ai-powered-bi*](https://oreil.ly/ai-powered-bi)。
-
-发送电子邮件至*bookquestions@oreilly.com*，以评论或询问有关本书的技术问题。
-
-获取有关我们的书籍和课程的新闻和信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-在 LinkedIn 上找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media)。
-
-关注我们的 Twitter：[*https://twitter.com/oreillymedia*](https://twitter.com/oreillymedia)。
-
-观看我们的 YouTube 频道：[*https://youtube.com/oreillymedia*](https://youtube.com/oreillymedia)。
-
 # 致谢
 
 > 写书是男人能接近生育的最接近方式。

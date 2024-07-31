@@ -136,45 +136,6 @@
 
 这个元素表示一个警告或注意事项。
 
-# O’Reilly 在线学习
-
-###### 注意
-
-超过 40 年来，[*奥莱利传媒*](https://oreilly.com)提供技术和商业培训、知识和见解，帮助公司取得成功。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专长。奥莱利的在线学习平台为您提供按需访问实时培训课程、深度学习路径、交互式编码环境以及来自奥莱利和其他 200 多家出版商的大量文本和视频。欲了解更多信息，请访问：[*https://oreilly.com*](https://oreilly.com)。
-
-# 如何联系我们
-
-请将有关本书的评论和问题发送给出版社：
-
-+   奥莱利传媒公司
-
-+   1005 Gravenstein Highway North
-
-+   CA 95472 Sebastopol
-
-+   800-889-8969（美国或加拿大）
-
-+   707-829-7019（国际或本地）
-
-+   707-829-0104（传真）
-
-+   *support@oreilly.com*
-
-+   [*https://www.oreilly.com/about/contact.html*](https://www.oreilly.com/about/contact.html)
-
-我们为这本书制作了一个网页，列出了勘误、示例和任何额外信息。您可以访问此页面：[*https://oreil.ly/ML-interviews*](https://oreil.ly/ML-interviews)。
-
-有一个补充网站包含了书中未收录的额外内容：[*https://susanshu.substack.com*](https://susanshu.substack.com)。
-
-欲了解有关我们的书籍和课程的新闻和信息，请访问：[*https://oreilly.com*](https://oreilly.com)。
-
-在 LinkedIn 上找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media)
-
-在 Twitter 上关注我们：[*https://twitter.com/oreillymedia*](https://twitter.com/oreillymedia)
-
-在 YouTube 上观看我们：[*https://youtube.com/oreillymedia*](https://youtube.com/oreillymedia)
 
 # 致谢
 

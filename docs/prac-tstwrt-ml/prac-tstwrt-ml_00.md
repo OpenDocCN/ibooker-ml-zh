@@ -148,45 +148,6 @@ AI 对齐被视为解决 AI 安全风险的*解决方案*，因为它涉及让 A
 
 如果您认为您使用的示例代码超出了公平使用或上述许可，请随时与我们联系，电子邮件至*permissions@oreilly.com*。
 
-# O’Reilly 在线学习
-
-###### 注意
-
-40 多年来，[*O’Reilly Media*](https://oreilly.com)已为公司提供技术和商业培训、知识和见解，帮助其取得成功。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专长。O’Reilly 的在线学习平台让您随需应变地访问现场培训课程、深入学习路径、交互式编码环境，以及来自 O’Reilly 和其他 200 多家出版商的大量文本和视频。欲了解更多信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-# 如何联系我们
-
-请将有关本书的评论和问题寄给出版商：
-
-+   O’Reilly Media, Inc.
-
-+   1005 Gravenstein Highway North
-
-+   加利福尼亚州塞巴斯托波尔市 95472
-
-+   800-998-9938（美国或加拿大）
-
-+   707-829-0515（国际或本地）
-
-+   707-829-0104（传真）
-
-由于信任主题的复杂性，尽管我们试图包含该领域的一些主要主题，但创建一个完全全面的资源是不可能的。另外，由于本书的受众，我们采取了比学术界更简单、更对话式的教学方法。
-
-如果您在本书中发现事实错误（或特别明显的遗漏），请告知我们。我们不仅会乐意纠正错误，还会在下一版的致谢中首先提到报告任何特定错误的人。
-
-我们有这本书的网页，列出勘误、示例和任何额外信息。您可以访问这个页面：[*https://oreil.ly/ptml*](https://oreil.ly/ptml)。
-
-发送电子邮件至*bookquestions@oreilly.com*，以评论或提出关于本书的技术问题。
-
-关于我们的书籍和课程的新闻和信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-在 LinkedIn 上找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media)。
-
-关注我们的 Twitter：[*https://twitter.com/oreillymedia*](https://twitter.com/oreillymedia)。
-
-观看我们的 YouTube 频道：[*https://youtube.com/oreillymedia*](https://youtube.com/oreillymedia)。
 
 # 致谢
 

@@ -81,45 +81,6 @@
 我们感谢，但通常不要求归属。归属通常包括标题、作者、出版商和 ISBN。例如：“*Python 和 JAX 中的建议系统* 作者 Bryan Bischof 和 Hector Yee，2024 年版权 Bryan Bischof 和 Resonant Intelligence LLC，978-1-492-09799-0。”
 
 如果您觉得您使用的代码示例超出了公平使用范围或上述许可，请随时通过*permissions@oreilly.com*与我们联系。
-
-# O’Reilly 在线学习
-
-###### 注意
-
-40 多年来，[*O’Reilly Media*](http://oreilly.com)一直致力于提供技术和业务培训、知识和见解，以帮助公司取得成功。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专长。O’Reilly 的在线学习平台为您提供按需访问的实时培训课程、深度学习路径、交互式编码环境，以及来自 O’Reilly 和其他 200 多家出版商的广泛的文本和视频集合。更多信息，请访问[*http://oreilly.com*](http://oreilly.com)。
-
-# 如何联系我们
-
-请将关于本书的评论和问题寄给出版商：
-
-+   O’Reilly Media, Inc.
-
-+   Gravenstein Highway North 1005 号
-
-+   加利福尼亚州塞巴斯托波尔，95472
-
-+   800-889-8969（美国或加拿大地区）
-
-+   707-829-7019（国际或本地）
-
-+   707-829-0104（传真）
-
-+   *support@oreilly.com*
-
-+   [*https://www.oreilly.com/about/contact.html*](https://www.oreilly.com/about/contact.html)
-
-我们为这本书创建了一个网页，在那里列出勘误、示例和任何额外信息。您可以访问此页面：[*https://oreil.ly/build_rec_sys_python_jax*](https://oreil.ly/build_rec_sys_python_jax)。
-
-获取有关我们的书籍和课程的新闻和信息，请访问[*https://oreilly.com*](https://oreilly.com)。
-
-在 LinkedIn 上找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media)
-
-在 Twitter 上关注我们：[*https://twitter.com/oreillymedia*](https://twitter.com/oreillymedia)
-
-在 YouTube 上观看我们：[*https://youtube.com/oreillymedia*](https://youtube.com/oreillymedia)
-
 # 致谢
 
 Hector 想要感谢他的丈夫，Donald，在写作过程中给予他的爱与支持，以及他的姐姐 Serena 经常寄来的零食。他还想将这本书献给已故的亲人。特别感谢 Google 的审阅者 Ed Chi、Courtney Hohne、Sally Goldman、Richa Nigam、Mingliang Jiang 和 Anselm Levskaya。感谢 Bryan Hughes 审阅维基百科代码。

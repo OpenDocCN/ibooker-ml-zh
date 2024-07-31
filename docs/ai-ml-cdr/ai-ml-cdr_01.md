@@ -60,42 +60,6 @@
 
 如果您觉得您使用的代码示例超出了合理使用范围或以上授权，请随时联系我们，邮箱地址为 permissions@oreilly.com。
 
-# O’Reilly 在线学习
-
-###### 注意
-
-40 多年来，[*O’Reilly Media*](http://oreilly.com) 提供技术和商业培训，帮助公司获得成功。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专长。O'Reilly 的在线学习平台为您提供按需访问的实时培训课程、深入学习路径、交互式编码环境，以及来自 O'Reilly 和 200 多家其他出版商的大量文本和视频。有关更多信息，请访问[*http://oreilly.com*](http://oreilly.com)。
-
-# 如何联系我们
-
-请将有关本书的评论和问题发送给出版商：
-
-+   O'Reilly Media, Inc.
-
-+   1005 Gravenstein Highway North
-
-+   CA 95472 Sebastopol
-
-+   800-998-9938（美国或加拿大）
-
-+   707-829-0515（国际或本地）
-
-+   707-829-0104（传真）
-
-我们为本书创建了一个网页，其中列出了勘误、示例和任何额外信息。你可以访问这个页面：[*https://oreil.ly/ai-ml*](https://oreil.ly/ai-ml)。
-
-通过邮件联系*bookquestions@oreilly.com*，提出关于本书的评论或技术问题。
-
-有关我们书籍和课程的新闻和信息，请访问[`oreilly.com`](http://oreilly.com)。
-
-在 Facebook 上找到我们：[*http://facebook.com/oreilly*](http://facebook.com/oreilly)
-
-在 Twitter 上关注我们：[*http://twitter.com/oreillymedia*](http://twitter.com/oreillymedia)
-
-在 YouTube 上关注我们：[*http://www.youtube.com/oreillymedia*](http://www.youtube.com/oreillymedia)
-
 # 致谢
 
 我想要感谢许多人在创作本书过程中的帮助。

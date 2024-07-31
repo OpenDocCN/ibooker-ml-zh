@@ -42,41 +42,6 @@
 
 如果您认为您使用的代码示例超出了公平使用范围或上述许可，请随时通过 *permissions@oreilly.com* 联系我们。
 
-# 奥莱利在线学习
-
-###### 注意
-
-近 40 年来，[*奥莱利传媒*](http://oreilly.com) 提供技术和商业培训、知识和见解，帮助公司取得成功。
-
-我们独特的专家和创新者网络通过书籍、文章、会议以及我们的在线学习平台分享他们的知识和专业知识。奥莱利的在线学习平台为您提供按需访问的实时培训课程、深度学习路径、交互式编码环境，以及来自奥莱利和 200 多家其他出版商的大量文本和视频内容。欲了解更多信息，请访问 [*http://oreilly.com*](http://oreilly.com)。
-
-# 如何联系我们
-
-请就此书的评论和问题联系出版商：
-
-+   奥莱利传媒公司
-
-+   1005 Gravenstein Highway North
-
-+   CA 95472，塞巴斯托波尔
-
-+   800-998-9938（美国或加拿大）
-
-+   707-829-0515（国际或本地）
-
-+   707-829-0104（传真）
-
-本书的网页列出了勘误、示例和额外信息。您可以访问此页面：[*http://www.oreilly.com/catalog/9781492055594*](http://www.oreilly.com/catalog/9781492055594)。
-
-要就本书发表评论或提出技术问题，请发送电子邮件至 *bookquestions@oreilly.com*。
-
-欲了解更多有关我们的书籍、课程、会议和新闻的信息，请访问我们的网站：[*http://www.oreilly.com*](http://www.oreilly.com)。
-
-在 Facebook 上找到我们：[*http://facebook.com/oreilly*](http://facebook.com/oreilly)
-
-关注我们的 Twitter：[*http://twitter.com/oreillymedia*](http://twitter.com/oreillymedia)
-
-在 YouTube 观看我们：[*http://www.youtube.com/oreillymedia*](http://www.youtube.com/oreillymedia)
 
 # 致谢
 

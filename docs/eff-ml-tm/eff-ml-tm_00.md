@@ -146,42 +146,6 @@
 
 如果您认为使用代码示例超出了合理使用范围或上述授权，请随时联系我们，邮件至 *permissions@oreilly.com*。
 
-# O’Reilly Online Learning
-
-###### 注释
-
-40 多年来，[*O’Reilly Media*](https://oreilly.com) 为公司的成功提供技术和业务培训、知识和见解。
-
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。O’Reilly 的在线学习平台为您提供按需访问实时培训课程、深度学习路径、交互式编码环境以及来自 O’Reilly 和其他 200 多家出版商的广泛文本和视频收藏。欲了解更多信息，请访问 [*https://oreilly.com*](https://oreilly.com)。
-
-# 如何联系我们
-
-请将有关本书的评论和问题发送至出版商：
-
-+   O’Reilly Media, Inc.
-
-+   加利福尼亚州格拉文斯坦公路北 1005 号
-
-+   加州塞巴斯托波尔市 95472
-
-+   800-889-8969（美国或加拿大）
-
-+   707-827-7019（国际或当地）
-
-+   707-829-0104（传真）
-
-+   *support@oreilly.com*
-
-+   [*https://www.oreilly.com/about/contact.html*](https://www.oreilly.com/about/contact.html)
-
-我们为本书设有网页，列出勘误、示例和任何额外信息。您可以访问此页面，网址为 [*https://oreil.ly/effective-ml-teams*](https://oreil.ly/effective-ml-teams)。
-
-获取有关我们的书籍和课程的新闻和信息，请访问 [*https://oreilly.com*](https://oreilly.com)。
-
-在 LinkedIn 上找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media)
-
-在 YouTube 上观看我们：[*https://youtube.com/oreillymedia*](https://youtube.com/oreillymedia)
-
 # 致谢
 
 当我们开始写这本书时，我们旨在分享一系列帮助我们构建机器学习系统的实用方法。但最终，我们得到了一本全面指南，我们坚信这将提升机器学习团队的共同标准，改变团队塑造和交付机器学习产品的方式。这本书没有这些人的示范、言论和行动，将不可能完成。
