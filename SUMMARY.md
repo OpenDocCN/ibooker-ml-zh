@@ -21,6 +21,7 @@
 +   [机器学习面试指南](docs/ml-itvw/README.md)
 +   [机器学习口袋参考](docs/ml-pkt-ref/README.md)
 +   [Python 机器学习秘籍第二版](docs/ml-py-cb-2e/README.md)
++   [机器学习系统设计](docs/ml-sys-dsn/README.md)
 +   [MLOps：数据科学运维化指南](docs/mlops-oper-ds/README.md)
 +   [Azure 自动机器学习实践指南](docs/prac-automl-az/README.md)
 +   [面向计算机视觉的机器学习实践指南](docs/prac-ml-cv/README.md)
