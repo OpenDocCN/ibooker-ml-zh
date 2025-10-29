@@ -1,0 +1,539 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div class="readable-text" id="p1"> 
+   <h1 class="readable-text-h1"><span class="chapter-title-numbering"><span class="num-string">13</span> </span> <span class="chapter-title-text">Integration</span></h1> 
+  </div> 
+  <div class="introduction-summary"> 
+   <h3 class="introduction-header sigil_not_in_toc">This chapter covers</h3> 
+   <ul> 
+    <li class="readable-text" id="p2">API design</li> 
+    <li class="readable-text" id="p3">Release cycle</li> 
+    <li class="readable-text" id="p4">Operating the system</li> 
+    <li class="readable-text" id="p5">Overrides and fallbacks</li> 
+   </ul> 
+  </div> 
+  <div class="readable-text" id="p6"> 
+   <p>As we claimed earlier, the worst thing you can do is build a system, only to put it on a shelf instead of going live. Both of us have faced such problems at least once in our careers, and it is not an experience we recommend.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p7"> 
+   <p>A rookie mistake would be to think that integration is a one-time event or a single phase of a project. That is an antipattern: you cannot just dedicate some weeks to future integration and start building a system in a vacuum. In reality, it is a continuous process that starts from the very beginning of the project and ends only when the system is decommissioned. Even more, when the system’s life cycle comes to an end, it requires certain deintegration efforts, making sure none of the direct or indirect users will be affected by switching it off. Proper integration is the key to the success of your system, making it much easier to get feedback on and improve. The smoother various elements are integrated into your system, the shorter the feedback loop and the faster the iterations you can implement.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p8"> 
+   <p>In this chapter, we discuss how to efficiently integrate your system, with a focus on technical aspects.</p> 
+  </div> 
+  <div class="readable-text" id="p9"> 
+   <h2 class="readable-text-h2" id="sigil_toc_id_161"><span class="num-string">13.1</span> API design</h2> 
+  </div> 
+  <div class="readable-text" id="p10"> 
+   <p>API design is a crucial part of the integration process. It may be perceived as a contract between your system and its users, but it is a contract you need to read through thoroughly before signing. The is that is your API design will be costly to change once it has been set up, even if it’s not set in stone and the system is still in development.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p11"> 
+   <p>If you are a reader who is experienced in machine learning (ML), you may feel tempted to skip this section, simply because you know how to design APIs and have done it many times. That is a fair claim, as we are not going to teach you the difference between REST and RPC or how to design APIs in general. Besides, there are myriads of great books and articles on this topic (e.g., a nice collection of recommended materials can be found at <a href="https://news.ycombinator.com/item?id=24383180">https://news.ycombinator.com/item?id=24383180</a>). Instead, we will focus on the key aspects and highlight pitfalls specific to ML systems in particular.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p12"> 
+   <p>If we were to pick just two properties of a good API, we would choose <em>simplicity</em> and <em>predictability</em>. There is a classic software quote by Butler Lampson, which is even referred to as the “fundamental theorem of software engineering”: “We can solve any problem by introducing an extra level of indirection.”</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p13"> 
+   <p>A variation of this quote is that any programming problem can be solved with a layer of abstraction except for a problem of too many abstractions. So the simplicity of an API is the art of finding the right abstraction that is not leaky. An abstraction is considered leaky when it exposes too many underlying implementation details.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p14"> 
+   <p>The vital role of <em>simplicity</em> lies in its ability to make an API easier to learn and use without a deep understanding of internals. A typical ML system often has many handlers and parameters, and it is always tempting to expose them to the external user. This leads to overcomplicated solutions where calling methods requires providing multiple parameters, and at the end of the day, it is hard to understand their meanings and how they are interconnected. A better approach implies hiding the complexity behind a simple interface and offering a few methods with a small number of parameters. Users will be grateful for that.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p15"> 
+   <p>However, hiding all the parameters is not the best idea either (see figure 13.1). It is important to provide a way to customize the system’s behavior, especially for debugging purposes. Imagine yourself debugging a system that has a dozen parameters during a late-night on-call shift, and you cannot modify any of them. Not a pleasant experience! In these cases, it always makes sense to suggest reasonable defaults and provide a way to override them.</p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p16">  
+   <img alt="figure" src="../Images/CH13_F01_Babushkin.png" width="663" height="434"/> 
+   <h5 class="figure-container-h5 sigil_not_in_toc"><span class="num-string">Figure 13.1</span> Overconfiguration vs. underconfiguration</h5>
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p17"> 
+    <h5 class="callout-container-h5 readable-text-h5 sigil_not_in_toc">Campfire story from Arseny</h5> 
+   </div> 
+   <div class="readable-text" id="p18"> 
+    <p>I used to work for a company that provided an API for external developers. I was in charge of building a brand-new endpoint that would mirror a classification system under the hood. In the early stages, the API seemed to be very straightforward—just accepting an object as input and delivering a label from a predefined taxonomy as output.</p> 
+   </div> 
+   <div class="readable-text" id="p19"> 
+    <p>The accuracy of the baseline was not perfect, though, and one of my colleagues suggested returning a list of labels instead of a single label. It was a reasonable suggestion, which I implemented with no hesitation. However, practice showed that users only needed a single label even when it was incorrect (their usage patterns could not use the second label or further). The bad news was that the list of labels had already been exposed in the API, and it would be hard to remove it without breaking compatibility. So the API became overly complicated for no reason, and many users shared their frustration about that: "Why do you return a list of labels if it always contains a single item?” Too quick a decision about the API design led to a suboptimal solution that was hard to fix later.</p> 
+   </div> 
+   <div class="readable-text" id="p20"> 
+    <p>Predictability is another crucial property of a good API. We’ve already talked about how ML systems tend to be nondeterministic unless they are forced to intentionally (please see chapter 10). This is an even more critical factor for APIs, as they must be deterministic and predictable. It is important to make sure that the same input will always produce the same output. Of course, there are algorithms that are nondeterministic by design (e.g., text generation with temperature sampling), but this is an exception that proves the rule.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p21"> 
+   <p>There is always a possibility of forcing<em> deterministic behavior</em>. One simple example would be taking a random seed from the parameters (and choosing your own seed if not specified). By the way, while many ML libraries use random seeds from a global state, it is not possible in JAX, a new numerical computing library by Google that emerged recently. Its design suggests that you have to pass the random state explicitly exactly for this reason—to force full reproducibility. See <a href="https://mng.bz/lrQ2">https://mng.bz/lrQ2</a> for more information.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p22"> 
+   <p>Another source of nondeterminism would be input data, including some implicit data like the current time (it should be provided via parameters as well).</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p23"> 
+   <p>Let’s look at two implementations of a predict function that uses time as input and returns somewhat stochastic results with different random states. The following listing has the only explicit argument, while its output depends on three parameters, meaning that the output is not reproducible.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p24"> 
+   <h5 class="listing-container-h5 browsable-container-h5 sigil_not_in_toc"><span class="num-string">Listing 13.1</span> A mediocre design for a <code>predict</code> function</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">def predict(features):
+    time = datetime.now()
+    return model.predict(features, time, seed=42)</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p25"> 
+   <p>Unlike the previous example, the function caller shown in the following listing controls all the parameters affecting the output.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p26"> 
+   <h5 class="listing-container-h5 browsable-container-h5 sigil_not_in_toc"><span class="num-string">Listing 13.2</span> A better design for a <code>predict</code> function </h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">def predict(features, time=None, seed=42):
+    if time is None:
+        time = datetime.now()
+    return model.predict(features, time, seed)</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text print-book-callout" id="p27"> 
+   <p><span class="print-book-callout-head">Note</span>  While we use Python in these examples, the fundamentals for higher-level abstractions remain unchanged. Imagine that this function is part of an HTTP API where <code>time</code> and <code>seed</code> are newly introduced query parameters. In this case, the same principles will be applied.</p> 
+  </div> 
+  <div class="readable-text" id="p28"> 
+   <p>A specific aspect of predictability is <em>compatibility</em>. When talking about compatibility, engineers usually imply either backward compatibility or forward compatibility. Backward compatibility means that the new version of the API is compatible with the old one (the old code can be used with the new version of the API without any changes). Forward compatibility implies that the old version of the API is compatible with the new one (the new code can be used with the old version of the API without any changes).</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p29"> 
+   <p>In the context of ML systems, compatibility is also related to versioning the underlying model. There is a common practice to version the model and provide a way to request a specific version of the model during initialization.</p> 
+  </div> 
+  <div class="browsable-container listing-container" id="p30"> 
+   <h5 class="listing-container-h5 browsable-container-h5 sigil_not_in_toc"><span class="num-string">Listing 13.3</span> Adding a model version to the API</h5> 
+   <div class="code-area-container"> 
+    <pre class="code-area">class Model:
+    def __init__(self, version):
+        self.version = version
+        self.model = load_model(version)
+
+    def predict(self, features, time=None, seed=42):
+        if time is None:
+            time = datetime.now()
+        return self.model.predict(features, time, seed)</pre>  
+   </div> 
+  </div> 
+  <div class="readable-text" id="p31"> 
+   <p>This example is oversimplified, and you may need a much more advanced solution for a complicated system. Read materials about the model registry pattern (e.g., <a href="https://neptune.ai/blog/ml-model-registry">https://neptune.ai/blog/ml-model-registry</a>) if you want to learn more.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p32"> 
+   <p>Versioning is tricky. One antipattern can be updating the model without bumping the version, which leads to changes in the behavior of the system without any notification. There are a lot of scenarios in which updating the model is considered a breaking change, and it must be reflected in the version. Even more, this is applicable not only for the model but for any aspect of the pipeline—data input/output (IO), preprocessing, postprocessing, etc. Some changes are not even intended: you can update the dependencies and get a different result, thus breaking the compatibility implicitly.</p> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p33"> 
+    <h5 class="callout-container-h5 readable-text-h5 sigil_not_in_toc">Campfire story from Arseny</h5> 
+   </div> 
+   <div class="readable-text" id="p34"> 
+    <p>How long might it take to update a Python version? This seems like a simple question, but once I had to learn the hard way that, in fact, it is not. And the reality slap was so hard that it sent me down a rabbit hole.</p> 
+   </div> 
+   <div class="readable-text" id="p35"> 
+    <p>The system I worked on required full compatibility. And, boy, was I surprised when bumping a Python version (while keeping everything else static!) led to a mismatch in several outputs. After a few iterations of bisection, I realized the problem was related to the image reading library. The same version of the library built for Python 3.5 had slightly different behavior from the version for Python 3.6, and therefore, the files readable with one version of the library were not compatible with the other.</p> 
+   </div> 
+   <div class="readable-text" id="p36"> 
+    <p>But how could that even happen? It appeared that the library used a low-level JPEG library implemented in C; at the same time, different builds of a Python library—even with the same version—used different versions of the underlying C library as they used one installed globally on a build machine. Finding which one was used in every given case was not easy and required some hardcore software archeology (digging into 6-year-old build logs of the open source library, finding the clues from there, and finally reproducing the very same build).</p> 
+   </div> 
+   <div class="readable-text" id="p37"> 
+    <p>Once again, the difference was not significant at all; still, it was enough to break compatibility because the models were trained on the images read with one version of the library, and their sensitivity to the input was too high. It was not likely that the users would notice the difference, but it was still a breaking change—a thing that was not supposed to happen due to the user agreement.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p38"> 
+   <p>While Arseny’s experience demonstrates the challenges of maintaining compatibility within a single system, the following story from Valerii highlights how versioning problems can become an even bigger difficulty when versioning is broken not within a system but at the point of our interaction with a third-party solution.</p> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p39"> 
+    <h5 class="callout-container-h5 readable-text-h5 sigil_not_in_toc">Campfire story from Valerii</h5> 
+   </div> 
+   <div class="readable-text" id="p40"> 
+    <p>One time I needed to implement a KYC (know your customer) solution for a financial organization. A part of this solution required verifying ID documents uploaded by users and ensuring a user’s face wasn’t present among existing users. In other words, it was a regulatory required constraint on user uniqueness. As a person familiar with a build-or-buy tradeoff (please see chapter 3), I used a face recognition solution from a big popular vendor. </p> 
+   </div> 
+   <div class="readable-text" id="p41"> 
+    <p>The system was simple: take documents as input, find a face, calculate a vector, make sure there were no similar vectors in the database, and let the user sign up; otherwise, make customer support verify the case manually. The system worked fine until one unlucky day when the customer support team got overloaded with false positives. After the investigation, it appeared that the vendor’s API version had been fixed—unless it was unset by mistake. As a result, a newer version of the API returned implicitly incompatible results that led to the incident.</p> 
+   </div> 
+   <div class="readable-text" id="p42"> 
+    <p>This kind of failure is dangerous because of its implicit nature. An external API suddenly changing the field name may lead to an outage, which, luckily, is easy to catch and fix. When the model’s version is changed, you may not notice it at first—it has returned a vector of floats before it returns a similar vector now, and the outage can be detected either by a properly configured testing/monitoring setup or after the downstream task (customer verification in this case) degradation. </p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p43"> 
+   <p>Nothing helps to catch things like that better than a proper set of tests running on continuous integration (CI).</p> 
+  </div> 
+  <div class="readable-text" id="p44"> 
+   <h3 class="readable-text-h3" id="sigil_toc_id_162"><span class="num-string">13.1.1</span> API practices</h3> 
+  </div> 
+  <div class="readable-text" id="p45"> 
+   <p>Over the years, the industry has developed multiple practices for working with APIs. We mention a few that we consider efficient. They may not be necessarily specific to ML systems, but they are often relevant to them (see figure 13.2):</p> 
+  </div> 
+  <ul> 
+   <li class="readable-text" id="p46"> <em>Design at least two layers of the API. </em>Here, we are talking about the external and internal layers, where the former is logically a subset of the latter while not necessarily following the same protocol. The external API is exposed to users or other components, and the internal API is used by the external one. As long as the internal API is not exposed to users, it can be changed without breaking compatibility. The external API, in its turn, is a subset of the internal API and should be designed with compatibility in mind. It helps separate the concerns and make the external API simpler and easy to maintain in terms of compatibility while leaving the internal API flexible and easy to change. </li> 
+   <li class="readable-text" id="p47"> <em>Try separating the ML and IO components of the API when possible. </em>An ML service is easiest to maintain when it is stateless and thus idempotent. It’s not always possible, but it’s a good practice to strive for. This approach is useful not only for maintenance but also for scalability: IO and ML components can be scaled independently, which is a great property given that they have different requirements (e.g., an ML component is usually CPU- or GPU-bound). On top of that, it simplifies the evolution of the system: you can deploy a new version of the ML component without touching the IO component and use both ML components simultaneously for some time during A/B testing or a gradual rollout. </li> 
+   <li class="readable-text" id="p48"> <em>Build a client library for your API for simpler usage.</em> Whether it is for external users or your teammates, having a client library lowers the entry barrier, so it smooths the debugging process and speeds up experiments. It is also a good place to implement practices that are not parts of the API directly, such as recommended retries, timeouts, and so on. </li> 
+   <li class="readable-text" id="p49"> <em>Consider embedding feature toggles </em>(also known as feature flags) or any other alternative used in your organization. ML systems often operate in risky environments, and it will always be beneficial to have a way of disabling a new version of the model or switch to a fallback solution in case of arising problems. Feature toggles are not part of the API, but they effectively serve as a workaround to control the behavior of the system without redeploying it or changing the API/client behavior.<span class="aframe-location"/> </li> 
+  </ul> 
+  <div class="browsable-container figure-container" id="p50">  
+   <img alt="figure" src="../Images/CH13_F02_Babushkin.png" width="900" height="569"/> 
+   <h5 class="figure-container-h5 sigil_not_in_toc"><span class="num-string">Figure 13.2</span> Layered API structure is simpler to maintain, test, and develop.</h5>
+  </div> 
+  <div class="readable-text" id="p51"> 
+   <h2 class="readable-text-h2" id="sigil_toc_id_163"><span class="num-string">13.2</span> Release cycle</h2> 
+  </div> 
+  <div class="readable-text" id="p52"> 
+   <p>The release cycle of an ML system is usually similar to that of regular software. However, there are two main differences:</p> 
+  </div> 
+  <ul> 
+   <li class="readable-text" id="p53"> ML systems are trickier to test. </li> 
+   <li class="readable-text" id="p54"> Training a new model (even with a fully automated pipeline) usually takes way more time than compiling code and building other artifacts. </li> 
+  </ul> 
+  <div class="readable-text" id="p55"> 
+   <p>Let’s elaborate on these points.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p56"> 
+   <p>Due to testing complexity, running tests alone is not always enough, and regressions may occur anyway. Let’s talk about software for a moment. Once regular software is updated, it is usually enough to run tests to ensure everything works as expected. But if we are talking about ML models, the situation is quite different, as many improvements come with a price. When the ML model is updated, even if we have a representative dataset for tests and a good test coverage of software-related parts, we still cannot guarantee that the changes won’t provoke harmful outcomes. For example, say there are 100 samples in the final test set, and the new model improves performance on 3 samples that have been labeled errors before but introduces two new errors on other samples. The overall performance is better, but is the change good enough to be released?</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p57"> 
+   <p>Real-life scenarios are full of similar examples, and this means that many releases require a human in the loop. It is similar to testing user experience changes, where an employee should check if the changes bring sufficient benefits. And evaluating the tradeoffs between improvements and regressions is usually more complicated than just checking if the UI animation works as expected. The human-in-the-loop method may vary depending on the system. In some cases, an ML engineer is responsible; in others, it can be a product manager or an external domain expert, or the job can even be delegated to crowd-sourcing platforms providing a large pool of users with aggregated feedback.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p58"> 
+   <p>There are simpler cases where some kind of AutoML allows for the model (not the whole system—just the model) to be released automatically without additional reviewing. Imagine you are building an advanced text editor with a powerful feature: an autocomplete that mimics the author’s style (oh, we wish we had one while writing this book!). This software needs to run a custom model (probably on top of a large foundational model) for each user. Gathering new users’ writings and regularly updating the model without human involvement seems a good practice here; otherwise, it is not scalable. Such scenarios need an even higher paranoid level of testing to cover as many pessimistic paths as possible and disable model updates once there is a chance of a malfunction.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p59"> 
+   <p>Okay, let’s assume testing is not a problem. Say you have found a bug in the preprocessing code; you are confident fixing it is a good solution that won’t make things worse, and an advanced testing toolset can help you make sure that is really the case. For regular software, it would mean that you can just fix the bug, run the tests, and deploy a new version; usually, it does not take too long. But it will not work this way for ML systems because you need to retrain the model. We will not use extra-large-scale examples here, but even based on our experience, models that were trained for weeks are not uncommon, so releasing the fix the next day is not possible at all.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p60"> 
+   <p>In practice, it means the release cycle for ML systems is usually longer than for regular software; still, it may vary a lot—from multiple times a day to once a year with multiple variations in between. Make sure to take this into account when designing your system. A long release cycle implies that the system should be more reliable and tested extensively, while a short release cycle allows it to be more agile and allows for more experimentation.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p61"> 
+   <p>Multicomponent systems can have and use different release cycles for different components. Imagine a simple search engine that contains four components: an index containing the documents to be searched across, the lightweight filter for preliminary selection, a heavy model for the final ranking, and an API layer to expose the search results. Documents may be added to the index all the time (with no release required), the index codebase is rarely touched, and the filterer and API layers are pure non-ML software that is easier to test and build, so they can be released more frequently. In its turn, the ranking model is trained and released biweekly with additional verification. It allows us to be more agile with the non-ML components and more stable with the ML component.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p62"> 
+   <p>There is a family of release-related techniques, including blue-green deployment (see figure 13.3) and canary deployment (see figure 13.4). They may slightly differ, but the core idea behind them is to have two or more systems in production at the<span class="aframe-location"/><span class="aframe-location"/> same time. New users are sent to a new version once it is deployed while the old version is still functioning. In the blue-green deployment, changes are discrete (all users are switched to either the blue or green version), while in canary deployment, the rollout is granular, and the new version is used for a small portion of the existing users. It allows us to test the new version in production and roll back more easily if something goes wrong. It is not specific to ML systems, but it can be applied for them as well. Another technique ML systems can use is decomposition (e.g., some components like a model can be released with canary deployment; in contrast, other components like API layers can be released in a more traditional way).</p> 
+  </div> 
+  <div class="browsable-container figure-container" id="p63">  
+   <img alt="figure" src="../Images/CH13_F03_Babushkin.png" width="800" height="461"/> 
+   <h5 class="figure-container-h5 sigil_not_in_toc"><span class="num-string">Figure 13.3</span> Blue-green deployment</h5>
+  </div> 
+  <div class="browsable-container figure-container" id="p64">  
+   <img alt="figure" src="../Images/CH13_F04_Babushkin.png" width="585" height="589"/> 
+   <h5 class="figure-container-h5 sigil_not_in_toc"><span class="num-string">Figure 13.4</span> Canary deployment</h5>
+  </div> 
+  <div class="readable-text intended-text" id="p65"> 
+   <p>Canary deployment should not be confused with the A/B tests we discussed in chapter 12. While technically they may look like similar concepts (multiple instances of a system are live, and traffic is sent toward them in a proper split), their intent is different. A/B tests are used to evaluate the performance of different versions of the system, while canary deployment is used to test the new version of the system before switching to it completely. In A/B tests, we want to compare the performance of the system across different versions, and the time of the test is decided based on statistical significance; it is fine to end up keeping either option A or option B. With canary deployment, we want to make sure the new version is good enough to be used by all users, and we aim to switch to it completely as soon as possible.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p66"> 
+   <p>While large enterprises usually tend to have stricter policies and longer release cycles, this is not always the case: aiming to reduce the time gap between iterations using both technical and organizational approaches is a noble goal. It is also an important aspect of the DevOps culture, and ML systems are not an exception here. If you’re interested in this topic, we recommend checking out the book <em>The Phoenix Project</em>. It is not about ML systems, and it’s not even a very technical book (more like a “business fable”), but it is a great read about the DevOps culture and how it can be applied in the real world.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p67"> 
+   <p>Startups and mature big-tech companies are usually more agile and have shorter release cycles, but that can vary as well. Arseny once worked for a startup where deploying late on Friday night was a common practice (sometimes it led to outages that had to be solved by engineers who were already enjoying a solid pint of beer). In the other, more established startup, the release cycle was very flexible; every engineer could deploy their component at any time, but a simple guardrail warned before deployment if the time was imperfect (e.g., Friday after lunch). </p> 
+  </div> 
+  <div class="readable-text intended-text" id="p68"> 
+   <p>Those who are blessed to schedule releases should be aware of all the dependencies: how the system influences other systems and how others can affect it. The biggest outages usually happen either on the infrastructure level or between the systems or components that are not owned by the same team. Having proper communication with other teams to avoid such problems is a must-have skill for any senior engineer. Unfortunately, this skill and the understanding of its importance often come at a certain cost (usually after a big outage).</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p69"> 
+   <p>Arseny’s biggest outage was related to a logger configuration (not something you expect to care much about while building an ML system). Some ML-related load happened in threads, and when aiming to track the behavior, he overengineered a complicated logger to keep requests’ IDs between the threads. It worked fine in one environment and was later deployed to another, where engineers had way less control. It was a dark moment when the defect revealed itself: the problem could only happen after 1,000 requests of a certain type that never happened in previous environments. It took a while to understand the root cause or roll back the new version, so the incident came to be a good lesson to introduce more checks in the release process.</p> 
+  </div> 
+  <div class="readable-text" id="p70"> 
+   <h2 class="readable-text-h2" id="sigil_toc_id_164"><span class="num-string">13.3</span> Operating the system</h2> 
+  </div> 
+  <div class="readable-text" id="p71"> 
+   <p>It is never enough to build the system and integrate it directly with other components that need its output in terms of product logic. Any system requires additional connections for healthy operations, both tech and non-tech related. Some are required to smooth the maintenance and operations (from both the engineering and product perspective); others are caused by implicit nonfunctional requirements related to the system (such as legal or privacy concerns). Let’s name a few.</p> 
+  </div> 
+  <div class="readable-text" id="p72"> 
+   <h3 class="readable-text-h3" id="sigil_toc_id_165"><span class="num-string">13.3.1</span> Tech-related connections</h3> 
+  </div> 
+  <div class="readable-text" id="p73"> 
+   <p>CI is usually the first element of the whole infrastructure to be set up. It helps identify and resolve integration problems while facilitating smoother and faster development processes. Typical tasks for CI are running tests (unit or integration) and building artifacts that will be used down the stream (e.g., for further deployment). However, there may be other needs covered on the CI level, such as security testing, performance testing, cost analysis (“Does this release require us to spin out more cloud servers?”), deployment to test environments, linting the code style, reporting key metrics, and many more.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p74"> 
+   <p>Two main things that are not part of the system’s data but need to be stored are logs and metrics. Usually, there is a common approach to how logs and metrics are stored, aggregated, and monitored in a company, and you just need to follow the common way. We’ll elaborate a bit more on this topic in the next chapter.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p75"> 
+   <p>The system’s performance may be prone to malfunctions, and it should not come as a surprise. Thus, the system should be connected to the alerting and incident management platform used in the company, so the person on call will be aware of a potential incident and react appropriately.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p76"> 
+   <p>But how do they react, exactly? Here you may need to prepare specific cookbooks describing what expected failure modes are and how to approach them. Also, there may be an additional toolset to help with firefighting, like an admin panel for configuration, system-specific dashboards, and so on, which we will cover in chapter 16. Again, usually there is a company standard shared between ML and non-ML systems, so it is very likely that you will only need to adapt the software toolset already in use without reinventing the wheel.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p77"> 
+   <p>Designing a system requires considering the whole life cycle of the system, not just the happy path, and being a little paranoid helps.</p> 
+  </div> 
+  <div class="readable-text" id="p78"> 
+   <h3 class="readable-text-h3" id="sigil_toc_id_166"><span class="num-string">13.3.2</span> Non-tech-related connections</h3> 
+  </div> 
+  <div class="readable-text" id="p79"> 
+   <p>Other than purely technical aspects of operations, there are some non-tech aspects that should be considered. They are often related to customer success or compliance, and they are not always obvious. What should we do if the user wants all their personal data to be purged as allowed by the General Data Protection Regulation (recall chapter 11 and imagine how deeply their data can propagate)? Is there a regulation forcing the model to be explainable, and what is the best way to follow it without sacrificing the model’s performance? What if a high-level executive or a startup investor faces a bug in the system and gets mad? How do we debug the system’s behavior in hard-to-reproduce scenarios (e.g., a defect can be only reproduced by an aforementioned executive’s user account)? All these questions should be answered before the system is released, and the answers should be at least briefly reflected at the design stage. Otherwise, the changes may be too expensive to implement later. Often it requires building additional components, like some user impersonation mechanism or an admin panel for data management or model explainability, and it may take a lot of project time and require help from other teams (e.g., Legal or Compliance to understand the regulations or Web Development to build the required dashboard).</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p80"> 
+   <p>From our experience, all these additional connections and considerations usually take more time than the core system itself, and the bigger the company, the more effort it takes. Given current trends, it’s not likely to improve in the near future as even more regulations related to ML and privacy are being applied globally.</p> 
+  </div> 
+  <div class="readable-text" id="p81"> 
+   <h2 class="readable-text-h2" id="sigil_toc_id_167"><span class="num-string">13.4</span> Overrides and fallbacks</h2> 
+  </div> 
+  <div class="readable-text" id="p82"> 
+   <p>Your system may have a legit reason to fail. An example of such a reason could be an external dependency: you pull out a chunk of data from a third-party API, and at some point, it’s just not available. That is one of the situations where you may want to have a fallback solution.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p83"> 
+   <p>A <em>fallback</em> is a backup plan or an alternative solution that can be used when the primary plan or solution fails or is not available. We use it to ensure that the system can still function and make decisions even if the primary ML model has failed for whatever reason.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p84"> 
+   <p>This can be particularly important in systems used for critical tasks or in industries where even the shortest downtime can lead to significant consequences. For example, a fallback can be crucial for a model used to predict equipment failures in a manufacturing setting, ensuring that production can continue even if the primary model experiences problems.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p85"> 
+   <p>Another reason to use a fallback is to provide an alternative solution when the primary system is unable to provide a satisfactory answer or a confident prediction or when the primary model’s output is outside the acceptable range.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p86"> 
+   <p>There are quite a few different approaches that can be used for implementing a fallback. One common approach is to use a secondary ML model, which can be trained on a different set of data or using a different algorithm. It might be a simpler baseline solution as we reviewed in chapter 8 or a dual-model setup. In this setup, the first model is built using only stable features, while the second model is used to correct the output of the main model using a larger feature set. The models can be used together, with the output of one model chosen over the other based on the input data or a predetermined rule. Alternatively, input feature drift monitoring (see chapter 14) can be set up for the “core” model to detect crucial shifts.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p87"> 
+   <p>Another option is to use a rule-based system as a fallback, which can provide a stable and predictable response when the model is unavailable or is performing poorly. It is also possible to use a combination of these approaches, such as using a rule-based system to handle simple cases and the ML model for more complex scenarios (however, this alone introduces additional complexity and breakpoints).</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p88"> 
+   <p>As with baselines, a simple constant can be our fallback as well. Finally, sometimes a fallback solution is to reply with an explicit error message.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p89"> 
+   <p>A fallback solution should always have a plan in place for activating the fallback and switching between the ML model and a fallback system. It can be either automatic (triggered by a monitoring event), manual, or hybrid, depending on the use case.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p90"> 
+   <p>One custom type of fallback is an override. It is a way to manually override the model’s output when it is signaling a bad prediction. One example may be dropping the model’s output and using a constant instead when the model’s prediction is beyond the acceptable range or when the model’s confidence is too low. Another reason to use an override is related to a release cycle. For example, a customer complains about the model failing in a very specific scenario. Ideally, we need to ensure this scenario is represented in the training data, retrain the model, run all the checks, and deploy it. But, as we discussed earlier, it may take a while. So we can override the model’s output for this particular scenario using a rule-based approach, keep the customer happy, and address it properly in the following release.</p> 
+  </div> 
+  <div class="readable-text intended-text" id="p91"> 
+   <p>The downside of overrides is that they are not transparent and can be easily forgotten. For this reason, it is important to have a way to track them and to have a plan for how to address them properly; otherwise, they may turn into a technical debt. The positive side effect of having many overrides is that collections of overrides can be used to improve the model via <em>multisource weak supervision</em>—a technique when unlabeled data is labeled with “labeling functions” (these heuristics are not perfect but are cheap to implement). The labeling functions provide a noisy dataset that becomes a foundation for model training. More details on this technique can be found in papers by Alexander Ratner et al., “Data Programming: Creating Large Training Sets, Quickly” (<a href="https://arxiv.org/abs/1605.07723">https://arxiv.org/abs/1605.07723</a>) and “Training Complex Models with Multi-Task Weak Supervision” (<a href="https://arxiv.org/abs/1810.02840">https://arxiv.org/abs/1810.02840</a>). The concept of multisource weak supervision has gained recognition in the industry thanks to the popular library named Snorkel (<a href="https://www.snorkel.org/">https://www.snorkel.org/</a>). </p> 
+  </div> 
+  <div class="readable-text intended-text" id="p92"> 
+   <p>Arseny’s colleague once implemented a more elegant solution that helped address the limits of a long release cycle. He worked on a named entity recognition problem, and sometimes the model was not able to recognize some entities that were important to customers. However, training a new model after the problem had been found was not an option because of the long training time. So he implemented a solution based on the knowledge base: before running the model, the input text was checked against the knowledge base, and if the possible entity was found there, it was used as a hint for the model. It allowed the team to fix the problem without retraining. Adding a sample to the knowledge base could be done in a minute by a nontechnical person, so the problem could be addressed promptly. The solution is described in more detail in a blog post (<a href="https://mng.bz/BgG1">https://mng.bz/BgG1</a>). This case was somewhat similar to overrides, but it augmented the model’s inputs, not outputs.</p> 
+  </div> 
+  <div class="readable-text" id="p93"> 
+   <h2 class="readable-text-h2" id="sigil_toc_id_168"><span class="num-string">13.5</span> Design document: Integration</h2> 
+  </div> 
+  <div class="readable-text" id="p94"> 
+   <p>Approaches to integration for both Supermegaretail and PhotoStock Inc. aim at creating user-friendly, fast, and efficient mechanisms for either inventory predictions or search results.</p> 
+  </div> 
+  <div class="readable-text" id="p95"> 
+   <h3 class="readable-text-h3" id="sigil_toc_id_169"><span class="num-string">13.5.1</span> Integration for Supermegaretail</h3> 
+  </div> 
+  <div class="readable-text" id="p96"> 
+   <p>Supermegaretail’s integration strategy is tailored to offer a seamless, dynamic, and highly responsive prediction system that helps manage inventory. </p> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p97"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">Design document: Supermegaretail</h4> 
+   </div> 
+   <div class="readable-text" id="p98"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">X. Integration</h4> 
+   </div> 
+   <div class="readable-text" id="p99"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">i. Fallback strategies</h4> 
+   </div> 
+   <div class="readable-text" id="p100"> 
+    <p>Fallbacks are crucial for maintaining operational efficiency in the face of unforeseen circumstances. Supermegaretail has adopted a multitiered fallback system:</p> 
+   </div> 
+   <ul> 
+    <li class="readable-text" id="p101"> <em>Primary fallback</em><em> </em><em>—</em>The primary model is trained on a subset of the most significant features. It will be used if no feature drift/problems are detected within this subset. </li> 
+    <li class="readable-text" id="p102"> <em>Secondary fallback</em><em> </em><em>—</em>Our next layer of fallback involves time-series models like SARIMA or Prophet, which we explored in section 4.4. These models are less dependent on external features, allowing for more robust predictions if drift occurs. </li> 
+    <li class="readable-text" id="p103"> <em>Tertiary fallback</em><em> </em><em>—</em>As a last resort, we would predict sales akin to the previous week’s data, with modifications for expected events and holidays. </li> 
+   </ul> 
+   <div class="readable-text" id="p104"> 
+    <p>The system monitors for data drifts and quality problems, triggering alarms that automatically switch to the appropriate fallback to ensure the most accurate predictions possible.</p> 
+   </div> 
+   <div class="readable-text" id="p105"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">ii. API design</h4> 
+   </div> 
+   <ul> 
+    <li class="readable-text" id="p106"> <em>HTTP API handler</em><em> </em><em>—</em>This component will manage requests and responses, interfacing with users in a structured JSON format. </li> 
+    <li class="readable-text" id="p107"> <em>Model API</em><em> </em><em>—</em>This will extract predictions directly from the model. </li> 
+   </ul> 
+   <div class="readable-text" id="p108"> 
+    <p>The request format is</p> 
+   </div> 
+   <div class="browsable-container listing-container" id="p109"> 
+    <div class="code-area-container code-area-with-html"> 
+     <pre class="code-area">GET /predictions?query=&lt;query_string&gt;&amp;parameters=&lt;parameters&gt;&amp;version=
+<span class="">↪</span>&lt;version&gt;
+&amp;limit=&lt;limit&gt;&amp;request_id=&lt;request_id&gt;&amp;sku=&lt;sku&gt;&amp;entity_id=&lt;entity_id&gt;
+&amp;group=&lt;group_type&gt;</pre>  
+    </div> 
+   </div> 
+   <div class="readable-text" id="p110"> 
+    <p>The response format is</p> 
+   </div> 
+   <div class="browsable-container listing-container" id="p111"> 
+    <div class="code-area-container"> 
+     <pre class="code-area">{
+    "predictions": [
+        {
+            "sku": &lt;sku_id&gt;,
+            "demand": &lt;demand&gt;,
+            "entity": &lt;entity_id&gt;,
+            "period": &lt;time_period_for_demand&gt;,
+        },
+        ...
+    ]
+}</pre>  
+    </div> 
+   </div> 
+   <div class="readable-text" id="p112"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">iii. Release cycle</h4> 
+   </div> 
+   <div class="readable-text" id="p113"> 
+    <h5 class="callout-container-h5 readable-text-h5 sigil_not_in_toc">A. Release of the wrapper vs. release of the model</h5> 
+   </div> 
+   <div class="readable-text" id="p114"> 
+    <p>Within our integration strategy, the release of the wrapper and the release of the model represent two distinct processes. The following are the nuances for each.</p> 
+   </div> 
+   <div class="readable-text intended-text" id="p115"> 
+    <p>For the release of the wrapper (infrastructure), we should consider the following:</p> 
+   </div> 
+   <ul> 
+    <li class="readable-text" id="p116"> <em>Frequency and timeline. </em>The release typically happens less frequently than that of the model. As demand patterns can shift over the night, it is important to be able to incorporate them into the model through training. </li> 
+    <li class="readable-text" id="p117"> <em>Dependencies. </em>Infrastructure releases are mostly dependent on software updates, third-party services, or system requirements. Any changes in such areas may necessitate a new release. </li> 
+    <li class="readable-text" id="p118"> <em>Testing.</em> Comprehensive integration testing is a must to ensure all components work harmoniously. It is also crucial to ensure backward compatibility, so existing services are not disrupted. </li> 
+    <li class="readable-text" id="p119"> <em>Rollout.</em> This usually employs standard software deployment strategies. Depending on the nature of the changes, a blue-green deployment might not always be necessary, especially if the changes are not user-facing and do not affect batch jobs. </li> 
+    <li class="readable-text" id="p120"> <em>Monitoring. </em>The focus will be on system health, uptime, response times, and any error rates. </li> 
+   </ul> 
+   <div class="readable-text" id="p121"> 
+    <p>For the release of the model, we should consider<em> the following:</em></p> 
+   </div> 
+   <ul> 
+    <li class="readable-text" id="p122"> <em>Frequency and timeline</em><em> </em><em>—</em>Model releases are more frequent and are tied to the availability of new data, changes in data patterns, or significant improvements in modeling techniques. </li> 
+    <li class="readable-text" id="p123"> <em>Dependencies</em><em> </em><em>—</em>These predominantly rely on the quality and quantity of new training data. Any drifts in data patterns or introduction of new data sources can trigger the model’s update. </li> 
+    <li class="readable-text" id="p124"> <em>Testing</em><em> </em><em>—</em>Before rolling out, the model undergoes a rigorous offline validation. Once validated, it might be tested in a shadow mode, where its predictions run alongside the current model but are not used. This helps in comparing and validating the new model’s performance in a real-world scenario without any risks. </li> 
+    <li class="readable-text" id="p125"> <em>Rollout</em><em> </em><em>—</em>When introducing a new model, it’s not just about deploying the model file. There’s also a need to ensure that any preprocessing steps, feature engineering, and other pipelines are consistent with what the model expects. </li> 
+    <li class="readable-text" id="p126"> <em>Monitoring. </em>The primary focus remains on model performance metrics. Also, keeping an eye on data drift is essential. See chapter 14 for more details. </li> 
+   </ul> 
+   <div class="readable-text" id="p127"> 
+    <h5 class="callout-container-h5 readable-text-h5 sigil_not_in_toc">B. Interplay between wrapper and model releases</h5> 
+   </div> 
+   <div class="readable-text" id="p128"> 
+    <p>In cases where the infrastructure has updates that would affect the model (e.g., changes in data pipelines), coordination between the two releases becomes vital. Additionally, any significant changes to the model’s architecture might require updates to the wrapper to accommodate the changes. By treating them as separate processes yet ensuring they’re coordinated, we maintain the system’s stability while continuously improving its capabilities.</p> 
+   </div> 
+   <div class="readable-text" id="p129"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">iv. Operational concerns</h4> 
+   </div> 
+   <div class="readable-text" id="p130"> 
+    <p>Feedback is integral for continuous improvement. A feedback mechanism, inclusive of an override function, should be available to internal users. Not only does this aid in refining the predictions, but it also gives business users a sense of control and adaptability based on real-time insights.</p> 
+   </div> 
+   <div class="readable-text" id="p131"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">v. Nonengineering considerations</h4> 
+   </div> 
+   <div class="readable-text" id="p132"> 
+    <p>The integration strategy will also take into account nonengineering factors—for instance</p> 
+   </div> 
+   <ul> 
+    <li class="readable-text" id="p133"> <em>Admin panels</em><em> </em>—Crucial for managing the system and obtaining a high-level overview </li> 
+    <li class="readable-text" id="p134"> <em>Integration with company-level dashboards</em><em> </em>—For company-wide visibility and decision-making </li> 
+    <li class="readable-text" id="p135"> <em>Additional reports</em><em> </em>—Essential for deeper insights and analysis </li> 
+    <li class="readable-text" id="p136"> <em>Overrides</em><em> </em>—A necessary feature to account for manual adjustments based on unforeseen or unique circumstances </li> 
+   </ul> 
+   <div class="readable-text" id="p137"> 
+    <p>Furthermore, standard CI tools used in the company, along with a typical scheduler, will be integrated to maintain consistency and optimize workflow.</p> 
+   </div> 
+   <div class="readable-text" id="p138"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">vi. Deployment</h4> 
+   </div> 
+   <div class="readable-text" id="p139"> 
+    <p>Given that our audience primarily consists of internal customers and the frequent batch jobs, there’s no immediate need for green-blue or canary deployment. The absence of end-user traffic eliminates the need for such staggered deployments, simplifying our rollout strategy.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p140"> 
+   <h3 class="readable-text-h3" id="sigil_toc_id_170"><span class="num-string">13.5.2</span> Integration for PhotoStock Inc.</h3> 
+  </div> 
+  <div class="readable-text" id="p141"> 
+   <p>The integration strategy for PhotoStock Inc. is focused on providing the most relevant search results regardless of the complexity of search queries while maintaining prompt responses.</p> 
+  </div> 
+  <div class="callout-container sidebar-container"> 
+   <div class="readable-text" id="p142"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">Design document: PhotoStock Inc.</h4> 
+   </div> 
+   <div class="readable-text" id="p143"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">X. Integration</h4> 
+   </div> 
+   <div class="readable-text" id="p144"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">i. API design</h4> 
+   </div> 
+   <div class="readable-text" id="p145"> 
+    <p>Our search engine needs to expose one HTTP API handler, which takes a query string + optional additional filters (e.g., price, collection, resolution, author, etc.) and returns a list of IDs of the photos that match the query sorted by relevance. Besides these product-focused parameters, we need to pass more technical ones, like <code>version</code>, <code>limit</code>, and <code>request_id</code>.</p> 
+   </div> 
+   <div class="readable-text intended-text" id="p146"> 
+    <p>The handler will be only used internally and will not be exposed to the public, so we don’t need to worry about authentication and authorization, given that it’s operating within a private network.</p> 
+   </div> 
+   <div class="readable-text intended-text" id="p147"> 
+    <p>We can’t keep the service fully stateless (we need to own index and overrides), but all the query-related metadata should be handled by the backend service as they already store other users’ metadata.</p> 
+   </div> 
+   <div class="readable-text intended-text" id="p148"> 
+    <p>Under the hood, we will use a simple cascade to narrow the search results. We will first filter by the optional filters, then fetch the nearest neighbors of the query string in the embedding space, and finally sort the results by relevance with the final model.</p> 
+   </div> 
+   <div class="readable-text intended-text" id="p149"> 
+    <p>We consider using Qdrant (<a href="https://qdrant.tech/">https://qdrant.tech/</a>) as a rapid vector database capable of filtering + fetching candidates at scale; however, it has not been used in the company before, so we may need to test it properly before using it in production. Alternatively, we can consider using other vector databases if needed.</p> 
+   </div> 
+   <div class="readable-text intended-text" id="p150"> 
+    <p>The request format is</p> 
+   </div> 
+   <div class="browsable-container listing-container" id="p151"> 
+    <div class="code-area-container"> 
+     <pre class="code-area">```
+GET /search?query=&lt;query_string&gt;&amp;filters=&lt;filters&gt;&amp;version=&lt;version&gt;
+&amp;limit=&lt;limit&gt;&amp;request_id=&lt;request_id&gt;
+```</pre>  
+    </div> 
+   </div> 
+   <div class="readable-text" id="p152"> 
+    <p>The response format is</p> 
+   </div> 
+   <div class="browsable-container listing-container" id="p153"> 
+    <div class="code-area-container"> 
+     <pre class="code-area">```
+{
+    "results": [
+        {
+            "id": &lt;photo_id&gt;,
+            "score": &lt;score&gt;
+        },
+        ...
+    ]
+}
+```</pre>  
+    </div> 
+   </div> 
+   <div class="readable-text" id="p154"> 
+    <p>Both the request and response are in the JSON format, as that’s the default format we use in our internal APIs. Structures of the request and response are simple and straightforward for now but can be extended in the future if needed.</p> 
+   </div> 
+   <div class="readable-text intended-text" id="p155"> 
+    <p>The underlying API should be layered in the following way:</p> 
+   </div> 
+   <ul> 
+    <li class="readable-text" id="p156"> The HTTP API handler only serves as a proxy to the underlying API and does not contain any business logic; it just parses the request, passes it to the underlying API, wraps the response into a JSON format, and handles errors. </li> 
+    <li class="readable-text" id="p157"> The vector DB API is responsible for filtering and fetching candidates given the embedding of the query string. </li> 
+    <li class="readable-text" id="p158"> The model API is responsible for extracting the embeddings from a string and scoring the candidates. </li> 
+    <li class="readable-text" id="p159"> The ranking API is responsible for sorting the candidates by relevance and applying possible overrides. </li> 
+   </ul> 
+   <div class="readable-text" id="p160"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">ii. Release cycle</h4> 
+   </div> 
+   <div class="readable-text" id="p161"> 
+    <p>We assume that model updates will be relatively rare as training takes a lot of time, and we don’t expect the data to change significantly over time. We can expect releases of a new model and relevant APIs every 1 to 2 months, while most hot updates will be related to index and overrides only.</p> 
+   </div> 
+   <div class="readable-text intended-text" id="p162"> 
+    <p>The index is the core of the search engine, and it will require regular updates (for data, not software). We can add new items on a daily basis (e.g., with a batch job running every night) and be ready to update the index on demand if needed (e.g., removing banned images or adding a new image by special requests from VIP users).</p> 
+   </div> 
+   <div class="readable-text" id="p163"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">iii. Operational concerns</h4> 
+   </div> 
+   <div class="readable-text" id="p164"> 
+    <p>Many internal users can provide a lot of feedback on search results, so we need to provide them with appropriate tools. For a start, we can just add a “Report bad match” button to the search results page for internal PhotoStock Inc. users. It will send a request to the data gateway, so we save an event with the photo ID, search engine results page position, and query string to the data lake. We can then use this data during the model retraining stage and error analysis and for manual overrides. In the future, we can consider providing similar functionality to some external authenticated users (e.g., top buyers we trust).</p> 
+   </div> 
+   <div class="readable-text" id="p165"> 
+    <h4 class="readable-text-h4 sigil_not_in_toc">iv. Overrides and fallbacks</h4> 
+   </div> 
+   <div class="readable-text" id="p166"> 
+    <p>As a fallback, we’re going to use the existing search engine, which is based on Elasticsearch. While it’s not as good as the new one is set to become in terms of relevance, it’s still a decent search engine.</p> 
+   </div> 
+   <div class="readable-text intended-text" id="p167"> 
+    <p>As for overrides, we may have manual overrides for certain queries, which we can store in a separate database. It may happen in case of poor relevancy for popular/critical queries, which we cannot fix with the model promptly enough. For now, it can be a simple key-value store where the key is a regex of the query string, and the value is the list of photo IDs, which we will use in the search engine results page. This solution is not very scalable, but it’s solid enough for the first version. We may want to make a simple UI for managing these overrides in the future.</p> 
+   </div> 
+   <div class="readable-text intended-text" id="p168"> 
+    <p>There is another possible type of override related to “bad photos” that we want to hide from the search results (e.g., photos with nudity/violence that passed moderation). However, if we suddenly realize a given image is no longer welcome in our search results, we can simply remove it from the index.</p> 
+   </div> 
+  </div> 
+  <div class="readable-text" id="p169"> 
+   <h2 class="readable-text-h2" id="sigil_toc_id_171">Summary</h2> 
+  </div> 
+  <ul> 
+   <li class="readable-text" id="p170"> Remember that integration is not a one-time event or a phase of the project but rather a continuous process that starts from the beginning of the project and ends only when the system is decommissioned. </li> 
+   <li class="readable-text" id="p171"> When selecting an API for your system, the two main qualities you should look for are simplicity and predictability. </li> 
+   <li class="readable-text" id="p172"> The API practices we consider effective with regard to ML systems are designing at least two layers of an API, separating the ML and IO components of an API when possible, building a client library for an API, and embedding feature toggle or its alternatives. </li> 
+   <li class="readable-text" id="p173"> Having a fallback provides you with a backup plan or alternative solution that can be used when the primary plan or solution fails or is not available. </li> 
+  </ul>
+ </div></div></body></html>
