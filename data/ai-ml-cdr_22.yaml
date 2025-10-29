@@ -1,0 +1,719 @@
+- en: Chapter 19\. Deployment with TensorFlow Serving
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第19章\. 使用TensorFlow Serving进行部署
+- en: Over the past few chapters you’ve been looking at deployment surfaces for your
+    models—on Android and iOS, and in the web browser. Another obvious place where
+    models can be deployed is to a server, so that your users can pass data to your
+    server and have it run inference using your model and return the results. This
+    can be achieved using TensorFlow Serving, a simple “wrapper” for models that provides
+    an API surface as well as production-level scalability. In this chapter you’ll
+    get an introduction to TensorFlow Serving and how you can use it to deploy and
+    manage inference with a simple model.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在过去的几章中，你已经研究了模型的部署表面——在Android和iOS上以及在Web浏览器中。另一个明显的模型部署地点是服务器，这样你的用户可以将数据传递到你的服务器，并使用你的模型进行推理并返回结果。这可以通过TensorFlow
+    Serving来实现，它是一个简单的模型“包装器”，提供API界面以及生产级可扩展性。在本章中，你将会介绍TensorFlow Serving以及如何使用它来部署和管理简单模型的推理。
+- en: What Is TensorFlow Serving?
+  id: totrans-2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 什么是TensorFlow Serving？
+- en: This book has primarily focused on the code for creating models, and while this
+    is a massive undertaking in itself, it’s only a small part of the overall picture
+    of what it takes to use machine learning models in production. As you can see
+    in [Figure 19-1](#system_architecture_modules_for_ml_syst), your code needs to
+    work alongside code for configuration, data collection, data verification, monitoring,
+    machine resource management, and feature extraction, as well as analysis tools,
+    process management tools, and serving infrastructure.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本书主要侧重于创建模型的代码，虽然这本身是一个庞大的工作，但它只是在使用机器学习模型进行生产时所需的整体图景中的一小部分。正如你在[图 19-1](#system_architecture_modules_for_ml_syst)中所看到的那样，你的代码需要与配置代码、数据收集、数据验证、监控、机器资源管理、特征提取以及分析工具、流程管理工具和服务基础设施并存。
+- en: TensorFlow’s ecosystem for these tools is called *TensorFlow Extended* (TFX).
+    Other than the serving infrastructure, covered in this chapter, I won’t be going
+    into any of the rest of TFX. A great resource if you’d like to learn more about
+    it is the book [*Building Machine Learning Pipelines*](https://oreil.ly/iIYGm)
+    by Hannes Hapke and Catherine Nelson (O’Reilly).
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow的这些工具生态系统称为*TensorFlow Extended*（TFX）。除了本章中涵盖的服务基础设施之外，我不会深入探讨TFX的其他方面。如果你想进一步了解它，可以参考Hannes
+    Hapke和Catherine Nelson（O'Reilly）的书籍[*Building Machine Learning Pipelines*](https://oreil.ly/iIYGm)。
+- en: '![System architecture modules for ML systems](Images/aiml_1901.png)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ML系统的系统架构模块](Images/aiml_1901.png)'
+- en: Figure 19-1\. System architecture modules for ML systems
+  id: totrans-6
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 19-1\. ML系统的系统架构模块
+- en: The pipeline for machine learning models is summarized in [Figure 19-2](#machine_learning_production_pipeline).
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习模型的流程总结在[图 19-2](#machine_learning_production_pipeline)中。
+- en: '![Machine learning production pipeline](Images/aiml_1902.png)'
+  id: totrans-8
+  prefs: []
+  type: TYPE_IMG
+  zh: '![机器学习生产流水线](Images/aiml_1902.png)'
+- en: Figure 19-2\. Machine learning production pipeline
+  id: totrans-9
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 19-2\. 机器学习生产流水线
+- en: The pipeline calls for data to first be gathered and ingested, and then validated.
+    Once it’s “clean,” the data is transformed into a format that can be used for
+    training, including labeling it as appropriate. From there, models can be trained,
+    and upon completion they’ll be analyzed. You’ve been doing that already when testing
+    your models for accuracy, looking at the loss curves, etc. Once you’re satisfied,
+    you have a production model.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流程要求首先收集和摄取数据，然后进行验证。一旦数据“干净”，则将其转换为可以用于训练的格式，包括适当地进行标记。从这里开始，模型可以进行训练，一旦完成，它们将被分析。在测试模型准确性、查看损失曲线等时，你已经在做这些了。一旦满意，你就拥有了一个生产模型。
+- en: Once you have that model, you can deploy it, for example, to a mobile device
+    using TensorFlow Lite ([Figure 19-3](#deploying_your_production_model_to_mobi)).
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你拥有了该模型，你可以将其部署到移动设备上，例如使用TensorFlow Lite（[图 19-3](#deploying_your_production_model_to_mobi)）。
+- en: TensorFlow Serving fits into this architecture by providing the infrastructure
+    for hosting your model on a server. Clients can then use HTTP to pass requests
+    to this server along with a data payload. The data will be passed to the model,
+    which will run inference, get the results, and return them to the client ([Figure 19-4](#adding_model_serving_architecture_to_th)).
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow Serving通过提供基础设施来托管你的模型在服务器上，符合这种架构。客户端可以使用HTTP将请求传递到此服务器，并带有数据负载。数据将被传递到模型，模型将进行推理，获取结果，并将其返回给客户端（[图 19-4](#adding_model_serving_architecture_to_th)）。
+- en: '![Deploying your production model to mobile](Images/aiml_1903.png)'
+  id: totrans-13
+  prefs: []
+  type: TYPE_IMG
+  zh: '![将生产模型部署到移动设备](Images/aiml_1903.png)'
+- en: Figure 19-3\. Deploying your production model to mobile
+  id: totrans-14
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 19-3\. 将生产模型部署到移动设备
+- en: '![Adding model serving architecture to the pipeline](Images/aiml_1904.png)'
+  id: totrans-15
+  prefs: []
+  type: TYPE_IMG
+  zh: '![将模型服务架构添加到管道中](Images/aiml_1904.png)'
+- en: Figure 19-4\. Adding model serving architecture to the pipeline
+  id: totrans-16
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 19-4\. 将模型服务架构添加到管道中
+- en: An important artifact of this type of architecture is that you can also control
+    the versioning of the models used by your clients. When models are deployed to
+    mobile devices, for example, you can end up with model drift, where different
+    clients have different versions. But when serving from an infrastructure, as in
+    [Figure 19-4](#adding_model_serving_architecture_to_th), you can avoid this. Additionally,
+    this makes it possible to experiment with different model versions, where some
+    clients will get the inference from one version of the model, while others get
+    it from other versions ([Figure 19-5](#using_tensorflow_serving_to_handle_mult)).
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种类型的架构的一个重要特征是，您还可以控制客户端使用的模型版本。例如，当模型部署到移动设备时，可能会出现模型漂移，即不同的客户端使用不同的版本。但是在基础架构中提供服务时（如
+    [图 19-4](#adding_model_serving_architecture_to_th) 所示），您可以避免这种情况。此外，这也使得可以尝试不同的模型版本，其中一些客户端将从一个版本的推断中获取结果，而其他客户端则从其他版本中获取结果（[图
+    19-5](#using_tensorflow_serving_to_handle_mult)）。
+- en: '![Using TensorFlow Serving to handle multiple model versions](Images/aiml_1905.png)'
+  id: totrans-18
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用 TensorFlow Serving 处理多个模型版本](Images/aiml_1905.png)'
+- en: Figure 19-5\. Using TensorFlow Serving to handle multiple model versions
+  id: totrans-19
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 19-5\. 使用 TensorFlow Serving 处理多个模型版本
+- en: Installing TensorFlow Serving
+  id: totrans-20
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 安装 TensorFlow Serving
+- en: TensorFlow Serving can be installed with two different server architectures.
+    The first, `tensorflow-model-server`, is a fully optimized server that uses platform-specific
+    compiler options for various architectures. In general it’s the preferred option,
+    unless your server machine doesn’t have those architectures. The alternative,
+    `tensorflow-model-server-universal`, is compiled with basic optimizations that
+    should work on all machines, and provides a nice backup if `tensorflow-model-server`
+    does not work. There are several methods by which you can install TensorFlow Serving,
+    including using Docker or a direct package installation using `apt`. We’ll look
+    at both of those options next.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow Serving 可以使用两种不同的服务器架构安装。第一种是 `tensorflow-model-server`，它是一个完全优化的服务器，使用平台特定的编译器选项适用于各种架构。通常情况下，这是首选的选项，除非您的服务器机器没有这些架构。另一种选择是
+    `tensorflow-model-server-universal`，它使用基本优化进行编译，应该适用于所有机器，并在 `tensorflow-model-server`
+    不起作用时提供一个良好的备用选项。您可以使用多种方法安装 TensorFlow Serving，包括使用 Docker 或直接使用 `apt` 安装软件包。接下来我们将看看这两个选项。
+- en: Installing Using Docker
+  id: totrans-22
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用 Docker 进行安装
+- en: 'Using Docker is perhaps the easiest way to get up and running quickly. To get
+    started, use `docker pull` to get the TensorFlow Serving package:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 Docker 可能是快速启动和运行的最简单方法。要开始，请使用 `docker pull` 获取 TensorFlow Serving 软件包：
+- en: '[PRE0]'
+  id: totrans-24
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Once you’ve done this, clone the TensorFlow Serving code from GitHub:'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您完成了这一步骤，可以从 GitHub 克隆 TensorFlow Serving 代码：
+- en: '[PRE1]'
+  id: totrans-26
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'This includes some sample models, including one called Half Plus Two that,
+    given a value, will return half that value plus two. To do this, first set up
+    a variable called `TESTDATA` that contains the path of the sample models:'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这包括一些样本模型，包括一个名为 Half Plus Two 的模型，给定一个值，将返回该值的一半加二。为此，请先设置一个名为 `TESTDATA` 的变量，其中包含样本模型的路径：
+- en: '[PRE2]'
+  id: totrans-28
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'You can now run TensorFlow Serving from the Docker image:'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在可以从 Docker 镜像中运行 TensorFlow Serving：
+- en: '[PRE3]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: This will instantiate a server on port 8501—you’ll see how to do that in more
+    detail later in this chapter—and execute the model on that server. You can then
+    access the model at *http://localhost:8501/v1/models/half_plus_two:predict*.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将在 8501 端口实例化一个服务器——本章后面会详细介绍如何做这个——并在该服务器上执行模型。然后，您可以通过 *http://localhost:8501/v1/models/half_plus_two:predict*
+    访问该模型。
+- en: 'To pass the data that you want to run inference on, you can POST a tensor containing
+    the values to this URL. Here’s an example using `curl` (run this in a separate
+    terminal if you’re running on your development machine):'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要传递要进行推断的数据，您可以将包含这些值的张量 POST 到此 URL。以下是使用 `curl` 的示例（如果在开发机器上运行，请在单独的终端中运行）：
+- en: '[PRE4]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: You can see the results in [Figure 19-6](#results_of_running_tensorflow_serving).
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在 [图 19-6](#results_of_running_tensorflow_serving) 中查看结果。
+- en: '![Results of running TensorFlow Serving](Images/aiml_1906.png)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_IMG
+  zh: '![运行 TensorFlow Serving 的结果](Images/aiml_1906.png)'
+- en: Figure 19-6\. Results of running TensorFlow Serving
+  id: totrans-36
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 19-6\. 运行 TensorFlow Serving 的结果
+- en: While the Docker image is certainly convenient, you might also want the full
+    control of installing it directly on your machine. You’ll explore how to do that
+    next.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然 Docker 镜像确实很方便，但你可能也希望完全控制地直接在你的机器上安装它。接下来你将学习如何做到这一点。
+- en: Installing Directly on Linux
+  id: totrans-38
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 直接在 Linux 上安装
+- en: 'Whether you are using `tensorflow-model-server` or `tensorflow-model-server-universal`,
+    the package name is the same. So, it’s a good idea to remove `tensorflow-model-server`
+    before you start so you can ensure you get the right one. If you want to try this
+    on your own hardware, I’ve provided [a Colab notebook](https://oreil.ly/afW4a)
+    in the GitHub repo with the code:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论你使用的是 `tensorflow-model-server` 还是 `tensorflow-model-server-universal`，软件包名称都是一样的。所以，在开始之前最好先删除
+    `tensorflow-model-server`，以确保你获得正确的软件包。如果你想在自己的硬件上尝试这个，我在 GitHub 仓库中提供了 [一个 Colab
+    笔记本](https://oreil.ly/afW4a) 与代码：
+- en: '[PRE5]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Then add the [TensorFlow package source](https://oreil.ly/wpIF_) to your system:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，将 [TensorFlow 软件包源](https://oreil.ly/wpIF_) 添加到你的系统中：
+- en: '[PRE6]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'If you need to use `sudo` on your local system, you can do so like this:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你需要在本地系统上使用 `sudo`，你可以像这样操作：
+- en: '[PRE7]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'You’ll need to update `apt-get` next:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，你需要更新 `apt-get`：
+- en: '[PRE8]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'Once this has been done, you can install the model server with `apt`:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦完成这一步骤，你可以使用 `apt` 安装模型服务器：
+- en: '[PRE9]'
+  id: totrans-48
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'And you can ensure you have the latest version by using the following:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以通过以下方式确保你有最新版本：
+- en: '[PRE10]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: The package should now be ready to use.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 软件包现在应该已经准备好使用了。
+- en: Building and Serving a Model
+  id: totrans-52
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 构建和提供模型
+- en: In this section we’ll do a walkthrough of the complete process of creating a
+    model, preparing it for serving, deploying it with TensorFlow Serving, and then
+    running inference using it.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将详细介绍创建模型、准备模型以进行服务、使用 TensorFlow Serving 部署模型以及运行推理的完整过程。
+- en: 'You’ll use the simple “Hello World” model that we’ve been exploring throughout
+    the book:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将使用我们在整本书中都在探索的简单的“Hello World”模型：
+- en: '[PRE11]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: This should train very quickly and give you a result of 18.98 or so, when asked
+    to predict Y when X is 10.0.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当要求预测 Y 为 10.0 时，这应该会快速训练并给出大约 18.98 的结果。
+- en: 'Next, the model needs to be saved. You’ll need a temporary folder to save it
+    in:'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，模型需要被保存。你将需要一个临时文件夹来保存它：
+- en: '[PRE12]'
+  id: totrans-58
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: When running in Colab, this should give you output like `/tmp/1`. If you’re
+    running on your own system you can export it to whatever directory you want, but
+    I like to use a temp directory.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Colab 中运行时，这应该会给出类似 `/tmp/1` 的输出。如果你在自己的系统上运行，可以将其导出到任何你想要的目录，但我喜欢使用临时目录。
+- en: 'If there’s anything in the directory you’re saving the model to, it’s a good
+    idea to delete it before proceeding (avoiding this issue is one reason why I like
+    using a temp directory!). To ensure that your model is the master, you can delete
+    the contents of the `export_path` directory:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果在你保存模型的目录中有任何东西，最好在继续之前将其删除（避免这个问题是我喜欢使用临时目录的原因之一！）。为确保你的模型是主模型，你可以删除 `export_path`
+    目录的内容：
+- en: '[PRE13]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'Now you can save the model:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你可以保存模型了：
+- en: '[PRE14]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Once this is done, take a look at the contents of the directory. The listing
+    should show something like this:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完成后，请查看目录的内容。列表应该显示类似于这样的内容：
+- en: '[PRE15]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'The TensorFlow Serving tools include a utility called `saved_model_cli` that
+    can be used to inspect a model. You can call this with the `show` command, giving
+    it the directory of the model in order to get the full model metadata:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow Serving 工具包括一个名为 `saved_model_cli` 的实用程序，可用于检查模型。你可以使用 `show` 命令调用它，给它模型的目录以获取完整的模型元数据：
+- en: '[PRE16]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Note that the `!` is used for Colab to indicate a shell command. If you’re using
+    your own machine, it isn’t necessary.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，`!` 用于 Colab 表示一个 shell 命令。如果你在使用自己的机器，这是不必要的。
+- en: 'The output of this command will be very long, but will contain details like
+    this:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此命令的输出将非常长，但将包含如下详细信息：
+- en: '[PRE17]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Note the content of the `signature_def`, which in this case is `serving_default`.
+    You’ll need them later.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意 `signature_def` 的内容，在这种情况下是 `serving_default`。稍后你会需要它们。
+- en: Also note that the inputs and outputs have a defined shape and type. In this
+    case, each is a float and has the shape (–1, 1). You can effectively ignore the
+    –1, and just bear in mind that the input to the model is a float and the output
+    is a float.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，输入和输出都有定义的形状和类型。在这种情况下，每个都是浮点数，形状为（–1, 1）。你可以有效地忽略 –1，只需记住模型的输入是浮点数，输出也是浮点数。
+- en: 'If you are using Colab, you need to tell the operating system where the model
+    directory is so that when you run TensorFlow Serving from a bash command, it will
+    know the location. This can be done with an environment variable in the operating
+    system:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你在使用 Colab，你需要告诉操作系统模型目录的位置，以便在从 bash 命令运行 TensorFlow Serving 时，系统能够知道该位置。这可以通过操作系统中的环境变量来完成：
+- en: '[PRE18]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'To run the TensorFlow model server with a command line, you need a number of
+    parameters. First, you’ll use the `--bg` switch to ensure that the command runs
+    in the background. The `nohup` command stands for “no hangup,” requesting that
+    the script continues to run. Then you need to specify a couple of parameters to
+    the `tensorflow_model_server` command. `rest_api_port` is the port number you
+    want to run the server on. Here, it’s set to `8501`. You then give the model a
+    name with the `model_name` switch—here I’ve called it `helloworld`. Finally, you
+    then pass the server the path to the model you saved in the `MODEL_DIR` operating
+    system environment variable with `model_base_path`. Here’s the code:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用命令行运行 TensorFlow 模型服务器，你需要一些参数。首先，你将使用`--bg`开关确保命令在后台运行。`nohup`命令代表“不挂断”，请求脚本继续运行。然后，你需要指定一些参数给`tensorflow_model_server`命令。`rest_api_port`是你想在其上运行服务器的端口号。在这里，设置为`8501`。然后，使用`model_name`开关为模型命名——这里我称之为`helloworld`。最后，使用`model_base_path`将服务器传递到模型保存在`MODEL_DIR`操作系统环境变量的路径中。这是代码：
+- en: '[PRE19]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'At the end of the script, there is code to output the results to `server.log`.
+    The output of this in Colab will simply be this:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在脚本的末尾，有代码将结果输出到`server.log`。在 Colab 中，其输出将简单地是这样：
+- en: '[PRE20]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'You can inspect it with the following:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以使用以下方法进行检查：
+- en: '[PRE21]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'Examine this output, and you should see that the server started successfully
+    with a note showing that it is exporting the HTTP/REST API at *localhost:8501*:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查此输出，你应该看到服务器成功启动，并显示一个提示，说明它正在*localhost:8501*导出 HTTP/REST API：
+- en: '[PRE22]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: If it fails, you should see a notification about the failure. Should that happen,
+    you might need to restart your system.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果失败，你应该会看到有关失败的通知。如果发生这种情况，你可能需要重新启动系统。
+- en: 'If you want to test the server, you can do so within Python:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想测试服务器，你可以在 Python 中这样做：
+- en: '[PRE23]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: To send data to the server, you need to get it into JSON format. So with Python
+    it’s a case of creating a Numpy array of the values you want to send—in this case
+    it’s a list of two values, 9.0 and 10.0\. Each of these is an array in itself,
+    because, as you saw earlier, the input shape is (–1,1). Single values should be
+    sent to the model, so if you want multiple ones, it should be a list of lists,
+    with the inner lists having single values only.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要向服务器发送数据，你需要将其格式化为 JSON 格式。因此在 Python 中，你需要创建一个 Numpy 数组，其中包含你要发送的值——在这种情况下是两个值的列表，9.0
+    和 10.0。每个值本身都是一个数组，因为，正如你之前看到的那样，输入形状是（-1,1）。单个值应发送到模型，因此如果要发送多个值，应该是一个列表的列表，内部列表只包含单个值。
+- en: Use `json.dumps` in Python to create the payload, which is two name/value pairs.
+    The first is the signature name to call on the model, which in this case is `serving_default`
+    (as you’ll recall from earlier, when you inspected the model). The second is `instances`,
+    which is the list of values you want to pass to the model.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Python 中使用`json.dumps`创建有效负载，其中包含两个名称/值对。第一个是调用模型的签名名称，在本例中为`serving_default`（正如你之前检查模型时所看到的）。第二个是`instances`，这是你要传递给模型的值列表。
+- en: 'Printing this will show you what the payload looks like:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 打印这个将显示你的有效负载是什么样的：
+- en: '[PRE24]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 'You can call the server using the `requests` library to do an HTTP POST. Note
+    the URL structure. The model is called `helloworld`, and you want to run its prediction.
+    The POST command requires data, which is the payload you just created, and a headers
+    specification, where you’re telling the server the content type is JSON:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以使用`requests`库调用服务器进行 HTTP POST 请求。注意 URL 结构。模型被称为`helloworld`，你想要运行它的预测。POST
+    命令需要数据，即你刚创建的有效负载，还需要一个头部规范，告诉服务器内容类型为 JSON：
+- en: '[PRE25]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'The response will be a JSON payload containing the predictions:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 响应将是一个包含预测的 JSON 有效负载：
+- en: '[PRE26]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: Exploring Server Configuration
+  id: totrans-94
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 探索服务器配置
+- en: In the preceding example, you created a model and served it by launching TensorFlow
+    Serving from a command line. You used parameters to determine which model to serve,
+    and provide metadata such as which port it should be served on. TensorFlow Serving
+    gives you more advanced serving options via a configuration file.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的示例中，您创建了一个模型，并通过从命令行启动 TensorFlow Serving 来提供它。您使用参数来确定要提供哪个模型，并提供诸如应在哪个端口上提供它的元数据。TensorFlow
+    Serving 通过配置文件为您提供了更多高级的服务选项。
+- en: 'The model configuration file adheres to a protobuf format called `ModelServerConfig`.
+    The most commonly used setting within this file is `model_config_list`, which
+    contains a number of configurations. This allows you to have multiple models,
+    each served at a particular name. So, for example, instead of specifying the model
+    name and path when you launch TensorFlow Serving, you can specify them in the
+    config file like this:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型配置文件遵循名为 `ModelServerConfig` 的 protobuf 格式。在此文件中最常用的设置是 `model_config_list`，其中包含多个配置。这允许您拥有多个模型，每个模型都以特定的名称提供服务。例如，与其在启动
+    TensorFlow Serving 时指定模型名称和路径，您可以像这样在配置文件中指定它们：
+- en: '[PRE27]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'If you now launch TensorFlow Serving with this configuration file instead of
+    using switches for the model name and path, you can map multiple URLs to multiple
+    models. For example, this command:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，如果您使用此配置文件启动 TensorFlow Serving，而不是使用模型名称和路径的开关，您可以将多个 URL 映射到多个模型。例如，这个命令：
+- en: '[PRE28]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: will now allow you to POST to `<server>:8501/v1/models/2x-1model:predict` or
+    `<server>:8501/v1/models/3x+1model:predict`, and TensorFlow Serving will handle
+    loading the correct model, performing the inference, and returning the results.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您可以向 `<server>:8501/v1/models/2x-1model:predict` 或 `<server>:8501/v1/models/3x+1model:predict`
+    发送 POST 请求，TensorFlow Serving 将处理加载正确的模型，执行推理并返回结果。
+- en: 'The model configuration can also allow you to specify versioning details per
+    model. So, for example, if you update the previous model configuration to this:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型配置还可以允许您针对每个模型指定版本详细信息。例如，如果您将先前的模型配置更新为以下内容：
+- en: '[PRE29]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'this will allow you to serve versions 1 and 2 of the first model, and all versions
+    of the second model. If you don’t use these settings, the one that’s configured
+    in the `base_path` or, if that isn’t specified, the latest version of the model
+    will be served. Additionally, the specific versions of the first model can be
+    given explicit names, so that, for example, you could designate version 1 to be
+    your master and version 2 your beta by assigning these labels. Here’s the updated
+    configuration to implement this:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将允许您服务第一个模型的版本1和2，并且第二个模型的所有版本。如果您不使用这些设置，那么将会使用在`base_path`中配置的版本，或者如果未指定，则使用模型的最新版本。此外，第一个模型的特定版本可以被赋予显式名称，例如，您可以通过分配这些标签来指定版本1为主版本，版本2为测试版。以下是更新后的配置来实现这一点：
+- en: '[PRE30]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: 'Now, if you want to access the beta version of the first model, you can do
+    so as follows:'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，如果您想要访问第一个模型的测试版本，可以这样做：
+- en: '[PRE31]'
+  id: totrans-106
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'If you want to change your model server configuration without stopping and
+    restarting the server, you can have it poll the configuration file periodically;
+    if it sees a change, you’ll get the new configuration. So, for example, say you
+    don’t want the master to be version 1 anymore, and you instead want it to be v2\.
+    You can update the configuration file to take account of this change, and if the
+    server has been started with the `--model_config_file_poll_wait_seconds` parameter,
+    as shown here, once that timeout is hit, the new configuration will be loaded:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您想要更改模型服务器配置，而不需要停止和重新启动服务器，您可以让它定期轮询配置文件；如果它检测到变化，您将获得新的配置。例如，假设您不再希望主版本是版本1，而是希望它是v2。您可以更新配置文件以考虑此更改，如果服务器已经使用了
+    `--model_config_file_poll_wait_seconds` 参数启动，如下所示，一旦达到超时时间，新的配置将被加载：
+- en: '[PRE32]'
+  id: totrans-108
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: Summary
+  id: totrans-109
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: In this chapter you had your first look at TFX. You saw that any machine learning
+    system has components that go far beyond just building a model, and learned how
+    one of those components—TensorFlow Serving, which provides model serving capabilities—can
+    be installed and configured. You explored building a model, preparing it for serving,
+    deploying it to a server, and then running inference using an HTTP POST request.
+    After that you looked into the options for configuring your server with a configuration
+    file, examining how to use it to deploy multiple models and different versions
+    of those models. In the next chapter we’ll go in a different direction and see
+    how distributed models can be managed for distributed learning while maintaining
+    a user’s privacy with federated learning.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你首次接触了 TFX。你看到任何机器学习系统都有远超出仅构建模型的组件，并学习了其中一个组件——TensorFlow Serving，它提供模型服务能力——如何安装和配置。你探索了如何构建模型，为其准备服务，将其部署到服务器，然后使用
+    HTTP POST 请求进行推断。之后，你研究了使用配置文件配置服务器的选项，查看了如何使用该文件部署多个模型及其不同版本。在下一章中，我们将朝着不同的方向前进，看看如何通过联邦学习管理分布式模型，同时保护用户隐私。

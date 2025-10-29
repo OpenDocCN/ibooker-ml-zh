@@ -1,0 +1,1819 @@
+- en: 'Chapter 12\. Pipelines Part 2: Kubeflow Pipelines'
+  id: totrans-0
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第12章：流水线第2部分：Kubeflow Pipelines
+- en: 'In [Chapter 11](index_split_018.html#filepos1264016), we discussed the orchestration
+    of our pipelines with Apache Beam and Apache Airflow. These two orchestration
+    tools have some great benefits: Apache Beam is simple to set up, and Apache Airflow
+    is widely adopted for other ETL tasks.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第11章](index_split_018.html#filepos1264016)中，我们讨论了如何使用Apache Beam和Apache Airflow编排我们的流水线。这两个编排工具有一些很棒的优点：Apache
+    Beam设置简单，而Apache Airflow在其他ETL任务中被广泛采用。
+- en: In this chapter, we want to discuss the orchestration of our pipelines with
+    Kubeflow Pipelines. Kubeflow Pipelines allows us to run machine learning tasks
+    within Kubernetes clusters, which provides a highly scalable pipeline solution.
+    As we discussed in [Chapter 11](index_split_018.html#filepos1264016) and show
+    in [Figure 12-1](#filepos1379858), our orchestration tool takes care of the coordination
+    between the pipeline components.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们想讨论如何使用Kubeflow Pipelines编排我们的流水线。Kubeflow Pipelines允许我们在Kubernetes集群中运行机器学习任务，从而提供了一个高度可扩展的流水线解决方案。正如我们在[第11章](index_split_018.html#filepos1264016)中讨论的并在[图12-1](#filepos1379858)中展示的那样，我们的编排工具负责协调流水线组件之间的关系。
+- en: '![](images/00039.jpg)'
+  id: totrans-3
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00039.jpg)'
+- en: Figure 12-1\. Pipeline orchestrators
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12-1：流水线编排器
+- en: The setup of Kubeflow Pipelines is more complex than the installation of Apache
+    Airflow or Apache Beam. But, as we will discuss later in this chapter, it provides
+    great features, including Pipeline Lineage Browser, TensorBoard Integration, and
+    the ability to view TFDV and TFMA visualizations. Furthermore, it leverages the
+    advantages of Kubernetes, such as autoscaling of computation pods, persistent
+    volume, resource requests, and limits, to name just a few.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines的设置比安装Apache Airflow或Apache Beam更复杂。但是，正如我们将在本章后面讨论的那样，它提供了许多出色的功能，包括Pipeline
+    Lineage Browser、TensorBoard集成以及查看TFDV和TFMA可视化的能力。此外，它充分利用了Kubernetes的优势，例如计算Pod的自动扩展、持久卷、资源请求和限制等。
+- en: This chapter is split into two parts. In the first part, we will discuss how
+    to set up and execute pipelines with Kubeflow Pipelines. The demonstrated setup
+    is independent from the execution environment. It can be a cloud provider offering
+    managed Kubernetes clusters or an on-premise Kubernetes installation.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章分为两个部分。在第一部分中，我们将讨论如何使用Kubeflow Pipelines设置和执行流水线。所示的设置与执行环境无关。可以是提供托管Kubernetes集群的云提供商，也可以是本地的Kubernetes安装。
+- en: INTRODUCTION TO KUBERNETES
+  id: totrans-7
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Kubernetes简介
+- en: If Kubernetes concepts and terminology are new to you, check out our appendices.
+    [Appendix A](index_split_023.html#filepos1605424) provides a brief overview of
+    Kubernetes.
+  id: totrans-8
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果Kubernetes的概念和术语对您来说很新，请查看我们的附录。[附录A](index_split_023.html#filepos1605424)提供了Kubernetes的简要概述。
+- en: In the second part of the chapter, we will discuss how to run Kubeflow Pipelines
+    with the Google Cloud AI Platform. This is specific to the Google Cloud environment.
+    It takes care of much of the infrastructure and lets you use Dataflow to easily
+    scale data tasks (e.g., the data preprocessing). We recommend this route if you
+    would like to use Kubeflow Pipelines but do not want to spend time managing your
+    Kubernetes infrastructure.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的第二部分将讨论如何在Google Cloud AI平台上运行Kubeflow Pipelines。这是特定于Google Cloud环境的。它负责大部分基础架构，并允许您使用Dataflow轻松扩展数据任务（例如数据预处理）。如果您想使用Kubeflow
+    Pipelines但不想花时间管理Kubernetes基础架构，我们建议选择这条路线。
+- en: Introduction to Kubeflow Pipelines
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines简介
+- en: Kubeflow Pipelines is a Kubernetes-based orchestration tool with machine learning
+    in mind. While Apache Airflow was designed for ETL processes, Kubeflow Pipelines
+    has the end-to-end execution of machine learning pipelines at its heart.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines是一个以机器学习为核心的基于Kubernetes的编排工具。而Apache Airflow专为ETL流程设计，Kubeflow
+    Pipelines则注重机器学习流水线的端到端执行。
+- en: Kubeflow Pipelines provides a consistent UI to track machine learning pipeline
+    runs, a central place to collaborate between data scientists (as we’ll discuss
+    in [“Useful Features of Kubeflow Pipelines”](#filepos1445076)), and a way to schedule
+    runs for continuous model builds. In addition, Kubeflow Pipelines provides its
+    own software development kit (SDK) to build Docker containers for pipeline runs
+    or to orchestrate containers. The Kubeflow Pipeline domain-specific language (DSL)
+    allows more flexibility in setting up pipeline steps but also requires more coordination
+    between the components. We think TFX pipelines lead to a higher level of pipeline
+    standardization and, therefore, are less error prone. If you are interested in
+    more details about the Kubeflow Pipelines SDK, we can recommend the suggested
+    reading in [“Kubeflow Versus Kubeflow Pipelines”](#filepos1384688).
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines 提供了一致的用户界面来追踪机器学习管道运行，作为数据科学家之间协作的中心位置（正如我们将在 [“Kubeflow
+    Pipelines 的有用特性”](#filepos1445076) 中讨论的那样），并提供了一种计划连续模型构建运行的方式。此外，Kubeflow Pipelines
+    提供了其自己的软件开发工具包（SDK），用于构建用于管道运行的 Docker 容器或编排容器。Kubeflow Pipeline 领域特定语言（DSL）允许更灵活地设置管道步骤，但也需要组件之间更多的协调。我们认为
+    TFX 管道导致更高水平的管道标准化，因此更少出错。如果您对 Kubeflow Pipelines SDK 的更多细节感兴趣，我们可以推荐在 [“Kubeflow
+    对比 Kubeflow Pipelines”](#filepos1384688) 中建议的阅读内容。
+- en: When we set up Kubeflow Pipelines, as we discuss in [“Installation and Initial
+    Setup”](#filepos1387585), Kubeflow Pipelines will install a variety of tools,
+    including the UI, the workflow controller, a MySQL database instance, and the
+    ML MetadataStore we discussed in [“What Is ML Metadata?”](index_split_007.html#filepos98150).
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们设置 Kubeflow Pipelines 时，正如我们在 [“安装和初始设置”](#filepos1387585) 中讨论的那样，Kubeflow
+    Pipelines 将安装各种工具，包括 UI、工作流控制器、一个 MySQL 数据库实例，以及我们在 [“什么是 ML Metadata？”](index_split_007.html#filepos98150)
+    中讨论的 ML MetadataStore。
+- en: When we run our TFX pipeline with Kubeflow Pipelines, you will notice that every
+    component is run as its own Kubernetes pod. As shown in [Figure 12-2](#filepos1384465),
+    each component connects with the central metadata store in the cluster and can
+    load artifacts from either a persistent storage volume of a Kubernetes cluster
+    or from a cloud storage bucket. All the outputs of the components (e.g., data
+    statistics from the TFDV execution or the exported models) are registered with
+    the metadata store and stored as artifacts on a persistent volume or a cloud storage
+    bucket.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们在 Kubeflow Pipelines 中运行我们的 TFX 管道时，您会注意到每个组件都作为其自己的 Kubernetes pod 运行。正如在
+    [图 12-2](#filepos1384465) 中所示，每个组件都与集群中的中央元数据存储连接，并可以从 Kubernetes 集群的持久存储卷或云存储桶加载工件。所有组件的输出（例如
+    TFDV 执行的数据统计或导出的模型）都将在元数据存储中注册，并作为持久卷或云存储桶上的工件存储。
+- en: '![](images/00048.jpg)'
+  id: totrans-15
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00048.jpg)'
+- en: Figure 12-2\. Overview of Kubeflow Pipelines
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Figure 12-2\. Kubeflow Pipelines 概览
+- en: KUBEFLOW VERSUS KUBEFLOW PIPELINES
+  id: totrans-17
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: KUBEFLOW 对比 KUBEFLOW PIPELINES
+- en: Kubeflow and Kubeflow Pipelines are often mixed up. Kubeflow is a suite of open
+    source projects which encompass a variety of machine learning tools, including
+    TFJob for the training of machine models, Katib for the optimization of model
+    hyperparameters, and KFServing for the deployment of machine learning models.
+    Kubeflow Pipelines is another one of the projects of the Kubeflow suite, and it
+    is focused on deploying and managing end-to-end ML workflows.
+  id: totrans-18
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Kubeflow 和 Kubeflow Pipelines 经常被混淆。Kubeflow 是一个开源项目套件，包含多种机器学习工具，包括用于训练机器学习模型的
+    TFJob，用于优化模型超参数的 Katib，以及用于部署机器学习模型的 KFServing。Kubeflow Pipelines 是 Kubeflow 套件的另一个项目，专注于部署和管理端到端的机器学习工作流。
+- en: In this chapter, we will focus on the installation and the operation of Kubeflow
+    Pipelines only. If you are interested in a deeper introduction to Kubeflow, we
+    recommend [the project’s documentation](https://oreil.ly/cxmu7).
+  id: totrans-19
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将专注于 Kubeflow Pipelines 的安装和操作。如果您对 Kubeflow 想要更深入的介绍，我们建议阅读 [项目文档](https://oreil.ly/cxmu7)。
+- en: 'Furthermore, we can recommend two Kubeflow books:'
+  id: totrans-20
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 此外，我们可以推荐两本 Kubeflow 图书：
+- en: Kubeflow Operations Guide by Josh Patterson et al. (O’Reilly)
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Josh Patterson 等著，《Kubeflow 运维指南》（O'Reilly）
+- en: Kubeflow for Machine Learning (forthcoming) by Holden Karau et al. (O’Reilly)
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Holden Karau 等著，《即将推出的 Kubeflow 机器学习》（O'Reilly）
+- en: As we will demonstrate in this chapter, Kubeflow Pipelines provides a highly
+    scalable way of running machine learning pipelines. Kubeflow Pipelines is running
+    Argo behind the scenes to orchestrate the individual component dependencies. Due
+    to this orchestration through Argo, our pipeline orchestration will have a different
+    workflow, as we discussed in [Chapter 11](index_split_018.html#filepos1264016).
+    We will take a look at the Kubeflow Pipelines orchestration workflow in [“Orchestrating
+    TFX Pipelines with Kubeflow Pipelines”](#filepos1397857).
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们将在本章演示的那样，Kubeflow Pipelines提供了一种高度可扩展的运行机器学习流水线的方式。Kubeflow Pipelines在后台运行Argo来编排各个组件的依赖关系。由于这种通过Argo进行的编排，我们的流水线编排将具有不同的工作流程，正如我们在[第11章](index_split_018.html#filepos1264016)讨论的那样。我们将在[“使用Kubeflow
+    Pipelines编排TFX Pipelines”](#filepos1397857)中查看Kubeflow Pipelines的编排工作流程。
+- en: WHAT IS ARGO?
+  id: totrans-24
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 什么是ARGO？
+- en: Argo is a collection of tools for managing workflows, rollouts, and continuous
+    delivery tasks. Initially designed to manage DevOps tasks, it is also a great
+    manager for machine learning workflows. Argo manages all tasks as containers within
+    the Kubernetes environment. For more information, please check out the continuously
+    growing [documentation](https://oreil.ly/K2R5H).
+  id: totrans-25
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Argo是一组工具，用于管理工作流程、部署和持续交付任务。最初设计用于管理DevOps任务，同时也是机器学习工作流的优秀管理工具。在Kubernetes环境中，Argo将所有任务作为容器进行管理。更多信息，请参阅不断增长的[文档](https://oreil.ly/K2R5H)。
+- en: Installation and Initial Setup
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装和初始设置
+- en: Kubeflow Pipelines is executed inside a Kubernetes cluster. For this section,
+    we will assume that you have a Kubernetes cluster created with at least 16 GB
+    and 8 CPUs across your node pool and that you have configured `kubectl` to connect
+    with your newly created Kubernetes cluster.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines在Kubernetes集群内执行。对于本节，我们假设您已经创建了一个至少拥有16 GB内存和8个CPU的节点池的Kubernetes集群，并且已经配置了`kubectl`与您新创建的Kubernetes集群连接。
+- en: CREATE A KUBERNETES CLUSTER
+  id: totrans-28
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 创建一个Kubernetes集群
+- en: 'For a basic setup of a Kubernetes cluster on a local machine or a cloud provider
+    like Google Cloud, please check out [Appendix A](index_split_023.html#filepos1605424)
+    and [Appendix B](index_split_024.html#filepos1654588). Due to the resource requirements
+    by Kubeflow Pipelines, the Kubernetes setup with a cloud provider is preferred.
+    Managed Kubernetes services available from cloud providers include:'
+  id: totrans-29
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 对于在本地计算机或Google Cloud等云提供商上基本设置Kubernetes集群，请参阅[附录A](index_split_023.html#filepos1605424)和[附录B](index_split_024.html#filepos1654588)。由于Kubeflow
+    Pipelines的资源需求，建议使用云提供商的Kubernetes设置。云提供商提供的托管Kubernetes服务包括：
+- en: Amazon Elastic Kubernetes Service (Amazon EKS)
+  id: totrans-30
+  prefs:
+  - PREF_OL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 亚马逊弹性Kubernetes服务（Amazon EKS）
+- en: Google Kubernetes Engine (GKE)
+  id: totrans-31
+  prefs:
+  - PREF_OL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Google Kubernetes Engine（GKE）
+- en: Microsoft Azure Kubernetes Service (AKS)
+  id: totrans-32
+  prefs:
+  - PREF_OL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 微软Azure Kubernetes服务（AKS）
+- en: IBM’s Kubernetes Service
+  id: totrans-33
+  prefs:
+  - PREF_OL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: IBM的Kubernetes服务
+- en: 'For more details regarding Kubeflow’s underlying architecture, Kubernetes,
+    we highly recommend Kubernetes: Up and Running by Brendan Burns et al. (O’Reilly).'
+  id: totrans-34
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '关于Kubeflow底层架构Kubernetes的更多细节，我们强烈推荐Brendan Burns等人的《Kubernetes: Up and Running》（O’Reilly）。'
+- en: For the orchestration of our pipeline, we are installing Kubeflow Pipelines
+    as a standalone application and without all the other tools that are part of the
+    Kubeflow project. With the following `bash` commands, we can set up our standalone
+    Kubeflow Pipelines installation. The complete setup might take five minutes to
+    fully spin up correctly.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了编排我们的流水线，我们正在安装Kubeflow Pipelines作为一个独立的应用程序，而不包括Kubeflow项目的所有其他工具。通过以下`bash`命令，我们可以设置我们的独立Kubeflow
+    Pipelines安装。完整的设置可能需要五分钟才能正确完全启动。
+- en: '`$` `export` `PIPELINE_VERSION``=``0.5.0` `$` `kubectl apply -k` `"github.com/kubeflow/pipelines/manifests/"``\``"kustomize/cluster-scoped-resources?ref=``$PIPELINE_VERSION``"`
+    `customresourcedefinition.apiextensions.k8s.io/     applications.app.k8s.io created
+    ... clusterrolebinding.rbac.authorization.k8s.io/     kubeflow-pipelines-cache-deployer-clusterrolebinding
+    created` `$` `kubectl` `wait` `--for` `condition``=``established` `\` `--timeout``=``60s
+    crd/applications.app.k8s.io customresourcedefinition.apiextensions.k8s.io/    
+    applications.app.k8s.io condition met` `$` `kubectl apply -k` `"github.com/kubeflow/pipelines/manifests/"``\``"kustomize/env/dev?ref=``$PIPELINE_VERSION``"`'
+  id: totrans-36
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `export` `PIPELINE_VERSION``=``0.5.0` `$` `kubectl apply -k` `"github.com/kubeflow/pipelines/manifests/"``\``"kustomize/cluster-scoped-resources?ref=``$PIPELINE_VERSION``"`
+    `customresourcedefinition.apiextensions.k8s.io/     applications.app.k8s.io created
+    ... clusterrolebinding.rbac.authorization.k8s.io/     kubeflow-pipelines-cache-deployer-clusterrolebinding
+    created` `$` `kubectl` `wait` `--for` `condition``=``established` `\` `--timeout``=``60s
+    crd/applications.app.k8s.io customresourcedefinition.apiextensions.k8s.io/    
+    applications.app.k8s.io condition met` `$` `kubectl apply -k` `"github.com/kubeflow/pipelines/manifests/"``\``"kustomize/env/dev?ref=``$PIPELINE_VERSION``"`'
+- en: 'You can check the progress of the installation by printing the information
+    about the created pods:'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过打印有关已创建的 pod 的信息来检查安装的进度：
+- en: '`$` `kubectl -n kubeflow get pods NAME                                             
+    READY   STATUS       AGE cache-deployer-deployment-c6896d66b-62gc5         0/1    
+    Pending      90s cache-server-8869f945b-4k7qk                      0/1     Pending     
+    89s controller-manager-5cbdfbc5bd-bnfxx               0/1     Pending      89s
+    ...`'
+  id: totrans-38
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl -n kubeflow get pods NAME                                             
+    READY   STATUS       AGE cache-deployer-deployment-c6896d66b-62gc5         0/1    
+    Pending      90s cache-server-8869f945b-4k7qk                      0/1     Pending     
+    89s controller-manager-5cbdfbc5bd-bnfxx               0/1     Pending      89s
+    ...`'
+- en: 'After a few minutes, the status of all the pods should turn to Running. If
+    your pipeline is experiencing any issues (e.g., not enough compute resources),
+    the pods’ status would indicate the error:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 几分钟后，所有 pod 的状态应该变为 Running。如果您的流水线遇到任何问题（例如，计算资源不足），pod 的状态将指示错误：
+- en: '`$` `kubectl -n kubeflow get pods NAME                                             
+    READY   STATUS       AGE cache-deployer-deployment-c6896d66b-62gc5         1/1    
+    Running      4m6s cache-server-8869f945b-4k7qk                      1/1     Running     
+    4m6s controller-manager-5cbdfbc5bd-bnfxx               1/1     Running      4m6s
+    ...`'
+  id: totrans-40
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl -n kubeflow get pods NAME                                             
+    READY   STATUS       AGE cache-deployer-deployment-c6896d66b-62gc5         1/1    
+    Running      4m6s cache-server-8869f945b-4k7qk                      1/1     Running     
+    4m6s controller-manager-5cbdfbc5bd-bnfxx               1/1     Running      4m6s
+    ...`'
+- en: 'Individual pods can be investigated with:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以使用以下命令单独调查每个 pod：
+- en: '`kubectl -n kubeflow describe pod <pod name>`'
+  id: totrans-42
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`kubectl -n kubeflow describe pod <pod name>`'
+- en: MANAGED KUBEFLOW PIPELINES INSTALLATIONS
+  id: totrans-43
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 管理的 Kubeflow Pipelines 安装
+- en: If you would like to experiment with Kubeflow Pipelines, Google Cloud provides
+    managed installations through the Google Cloud AI Platform. In [“Pipelines Based
+    on Google Cloud AI Platform”](#filepos1451250), we’ll discuss in-depth how to
+    run your TFX pipelines on Google Cloud’s AI Platform and how to create setups
+    on Kubeflow Pipelines from Google Cloud’s Marketplace.
+  id: totrans-44
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果您希望尝试 Kubeflow Pipelines，Google Cloud 提供通过 Google Cloud AI 平台进行托管安装。在[“基于
+    Google Cloud AI 平台的 Pipelines”](#filepos1451250)中，我们将深入讨论如何在 Google Cloud AI 平台上运行您的
+    TFX 管道以及如何从 Google Cloud Marketplace 上创建 Kubeflow Pipelines 的设置。
+- en: Accessing Your Kubeflow Pipelines Installation
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 访问您的 Kubeflow Pipelines 安装
+- en: 'If the installation completed successfully, regardless of your cloud provider
+    or Kubernetes service, you can access the installed Kubeflow Pipelines UI by creating
+    a port forward with Kubernetes:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果安装成功完成，无论您使用的是哪个云服务提供商或 Kubernetes 服务，您都可以通过在 Kubernetes 上创建端口转发来访问已安装的 Kubeflow
+    Pipelines UI：
+- en: '`$` `kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8080:80`'
+  id: totrans-47
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8080:80`'
+- en: With the port forward running, you can access Kubeflow Pipelines in your browser
+    by accessing [http://localhost:8080](http://localhost:8080). For production use
+    cases, a load balancer should be created for the Kubernetes service.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当端口转发正在运行时，您可以通过浏览器访问 [http://localhost:8080](http://localhost:8080) 来访问 Kubeflow
+    Pipelines。对于生产用例，应为 Kubernetes 服务创建负载均衡器。
+- en: 'Google Cloud users can access Kubeflow Pipelines by accessing the public domain
+    created for your Kubeflow installation. You can obtain the URL by executing:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Google Cloud 用户可以通过访问为您的 Kubeflow 安装创建的公共域名来访问 Kubeflow Pipelines。您可以通过执行以下命令获取
+    URL：
+- en: '`$` `kubectl describe configmap inverse-proxy-config -n kubeflow` `\``|` `grep
+    googleusercontent.com <id>-dot-<region>.pipelines.googleusercontent.com`'
+  id: totrans-50
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl describe configmap inverse-proxy-config -n kubeflow` `\``|` `grep
+    googleusercontent.com <id>-dot-<region>.pipelines.googleusercontent.com`'
+- en: You can then access the provided URL with your browser of choice. If everything
+    works out, you will see the Kubeflow Pipelines dashboard or the landing page,
+    as shown in [Figure 12-3](#filepos1397380).
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用浏览器访问提供的 URL。如果一切顺利，您将看到 Kubeflow Pipelines 仪表板或如 [图 12-3](#filepos1397380)
+    所示的起始页面。
+- en: '![](images/00060.jpg)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00060.jpg)'
+- en: Figure 12-3\. Getting started with Kubeflow Pipelines
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-3\. 使用 Kubeflow Pipelines 入门
+- en: With the Kubeflow Pipelines setup up and running, we can focus on how to run
+    pipelines. In the next section, we will discuss the pipeline orchestration and
+    the workflow from TFX to Kubeflow Pipelines.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦 Kubeflow Pipelines 设置完毕并运行，我们可以专注于如何运行流水线。在接下来的部分中，我们将讨论从 TFX 到 Kubeflow
+    Pipelines 的流水线编排和工作流。
+- en: Orchestrating TFX Pipelines with Kubeflow Pipelines
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用 Kubeflow Pipelines 编排 TFX 流水线
+- en: In earlier sections, we discussed how to set up the Kubeflow Pipelines application
+    on Kubernetes. In this section, we will describe how to run your pipelines on
+    the Kubeflow Pipelines setup, and we’ll focus on execution only within your Kubernetes
+    clusters. This guarantees that the pipeline execution can be performed on clusters
+    independent from the cloud service provider. In [“Pipelines Based on Google Cloud
+    AI Platform”](#filepos1451250), we’ll show how we can take advantage of a managed
+    cloud service like GCP’s Dataflow to scale your pipelines beyond your Kubernetes
+    cluster.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们讨论了如何在 Kubernetes 上设置 Kubeflow Pipelines 应用程序。在本节中，我们将描述如何在 Kubeflow
+    Pipelines 设置上运行您的流水线，并且我们将专注于仅在您的 Kubernetes 集群内执行。这保证了流水线执行可以在与云服务提供商无关的集群上执行。在
+    [“基于 Google Cloud AI 平台的流水线”](#filepos1451250) 中，我们将展示如何利用像 GCP 的 Dataflow 这样的托管云服务来扩展您的流水线，超出您的
+    Kubernetes 集群的范围。
+- en: Before we get into the details of how to orchestrate machine learning pipelines
+    with Kubeflow Pipelines, we want to step back for a moment. The workflow from
+    TFX code to your pipeline execution is a little more complex than what we discussed
+    in [Chapter 11](index_split_018.html#filepos1264016), so we will begin with an
+    overview of the full picture. [Figure 12-4](#filepos1400221) shows the overall
+    architecture.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在深入讨论如何使用 Kubeflow Pipelines 编排机器学习流水线之前，我们想稍作停顿。从 TFX 代码到流水线执行的工作流比我们在 [第 11
+    章](index_split_018.html#filepos1264016) 中讨论的要复杂一些，因此我们将首先概述整体情况。[图 12-4](#filepos1400221)
+    展示了总体架构。
+- en: As with Airflow and Beam, we still need a Python script that defines the TFX
+    components in our pipeline. We’ll reuse the [Example 11-1](index_split_018.html#filepos1274326)
+    script from [Chapter 11](index_split_018.html#filepos1264016). In contrast to
+    the execution of the Apache Beam or Airflow TFX runners, the Kubeflow runner won’t
+    trigger a pipeline run, but rather generates the configuration files for an execution
+    on the Kubeflow setup.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 Airflow 和 Beam 一样，我们仍然需要一个定义流水线中 TFX 组件的 Python 脚本。我们将重用 [第 11 章](index_split_018.html#filepos1264016)
+    中的示例 11-1 脚本。与 Apache Beam 或 Airflow TFX 运行器执行不同，Kubeflow 运行器不会触发流水线运行，而是生成配置文件，以便在
+    Kubeflow 设置中执行。
+- en: As shown in [Figure 12-4](#filepos1400221), TFX KubeflowRunner will convert
+    our Python TFX scripts with all the component specifications to Argo instructions,
+    which can then be executed with Kubeflow Pipelines. Argo will spin up each TFX
+    component as its own Kubernetes pod and run the TFX `Executor` for the specific
+    component in the container.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如 [图 12-4](#filepos1400221) 所示，TFX KubeflowRunner 将把我们的 Python TFX 脚本与所有组件规格转换为
+    Argo 指令，然后可以在 Kubeflow Pipelines 中执行。Argo 将会为每个 TFX 组件启动一个单独的 Kubernetes Pod，并在容器中运行特定组件的
+    TFX `Executor`。
+- en: '![](images/00070.jpg)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00070.jpg)'
+- en: Figure 12-4\. Workflow from TFX script to Kubeflow Pipelines
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-4\. 从 TFX 脚本到 Kubeflow Pipelines 的工作流程
+- en: CUSTOM TFX CONTAINER IMAGES
+  id: totrans-62
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 自定义 TFX 容器镜像
+- en: The TFX image used for all component containers needs to include all required
+    Python packages. The default TFX image provides a recent TensorFlow version and
+    basic packages. If your pipeline requires additional packages, you will need to
+    build a custom TFX container image and specify it in the `KubeflowDagRunnerConfig`.
+    We describe how to do this in [Appendix C](index_split_025.html#filepos1684139).
+  id: totrans-63
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 所有组件容器使用的 TFX 镜像需要包含所有所需的 Python 包。默认的 TFX 镜像提供了最新版本的 TensorFlow 和基本的包。如果您的流水线需要额外的包，您需要构建一个自定义的
+    TFX 容器镜像，并在 `KubeflowDagRunnerConfig` 中指定它。我们在 [附录 C](index_split_025.html#filepos1684139)
+    中描述了如何做到这一点。
+- en: All components need to read or write to a filesystem outside of the executor
+    container itself. For example, the data ingestion component needs to read the
+    data from a filesystem or the final model needs to be pushed by the `Pusher` to
+    a particular location. It would be impractical to read and write only within the
+    component container; therefore, we recommend storing artifacts in hard drives
+    that can be accessed by all components (e.g., in cloud storage buckets or persistent
+    volumes in a Kubernetes cluster). If you are interested in setting up a persistent
+    volume, check out [“Exchange Data Through Persistent Volumes”](index_split_025.html#filepos1692492)
+    in [Appendix C](index_split_025.html#filepos1684139).
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有组件都需要读取或写入执行器容器之外的文件系统。例如，数据摄入组件需要从文件系统读取数据，或者最终模型需要被`Pusher`推送到特定位置。仅在组件容器内部读取和写入是不现实的；因此，我们建议将工件存储在可以被所有组件访问的硬盘中（例如，云存储桶或
+    Kubernetes 集群中的持久卷）。如果你有兴趣设置持久卷，请参阅[“通过持久卷交换数据”](index_split_025.html#filepos1692492)在[附录
+    C](index_split_025.html#filepos1684139)中的内容。
+- en: Pipeline Setup
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管道设置
+- en: You can store your training data, Python module, and pipeline artifacts in a
+    cloud storage bucket or in a persistent volume; that is up to you. Your pipeline
+    just needs access to the files. If you choose to read or write data to and from
+    cloud storage buckets, make sure that your TFX components have the necessary cloud
+    credentials when running in your Kubernetes cluster.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以将训练数据、Python 模块和管道工件存储在云存储桶或持久卷中；这取决于你。你的管道只需访问这些文件。如果你选择从云存储桶读取或写入数据，请确保你的
+    TFX 组件在 Kubernetes 集群中运行时具有必要的云凭据。
+- en: With all files in place, and a custom TFX image for our pipeline containers
+    (if required), we can now “assemble” the TFX Runner script to generate the Argo
+    YAML instructions for our Kubeflow Pipelines execution.[1](#filepos1487858)
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，所有文件已就绪，并且为我们的管道容器准备了自定义的 TFX 镜像（如果需要），我们现在可以“组装” TFX Runner 脚本，以生成 Argo
+    YAML 指令，用于我们的 Kubeflow Pipelines 执行。[1](#filepos1487858)
+- en: As we discussed in [Chapter 11](index_split_018.html#filepos1264016), we can
+    reuse the `init_components` function to generate our components. This allows us
+    to focus on the Kubeflow-specific configuration.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在[第 11 章](index_split_018.html#filepos1264016)中讨论的那样，我们可以重用`init_components`函数来生成我们的组件。这使我们能够专注于
+    Kubeflow 特定的配置。
+- en: 'First, let’s configure the file path for our Python module code required to
+    run the `Transform` and `Trainer` components. In addition, we will set setting
+    the folder locations for our raw training data, the pipeline artifacts, and the
+    location where our trained model should be stored at. In the following example,
+    we show you how to mount a persistent volume with TFX:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们为运行`Transform`和`Trainer`组件所需的 Python 模块代码配置文件路径。此外，我们将设置原始训练数据、管道工件的文件夹位置，以及我们训练的模型应该存储的位置。在下面的示例中，我们展示了如何挂载一个持久卷与
+    TFX：
+- en: '`import``os``pipeline_name``=``''consumer_complaint_pipeline_kubeflow''``persistent_volume_claim``=``''tfx-pvc''``persistent_volume``=``''tfx-pv''``persistent_volume_mount``=``''/tfx-data''``#
+    Pipeline inputs``data_dir``=``os``.``path``.``join``(``persistent_volume_mount``,``''data''``)``module_file``=``os``.``path``.``join``(``persistent_volume_mount``,``''components''``,``''module.py''``)``#
+    Pipeline outputs``output_base``=``os``.``path``.``join``(``persistent_volume_mount``,``''output''``,``pipeline_name``)``serving_model_dir``=``os``.``path``.``join``(``output_base``,``pipeline_name``)`'
+  id: totrans-70
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`import``os``pipeline_name``=``''consumer_complaint_pipeline_kubeflow''``persistent_volume_claim``=``''tfx-pvc''``persistent_volume``=``''tfx-pv''``persistent_volume_mount``=``''/tfx-data''``#
+    管道输入``data_dir``=``os``.``path``.``join``(``persistent_volume_mount``,``''data''``)``module_file``=``os``.``path``.``join``(``persistent_volume_mount``,``''components''``,``''module.py''``)``#
+    管道输出``output_base``=``os``.``path``.``join``(``persistent_volume_mount``,``''output''``,``pipeline_name``)``serving_model_dir``=``os``.``path``.``join``(``output_base``,``pipeline_name``)`'
+- en: 'If you decide to use a cloud storage provider, the root of the folder structure
+    can be a bucket, as shown in the following example:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你决定使用云存储提供商，文件夹结构的根目录可以是一个存储桶，如下例所示：
+- en: '`import``os``...``bucket``=``''gs://tfx-demo-pipeline''``# Pipeline inputs``data_dir``=``os``.``path``.``join``(``bucket``,``''data''``)``module_file``=``os``.``path``.``join``(``bucket``,``''components''``,``''module.py''``)``...`'
+  id: totrans-72
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`import``os``...``bucket``=``''gs://tfx-demo-pipeline''``# 管道输入``data_dir``=``os``.``path``.``join``(``bucket``,``''data''``)``module_file``=``os``.``path``.``join``(``bucket``,``''components''``,``''module.py''``)``...`'
+- en: 'With the files paths defined, we can now configure our `KubeflowDagRunnerConfig`.
+    Three arguments are important to configure the TFX setup in our Kubeflow Pipelines
+    setup:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了文件路径的定义，我们现在可以配置我们的`KubeflowDagRunnerConfig`。在我们的Kubeflow Pipelines设置中，配置TFX设置的三个重要参数是：
+- en: '`kubeflow_metadata_config`'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`kubeflow_metadata_config`'
+- en: Kubeflow runs a MySQL database inside the Kubernetes cluster. Calling `get_default_kubeflow_metadata_config()`
+    will return the database information provided by the Kubernetes cluster. If you
+    want to use a managed database (e.g., AWS RDS or Google Cloud Databases), you
+    can overwrite the connection details through the argument.
+  id: totrans-75
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Kubeflow在Kubernetes集群内运行一个MySQL数据库。调用`get_default_kubeflow_metadata_config()`将返回Kubernetes集群提供的数据库信息。如果您希望使用托管数据库（例如AWS
+    RDS或Google Cloud数据库），可以通过参数覆盖连接详细信息。
+- en: '`tfx_image`'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tfx_image`'
+- en: The image URI is optional. If no URI is defined, TFX will set the image corresponding
+    to the TFX version executing the runner. In our example demonstration, we set
+    the URI to the path of the image in the container registry (e.g., gcr.io/oreilly-book/ml-pipelines-tfx-custom:0.22.0).
+  id: totrans-77
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 图像URI是可选的。如果未定义URI，则TFX将设置与执行runner的TFX版本对应的映像。在我们的示例演示中，我们将URI设置为容器注册表中映像的路径（例如gcr.io/oreilly-book/ml-pipelines-tfx-custom:0.22.0）。
+- en: '`pipeline_operator_funcs`'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`pipeline_operator_funcs`'
+- en: 'This argument accesses a list of configuration information that is needed to
+    run TFX inside Kubeflow Pipelines (e.g., the service name and port of the gRPC
+    server). Since this information can be provided through the Kubernetes ConfigMap,[2](#filepos1488256)
+    the `get_default_pipeline_operator_funcs` function will read the ConfigMap and
+    provide the details to the `pipeline_operator_funcs` argument. In our example
+    project, we will be manually mounting a persistent volume with our project data;
+    therefore, we need to append the list with this information:'
+  id: totrans-79
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 此参数访问一个配置信息列表，用于在Kubeflow Pipelines内运行TFX（例如gRPC服务器的服务名称和端口）。由于这些信息可以通过Kubernetes
+    ConfigMap提供，`get_default_pipeline_operator_funcs`函数将读取ConfigMap并将详细信息提供给`pipeline_operator_funcs`参数。在我们的示例项目中，我们将手动挂载一个持久卷以存储项目数据；因此，我们需要在列表中追加这些信息：
+- en: '`from``kfp``import``onprem``from``tfx.orchestration.kubeflow``import``kubeflow_dag_runner``...``PROJECT_ID``=``''oreilly-book''``IMAGE_NAME``=``''ml-pipelines-tfx-custom''``TFX_VERSION``=``''0.22.0''``metadata_config``=`
+    `\` `kubeflow_dag_runner``.``get_default_kubeflow_metadata_config``()`![](images/00002.jpg)`pipeline_operator_funcs``=`
+    `\` `kubeflow_dag_runner``.``get_default_pipeline_operator_funcs``()`![](images/00075.jpg)`pipeline_operator_funcs``.``append``(`![](images/00064.jpg)`onprem``.``mount_pvc``(``persistent_volume_claim``,``persistent_volume``,``persistent_volume_mount``))``runner_config``=``kubeflow_dag_runner``.``KubeflowDagRunnerConfig``(``kubeflow_metadata_config``=``metadata_config``,``tfx_image``=``"gcr.io/{}/{}:{}"``.``format``(``PROJECT_ID``,``IMAGE_NAME``,``TFX_VERSION``),`![](images/00055.jpg)`pipeline_operator_funcs``=``pipeline_operator_funcs``)`'
+  id: totrans-80
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``kfp``import``onprem``from``tfx.orchestration.kubeflow``import``kubeflow_dag_runner``...``PROJECT_ID``=``''oreilly-book''``IMAGE_NAME``=``''ml-pipelines-tfx-custom''``TFX_VERSION``=``''0.22.0''``metadata_config``=`
+    `\` `kubeflow_dag_runner``.``get_default_kubeflow_metadata_config``()`![](images/00002.jpg)`pipeline_operator_funcs``=`
+    `\` `kubeflow_dag_runner``.``get_default_pipeline_operator_funcs``()`![](images/00075.jpg)`pipeline_operator_funcs``.``append``(`![](images/00064.jpg)`onprem``.``mount_pvc``(``persistent_volume_claim``,``persistent_volume``,``persistent_volume_mount``))``runner_config``=``kubeflow_dag_runner``.``KubeflowDagRunnerConfig``(``kubeflow_metadata_config``=``metadata_config``,``tfx_image``=``"gcr.io/{}/{}:{}"``.``format``(``PROJECT_ID``,``IMAGE_NAME``,``TFX_VERSION``),`![](images/00055.jpg)`pipeline_operator_funcs``=``pipeline_operator_funcs``)`'
+- en: '![](images/00002.jpg)'
+  id: totrans-81
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Obtain the default metadata configuration.
+  id: totrans-82
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 获得默认的元数据配置。
+- en: '![](images/00075.jpg)'
+  id: totrans-83
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Obtain the default OpFunc functions.
+  id: totrans-84
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 获得默认的OpFunc函数。
+- en: '![](images/00064.jpg)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00064.jpg)'
+- en: Mount volumes by adding them to the OpFunc functions.
+  id: totrans-86
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 通过将它们添加到OpFunc函数中来挂载卷。
+- en: '![](images/00055.jpg)'
+  id: totrans-87
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00055.jpg)'
+- en: Add a custom TFX image if required.
+  id: totrans-88
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 根据需要添加自定义TFX映像。
+- en: OPFUNC FUNCTIONS
+  id: totrans-89
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: OPFUNC FUNCTIONS
+- en: OpFunc functions allow us to set cluster-specific details, which are important
+    for the execution of our pipeline. These functions allow us to interact with the
+    underlying digital subscriber line (DSL) objects in Kubeflow Pipelines. The OpFunc
+    functions take the Kubeflow Pipelines DSL object dsl.ContainerOp as an input,
+    apply the additional functionality, and return the same object.
+  id: totrans-90
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: OpFunc函数允许我们设置特定于集群的细节，这些细节对于执行我们的流水线非常重要。这些函数允许我们与Kubeflow Pipelines中的底层数字订阅线（DSL）对象进行交互。OpFunc函数以Kubeflow
+    Pipelines DSL对象dsl.ContainerOp作为输入，应用额外的功能，并返回相同的对象。
+- en: Two common use cases for adding OpFunc functions to your `pipeline_operator_funcs`
+    are requesting a memory minimum or specifying GPUs for the container execution.
+    But OpFunc functions also allow setting cloud-provider-specific credentials or
+    requesting TPUs (in the case of Google Cloud).
+  id: totrans-91
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 将OpFunc函数添加到`pipeline_operator_funcs`中的两个常见用例是请求最小内存或指定容器执行的GPU。但是OpFunc函数还允许设置特定于云提供商的凭据或请求TPU（对于Google
+    Cloud）。
+- en: 'Let’s look at the two most common use cases of OpFunc functions: setting the
+    minimum memory limit to run your TFX component containers and requesting GPUs
+    for executing all the TFX components. The following example sets the minimum memory
+    resources required to run each component container to 4 GB:'
+  id: totrans-92
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 让我们看看OpFunc函数的两个最常见用法：设置运行TFX组件容器所需的最小内存限制和请求执行所有TFX组件的GPU。以下示例设置运行每个组件容器所需的最小内存资源为4
+    GB：
+- en: '`def``request_min_4G_memory``():``def``_set_memory_spec``(``container_op``):``container_op``.``set_memory_request``(``''4G''``)``return``_set_memory_spec``...``pipeline_operator_funcs``.``append``(``request_min_4G_memory``())`'
+  id: totrans-93
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`def``request_min_4G_memory``():``def``_set_memory_spec``(``container_op``):``container_op``.``set_memory_request``(``''4G''``)``return``_set_memory_spec``...``pipeline_operator_funcs``.``append``(``request_min_4G_memory``())`'
+- en: The function receives the `container_op` object, sets the limit, and returns
+    the function itself.
+  id: totrans-94
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 函数接收`container_op`对象，设置限制，并返回函数本身。
+- en: We can request a GPU for the execution of our TFX component containers in the
+    same way, as shown in the following example. If you require GPUs for your container
+    execution, your pipeline will only run if GPUs are available and fully configured
+    in your Kubernetes cluster:[3](#filepos1488614).]
+  id: totrans-95
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们可以以同样的方式为执行TFX组件容器请求GPU，如下例所示。如果您需要GPU来执行容器，只有在您的Kubernetes集群中完全配置和可用GPU时，您的流水线才会运行：[3](#filepos1488614)。
+- en: '`def``request_gpu``():``def``_set_gpu_limit``(``container_op``):``container_op``.``set_gpu_limit``(``''1''``)``return``_set_gpu_limit``...``pipeline_op_funcs``.``append``(``request_gpu``())`'
+  id: totrans-96
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`def``request_gpu``():``def``_set_gpu_limit``(``container_op``):``container_op``.``set_gpu_limit``(``''1''``)``return``_set_gpu_limit``...``pipeline_op_funcs``.``append``(``request_gpu``())`'
+- en: 'The Kubeflow Pipelines SDK provides common OpFunc functions for each major
+    cloud provider. The following example shows how to add AWS credentials to TFX
+    component containers:'
+  id: totrans-97
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines SDK为每个主要云提供商提供了常见的OpFunc函数。以下示例显示如何向TFX组件容器添加AWS凭据：
+- en: '`from``kfp``import``aws``...``pipeline_op_funcs``.``append``(``aws``.``use_aws_secret``()``)`'
+  id: totrans-98
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``kfp``import``aws``...``pipeline_op_funcs``.``append``(``aws``.``use_aws_secret``()``)`'
+- en: The function `use_aws_secret()` assumes that the AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+    are registered as base64-encoded Kubernetes secrets.[4](#filepos1488972) The equivalent
+    function for Google Cloud credentials is called `use_gcp_secrets()`.
+  id: totrans-99
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 函数`use_aws_secret()`假设AWS_ACCESS_KEY_ID和AWS_SECRET_ACCESS_KEY已注册为base64编码的Kubernetes密钥。[4](#filepos1488972)
+    Google Cloud凭据的等效函数称为`use_gcp_secrets()`。
+- en: 'With the `runner_config` in place, we can now initialize the components and
+    execute the `KubeflowDagRunner`. But instead of kicking off a pipeline run, the
+    runner will output the Argo configuration, which we will upload in Kubeflow Pipelines
+    in the next section:'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了`runner_config`的设置，我们现在可以初始化组件并执行`KubeflowDagRunner`。但是，与其开始管道运行不同，该运行程序将输出Argo配置，我们将在Kubeflow
+    Pipelines的下一部分中上传它：
+- en: '`from``tfx.orchestration.kubeflow``import``kubeflow_dag_runner``from``pipelines.base_pipeline``import``init_components``,``init_pipeline`![](images/00002.jpg)`components``=``init_components``(``data_dir``,``module_file``,``serving_model_dir``,``training_steps``=``50000``,``eval_steps``=``15000``)``p``=``init_pipeline``(``components``,``output_base``,``direct_num_workers``=``0``)``output_filename``=``"{}.yaml"``.``format``(``pipeline_name``)``kubeflow_dag_runner``.``KubeflowDagRunner``(``config``=``runner_config``,``output_dir``=``output_dir``,`![](images/00075.jpg)`output_filename``=``output_filename``)``.``run``(``p``)`'
+  id: totrans-101
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.orchestration.kubeflow``import``kubeflow_dag_runner``from``pipelines.base_pipeline``import``init_components``,``init_pipeline`![](images/00002.jpg)`components``=``init_components``(``data_dir``,``module_file``,``serving_model_dir``,``training_steps``=``50000``,``eval_steps``=``15000``)``p``=``init_pipeline``(``components``,``output_base``,``direct_num_workers``=``0``)``output_filename``=``"{}.yaml"``.``format``(``pipeline_name``)``kubeflow_dag_runner``.``KubeflowDagRunner``(``config``=``runner_config``,``output_dir``=``output_dir``,`![](images/00075.jpg)`output_filename``=``output_filename``)``.``run``(``p``)`'
+- en: '![](images/00002.jpg)'
+  id: totrans-102
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Reuse the base modules for the components.
+  id: totrans-103
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 重复使用组件的基础模块。
+- en: '![](images/00075.jpg)'
+  id: totrans-104
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Optional Argument.
+  id: totrans-105
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 可选参数。
+- en: The arguments `output_dir` and `output_filename` are optional. If not provided,
+    the Argo configuration will be provided as a compressed tar.gz file in the same
+    directory from which we executed the following python script. For better visibility,
+    we configured the output format to be YAML, and we set a specific output path.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 参数 `output_dir` 和 `output_filename` 是可选的。如果未提供，将提供 Argo 配置作为压缩的 tar.gz 文件，位置与执行以下
+    python 脚本的同一目录相同。为了更好地可见性，我们配置了输出格式为 YAML，并设置了特定的输出路径。
+- en: 'After running the following command, you will find the Argo configuration consumer_complaint_pipeline_kubeflow.yaml
+    in the directory pipelines/kubeflow_pipelines/argo_pipeline_files/:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行以下命令后，您将在目录 pipelines/kubeflow_pipelines/argo_pipeline_files/ 中找到 Argo 配置
+    consumer_complaint_pipeline_kubeflow.yaml：
+- en: '`$` `python pipelines/kubeflow_pipelines/pipeline_kubeflow.py`'
+  id: totrans-108
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `python pipelines/kubeflow_pipelines/pipeline_kubeflow.py`'
+- en: Executing the Pipeline
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行流水线
+- en: Now it is time to access your Kubeflow Pipelines dashboard. If you want to create
+    a new pipeline, click “Upload pipeline” for uploading, as shown in [Figure 12-5](#filepos1438100).
+    Alternatively, you can select an existing pipeline and upload a new version.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在是访问您的 Kubeflow Pipelines 仪表板的时候了。如果您想创建新的流水线，请点击“上传流水线”进行上传，如 [图 12-5](#filepos1438100)
+    所示。或者，您可以选择现有的流水线并上传新版本。
+- en: '![](images/00081.jpg)'
+  id: totrans-111
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00081.jpg)'
+- en: Figure 12-5\. Overview of loaded pipelines
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-5\. 加载流水线的概述
+- en: Select the Argo configuration, as shown in [Figure 12-6](#filepos1438521).
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择 Argo 配置，如 [图 12-6](#filepos1438521) 所示。
+- en: '![](images/00091.jpg)'
+  id: totrans-114
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00091.jpg)'
+- en: Figure 12-6\. Selecting your generated Argo configuration file
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-6\. 选择生成的 Argo 配置文件
+- en: Kubeflow Pipelines will now visualize your component dependencies. If you want
+    to kick off a new run of your pipeline, select “Create run” as shown in [Figure 12-7](#filepos1439321).
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines 现在将可视化您的组件依赖关系。如果您想启动新的流水线运行，请选择“创建运行”，如 [图 12-7](#filepos1439321)
+    所示。
+- en: You can now configure your pipeline run. Pipelines can be run once or on a reoccurring
+    basis (e.g., with a cron job). Kubeflow Pipelines also allows you to group your
+    pipeline runs in experiments.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您现在可以配置流水线运行。流水线可以一次运行或定期运行（例如使用 cron 作业）。Kubeflow Pipelines 还允许您将流水线运行分组为实验。
+- en: '![](images/00101.jpg)'
+  id: totrans-118
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00101.jpg)'
+- en: Figure 12-7\. Creating a pipeline run
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-7\. 创建流水线运行
+- en: Once you hit Start, as shown in [Figure 12-8](#filepos1440209), Kubeflow Pipelines
+    with the help of Argo will kick into action and spin up a pod for each container,
+    depending on your direct component graph. When all conditions for a component
+    are met, a pod for a component will be spun up and run the component’s executor.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您点击开始，如 [图 12-8](#filepos1440209) 所示，Kubeflow Pipelines 在 Argo 的帮助下将启动并为每个容器创建一个
+    pod，具体取决于您的直接组件图。当组件的所有条件都满足时，将会为该组件创建一个 pod 并运行组件的执行器。
+- en: If you want to see the execution details of a run in progress, you can click
+    the “Run name,” as shown in [Figure 12-9](#filepos1440473).
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您想查看正在进行的运行的执行细节，可以点击“运行名称”，如 [图 12-9](#filepos1440473) 所示。
+- en: '![](images/00113.jpg)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00113.jpg)'
+- en: Figure 12-8\. Defined pipeline run details
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-8\. 定义的流水线运行详细信息
+- en: '![](images/00008.jpg)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00008.jpg)'
+- en: Figure 12-9\. Pipeline run in progress
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-9\. 运行中的流水线运行
+- en: You can now inspect the components during or after their execution. For example,
+    you can check the log files from a particular component if the component failed.
+    [Figure 12-10](#filepos1441259) shows an example where the `Transform` component
+    is missing a Python library. Missing libraries can be provided by adding them
+    to a custom TFX container image as discussed in [Appendix C](index_split_025.html#filepos1684139).
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您现在可以在组件执行期间或之后检查组件。例如，如果组件失败，您可以检查特定组件的日志文件。 [图 12-10](#filepos1441259) 显示一个示例，其中
+    `Transform` 组件缺少一个 Python 库。缺少的库可以通过将它们添加到自定义 TFX 容器映像中来提供，如 [附录 C](index_split_025.html#filepos1684139)
+    中所述。
+- en: '![](images/00019.jpg)'
+  id: totrans-127
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00019.jpg)'
+- en: Figure 12-10\. Inspecting a component failure
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-10\. 检查组件失败
+- en: A successful pipeline run is shown in [Figure 12-11](#filepos1441971). After
+    a run completes, you can find the validated and exported machine learning model
+    in the filesystem location set in the `Pusher` component. In our example case,
+    we pushed the model to the path /tfx-data/output/consumer_complaint_pipeline_kubeflow/
+    on the persistent volume.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 成功的流水线运行显示在 [图 12-11](#filepos1441971) 中。运行完成后，您可以在设置为 `Pusher` 组件的文件系统位置找到经过验证和导出的机器学习模型。在我们的示例中，我们将模型推送到持久卷上的路径
+    /tfx-data/output/consumer_complaint_pipeline_kubeflow/。
+- en: '![](images/00032.jpg)'
+  id: totrans-130
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00032.jpg)'
+- en: Figure 12-11\. Successful pipeline run
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-11\. 成功的流水线运行
+- en: 'You can also inspect the status of your pipeline with `kubectl`. Since every
+    component runs as its own pod, all pods with the pipeline name in the name prefix
+    should be in the state Completed:'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以使用 `kubectl` 检查流水线的状态。由于每个组件都作为自己的 Pod 运行，所有带有流水线名称前缀的 Pod 应该处于完成状态：
+- en: '`$` `kubectl -n kubeflow get pods NAME                                                  
+    READY  STATUS      AGE cache-deployer-deployment-c6896d66b-gmkqf             
+    1/1    Running     28m cache-server-8869f945b-lb8tb                          
+    1/1    Running     28m consumer-complaint-pipeline-kubeflow-nmvzb-1111865054 
+    0/2    Completed   10m consumer-complaint-pipeline-kubeflow-nmvzb-1148904497 
+    0/2    Completed   3m38s consumer-complaint-pipeline-kubeflow-nmvzb-1170114787 
+    0/2    Completed   9m consumer-complaint-pipeline-kubeflow-nmvzb-1528408999  0/2   
+    Completed   5m43s consumer-complaint-pipeline-kubeflow-nmvzb-2236032954  0/2   
+    Completed   13m consumer-complaint-pipeline-kubeflow-nmvzb-2253512504  0/2   
+    Completed   13m consumer-complaint-pipeline-kubeflow-nmvzb-2453066854  0/2   
+    Completed   10m consumer-complaint-pipeline-kubeflow-nmvzb-2732473209  0/2   
+    Completed   11m consumer-complaint-pipeline-kubeflow-nmvzb-997527881   0/2   
+    Completed   10m ...`'
+  id: totrans-133
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl -n kubeflow get pods NAME                                                  
+    READY  STATUS      AGE cache-deployer-deployment-c6896d66b-gmkqf             
+    1/1    Running     28m cache-server-8869f945b-lb8tb                          
+    1/1    Running     28m consumer-complaint-pipeline-kubeflow-nmvzb-1111865054 
+    0/2    Completed   10m consumer-complaint-pipeline-kubeflow-nmvzb-1148904497 
+    0/2    Completed   3m38s consumer-complaint-pipeline-kubeflow-nmvzb-1170114787 
+    0/2    Completed   9m consumer-complaint-pipeline-kubeflow-nmvzb-1528408999  0/2   
+    Completed   5m43s consumer-complaint-pipeline-kubeflow-nmvzb-2236032954  0/2   
+    Completed   13m consumer-complaint-pipeline-kubeflow-nmvzb-2253512504  0/2   
+    Completed   13m consumer-complaint-pipeline-kubeflow-nmvzb-2453066854  0/2   
+    Completed   10m consumer-complaint-pipeline-kubeflow-nmvzb-2732473209  0/2   
+    Completed   11m consumer-complaint-pipeline-kubeflow-nmvzb-997527881   0/2   
+    Completed   10m ...'
+- en: 'You can also investigate the logs of a specific component through `kubectl`
+    by executing the following command. Logs for specific components can be retrieved
+    through the corresponding pod:'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以通过执行以下命令使用 `kubectl` 检查特定组件的日志。可以通过相应的 Pod 检索特定组件的日志：
+- en: '`$` `kubectl logs -n kubeflow` `podname`'
+  id: totrans-135
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `kubectl logs -n kubeflow` `podname`'
+- en: TFX CLI
+  id: totrans-136
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: TFX CLI
+- en: Alternative to the UI-based pipeline creation process, you can also create pipelines
+    and kick off pipeline runs programmatically through the TFX CLI. You can find
+    details on how to set up the TFX CLI and how to deploy machine learning pipelines
+    without a UI in [“TFX Command-Line Interface”](index_split_025.html#filepos1701948)
+    of [Appendix C](index_split_025.html#filepos1684139).
+  id: totrans-137
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 与基于 UI 的流水线创建过程的替代方法是，您还可以通过 TFX CLI 编程方式创建流水线并启动流水线运行。您可以在 [“TFX Command-Line
+    Interface”](index_split_025.html#filepos1701948) 的 [附录 C](index_split_025.html#filepos1684139)
+    中找到有关如何设置 TFX CLI 和如何在没有 UI 的情况下部署机器学习流水线的详细信息。
+- en: Useful Features of Kubeflow Pipelines
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines 的有用功能
+- en: In the following sections, we want to highlight useful features of Kubeflow
+    Pipelines.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的部分中，我们想要强调 Kubeflow Pipelines 的有用功能。
+- en: Restart failed pipelines
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重新启动失败的流水线
+- en: The execution of pipeline runs can take a while, sometimes a matter of hours.
+    TFX stores the state of each component in the ML MetadataStore, and it is possible
+    for Kubeflow Pipelines to track the successfully completed component tasks of
+    a pipeline run. Therefore, it offers the functionality to restart failed pipeline
+    runs from the component of the last failure. This will avoid rerunning successfully
+    completed components and, therefore, save time during the pipeline rerun.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流水线运行的执行可能需要一段时间，有时甚至几个小时。TFX 将每个组件的状态存储在 ML MetadataStore 中，Kubeflow Pipelines
+    可以跟踪流水线运行的成功完成组件任务。因此，它提供重新启动失败流水线运行的功能，从上次失败的组件开始。这将避免重新运行已成功完成的组件，从而节省流水线重新运行的时间。
+- en: Recurring runs
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重复运行
+- en: Besides kicking off individual pipeline runs, Kubeflow Pipelines also lets us
+    run the pipeline according to a schedule. As shown in [Figure 12-12](#filepos1446412),
+    we can schedule runs similar to schedules in Apache Airflow.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了启动单个流水线运行外，Kubeflow Pipelines 还允许我们根据时间表运行流水线。如 [图 12-12](#filepos1446412)
+    所示，我们可以类似于 Apache Airflow 中的调度运行。
+- en: '![](images/00043.jpg)'
+  id: totrans-144
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00043.jpg)'
+- en: Figure 12-12\. Scheduling recurring runs with Kubeflow Pipelines
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-12\. 使用 Kubeflow Pipelines 调度重复运行
+- en: Collaborating and reviewing pipeline runs
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 协作和审核流水线运行
+- en: Kubeflow Pipelines provides interfaces for data scientists to collaborate and
+    to review the pipeline runs as a team. In Chapters [4](index_split_009.html#filepos295199)
+    and [7](index_split_012.html#filepos624151), we discussed visualizations to show
+    the results of the data or model validation. After the completion of these pipeline
+    components, we can review the results of the components.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines为数据科学家提供了界面，以便团队协作并审查管道运行。在第[4](index_split_009.html#filepos295199)章和第[7](index_split_012.html#filepos624151)章中，我们讨论了用于显示数据或模型验证结果的可视化工具。在完成这些管道组件之后，我们可以审查组件的结果。
+- en: '[Figure 12-13](#filepos1447598) shows the results of the data validation step
+    as an example. Since the component output is saved to a disk or to a cloud storage
+    bucket, we can also review the pipeline runs retroactively.'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 12-13](#filepos1447598)显示了数据验证步骤的结果作为示例。由于组件输出保存到磁盘或云存储桶中，我们也可以回顾管道运行的结果。'
+- en: '![](images/00053.jpg)'
+  id: totrans-149
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00053.jpg)'
+- en: Figure 12-13\. TFDV statistics available in Kubeflow Pipelines
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Figure 12-13\. Kubeflow Pipelines中提供的TFDV统计数据
+- en: Since the results from every pipeline run and component of those runs are saved
+    in the ML MetadataStore, we can also compare the runs. As shown in [Figure 12-14](#filepos1448202),
+    Kubeflow Pipelines provides a UI to compare pipeline runs.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于每个管道运行和这些运行的组件的结果都保存在ML MetadataStore中，我们也可以比较这些运行。如[图 12-14](#filepos1448202)所示，Kubeflow
+    Pipelines提供了一个UI来比较管道运行。
+- en: '![](images/00063.jpg)'
+  id: totrans-152
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00063.jpg)'
+- en: Figure 12-14\. Comparing pipeline runs with Kubeflow Pipelines
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Figure 12-14\. 使用Kubeflow Pipelines比较流水线运行
+- en: Kubeflow Pipelines also integrates TensorFlow’s TensorBoard nicely. As you can
+    see in [Figure 12-15](#filepos1448885), we can review the statistics from model
+    training runs with TensorBoard. After the creation of the underlying Kubernetes
+    pod, we can review the statistics from model training runs with TensorBoard.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines还很好地集成了TensorFlow的TensorBoard。正如您在[图 12-15](#filepos1448885)中所看到的，我们可以使用TensorBoard查看模型训练运行的统计信息。在创建基础Kubernetes
+    pod之后，我们可以使用TensorBoard查看模型训练运行的统计信息。
+- en: '![](images/00073.jpg)'
+  id: totrans-155
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00073.jpg)'
+- en: Figure 12-15\. Reviewing training runs with TensorFlow’s TensorBoard
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Figure 12-15\. 使用TensorFlow的TensorBoard审查训练运行
+- en: Auditing the pipeline lineage
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 审计流水线血统
+- en: For the wider adoption of machine learning, it is critical to review the creation
+    of the model. If, for example, data scientists observe that the trained model
+    is unfair (as we discussed in [Chapter 7](index_split_012.html#filepos624151)),
+    it is important to retrace and reproduce the data or hyperparameters that we used.
+    We basically need an audit trail for each machine learning model.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于机器学习的广泛采用，审查模型的创建是至关重要的。例如，如果数据科学家观察到训练后的模型不公平（正如我们在[第 7章](index_split_012.html#filepos624151)中讨论的），重溯和再现我们使用的数据或超参数是很重要的。我们基本上需要为每个机器学习模型建立审计追踪。
+- en: Kubeflow Pipelines offers a solution for such an audit trail with the Kubeflow
+    Lineage Explorer. It creates a UI that can query the ML MetadataStore data easily.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines通过Kubeflow Lineage Explorer为这样的审计追踪提供了解决方案。它创建了一个可以轻松查询ML
+    MetadataStore数据的用户界面。
+- en: As shown in the lower right corner of [Figure 12-16](#filepos1451001), a machine
+    learning model was pushed to a certain location. The Lineage Explorer allows us
+    to retrace all components and artifacts that contributed to the exported model,
+    all the way back to the initial, raw dataset. We can retrace who signed off on
+    the model if we use the human in the loop component (see [“Human in the Loop”](index_split_017.html#filepos1121063)),
+    or we can check the data validation results and investigate whether the initial
+    training data started to drift.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[图 12-16](#filepos1451001)右下角所示，一个机器学习模型被推送到某个位置。血统探索器允许我们追溯到导出模型的所有组件和工件，一直回溯到最初的原始数据集。如果使用了人在回路组件（参见[“人在回路”](index_split_017.html#filepos1121063)），我们可以追溯到谁签署了模型，或者我们可以检查数据验证结果并调查初始训练数据是否开始漂移。
+- en: As you can see, Kubeflow Pipelines is an incredibly powerful tool for orchestrating
+    our machine learning pipelines. If your infrastructure is based on AWS or Azure,
+    or if you want full control over your setup, we recommend this approach. However,
+    if you are already using GCP, or if you would like a simpler way to use Kubeflow
+    Pipelines, read on.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，Kubeflow Pipelines是一个非常强大的工具，用于编排我们的机器学习流水线。如果您的基础架构基于AWS或Azure，或者如果您希望完全控制您的设置，我们建议使用这种方法。然而，如果您已经在使用GCP，或者如果您希望使用Kubeflow
+    Pipelines的简化方式，请继续阅读。
+- en: '![](images/00085.jpg)'
+  id: totrans-162
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00085.jpg)'
+- en: Figure 12-16\. Inspecting the pipeline lineage with Kubeflow Pipelines
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Figure 12-16\. 使用Kubeflow Pipelines检查流水线血统
+- en: Pipelines Based on Google Cloud AI Platform
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于 Google Cloud AI Platform 的 Pipelines
+- en: If you don’t want to spend the time administrating your own Kubeflow Pipelines
+    setup or if you would like to integrate with GCP’s AI Platform or other GCP services
+    like Dataflow, AI Platform training and serving, etc., this section is for you.
+    In the following section, we will discuss how to set up Kubeflow Pipelines through
+    Google Cloud’s AI Platform. Furthermore, we will highlight how you can train your
+    machine learning models with Google Cloud’s AI jobs and scale your preprocessing
+    with Google Cloud’s Dataflow, which can be used as an Apache Beam runner.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你不想花费时间管理自己的 Kubeflow Pipelines 设置，或者希望与 GCP 的 AI Platform 或其他 GCP 服务（如 Dataflow、AI
+    Platform 训练与服务等）集成，那么这一节适合你。接下来，我们将讨论如何通过 Google Cloud 的 AI Platform 设置 Kubeflow
+    Pipelines。此外，我们还将介绍如何使用 Google Cloud 的 AI 作业训练你的机器学习模型，并使用 Google Cloud 的 Dataflow
+    扩展你的预处理，后者可以用作 Apache Beam 运行器。
+- en: Pipeline Setup
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pipeline 设置
+- en: Google’s [AI Platform Pipelines](https://oreil.ly/WAft5) lets you create a Kubeflow
+    Pipelines setup through a UI. [Figure 12-17](#filepos1452952) shows the front
+    page for AI Platform Pipelines, where you can start creating your setup.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Google 的 [AI Platform Pipelines](https://oreil.ly/WAft5) 允许你通过 UI 创建 Kubeflow
+    Pipelines 设置。[图 12-17](#filepos1452952) 展示了 AI Platform Pipelines 的首页，你可以在这里开始创建你的设置。
+- en: BETA PRODUCT
+  id: totrans-168
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: BETA 产品
+- en: As you can see in [Figure 12-17](#filepos1452952), at the time of writing, this
+    Google Cloud product is still in beta. The presented workflows might change.
+  id: totrans-169
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如你在图 [12-17](#filepos1452952) 中所见，截至撰写本文时，这款 Google Cloud 产品仍处于 beta 阶段。所展示的工作流程可能会有所更改。
+- en: '![](images/00095.jpg)'
+  id: totrans-170
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00095.jpg)'
+- en: Figure 12-17\. Google Cloud AI Platform Pipelines
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12-17\. Google Cloud AI Platform Pipelines
+- en: When you click New Instance (near the top right of the page), it will send you
+    to the Google Marketplace, as shown in [Figure 12-18](#filepos1453462).
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你点击页面右上角的 New Instance，它会将你导向 Google Marketplace，如图 [12-18](#filepos1453462)
+    所示。
+- en: '![](images/00067.jpg)'
+  id: totrans-173
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00067.jpg)'
+- en: Figure 12-18\. Google Cloud Marketplace page for Kubeflow Pipelines
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12-18\. 用于 Kubeflow Pipelines 的 Google Cloud Marketplace 页面
+- en: After selecting Configure, you’ll be asked at the top of the menu to either
+    choose an existing Kubernetes cluster or create a cluster, as shown in [Figure 12-19](#filepos1454887).
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在选择配置后，你将被要求在菜单顶部选择要么选择现有的 Kubernetes 集群，要么创建一个集群，如图 [12-19](#filepos1454887)
+    所示。
+- en: NODE SIZES
+  id: totrans-176
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 节点大小
+- en: When creating a new Kubernetes cluster or selecting an existing cluster, consider
+    the available memory of the nodes. Each node instance needs to provide enough
+    memory to hold the entire model. For our demo project, we selected `n1-standard-4`
+    as an instance type. At the time of writing, we could not create a custom cluster
+    while starting Kubeflow Pipelines from Marketplace. If your pipeline setup requires
+    larger instances, we recommend creating the cluster and its nodes first, and then
+    selecting the cluster from the list of existing clusters when creating the Kubeflow
+    Pipelines setup from GCP Marketplace.
+  id: totrans-177
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在创建新的 Kubernetes 集群或选择现有集群时，请考虑节点的可用内存。每个节点实例需要提供足够的内存以容纳整个模型。对于我们的演示项目，我们选择了
+    `n1-standard-4` 作为实例类型。在撰写本文时，我们无法在从 Marketplace 启动 Kubeflow Pipelines 时创建自定义集群。如果你的管道设置需要更大的实例，请首先创建集群及其节点，然后在从
+    GCP Marketplace 创建 Kubeflow Pipelines 设置时从现有集群列表中选择该集群。
+- en: '![](images/00104.jpg)'
+  id: totrans-178
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00104.jpg)'
+- en: Figure 12-19\. Configuring your cluster for Kubeflow Pipelines
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12-19\. 配置你的集群以用于 Kubeflow Pipelines
+- en: ACCESS SCOPE
+  id: totrans-180
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 访问范围
+- en: During the Marketplace creation of Kubeflow Pipelines or your custom cluster
+    creation, select “Allow full access to all Cloud APIs” when asked for the access
+    scope of the cluster nodes. Kubeflow Pipelines require access to a variety of
+    Cloud APIs. Granting access to all Cloud APIs simplifies the setup process.
+  id: totrans-181
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在创建 Kubeflow Pipelines 或自定义集群时，请选择“允许对所有 Cloud APIs 的完全访问权限”，这是对集群节点访问范围的要求。Kubeflow
+    Pipelines 需要访问多种 Cloud APIs。授予对所有 Cloud APIs 的访问权限可以简化设置过程。
+- en: After configuring your Kubernetes cluster, Google Cloud will instantiate your
+    Kubeflow Pipelines setup, as shown in [Figure 12-20](#filepos1455921).
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在配置你的 Kubernetes 集群后，Google Cloud 将实例化你的 Kubeflow Pipelines 设置，如图 [12-20](#filepos1455921)
+    所示。
+- en: '![](images/00098.jpg)'
+  id: totrans-183
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00098.jpg)'
+- en: Figure 12-20\. Creating your Kubeflow Pipelines setup
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12-20\. 创建你的 Kubeflow Pipelines 设置
+- en: After a few minutes, your setup will be ready for use and you can find your
+    Kubeflow Pipelines setup as an instance listed in the AI Platform Pipelines list
+    of deployed Kubeflow setups. If you click Open Pipelines Dashboard, as shown in
+    [Figure 12-21](#filepos1456734), you’ll be redirected to your newly deployed Kubeflow
+    Pipelines setup. From here, Kubeflow Pipelines will work as we discussed in the
+    previous section and the UI will look very similar.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 几分钟后，您的设置将准备就绪，您可以在AI Platform Pipelines部署的Kubeflow设置列表中找到作为实例列出的Kubeflow Pipelines设置。如果您单击“打开Pipelines仪表板”，如[图 12-21](#filepos1456734)所示，您将被重定向到您新部署的Kubeflow
+    Pipelines设置。从这里开始，Kubeflow Pipelines将按照我们在前一节讨论的方式运行，并且UI看起来非常相似。
+- en: '![](images/00035.jpg)'
+  id: totrans-186
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00035.jpg)'
+- en: Figure 12-21\. List of Kubeflow deployments
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12-21. Kubeflow部署列表
+- en: STEP-BY-STEP INSTALLATIONS AVAILABLE IN THE AI PLATFORM PIPELINES DASHBOARD
+  id: totrans-188
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在AI Platform Pipelines仪表板中提供的逐步安装说明
+- en: If you install Kubeflow Pipelines manually step by step, as discussed in [“Accessing
+    Your Kubeflow Pipelines Installation”](#filepos1395426) and [Appendix B](index_split_024.html#filepos1654588),
+    your Kubeflow Pipelines setup will also be listed under your AI Platform Pipelines
+    instances.
+  id: totrans-189
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果您按照逐步手动安装Kubeflow Pipelines的步骤，正如在[“访问您的Kubeflow Pipelines安装”](#filepos1395426)和[附录 B](index_split_024.html#filepos1654588)中讨论的那样，您的Kubeflow
+    Pipelines设置也将在AI Platform Pipelines实例下列出。
+- en: TFX Pipeline Setup
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX管道设置
+- en: The configuration of our TFX pipelines is very similar to the configuration
+    of the `KubeflowDagRunner`, which we discussed previously. In fact, if you mount
+    a persistent volume with the required Python module and training data as discussed
+    in [“Pipeline Setup”](#filepos1401991), you can run your TFX pipelines on the
+    AI Platform Pipelines.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的TFX管道配置与我们之前讨论的`KubeflowDagRunner`的配置非常相似。事实上，如果您像在[“管道设置”](#filepos1401991)中讨论的那样挂载了一个带有所需Python模块和训练数据的持久卷，您可以在AI
+    Platform Pipelines上运行您的TFX管道。
+- en: In the next sections, we will show you a few changes to the earlier Kubeflow
+    Pipelines setup that can either simplify your workflow (e.g., loading data from
+    Google Storage buckets) or assist you with scaling pipelines beyond a Kubernetes
+    cluster (e.g., by training a machine learning model with AI Platform Jobs).
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将展示一些对早期Kubeflow Pipelines设置的更改，这些更改可以简化您的工作流程（例如，从Google Storage存储桶加载数据），或者帮助您扩展超出Kubernetes集群的管道（例如，通过AI
+    Platform Jobs训练机器学习模型）。
+- en: Use Cloud Storage buckets for data exchange
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Cloud Storage存储桶进行数据交换
+- en: In [“Pipeline Setup”](#filepos1401991), we discussed that we can load the data
+    and Python modules required for pipeline execution from a persistent volume that
+    is mounted in the Kubernetes cluster. If you run pipelines within the Google Cloud
+    ecosystem, you can also load data from Google Cloud Storage buckets. This will
+    simplify the workflows, enabling you to upload and review files through the GCP
+    web interface or the `gcloud` SDK.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[“管道设置”](#filepos1401991)中，我们讨论了可以从挂载在Kubernetes集群中的持久卷加载管道执行所需的数据和Python模块。如果您在Google
+    Cloud生态系统内运行管道，还可以从Google Cloud Storage存储桶加载数据。这将简化工作流程，使您能够通过GCP Web界面或`gcloud`
+    SDK上传和审查文件。
+- en: 'The bucket paths can be provided in the same way as file paths on a disk, as
+    shown in the following code snippet:'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储桶路径可以像磁盘上的文件路径一样提供，如下面的代码片段所示：
+- en: '`input_bucket``=``''gs://``YOUR_INPUT_BUCKET``''``output_bucket``=``''gs://``YOUR_OUTPUT_BUCKET``''``data_dir``=``os``.``path``.``join``(``input_bucket``,``''data''``)``tfx_root``=``os``.``path``.``join``(``output_bucket``,``''tfx_pipeline''``)``pipeline_root``=``os``.``path``.``join``(``tfx_root``,``pipeline_name``)``serving_model_dir``=``os``.``path``.``join``(``output_bucket``,``''serving_model_dir''``)``module_file``=``os``.``path``.``join``(``input_bucket``,``''components''``,``''module.py''``)`'
+  id: totrans-196
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`input_bucket``=``''gs://``YOUR_INPUT_BUCKET``''``output_bucket``=``''gs://``YOUR_OUTPUT_BUCKET``''``data_dir``=``os``.``path``.``join``(``input_bucket``,``''data''``)``tfx_root``=``os``.``path``.``join``(``output_bucket``,``''tfx_pipeline''``)``pipeline_root``=``os``.``path``.``join``(``tfx_root``,``pipeline_name``)``serving_model_dir``=``os``.``path``.``join``(``output_bucket``,``''serving_model_dir''``)``module_file``=``os``.``path``.``join``(``input_bucket``,``''components''``,``''module.py''``)`'
+- en: It is often beneficial to split the buckets between input (e.g., the Python
+    module and training data) and output data (e.g., trained models), but you could
+    also use the same buckets.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将存储桶分割为输入（例如Python模块和训练数据）和输出数据（例如训练好的模型）通常是有益的，但您也可以使用相同的存储桶。
+- en: Training models with an AI Platform job
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用AI Platform作业训练模型
+- en: 'If you want to scale model training through a GPU or TPU, you can configure
+    your pipeline to run the training step of the machine learning model on this hardware:'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您想通过 GPU 或 TPU 扩展模型训练，可以配置流水线以在这些硬件上运行机器学习模型的训练步骤：
+- en: '`project_id``=``''``YOUR_PROJECT_ID``''``gcp_region``=``''``GCP_REGION>``''`![](images/00002.jpg)`ai_platform_training_args``=``{``''project''``:``project_id``,``''region''``:``gcp_region``,``''masterConfig''``:``{``''imageUri''``:``''gcr.io/oreilly-book/ml-pipelines-tfx-custom:0.22.0''``}`![](images/00075.jpg)`''scaleTier''``:``''BASIC_GPU''``,`![](images/00064.jpg)`}`'
+  id: totrans-200
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`project_id``=``''``YOUR_PROJECT_ID``''``gcp_region``=``''``GCP_REGION>``''`![](images/00002.jpg)`ai_platform_training_args``=``{``''project''``:``project_id``,``''region''``:``gcp_region``,``''masterConfig''``:``{``''imageUri''``:``''gcr.io/oreilly-book/ml-pipelines-tfx-custom:0.22.0''``}`![](images/00075.jpg)`''scaleTier''``:``''BASIC_GPU''``,`![](images/00064.jpg)`}`'
+- en: '![](images/00002.jpg)'
+  id: totrans-201
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: For example, `us-central1`.
+  id: totrans-202
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 例如，`us-central1`。
+- en: '![](images/00075.jpg)'
+  id: totrans-203
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Provide a custom image (if required).
+  id: totrans-204
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 提供自定义镜像（如果需要）。
+- en: '![](images/00064.jpg)'
+  id: totrans-205
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00064.jpg)'
+- en: Other options include `BASIC_TPU`, `STANDARD_1`, and `PREMIUM_1`.
+  id: totrans-206
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 其他选项包括 `BASIC_TPU`、`STANDARD_1` 和 `PREMIUM_1`。
+- en: 'For the `Trainer` component to observe the AI Platform configuration, you need
+    to configure the component executor and swap out the `GenericExecutor` we have
+    used with our `Trainer` component so far. The following code snippet shows the
+    additional arguments required:'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了让 `Trainer` 组件能够观察 AI 平台的配置，您需要配置组件执行器，并将我们迄今为止使用的 `GenericExecutor` 替换为 `Trainer`
+    组件。以下代码片段显示了所需的附加参数：
+- en: '`from``tfx.extensions.google_cloud_ai_platform.trainer``import``executor` `\`
+    `as``ai_platform_trainer_executor``trainer``=``Trainer``(``...``custom_executor_spec``=``executor_spec``.``ExecutorClassSpec``(``ai_platform_trainer_executor``.``GenericExecutor``),``custom_config``=``{``ai_platform_trainer_executor``.``TRAINING_ARGS_KEY``:``ai_platform_training_args``}``)`'
+  id: totrans-208
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.extensions.google_cloud_ai_platform.trainer``import``executor` `\`
+    `as``ai_platform_trainer_executor``trainer``=``Trainer``(``...``custom_executor_spec``=``executor_spec``.``ExecutorClassSpec``(``ai_platform_trainer_executor``.``GenericExecutor``),``custom_config``=``{``ai_platform_trainer_executor``.``TRAINING_ARGS_KEY``:``ai_platform_training_args``}``)`'
+- en: Instead of training machine learning models inside a Kubernetes cluster, you
+    can distribute the model training using the AI Platform. In addition to the distributed
+    training capabilities, the AI Platform provides access to accelerated training
+    hardware like TPUs.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与在 Kubernetes 集群内训练机器学习模型不同，您可以使用 AI 平台分发模型训练。除了分布式训练功能外，AI 平台还提供了像 TPU 这样的加速训练硬件的访问。
+- en: When the `Trainer` component is triggered in the pipeline, it will kick off
+    a training job in the AI Platform Jobs, as shown in [Figure 12-22](#filepos1473794).
+    There you can inspect log files or the completion status of a training task.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当流水线中触发 `Trainer` 组件时，它将在 AI 平台作业中启动训练作业，如 [Figure 12-22](#filepos1473794) 所示。在那里，您可以检查训练任务的日志文件或完成状态。
+- en: '![](images/00108.jpg)'
+  id: totrans-211
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00108.jpg)'
+- en: Figure 12-22\. AI Platform training jobs
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12-22\. AI 平台训练作业
+- en: Serving models through AI Platform endpoints
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过 AI 平台端点提供模型服务
+- en: If you run your pipelines within the Google Cloud ecosystem, you can also deploy
+    machine learning models to endpoints of the AI Platform. These endpoints have
+    the option to scale your model in case the model experiences spikes of inferences.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您在 Google Cloud 生态系统内运行流水线，还可以将机器学习模型部署到 AI 平台的端点。这些端点具有根据推断峰值来扩展模型的选项。
+- en: 'Instead of setting a `push_destination` as we discussed in [“TFX Pusher Component”](index_split_012.html#filepos758056),
+    we can overwrite the executor and provide Google Cloud details for the AI Platform
+    deployment. The following code snippet shows the required configuration details:'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与我们在 [“TFX Pusher Component”](index_split_012.html#filepos758056) 中讨论过的设置 `push_destination`
+    不同，我们可以覆盖执行器并为 AI 平台部署提供 Google Cloud 详细信息。以下代码片段显示了所需的配置细节：
+- en: '`ai_platform_serving_args``=``{``''model_name''``:``''consumer_complaint''``,``''project_id''``:``project_id``,``''regions''``:``[``gcp_region``],``}`'
+  id: totrans-216
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`ai_platform_serving_args``=``{``''model_name''``:``''consumer_complaint''``,``''project_id''``:``project_id``,``''regions''``:``[``gcp_region``],``}`'
+- en: 'Similar to the setup of the `Trainer` component, we need to exchange the component’s
+    executor and provide the `custom_config` with the deployment details:'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 `Trainer` 组件的设置类似，我们需要交换组件的执行器，并提供包含部署详细信息的 `custom_config`：
+- en: '`from``tfx.extensions.google_cloud_ai_platform.pusher``import``executor` `\`
+    `as``ai_platform_pusher_executor``pusher``=``Pusher``(``...``custom_executor_spec``=``executor_spec``.``ExecutorClassSpec``(``ai_platform_pusher_executor``.``Executor``),``custom_config``=``{``ai_platform_pusher_executor``.``SERVING_ARGS_KEY``:``ai_platform_serving_args``}``)`'
+  id: totrans-218
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.extensions.google_cloud_ai_platform.pusher``import``executor` `\`
+    `as``ai_platform_pusher_executor``pusher``=``Pusher``(``...``custom_executor_spec``=``executor_spec``.``ExecutorClassSpec``(``ai_platform_pusher_executor``.``Executor``),``custom_config``=``{``ai_platform_pusher_executor``.``SERVING_ARGS_KEY``:``ai_platform_serving_args``}``)'
+- en: If you provide the configuration of the `Pusher` component, you can avoid setting
+    up and maintaining your instance of TensorFlow Serving by using the AI Platform.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您提供了`Pusher`组件的配置，则可以通过使用AI平台避免设置和维护TensorFlow Serving的实例。
+- en: DEPLOYMENT LIMITATIONS
+  id: totrans-220
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 部署限制
+- en: At the time of writing, models were restricted to a maximum size of 512 MB for
+    deployments through the AI Platform. Our demo project is larger than the limit
+    and, therefore, can’t be deployed through AI Platform endpoints at the moment.
+  id: totrans-221
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 此刻，模型通过AI平台进行部署的最大限制是512 MB。我们的演示项目超出了此限制，因此目前无法通过AI平台端点进行部署。
+- en: Scaling with Google’s Dataflow
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与Google的Dataflow一起扩展
+- en: So far, all the components that rely on Apache Beam have executed data processing
+    tasks with the default `DirectRunner`, meaning that the processing tasks will
+    be executed on the same instance where Apache Beam initiated the task run. In
+    this situation, Apache Beam will consume as many CPU cores as possible, but it
+    won’t scale beyond the single instance.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，依赖于Apache Beam的所有组件都使用默认的`DirectRunner`执行数据处理任务，这意味着处理任务将在启动Apache Beam任务的同一实例上执行。在这种情况下，Apache
+    Beam会尽可能消耗多个CPU核心，但不会扩展到单个实例之外。
+- en: One alternative is to execute Apache Beam with Google Cloud’s Dataflow. In this
+    situation, TFX will process jobs with Apache Beam and the latter will submit tasks
+    to Dataflow. Depending on each job’s requirements, Dataflow will spin up compute
+    instances and distribute job tasks across instances. This is a pretty neat way
+    of scaling data preprocessing jobs like statistics generation or data preprocessing.[5](#filepos1489335)
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个替代方案是使用Google Cloud的Dataflow执行Apache Beam。在这种情况下，TFX将使用Apache Beam处理作业，并且后者将向Dataflow提交任务。根据每个作业的要求，Dataflow将启动计算实例并在实例之间分发作业任务。这是扩展数据预处理作业（如统计生成或数据预处理）的一种非常好的方式。
+- en: 'In order to use the scaling capabilities of Google Cloud Dataflow, we need
+    to provide a few more Beam configurations, which we’ll pass to our pipeline instantiation:'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了利用Google Cloud Dataflow的扩展能力，我们需要提供一些额外的Beam配置，这些配置将传递给我们的流水线实例化：
+- en: '`tmp_file_location``=``os``.``path``.``join``(``output_bucket``,``"tmp"``)``beam_pipeline_args``=``[``"--runner=DataflowRunner"``,``"--experiments=shuffle_mode=auto"``,``"--project={}"``.``format``(``project_id``),``"--temp_location={}"``.``format``(``tmp_file_location``),``"--region={}"``.``format``(``gcp_region``),``"--disk_size_gb=50"``,``]`'
+  id: totrans-226
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`tmp_file_location``=``os``.``path``.``join``(``output_bucket``,``"tmp"``)``beam_pipeline_args``=``[``"--runner=DataflowRunner"``,``"--experiments=shuffle_mode=auto"``,``"--project={}"``.``format``(``project_id``),``"--temp_location={}"``.``format``(``tmp_file_location``),``"--region={}"``.``format``(``gcp_region``),``"--disk_size_gb=50"``,``]`'
+- en: Besides configuring `DataflowRunner` as the `runner` type, we also set the `shuffle_mode`
+    to `auto`. This is an interesting feature of Dataflow. Instead of running transformations
+    like `GroupByKey` in the Google Compute Engine’s VM, the operation will be processed
+    in the service backend of Dataflow. This reduces the execution time and the CPU/memory
+    costs of the compute instances.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了将`runner`类型配置为`DataflowRunner`之外，我们还将`shuffle_mode`设置为`auto`。这是Dataflow的一个有趣特性。不像在Google
+    Compute Engine的VM中运行`GroupByKey`等转换操作，而是在Dataflow的服务后端处理该操作。这样可以减少计算实例的执行时间以及CPU/内存成本。
+- en: Pipeline Execution
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流水线执行
+- en: Executing the pipeline with the Google Cloud AI Platform is no different than
+    what we discussed in [“Orchestrating TFX Pipelines with Kubeflow Pipelines”](#filepos1397857).
+    The TFX script will generate the Argo configuration. The configuration can then
+    be uploaded to the Kubeflow Pipelines setup on the AI Platform.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Google Cloud AI平台上执行流水线与我们在[“使用Kubeflow Pipelines编排TFX流水线”](#filepos1397857)中讨论的情况并无不同。TFX脚本将生成Argo配置。然后可以将该配置上传到设在AI平台上的Kubeflow
+    Pipelines设置中。
+- en: During the pipeline execution, you can inspect the training jobs as discussed
+    in [“Training models with an AI Platform job”](#filepos1465299) and you can observe
+    the Dataflow jobs in detail, as shown in [Figure 12-23](#filepos1486114).
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在管道执行期间，您可以检查训练作业，如在[“Training models with an AI Platform job”](#filepos1465299)中所讨论的，还可以详细观察Dataflow作业，如在[Figure 12-23](#filepos1486114)中所示。
+- en: '![](images/00020.jpg)'
+  id: totrans-231
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00020.jpg)'
+- en: Figure 12-23\. Google Cloud Dataflow job details
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12-23详细介绍了Google Cloud Dataflow作业的详情。
+- en: The Dataflow dashboard provides valuable insights into your job’s progress and
+    scaling requirements.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dataflow仪表板提供有关作业进度和扩展需求的宝贵洞察。
+- en: Summary
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结
+- en: Running pipelines with Kubeflow Pipelines provides great benefits that we think
+    offset the additional setup requirements. We see the pipeline lineage browsing,
+    the seamless integration with TensorBoard, and the options for recurring runs
+    as good reasons to choose Kubeflow Pipelines as the pipeline orchestrator.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Kubeflow管道运行管道提供了很大的好处，我们认为这些好处超过了额外的设置要求。我们看到管道谱系浏览、与TensorBoard的无缝集成以及重复运行的选项是选择Kubeflow管道作为管道编排器的充分理由。
+- en: As we discussed earlier, the current workflow for running TFX pipelines with
+    Kubeflow Pipelines is different than the workflows we discussed for pipelines
+    running on Apache Beam or Apache Airflow in [Chapter 11](index_split_018.html#filepos1264016).
+    However, the configuration of the TFX components is the same, as we discussed
+    in the previous chapter.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前讨论的，与在[第11章](index_split_018.html#filepos1264016)中讨论的Apache Beam或Apache
+    Airflow上运行的管道不同，使用Kubeflow管道运行TFX管道的当前工作流程是不同的。然而，TFX组件的配置与我们在前一章中讨论的是相同的。
+- en: 'In this chapter, we walked through two Kubeflow pipeline setups: the first
+    setup can be used with almost any managed Kubernetes service, such as AWS Elastic
+    Kubernetes Service or Microsoft Azure Kubernetes Service. The second setup can
+    be used with Google Cloud’s AI Platform.'
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们介绍了两种Kubeflow管道设置：第一种设置几乎适用于任何托管的Kubernetes服务，如AWS Elastic Kubernetes
+    Service或Microsoft Azure Kubernetes Service。第二种设置适用于Google Cloud的AI平台。
+- en: In the following chapter, we will discuss how you can turn your pipeline into
+    a cycle using feedback loops.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将讨论如何通过反馈循环将您的管道转变为循环。
+- en: '[1  ](#filepos1402760) You can follow along with the script that generates
+    the Argo YAML instructions in [the book’s GitHub repo](https://oreil.ly/bmlp-gitkubeflowpy).'
+  id: totrans-239
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[1  ](#filepos1402760) 您可以在[本书的GitHub存储库](https://oreil.ly/bmlp-gitkubeflowpy)中跟随生成Argo
+    YAML指令的脚本。'
+- en: '[2  ](#filepos1414361) For more information on Kubernetes ConfigMaps, check
+    out [“Some Kubernetes Definitions”](index_split_023.html#filepos1623432).'
+  id: totrans-240
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[2  ](#filepos1414361) 想了解更多关于Kubernetes ConfigMaps的信息，请查看[“Some Kubernetes
+    Definitions”](index_split_023.html#filepos1623432)。'
+- en: '[3  ](#filepos1425932) Visit [Nvidia](https://oreil.ly/HGj50) for more on installing
+    their latest drivers for Kubernetes clusters'
+  id: totrans-241
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[3  ](#filepos1425932) 访问[Nvidia](https://oreil.ly/HGj50)获取有关为Kubernetes集群安装最新驱动程序的更多信息。'
+- en: '[4  ](#filepos1429679) Check [the documentation](https://oreil.ly/AxcHf) for
+    information on Kubernetes secrets and how to set them up.'
+  id: totrans-242
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[4  ](#filepos1429679) 参阅[文档](https://oreil.ly/AxcHf)获取有关Kubernetes secrets及其设置方法的信息。'
+- en: '[5  ](#filepos1481181) Dataflow is only available through Google Cloud. Alternative
+    distribution runners are Apache Flink and Apache Spark.'
+  id: totrans-243
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[5  ](#filepos1481181) 数据流仅透过Google Cloud提供。替代的分布式运行程序有Apache Flink和Apache
+    Spark。'

@@ -1,0 +1,794 @@
+- en: Chapter 13\. Feedback Loops
+  id: totrans-0
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第13章\. 反馈循环
+- en: Now that we have a smooth pipeline for putting a machine learning model into
+    production, we don’t want to run it only once. Models shouldn’t be static once
+    they are deployed. New data is collected, the data distribution changes (described
+    in [Chapter 4](index_split_009.html#filepos295199)), models drift (discussed in
+    [Chapter 7](index_split_012.html#filepos624151)), and most importantly, we would
+    like our pipelines to continuously improve.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们已经建立了一个顺畅的流水线，将机器学习模型投入生产中，我们不希望只运行一次。一旦部署了模型，模型就不应该是静态的。随着收集新数据、数据分布的变化（详见[第4章](index_split_009.html#filepos295199)）、模型漂移（讨论见[第7章](index_split_012.html#filepos624151)），我们希望我们的流水线能够不断改进。
+- en: Adding feedback of some kind into the machine pipeline changes it into a life
+    cycle, as shown in [Figure 13-1](#filepos1490658). The predictions from the model
+    lead to the collection of new data, which continuously improves the model.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将某种形式的反馈引入到机器流水线中将其转变为一个生命周期，如[图 13-1](#filepos1490658)所示。模型的预测结果导致新数据的收集，从而持续改进模型。
+- en: '![](images/00118.jpg)'
+  id: totrans-3
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00118.jpg)'
+- en: Figure 13-1\. Model feedback as part of ML pipelines
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13-1\. 作为 ML 流水线一部分的模型反馈
+- en: Without fresh data, the predictive power of a model may decrease as inputs change
+    over time. The deployment of the ML model may in fact alter the training data
+    that comes in because user experiences change; for example, in a video recommendation
+    system, better recommendations from a model lead to different viewing choices
+    from the user. Feedback loops can help us collect new data to refresh our models.
+    They are particularly useful for models that are personalized, such as recommender
+    systems or predictive text.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果没有新鲜数据，模型的预测能力可能会随着时间的推移而下降。事实上，ML 模型的部署可能会改变输入的训练数据，因为用户体验发生变化；例如，在视频推荐系统中，模型提供更好的推荐会导致用户做出不同的观看选择。反馈循环可以帮助我们收集新数据来更新我们的模型。对于个性化模型特别有用，例如推荐系统或预测文本。
+- en: At this point, it is extremely important to have the rest of the pipeline set
+    up robustly. Feeding in new data should cause the pipeline to fail only if the
+    influx of new data causes the data statistics to fall outside the limits set in
+    data validation, or if it causes the model statistics to move outside the boundaries
+    set in model analysis. This can then trigger events such as model retraining,
+    new feature engineering, and so on. If one of these triggers occurs, the new model
+    should receive a new version number.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此时，确保流水线的其余部分设置稳健非常重要。引入新数据应仅在新数据导致数据验证中设置的限制超出范围，或者导致模型分析中设置的边界外移时才导致流水线失败。这时可以触发事件，例如模型重新训练、新的特征工程等。如果其中一个触发器发生，新模型应该获得一个新版本号。
+- en: In addition to the collection of new training data, feedback loops can also
+    provide information on the real-world use of the model. This can include the number
+    of active users, the times of day when they interact with it, and many other pieces
+    of data. This type of data is extremely useful for demonstrating the value of
+    the model to business stakeholders.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了收集新的训练数据外，反馈循环还可以提供有关模型实际使用情况的信息。这可以包括活跃用户的数量、他们与模型互动的时间以及许多其他数据。这类数据对向业务利益相关者展示模型价值非常有用。
+- en: FEEDBACK LOOPS CAN BE DANGEROUS
+  id: totrans-8
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 反馈循环可能会带来危险
+- en: Feedback loops can also have negative consequences and should be approached
+    with caution. If you are feeding the model’s predictions back into new training
+    data with no human input, the model will be learning from its mistakes as well
+    as its correct predictions. Feedback loops can also amplify any biases or inequalities
+    that are present in the original data. Careful model analysis can help you spot
+    some of these situations.
+  id: totrans-9
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 反馈循环也可能带来负面影响，因此应谨慎处理。如果将模型的预测结果反馈到新的训练数据中而没有人为输入，模型将从其错误和正确预测中学习。反馈循环还可能放大原始数据中存在的任何偏见或不平等。仔细的模型分析可以帮助您发现其中的一些情况。
+- en: Explicit and Implicit Feedback
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 显性和隐性反馈
+- en: 'We can divide our feedback into two main types: implicit and explicit.[1](#filepos1521372)
+    Implicit feedback is where people’s actions in their normal usage of a product
+    give the model feedback—for example, by buying something suggested by a recommender
+    system or by watching a suggested movie. User privacy needs careful consideration
+    with implicit feedback because it’s tempting to just track every action that a
+    user takes. Explicit feedback is where a user gives some direct input on a prediction—for
+    example, giving a thumbs-up or thumbs-down to a recommendation or correcting a
+    prediction.'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将反馈分为两种主要类型：隐式和显式。[1](#filepos1521372) 隐式反馈是指人们在正常使用产品时通过行动给模型提供反馈，例如通过购买推荐系统建议的东西或观看建议的电影。隐式反馈需要在用户隐私方面进行仔细考虑，因为很容易跟踪用户的每一个动作。显式反馈是指用户直接对预测提供一些直接的输入，例如对推荐的点赞或点踩，或者更正一个预测。
+- en: The Data Flywheel
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据飞轮
+- en: In some situations, you may have all the data you need to create a new product
+    powered by machine learning. But in other cases, you may need to collect more.
+    This happens particularly often when dealing with supervised learning problems.
+    Supervised learning is more mature than unsupervised learning and generally provides
+    more robust results, so the majority of models deployed in production systems
+    are supervised models. Frequently, the situation arises that you have large amounts
+    of unlabelled data but insufficient labelled data. However, the growth of transfer
+    learning, as we used in our example project, is starting to remove the need for
+    vast amounts of labelled data for some machine learning problems.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，你可能已经拥有足够的数据来创建一个由机器学习驱动的新产品。但在其他情况下，你可能需要收集更多数据。这在处理监督学习问题时特别频繁。监督学习比无监督学习更成熟，通常提供更可靠的结果，因此在生产系统中部署的大多数模型都是监督模型。经常出现这样的情况：你拥有大量未标记数据但标记数据不足。然而，随着我们在示例项目中使用的迁移学习的发展，某些机器学习问题不再需要大量标记数据。
+- en: In the case where you have a lot of unlabelled data and need to collect more
+    labels, the data flywheel concept is especially useful. This data flywheel allows
+    you to grow your training dataset by setting up an initial model using preexisting
+    data from a product, hand-labelled data, or public data. By collecting feedback
+    on the initial model from users, you can label the data, which improves the model
+    predictions and thus attracts more users to the product, who label more data,
+    and so on, as illustrated in [Figure 13-2](#filepos1495495).
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你有大量未标记的数据并需要收集更多标签时，数据飞轮的概念尤为有用。这种数据飞轮允许你通过使用产品的现有数据、手动标记的数据或公共数据设置初始模型来扩展训练数据集。通过从用户那里收集对初始模型的反馈，你可以标记数据，从而改进模型预测，吸引更多用户使用产品，进而标记更多数据，如图
+    [13-2](#filepos1495495) 所示。
+- en: '![](images/00011.jpg)'
+  id: totrans-15
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00011.jpg)'
+- en: Figure 13-2\. The data flywheel
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13-2. 数据飞轮
+- en: Feedback Loops in the Real World
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现实世界中的反馈循环
+- en: Some of the most familiar examples of feedback loops in machine learning systems
+    occur when a model’s predictions are exposed to a customer. This is particularly
+    common in recommender systems, where a model predicts the top k most relevant
+    choices for a specific user. It’s often difficult to collect training data for
+    recommender systems in advance of launching a product, so these systems are often
+    heavily dependent on feedback from their users.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习系统中最熟悉的反馈循环例子之一是当模型的预测暴露给客户时。这在推荐系统中尤为常见，其中模型预测特定用户的前 k 个最相关选择。通常在推出产品前很难为推荐系统收集训练数据，因此这些系统通常严重依赖于用户的反馈。
+- en: '[Netflix’s movie recommendation system](https://oreil.ly/uX9Oo) is a classic
+    example of a feedback loop. The user gets movie recommendations and then provides
+    feedback by rating the predictions. As the user rates more movies, they receive
+    recommendations that are more closely tailored to their tastes.'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Netflix 的电影推荐系统](https://oreil.ly/uX9Oo) 是反馈循环的经典案例。用户得到电影推荐后，通过评分提供反馈。随着用户评分的增加，他们会收到更符合个人口味的推荐。'
+- en: 'Originally, when the main business of Netflix was shipping DVDs in the mail,
+    it used a one to five star rating system to collect DVD ratings, which signaled
+    that the customer had actually watched the DVD. In this situation, Netflix was
+    only able to collect explicit feedback. But when its business changed to streaming
+    movies online, the company was also able to collect the implicit feedback of whether
+    a user watched the movies that were recommended to them and whether the user watched
+    the whole movie. Netflix then switched from the one to five star rating system
+    to a simpler thumbs-up or thumbs-down system, which allowed it to collect more
+    feedback because the system required less time from users. In addition, the finer-grained
+    ratings may not have been so actionable: how should a model respond if a movie
+    is rated three stars? A three-star review doesn’t signal that the prediction is
+    correct or incorrect, whereas a thumbs-up or thumbs-down gives a clear signal
+    to the model.[2](#filepos1521695)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最初，当 Netflix 的主要业务是邮寄 DVD 时，它使用了一个一到五星的评级系统来收集 DVD 的评级，这表明客户实际观看了 DVD。在这种情况下，Netflix
+    只能收集到显式反馈。但当其业务转向在线流媒体电影时，公司也能够收集到用户是否观看了推荐给他们的电影，以及用户是否观看了整部电影的隐式反馈。因此，Netflix
+    改用了一个简单的大拇指向上或向下的系统，而不再使用一到五星的评级系统，这使得它能够收集更多的反馈，因为这个系统需要用户投入的时间更少。此外，更精细的评级可能不太具有操作性：如果一部电影评为三星，模型应该如何响应？三星评价并不表明预测是正确还是错误，而大拇指向上或向下则对模型提供了明确的信号。
+- en: Another example of a feedback loop—in this case a negative one—is Microsoft’s
+    infamous Twitter bot [TAY](https://oreil.ly/YM21r). This hit the news in 2016
+    when, within 16 hours of its launch, it was taken offline because of its offensive
+    and sometimes racist tweets. Before it was taken offline, it had tweeted over
+    96,000 times. It was retrained automatically based on replies to its tweets, which
+    were deliberately provocative. The feedback loop in this situation was that the
+    system took the replies to its initial tweets and incorporated them into its training
+    data. This was probably intended to make the bot sound more human, but the outcome
+    was that it picked up on the worst replies and became extremely offensive.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个反馈循环的例子——在这种情况下是负面反馈——是微软臭名昭著的 Twitter 机器人[TAY](https://oreil.ly/YM21r)。2016
+    年，它在推出后仅 16 小时内因其具有攻击性和有时带有种族主义色彩的推文而被下线。在被下线之前，它已经发布了超过 96,000 条推文。它是基于其推文的回复自动重新训练的，这些推文是有意挑衅的。这种情况下的反馈循环是，系统将其初始推文的回复并入其训练数据中。这可能本意是使机器人听起来更像人类，但结果是它吸引了最糟糕的回复，并变得极具攻击性。
+- en: WHAT COULD GO WRONG?
+  id: totrans-22
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 什么可能会出错？
+- en: It’s important to think about what might go wrong with a feedback loop, as well
+    as the best-case scenario. What is the worst thing that your users might do? How
+    do you protect against bad actors who may want to disrupt your system in an organized
+    or automated way?
+  id: totrans-23
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 重要的是考虑反馈循环可能出现的问题，以及最理想的情况。你的用户可能会做什么最糟糕的事情？如何保护系统免受可能以有组织或自动化方式破坏系统的恶意行为者的影响？
+- en: A third example of real-world feedback loops comes from Stripe, the online payment
+    company.[3](#filepos1521926) Stripe built a binary classifier to predict fraud
+    on credit card transactions, and its system would block transactions if the model
+    predicted that they were likely fraudulent. The company obtained a training set
+    from past transaction data and trained a model on it, which produced good results
+    on the training set. However, it was impossible to know the precision and recall
+    of the production system because if the model predicted that the transaction was
+    fraudulent, it was blocked. We can’t be sure whether it was in fact fraudulent
+    because it never happened.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三个现实世界的反馈循环例子来自在线支付公司 Stripe。Stripe 建立了一个二分类器来预测信用卡交易中的欺诈行为，如果模型预测交易可能涉及欺诈，其系统将阻止这些交易。公司从过去的交易数据中获得了一个训练集，并在其上训练了一个模型，在训练集上表现良好。然而，由于如果模型预测交易是欺诈的，那么这些交易就会被阻止，因此我们无法确定生产系统的精确度和召回率。我们无法确定这些交易是否真的是欺诈行为，因为它们从未发生过。
+- en: 'A larger problem arose when the model was retrained on new data: its accuracy
+    decreased. In this case, the feedback loop caused all the original types of fraudulent
+    transactions to be blocked, so they were unavailable for new training data. The
+    new model was being trained on the residual fraudulent transactions that hadn’t
+    been caught. Stripe’s solution was to relax the rules and allow a small number
+    of charges to go through, even if the model predicted that they would be fraudulent.
+    This allowed it to evaluate the model and provide new, relevant training data.'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当模型基于新数据重新训练时，出现了一个更大的问题：其准确率下降。在这种情况下，反馈循环导致所有原始类型的欺诈交易被阻止，因此它们无法成为新的训练数据。新模型正在训练未被捕获的剩余欺诈交易。Stripe的解决方案是放宽规则，允许少量的收费通过，即使模型预测它们可能是欺诈的。这使得它可以评估模型并提供新的相关训练数据。
+- en: CONSEQUENCES OF FEEDBACK LOOPS
+  id: totrans-26
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 反馈循环的后果
+- en: Feedback loops will often have some consequences that weren’t apparent during
+    their design. It’s essential to keep monitoring the system after it has been deployed
+    to check that the feedback loop is leading to positive change rather than a negative
+    spiral. We suggest using the techniques in [Chapter 7](index_split_012.html#filepos624151)
+    to keep a close eye on the system.
+  id: totrans-27
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 反馈循环通常会产生一些在设计过程中并不明显的后果。在部署后继续监控系统是至关重要的，以确保反馈循环带来的是积极变化而不是负面循环。我们建议使用第7章中的技术密切关注系统。
+- en: 'In the preceding example from Stripe, the feedback loop caused the model’s
+    accuracy to decrease. However, an increase in accuracy can also be an undesirable
+    effect. [YouTube’s recommendation system](https://oreil.ly/QDCC2) is designed
+    to increase the amount of time that people spend watching videos. The feedback
+    from the users means that the model accurately predicts what they will watch next.
+    And it’s been incredibly successful: people watch [over one billion hours](https://oreil.ly/KVF4M)
+    of video on YouTube every day. However, there are concerns that this system leads
+    people toward watching [videos with increasingly extreme content](https://oreil.ly/_Iubw).
+    When systems become very large, it’s extremely hard to anticipate all the consequences
+    of the feedback loop. So proceed with caution and ensure there are safeguards
+    for your users.'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Stripe的前述示例中，反馈循环导致模型的准确率下降。然而，准确率的提高也可能是一个不希望的效果。[YouTube的推荐系统](https://oreil.ly/QDCC2)旨在增加人们观看视频的时间。用户的反馈意味着模型准确预测他们将会观看的内容。这一策略非常成功：人们每天在YouTube上观看[超过十亿小时](https://oreil.ly/KVF4M)的视频。然而，有人担心这一系统会导致用户观看[越来越极端的内容视频](https://oreil.ly/_Iubw)。当系统变得非常庞大时，极其难以预见反馈循环的所有后果。因此，请谨慎行事，并确保为用户设置保护措施。
+- en: As these examples show, feedback loops can be positive and help us obtain more
+    training data that we can use to improve a model and even build a business. However,
+    they can also lead to serious problems. If you have carefully chosen the metrics
+    for your model that ensure your feedback loop will be a positive one, the next
+    step is to learn how to collect feedback, which we will discuss in the next section.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如这些例子所示，反馈循环可以是积极的，并帮助我们获取更多的训练数据，以改善模型甚至构建业务。然而，它们也可能导致严重问题。如果你已经仔细选择了确保反馈循环是积极的模型指标，下一步就是学习如何收集反馈，我们将在下一节中讨论。
+- en: Design Patterns for Collecting Feedback
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 收集反馈的设计模式
+- en: 'In this section, we’ll discuss some common ways of collecting feedback. Your
+    choice of method will depend on a few things:'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一节中，我们将讨论一些常见的收集反馈的方法。你选择的方法将取决于几个因素：
+- en: The business problem you’re trying to solve
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 你试图解决的业务问题
+- en: The type and design of the app or product
+  id: totrans-33
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 应用程序或产品的类型和设计
+- en: 'The type of machine learning model: classification, recommender system, etc.'
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 机器学习模型的类型：分类、推荐系统等。
+- en: 'If you’re planning to collect feedback from the users of your product, it’s
+    very important to inform the user what’s happening so that they can consent to
+    providing feedback. This can also help you collect more feedback: if the user
+    is invested in improving the system, they are more likely to provide feedback.'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你计划从产品用户那里收集反馈，告知用户发生的情况非常重要，这样他们可以同意提供反馈。这也可以帮助你收集更多的反馈：如果用户投入到改进系统中，他们更有可能提供反馈。
+- en: 'We will break down the different options for collecting feedback in the following
+    sections:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在接下来的部分详细解析收集反馈的不同选择：
+- en: '[“Users Take Some Action as a Result of the Prediction”](#filepos1505575)'
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“用户根据预测采取某些行动”](#filepos1505575)'
+- en: '[“Users Rate the Quality of the Prediction”](#filepos1506706)'
+  id: totrans-38
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“用户评价预测的质量”](#filepos1506706)'
+- en: '[“Users Correct the Prediction”](#filepos1508216)'
+  id: totrans-39
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“用户纠正预测”](#filepos1508216)'
+- en: '[“Crowdsourcing the Annotations”](#filepos1510514)'
+  id: totrans-40
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“众包标注”](#filepos1510514)'
+- en: '[“Expert Annotations”](#filepos1512676)'
+  id: totrans-41
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“专家标注”](#filepos1512676)'
+- en: '[“Producing Feedback Automatically”](#filepos1514516)'
+  id: totrans-42
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[“自动产生反馈”](#filepos1514516)'
+- en: While your choice of design pattern will be driven to some extent by the problem
+    that your machine learning pipeline is trying to solve, your choice will affect
+    how you track the feedback and also how you incorporate it back into your machine
+    learning pipeline.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管您的机器学习流水线所要解决的问题在很大程度上会驱动您选择的设计模式，但您的选择将影响您如何跟踪反馈以及如何将其重新整合到您的机器学习流水线中。
+- en: Users Take Some Action as a Result of the Prediction
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户根据预测采取某些行动
+- en: In this method, our model’s predictions are shown directly to a user, who takes
+    some online action as a result. We record this action, and this record provides
+    some new training data to the model.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种方法中，我们将模型的预测直接展示给用户，用户因此采取一些在线行动。我们记录这个行动，并且这条记录为模型提供了一些新的训练数据。
+- en: 'An example of this would be any kind of product recommendation system, such
+    as the one used by Amazon to recommend a next purchase to their users. The user
+    is shown a set of products that the model has predicted will be of interest. If
+    the user clicks on one of these products or goes on to buy the product, the recommendation
+    was a good one. However, there is no information on whether the other products
+    that the user didn’t click on were good recommendations. This is implicit feedback:
+    it does not provide exactly the data that we need to train the model (this would
+    be ranking every single prediction). Instead, the feedback needs to be aggregated
+    over many different users to provide new training data.'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个例子是任何类型的产品推荐系统，比如亚马逊用来向用户推荐下一个购买的系统。系统向用户展示了一组模型预测将感兴趣的产品。如果用户点击了其中一个产品或者继续购买该产品，那么推荐是成功的。然而，关于用户没有点击的其他产品是否是好的推荐则没有信息。这是隐式反馈：它并没有提供我们训练模型所需的精确数据（即对每个预测进行排名）。相反，反馈需要在许多不同的用户上进行聚合，以提供新的训练数据。
+- en: Users Rate the Quality of the Prediction
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户评价预测的质量
+- en: 'With this technique, a model’s prediction is shown to the user, who gives some
+    kind of signal to show that they like or dislike the prediction. This is an example
+    of explicit feedback, where some extra action must be taken by the user to provide
+    new data. The feedback could be a star rating or a simple binary thumbs-up or
+    thumbs-down. This is a good fit for recommender systems and is especially useful
+    for personalization. Care must be taken that the feedback is actionable: a rating
+    of three stars out of five (such as the preceding Netflix example) does not give
+    much information about whether a model’s predictions are useful or accurate.'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种技术，模型的预测显示给用户，用户通过某种信号来表明他们喜欢或不喜欢预测。这是显式反馈的一个例子，用户必须采取额外的行动来提供新的数据。反馈可以是星级评分或简单的二进制赞成或反对。这非常适合推荐系统，尤其对个性化很有用。必须注意反馈是可操作的：例如，在前面提到的Netflix示例中，五颗星中的三颗星并不提供有关模型预测是否有用或准确的太多信息。
+- en: One limitation of this method is that the feedback is indirect—in the recommender
+    system situation, users say what are poor predictions but do not tell you what
+    the correct prediction should be. Another limitation of this system is that there
+    are a number of ways that the feedback can be interpreted. What a user “likes”
+    may not necessarily be something that they want to see more of. For example, in
+    a movie recommendation system, a user may give a thumbs-up to show that they want
+    to see more movies of the genre, by the same director, or starring the same actors.
+    All these nuances are lost when it’s only possible to give binary feedback.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法的一个局限性是反馈是间接的——在推荐系统的情况下，用户表明哪些是不好的预测，但并没有告诉你正确的预测应该是什么。这个系统的另一个限制是反馈可以被解释的方式有很多。用户“喜欢”的东西未必是他们想要看到更多的东西。例如，在电影推荐系统中，用户可能点赞表示他们想看更多同一类型、同一导演或同一演员的电影。当只能提供二进制反馈时，所有这些细微差别都会丢失。
+- en: Users Correct the Prediction
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户纠正预测
+- en: 'This method is an example of explicit feedback, and it works as follows:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法是显式反馈的一个例子，其工作方式如下：
+- en: Predictions from a lower-accuracy model are shown to the user.
+  id: totrans-52
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 从低精度模型得出的预测结果被展示给用户。
+- en: The user accepts the prediction if it is correct or updates it if it is incorrect.
+  id: totrans-53
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果预测结果正确，用户接受该预测；如果不正确，则更新。
+- en: The predictions (now verified by a user) can be used as new training data.
+  id: totrans-54
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 预测结果（现在已由用户验证）可以用作新的训练数据。
+- en: This works best in cases where the user is highly invested in the outcome. A
+    good example of this would be a banking app through which a user can deposit checks.
+    An image recognition model automatically fills in the check amount. If the amount
+    is correct, the user confirms it; if it is incorrect, the user inputs the correct
+    value. In this case, it’s in the user’s interests to enter the correct amount
+    so that the money is deposited into their account. The app becomes more accurate
+    over time as more training data is created by its users. If your feedback loop
+    can use this method, this can be an excellent way to collect a lot of high-quality,
+    new data quickly.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在用户高度关注结果的情况下效果最佳。一个很好的例子是银行应用，用户可以通过该应用存款支票。图像识别模型会自动填写支票金额。如果金额正确，用户确认；如果不正确，则用户输入正确的金额。在这种情况下，用户有兴趣输入正确的金额，以便将钱存入他们的账户。随着用户创建更多的训练数据，该应用随时间变得更加准确。如果您的反馈循环可以使用这种方法，这将是快速收集大量高质量新数据的绝佳方式。
+- en: Care must be taken to only use this method in cases where the objectives of
+    the machine learning system and the user are strongly aligned. If the user accepts
+    incorrect responses because there is no reason for them to put in effort to change
+    it, the training data becomes full of errors and the model does not become more
+    accurate with time. And if there is some gain to the user if they provide incorrect
+    results, this will bias the new training data.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当使用这种方法时，务必确保机器学习系统的目标与用户的目标高度一致。如果用户接受不正确的响应，因为他们没有理由去努力更改它，那么训练数据将充满错误，模型也不会随时间变得更加准确。如果用户提供不正确的结果能够给用户带来一些好处，这将使新的训练数据存在偏差。
+- en: Crowdsourcing the Annotations
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 众包标注
+- en: 'This method is particularly useful if you have a large amount of unlabelled
+    data and it’s not possible to collect labels from users through the normal usage
+    of a product. Many problems in the NLP and computer vision domains fall into this
+    category: it’s easy to collect a large corpus of images, but the data isn’t labelled
+    for the specific use case of your machine learning model. For example, if you
+    want to train an image classification model that classifies cellphone images as
+    either documents or nondocuments, you might have your users take many photos but
+    not supply your labels.'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您有大量未标记的数据并且无法通过产品的正常使用从用户那里收集标签，则此方法特别有用。许多自然语言处理和计算机视觉领域的问题属于此类：很容易收集大量图像语料库，但数据未针对您机器学习模型的特定用例进行标记。例如，如果您想训练一个图像分类模型，将手机图像分类为文档或非文档，您可能会让用户拍摄许多照片但不提供标签。
+- en: In this case, a large pool of unlabelled data is usually collected, which is
+    then passed to a crowdsourcing platform, such as AWS Mechanical Turk or Figure
+    Eight. Human annotators are then paid (usually a small amount) to label the data.
+    This is most suitable for tasks that do not require special training.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，通常会收集大量未标记的数据，然后将其传递给众包平台，如AWS Mechanical Turk或Figure Eight。然后会付给人工标注者一定的费用（通常很少）来标记数据。这最适合不需要特别培训的任务。
+- en: With this method, it’s necessary to control for varying quality of labelling,
+    and the annotation tool is usually set up so that multiple people label the same
+    data example. The [Google PAIR guide](https://oreil.ly/6FMFD) gives some excellent,
+    detailed suggestions for designing annotation tools, but the key thing to consider
+    is that the incentives of the annotators need to be aligned with the model outcomes.
+    The main advantage of this method is that it’s possible to be extremely specific
+    about the new data that’s created so it can exactly fit the needs of a complex
+    model.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用此方法时，有必要控制标注质量的差异，并且通常设置注释工具，使多个人标记同一数据示例。[Google PAIR guide](https://oreil.ly/6FMFD)
+    提供了一些出色且详细的设计注释工具的建议，但需要考虑的关键因素是标注者的激励需要与模型的结果保持一致。此方法的主要优势在于可以对创建的新数据非常具体，以便完全符合复杂模型的需求。
+- en: However, there are a number of drawbacks to this approach—for example, it may
+    not be suitable for private or sensitive data. Also, be careful to ensure that
+    there is a diverse pool of raters that reflect the users of your product and society
+    as a whole. There can be a high cost to this approach too, which may not scale
+    to a large number of users.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这种方法存在一些缺点，例如，可能不适用于私有或敏感数据。此外，务必确保有一个反映产品用户和整个社会的多样化评分池。此方法的成本也可能很高，不一定适合大量用户。
+- en: Expert Annotations
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 专家注释
+- en: 'Expert annotations are set up similar to crowdsourcing, but with carefully
+    chosen annotators. This could be you (the person building the pipeline), using
+    an annotation tool such as [Prodigy](https://prodi.gy) for text data. Or it may
+    be a domain expert—for example, if you are training an image classifier on medical
+    images. This method is especially suitable for the following situations:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 专家注释设置类似于众包，但选择的注释者经过精心挑选。这可能是你（构建流水线的人），使用诸如[Prodigy](https://prodi.gy)这样的文本数据注释工具。或者可能是领域专家，例如，如果你正在对医学图像进行图像分类器的训练。这种方法特别适用于以下情况：
+- en: The data requires some specialist knowledge to annotate.
+  id: totrans-64
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 数据需要一些专业知识来进行注释。
+- en: The data is private or sensitive in some way.
+  id: totrans-65
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 数据在某种方式上是私有或敏感的。
+- en: Only a small number of labels are required (e.g., transfer learning or semi-supervised
+    learning).
+  id: totrans-66
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 只需要少量标签（例如，迁移学习或半监督学习）。
+- en: Mistakes in annotations have high, real-world consequences for people.
+  id: totrans-67
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 注释中的错误对人们有着高度真实世界的影响。
+- en: This method allows the collection of high-quality feedback, but it is expensive,
+    manual, and doesn’t scale well.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此方法允许收集高质量的反馈，但成本高昂，需要手动操作，并且不易扩展。
+- en: Producing Feedback Automatically
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自动产生反馈
+- en: 'In some machine learning pipelines, no human is required for feedback collection.
+    The model makes a prediction, and some future event happens that tells us whether
+    the model was correct or not. In this case, new training data is collected automatically
+    by the system. While this does not involve any separate infrastructure to collect
+    the feedback, it still requires care: unexpected things can happen because the
+    presence of the predictions can perturb the system. The preceding example from
+    Stripe illustrates this well: the model influences its own future training data.[4](#filepos1522361)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些机器学习流水线中，无需人类收集反馈。模型进行预测，然后发生某些未来事件，告诉我们模型是否正确。在这种情况下，系统会自动收集新的训练数据。虽然这不涉及任何单独的基础设施来收集反馈，但仍需小心：由于预测的存在可能会扰乱系统。来自Stripe的上述例子很好地说明了这一点：模型会影响其自身的未来训练数据。[4](#filepos1522361)
+- en: How to Track Feedback Loops
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何跟踪反馈回路
+- en: 'Once you’ve decided which type of feedback loop best fits your business and
+    your type of model, it’s time to incorporate it into your machine learning pipeline.
+    This is where model validation, as we discussed in [Chapter 7](index_split_012.html#filepos624151),
+    becomes absolutely essential: new data will propagate through the system, and,
+    as it does so, it must not cause the system performance to decline against the
+    metrics you are tracking.'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦确定了哪种类型的反馈回路最适合您的业务和您的模型类型，就该将其纳入您的机器学习流水线中了。这就是我们在[第7章](index_split_012.html#filepos624151)讨论的模型验证的重要性所在：新数据将通过系统传播，而且在这个过程中，不能使系统的性能下降违背您正在追踪的指标。
+- en: The key concept here is that every prediction should receive a tracking ID,
+    as shown in [Figure 13-3](#filepos1516508). This can be implemented with some
+    kind of prediction register in which each prediction is stored along with a tracking
+    ID. The prediction and the ID are passed to the application, and then the prediction
+    is shown to the user. If the user gives feedback, the process continues.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关键概念在于每个预测都应该有一个跟踪ID，如[图 13-3](#filepos1516508)所示。可以通过某种预测注册表来实现这一点，其中每个预测都与跟踪ID一起存储。预测和ID传递给应用程序，然后将预测显示给用户。如果用户提供反馈，则该过程继续。
+- en: '![](images/00024.jpg)'
+  id: totrans-74
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00024.jpg)'
+- en: Figure 13-3\. Tracking feedback
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13-3\. 跟踪反馈
+- en: When feedback is collected, it is stored in a feedback register along with that
+    prediction’s tracking ID. A data processing step joins the feedback with the original
+    prediction. This allows you to track the feedback through the data and model validation
+    steps so that you know which feedback is powering the new model version.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当收集到反馈时，它会存储在一个反馈注册表中，与该预测的跟踪 ID 一起。数据处理步骤将反馈与原始预测连接起来。这使您能够通过数据和模型验证步骤跟踪反馈，从而知道哪些反馈推动了新模型版本的产生。
+- en: Tracking Explicit Feedback
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 追踪显式反馈
+- en: 'If the system is collecting explicit feedback, as described previously, there
+    are two possibilities for how to track it:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果系统正在收集显式反馈，如前文所述，有两种跟踪方法：
+- en: Binary feedback
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 二进制反馈
+- en: In most situations, only the feedback that tells you that a prediction is correct
+    can give you new training data with an associated tracking ID. For example, in
+    a multiclass classification system, user feedback only tells you whether the predicted
+    class is correct or not. If the predicted class is marked as incorrect, you don’t
+    know which of the other classes it should be. If the predicted class is correct,
+    the pairing of the data plus the prediction form a new training example. A binary
+    classification problem is the only situation where you can use the feedback that
+    a prediction is incorrect. In this case, this feedback tells us that the example
+    belongs to the negative class.
+  id: totrans-80
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在大多数情况下，只有告诉您预测正确的反馈才能为您提供具有关联跟踪 ID 的新训练数据。例如，在多类分类系统中，用户反馈只告诉您预测的类是否正确。如果预测的类标记为不正确，您不知道应该是其他类中的哪一个。如果预测的类是正确的，数据与预测的配对形成一个新的训练样本。二进制分类问题是唯一可以使用预测不正确反馈的情况。在这种情况下，这个反馈告诉我们这个示例属于负类。
+- en: Reclassification or correction
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重新分类或更正
+- en: When a user gives the model a correct answer, the pairing of the input data
+    plus the new classification form a new training example and should receive a tracking
+    ID.
+  id: totrans-82
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 当用户给出模型的正确答案时，输入数据与新分类的配对形成一个新的训练样本，并应该获得一个跟踪 ID。
+- en: Tracking Implicit Feedback
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 追踪隐式反馈
+- en: Implicit feedback generates binary feedback. If a recommendation system suggests
+    a product and the user clicks on that product, the pairing of the product and
+    the user data form a new training example and receive a tracking ID. However,
+    if the user does not click on a product, this doesn’t mean that the recommendation
+    was bad. In this situation, it may be necessary to wait for many pieces of binary
+    feedback for each product that is recommended before retraining the model.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 隐式反馈生成二进制反馈。如果推荐系统建议一个产品，用户点击了该产品，产品与用户数据的配对形成一个新的训练样本并获得一个跟踪 ID。然而，如果用户没有点击一个产品，这并不意味着推荐是不好的。在这种情况下，可能需要等待许多推荐的产品的二进制反馈，然后重新训练模型。
+- en: Summary
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Feedback loops turn a machine learning pipeline into a cycle and help it grow
+    and improve itself. It’s essential to incorporate new data into the machine learning
+    pipeline to prevent the model from getting stale and having its accuracy drop.
+    Make sure to choose the feedback method that is most aligned with your type of
+    model and its success metrics.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反馈循环将机器学习管道转化为一个循环，并帮助其成长和改进。将新数据整合到机器学习管道中至关重要，以防止模型陈旧化和精度下降。确保选择最符合您模型类型和成功指标的反馈方法。
+- en: 'Feedback loops need careful monitoring. Once you start collecting new data,
+    it’s very easy to violate one of the most fundamental assumptions of many machine
+    learning algorithms: that your training and validation data are drawn from the
+    same distribution. Ideally, both your training and validation data will be representative
+    of the real world that you model, but in practice, this is never the case. So
+    as you collect new data, it’s important to generate new validation datasets as
+    well as training datasets.'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反馈循环需要仔细监控。一旦开始收集新数据，就很容易违反许多机器学习算法的最基本假设之一：您的训练和验证数据来自相同的分布。理想情况下，您的训练和验证数据将代表您建模的真实世界，但在实践中，这从未发生过。因此，在收集新数据时，生成新的验证数据集以及训练数据集非常重要。
+- en: Feedback loops require you to work closely with the designers, developers, and
+    UX experts involved in the product. They need to build the systems that will capture
+    the data and improve the model. It’s important that you work with them to connect
+    the feedback to improvements users will see and to set expectations for when the
+    feedback will change the product. This effort will help keep users invested in
+    giving feedback.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反馈循环要求您与产品相关的设计师、开发人员和用户体验专家密切合作。他们需要建立捕获数据并改进模型的系统。重要的是您与他们合作，将反馈与用户将看到的改进联系起来，并设定反馈何时将改变产品的期望。这一努力将有助于保持用户对提供反馈的投入。
+- en: One note of caution is that feedback loops can reinforce any harmful bias or
+    unfairness in the initial model. Never forget that there can be a person on the
+    end of this process! Consider offering users a method to give feedback that a
+    model has caused harm to someone so that it’s easy for them to flag situations
+    that should be fixed immediately. This will need far more details than a one to
+    five star rating.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个需要注意的地方是，反馈循环可能会强化初始模型中的任何有害偏见或不公平。永远不要忘记，这个过程可能会影响到某个人！考虑为用户提供一种方法，使其能够反馈模型对某人造成了伤害，以便他们能够轻松标记需要立即修复的情况。这将需要比一到五星评级更详细的细节。
+- en: Once your feedback loop is set up and you are able to track the model’s predictions
+    and responses to predictions, you have all the pieces of the pipeline.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您设置好反馈循环，并能够跟踪模型的预测和对预测的响应，您就拥有了管道的所有组成部分。
+- en: '[1  ](#filepos1493321) For more details, see [Google’s PAIR manual](https://oreil.ly/N__j4).'
+  id: totrans-91
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[1  ](#filepos1493321) 更多详细信息，请参阅[Google的PAIR手册](https://oreil.ly/N__j4)。'
+- en: '[2  ](#filepos1497748) Feedback should be easy to collect and give actionable
+    results.'
+  id: totrans-92
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[2  ](#filepos1497748) 反馈应该易于收集，并提供可操作的结果。'
+- en: '[3  ](#filepos1499262) See Michael Manapat’s talk, “Counterfactual Evaluation
+    of Machine Learning Models,” (Presentation, PyData Seattle 2015), [https://oreil.ly/rGCHo](https://oreil.ly/rGCHo).'
+  id: totrans-93
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[3  ](#filepos1499262) 见Michael Manapat的演讲《机器学习模型的反事实评估》，（演示文稿，PyData Seattle
+    2015），[https://oreil.ly/rGCHo](https://oreil.ly/rGCHo)。'
+- en: '[4  ](#filepos1515243) More on this can be found in D. Sculley et al.’s “Hidden
+    Technical Debt in Machine Learning Systems,” in Advances in Neural Information
+    Processing Systems 28 (NIPS, 2015), [https://oreil.ly/eUyZM](https://oreil.ly/eUyZM).'
+  id: totrans-94
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[4  ](#filepos1515243) 更多相关内容请参阅D. Sculley等人的文章《机器学习系统中的隐藏技术债务》，载于《神经信息处理系统进展》第28卷（NIPS，2015年），[https://oreil.ly/eUyZM](https://oreil.ly/eUyZM)。'

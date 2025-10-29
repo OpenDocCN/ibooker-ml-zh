@@ -1,0 +1,2274 @@
+- en: Chapter 6\. Explainable Boosting Machines and Explaining XGBoost
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第六章。可解释提升机和解释XGBoost
+- en: This chapter explores explainable models and post hoc explanation with interactive
+    [examples](https://oreil.ly/machine-learning-high-risk-apps-code) relating to
+    consumer finance. It also applies the approaches discussed in [Chapter 2](ch02.html#unique_chapter_id_2)
+    using explainable boosting machines (EBMs), monotonically constrained XGBoost
+    models, and post hoc explanation techniques. We’ll start with a concept refresher
+    for additivity, constraints, partial dependence and individual conditional expectation
+    (ICE), Shapley additive explanations (SHAP), and model documentation.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章探讨了可解释模型和事后解释，涉及与消费金融相关的互动[示例](https://oreil.ly/machine-learning-high-risk-apps-code)。它还应用了第二章讨论的方法，使用可解释提升机（EBMs）、单调约束XGBoost模型和事后解释技术。我们将从可加性、约束、偏依赖和个体条件期望（ICE）、Shapley可加解释（SHAP）和模型文档开始进行概念复习。
+- en: We’ll then explore an example credit underwriting problem by building from a
+    penalized regression, to a generalized additive model (GAM), to an EBM. In working
+    from simpler to more complex models, we’ll document explicit and deliberate trade-offs
+    regarding the introduction of nonlinearity and interactions into our example probability
+    of default classifier, all while preserving near-total explainability with additive
+    models.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们将通过从惩罚回归到广义可加模型（GAM）再到EBM的方式来探讨一个信用承保问题示例。在从简单到复杂的模型中工作时，我们将记录关于将非线性和交互引入示例违约概率分类器的明确和慎重的权衡，同时保持几乎完全可解释性。
+- en: Note
+  id: totrans-3
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Recall from [Chapter 2](ch02.html#unique_chapter_id_2) that an *interpretation*
+    is a high-level, meaningful mental representation that contextualizes a stimulus
+    and leverages human background knowledge, whereas an *explanation* is a low-level,
+    detailed mental representation that seeks to describe a complex process. Interpretation
+    is a much higher bar than explanation, rarely achieved by technical approaches
+    alone.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回顾自[第二章](ch02.html#unique_chapter_id_2)，*解释*是指对刺激进行上下文化和利用人类背景知识的高层次有意义的心理表征，而*说明*则是试图描述复杂过程的低层次详细心理表征。解释远比说明要高得多，很少通过单纯技术手段实现。
+- en: After that, we’ll consider a second approach to predicting default that allows
+    for complex feature interactions, but controls complexity with monotonic constraints
+    based in causal knowledge. Because the monotonically constrained gradient boosting
+    machine (GBM) won’t be explainable on its own, we’ll pair it with robust post
+    hoc explanation techniques for greatly enhanced explainability. Finally, the chapter
+    will close with a discussion of the pros and cons of popular Shapley value methods.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之后，我们将考虑第二种预测违约的方法，允许复杂的特征交互，但通过基于因果知识的单调约束控制复杂性。由于单调约束梯度增强机（GBM）本身无法解释，我们将与强大的事后解释技术配对，以极大增强可解释性。最后，本章将讨论流行的Shapley值方法的优缺点。
+- en: 'Concept Refresher: Machine Learning Transparency'
+  id: totrans-6
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概念复习：机器学习透明度
+- en: Before diving into technical examples, let’s review some of the key concepts
+    from [Chapter 2](ch02.html#unique_chapter_id_2). Because our first example will
+    highlight the strengths of the GAM family of models, we’ll address additivity
+    next, particularly in comparison to models that allow for high-degree interactions.
+    Our second example will use monotonic constraints to effect an informal causality
+    approach with XGBoost, so we’ll briefly highlight the connections between causation
+    and constraints. We’ll also be using partial dependence and ICE to compare and
+    assess our different approaches’ treatments of input features, so we’ll need a
+    quick refresh on the strengths and weaknesses of those post hoc explainers, and
+    we’ll need to go over the importance of model documentation one more time—because
+    model documentation is that important.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在深入技术示例之前，让我们回顾一下[第二章](ch02.html#unique_chapter_id_2)中的一些关键概念。因为我们的第一个例子将突显GAM系列模型的优势，所以下一步我们将特别讨论可加性，特别是与允许高阶交互的模型进行比较。我们的第二个例子将使用单调约束来实现与XGBoost的非正式因果关系方法，因此我们将简要介绍因果与约束之间的联系。我们还将使用偏依赖和ICE来比较和评估我们不同方法对输入特征处理的方式，因此我们需要快速复习这些事后解释器的优缺点，并再次强调模型文档的重要性——因为模型文档非常重要。
+- en: Additivity Versus Interactions
+  id: totrans-8
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 可加性与交互作用
+- en: A major distinguishing characteristic of unexplainable machine learning is its
+    propensity to create extremely high-degree interactions between input features.
+    It’s thought that this ability to consider the values of many features in simultaneous
+    combination increases the predictive capacity of ML models versus more traditional
+    linear or additive models, which tend to consider input features independently.
+    But it’s been shown that unexplainable models are [not more accurate for structured
+    data](https://oreil.ly/ztXi8), like credit underwriting data, and all those interactions
+    in unexplainable models are very difficult for people to understand. Moreover,
+    high-degree interactions also lead to instability, because small changes in one
+    or few a features can interact with other features to dramatically change model
+    outcomes. And high-degree interactions lead to overfitting, because today’s relevant
+    17-way interactions are likely not tomorrow’s relevant 17-way interactions.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无法解释的机器学习的一个主要特征是其倾向于在输入特征之间创建极高程度的相互作用。人们认为，这种能力同时考虑许多特征值的组合，增加了ML模型相对于更传统的线性或加法模型的预测能力，后者倾向于独立考虑输入特征。但已经显示，无法解释的模型在类似信用核准数据的结构化数据上并不更准确，并且这些模型中的所有相互作用对人类来说非常难以理解。此外，高度相互作用还导致不稳定性，因为一两个特征的微小变化可以与其他特征相互作用，从而显著改变模型结果。高度相互作用还导致过拟合，因为今天相关的17路相互作用可能明天就不再相关了。
+- en: Another important characteristic of ML is the ability to learn nonlinear phenomena
+    in training data, automatically. It turns out that if we can separate nonlinearity
+    from interactions, we can realize substantial boosts in predictive quality, while
+    preserving a great deal of explainability, if not complete explainability. This
+    is the magic of GAMs. And EBMs are the next step that allow us to introduce a
+    sane number of two-way interactions, in an additive fashion, that can result in
+    even better performance. Later in this chapter, the GAM family example (see [“The
+    GAM Family of Explainable Models”](#gam_family)) aims to provide an object lesson
+    in these trade-offs, starting with a straightforward, additive, linear model baseline,
+    then introducing nonlinearity with GAMs, and finally introducing understandable
+    two-way interactions with EBMs. When we introduce nonlinearity and interactions
+    carefully, as opposed to assuming more complexity is always better, it enables
+    us to justify our modeling approach, to tether it to real-world performance concerns,
+    and to generate a lot of interesting plots of feature behavior. These justifications
+    and plots are also great materials for subsequent model documentation, to be addressed
+    in greater detail shortly.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML的另一个重要特征是能够自动学习训练数据中的非线性现象。事实证明，如果我们能够将非线性与相互作用分离开来，我们可以实现显著的预测质量提升，同时保持相当多的可解释性，即使不是完全的可解释性。这是GAM的魔力所在。而EBM则是下一步，允许我们以加法的方式引入适度数量的二路相互作用，可能会导致更好的性能。本章后面，GAM系列示例（见[“可解释模型的GAM系列”](#gam_family)）旨在提供这些权衡的教训，从基线开始的简单、加法线性模型，然后通过GAM引入非线性，最后通过EBM引入可理解的二路相互作用。当我们谨慎引入非线性和相互作用，而不是认为更复杂总是更好时，它使我们能够证明我们的建模方法，将其捆绑到现实世界的性能关注点，并生成许多有趣的特征行为图。这些理由和图也是后续模型文档的重要材料，不久将更详细地讨论。
+- en: Note
+  id: totrans-11
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The family of models that typically includes variants of GLMs, GAMs, GA2M, EBMs,
+    and additive index models (AIMs) has been discussed in statistical literature
+    for years. This type of modeling is sometimes referred to as the functional analysis
+    of variance (fANOVA) framework.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 多年来，在统计文献中讨论的模型系列通常包括GLM的变体、GAM、GA2M、EBM和加法指数模型（AIMs）。这种建模类型有时被称为方差的功能分析（fANOVA）框架。
+- en: Steps Toward Causality with Constraints
+  id: totrans-13
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 采取有约束的因果步骤
+- en: Causal discovery and inference are important directions in the future of predictive
+    modeling. Why? Because when we build on correlations with ML, we are often building
+    on sand. Correlations change constantly in the real world and can be spurious
+    or just wrong. If we can base models on causal relationships instead of just memorializing
+    some snapshot of complex correlations with an ML model, we greatly decrease overfitting,
+    data drift, and social bias risks. As of now, causal methods tend to be somewhat
+    difficult for most organizations to implement, so our monotonic constraints example
+    (see [“Constrained and Unconstrained XGBoost”](#mgbm)) highlights a simple and
+    easy step we can take to inject causality into ML models. If we can use our brains,
+    or simple but robust experiments, to understand the directionality of a causal
+    relationship in the real world, we can use monotonic constraints to enforce that
+    directionality in our XGBoost models. For instance, if we *know* that an increasing
+    number of late payments are an indicator of future default, we can use monotonic
+    constraints to insist that an XGBoost classifier generate higher probabilities
+    of default for higher numbers of late payments. Though we might not see gains
+    in in silico test data performance with constraints, constraints do mitigate real-world
+    instability, overfitting, and sociological bias risks, and they likely increase
+    in vivo performance.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因果发现和推断是预测建模未来重要的方向。为什么呢？因为当我们基于机器学习中的相关性构建模型时，我们常常是在搭建在流沙之上。现实世界中的相关性不断变化，可能是虚假的或错误的。如果我们能够基于因果关系而不仅仅是在复杂相关性的某个快照上建模，我们可以大大减少过拟合、数据漂移和社会偏见的风险。目前来看，因果方法对大多数组织来说实施起来可能有些困难，因此我们的单调约束示例（见[“约束与非约束的XGBoost”](#mgbm)）突出了我们可以采取的一个简单而易行的步骤，将因果性注入到机器学习模型中。例如，如果我们*知道*迟付款的增加是未来违约的一个指标，我们可以使用单调约束来要求XGBoost分类器对更多的迟付款生成更高的违约概率。虽然我们可能在虚拟测试数据的性能中看不到约束的增益，但约束确实可以减少现实世界中的不稳定性、过拟合和社会偏见风险，而且很可能提高实际应用的性能。
+- en: Partial Dependence and Individual Conditional Expectation
+  id: totrans-15
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 偏依赖和个体条件期望
+- en: Partial dependence is an established and highly intuitive post hoc explanation
+    method that describes the estimated average behavior of a model across the values
+    of some input feature. Unfortunately, it’s fallible. It fails to represent model
+    behavior accurately in the presence of correlation or interactions between input
+    features, and it can even be [maliciously altered](https://oreil.ly/z2xAW). But,
+    because understanding the average behavior of a feature in a model is so important,
+    many techniques have been developed to address the failings of partial dependence.
+    In particular, [accumulated local effect](https://oreil.ly/kEIPp) is the most
+    direct replacement for partial dependence and was designed specifically to address
+    the shortcomings of partial dependence. Readers can try ALE with packages like
+    [ALEPlot](https://oreil.ly/7vv4h) or [ALEPython](https://oreil.ly/To7PF).
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 偏依赖是一种成熟且高度直观的事后解释方法，描述模型在某些输入特征的值范围内的估计平均行为。不幸的是，它是有缺陷的。在输入特征之间存在相关性或相互作用时，它无法准确表示模型的行为，甚至可能被[恶意篡改](https://oreil.ly/z2xAW)。但由于理解模型中特征的平均行为如此重要，因此已开发了许多技术来解决偏依赖的缺陷。特别是，[累积局部效应](https://oreil.ly/kEIPp)是偏依赖的直接替代品，专门设计用于解决其缺点。读者可以使用像[ALEPlot](https://oreil.ly/7vv4h)或[ALEPython](https://oreil.ly/To7PF)这样的软件包尝试ALE。
+- en: 'In the examples that follow, we’ll make heavy use of another partial dependence
+    derivative to get a solid understanding of feature behavior in our models. First
+    introduced in [“Peeking Inside the Black Box: Visualizing Statistical Learning
+    with Plots of Individual Conditional Expectation”](https://oreil.ly/MruUv), ICE
+    pairs plots of local behavior of the model with respect to single individuals
+    with partial dependence. This enables us to compare estimated average behavior
+    with descriptions of local behavior, and when partial dependence and ICE curves
+    diverge, to decide for ourselves if partial dependence looks trustworthy or if
+    it looks to be affected by correlations or interactions in input variables. Of
+    course, ICE is not without its own problems. The most common problem with ICE
+    is the consideration of unrealistic data values, and when interpreting ICE, it’s
+    important to put the most mental weight on values of the input feature that are
+    most similar to those in the original row of data being considered.'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的示例中，我们将大量使用另一个偏依赖导数来深入理解模型中特征行为的表现。 首次引入于[“窥视黑匣子：用个体条件期望的图形可视化统计学习”](https://oreil.ly/MruUv)，ICE图将模型对单个个体的局部行为与偏依赖相配对。
+    这使我们能够比较估计的平均行为与局部行为的描述，当偏依赖和ICE曲线分歧时，我们可以自行决定偏依赖看起来是否可信，或者它是否受到输入变量之间的相关性或交互影响。
+    当然，ICE也不是没有问题的。 ICE的最常见问题是考虑到了不现实的数据值，当解释ICE时，重要的是将最大的精神压力放在与正在考虑的原始数据行中最相似的输入特征值上。
+- en: Let’s work through all of this in an example. In the bottom panel of [Figure 6-1](#pd_ice_example),
+    we can see the partial dependence and ICE for a penalized logistic regression
+    model and for the input feature `PAY_0` (a customer’s repayment status on their
+    most recent bill). Higher values of `PAY_0` indicate greater lateness in payment.
+    ICE curves are generated for individuals who sit at the deciles of predicted probability.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们通过一个例子来解释所有这些。 在[图6-1](#pd_ice_example)的底部面板中，我们可以看到一个经过惩罚的逻辑回归模型和输入特征`PAY_0`（客户最近账单的还款状态）的偏依赖和ICE。
+    `PAY_0`的较高值表示还款的延迟较大。 ICE曲线是为预测概率分位数处的个体生成的。
+- en: Note the smooth increase from lower probabilities of default when a customer
+    is not late on their most recent payment, to high probabilities of default when
+    a customer is late. This makes sense in context. It aligns with reasonable expectations
+    and domain knowledge. Notice also that ICE and partial dependence do not diverge—they
+    are highly aligned. This will always be the case in linear models, but it also
+    shows us that partial dependence is likely trustworthy for this model and dataset.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意在客户最近一次支付没有迟到时，默认概率从较低的值平稳增加到客户迟到时的高概率。 在此情境中这是合理的期望，并与领域知识一致。 还请注意，ICE和偏依赖并不发散——它们高度一致。
+    这在线性模型中始终如此，但这也表明偏依赖对于这个模型和数据集可能是可信的。
+- en: So, what’s going on in the top panel of this figure? That’s where we try to
+    decide if the model is learning robust signals from the training data. The first
+    thing you might notice is a histogram. We use that histogram to look for stability
+    problems in model predictions. ML models typically only learn from data, so if
+    there is not much data, as is the case with `PAY_0 > 1` in our training data,
+    the ML model can’t learn much, and their predictions in those data domains will
+    be unstable, if not nonsensical. Some other packages use error bars for the same
+    purpose in partial dependence or shape function plots. That’s also fine. Both
+    visualization techniques are trying to draw your eye to a region of data where
+    your ML model is unstable and probably making silly decisions.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，在本图的顶部面板中发生了什么？ 这是我们试图确定模型是否从训练数据中学习到了稳健的信号。 你可能注意到的第一件事是一个直方图。 我们使用该直方图来寻找模型预测中的稳定性问题。
+    机器学习模型通常只能从数据中学习，因此如果在我们的训练数据中存在`PAY_0 > 1`的情况下数据量不足，机器学习模型就无法学到太多，它们在这些数据域中的预测将是不稳定的，甚至是荒谬的。
+    一些其他软件包使用误差条来绘制偏依赖或形状函数图的相同目的。 这也是可以接受的。 这两种可视化技术都试图将您的注意力引向模型预测不稳定且可能做出愚蠢决策的数据区域。
+- en: '![mlha 0601](assets/mlha_0601.png)'
+  id: totrans-21
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0601](assets/mlha_0601.png)'
+- en: Figure 6-1\. A partial dependence plot for a GLM trained later in this chapter
+    that incorporates ICE, histograms, and conditional means to increase trustworthiness
+    and effectiveness ([digital, color version](https://oreil.ly/7vLOU))
+  id: totrans-22
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-1\. 本章后期训练的包含ICE、直方图和条件均值的偏依赖绘图，以增加其可信度和效果（[数字，彩色版本](https://oreil.ly/7vLOU)）
+- en: This is where we try to decide if the model is representing our training data
+    well, and the top panel can also clue us in to problems with data sparsity and
+    prediction reliability. In the top panel, the first thing we notice is a histogram.
+    We use that histogram to look for reliability problems in model predictions. Readers
+    will see that there is also a line overlaid on the histogram. That line is the
+    conditional mean of the target for the corresponding histogram bin. If the model
+    learned from the data correctly, the partial dependence and ICE in the bottom
+    panel should roughly mirror the conditional mean line in the top panel. Sparsity
+    is also an important caveat to keep in mind when judging whether model behavior
+    aligns with the conditional mean of the target. In [Figure 6-1](#pd_ice_example),
+    we see a precipitous drop in the conditional mean at `PAY_0 = 6`, or six months
+    late for the most recent bill. However, there’s no data to support this drop.
+    The histogram bin is basically empty, and the drop is probably just irrelevant
+    noise. Luckily, our well-behaved logistic regression model has no choice but to
+    ignore this noise and keep pushing the probability of default monotonically higher
+    as `PAY_0` increases. With more complex models for the same data, we will need
+    to apply monotonic constraints to ensure that the model follows causal relationships
+    instead of memorizing irrelevant noise with no data support.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是我们尝试确定模型是否很好地代表我们的训练数据，并且顶部面板也可以提示我们数据稀疏性和预测可靠性的问题。在顶部面板中，我们首先注意到的是一个直方图。我们使用该直方图来查找模型预测中的可靠性问题。读者将看到直方图上还叠加了一条线。该线是相应直方图箱的目标条件均值。如果模型正确地从数据中学习，底部面板中的部分依赖和ICE应该大致反映顶部面板中的条件均值线。当评估模型行为是否与目标的条件均值一致时，数据稀疏性也是一个重要的注意事项。在[图6-1](#pd_ice_example)中，我们看到在`PAY_0
+    = 6`时，最近账单逾期六个月的条件均值急剧下降。然而，没有数据支持这种下降。直方图箱基本上是空的，这种下降可能只是无关紧要的噪声。幸运的是，我们表现良好的逻辑回归模型别无选择，只能忽略这种噪声，将违约概率单调地随着`PAY_0`的增加而推高。对于相同数据的更复杂模型，我们需要应用单调约束，以确保模型遵循因果关系而不是记忆无数据支持的无关噪声。
+- en: To quote the important explainability researcher Przemysław Biecek, “Don’t explain
+    without context!” That means we need to think about the correlations, interactions,
+    and the security of the datasets we’re using to generate partial dependence and
+    ICE—typically validation, test, or other interesting holdout samples. If those
+    datasets don’t align with the correlations and interactions in training data,
+    or the sample could have been intentionally altered, we’ll get different results
+    than we saw in training. This can raise a number of questions. Was the training
+    partial dependence correct? Does our model actually behave differently with new
+    data, or are the new correlations and interactions in this sample causing partial
+    dependence to be less trustworthy?
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 引用重要的可解释性研究者普热日姆沃夫·比切克的话：“不要脱离上下文来解释！”这意味着我们需要考虑我们用来生成部分依赖和ICE的数据集的相关性、交互作用和安全性
+    —— 通常是验证、测试或其他有趣的留存样本。如果这些数据集与训练数据中的相关性和交互作用不一致，或者样本可能被故意改变，那么我们得到的结果就会与训练中看到的不同。这可能会引发一系列问题。训练时的部分依赖是正确的吗？我们的模型在新数据上实际上表现不同吗，还是这个样本中的新相关性和交互作用使部分依赖的可信度降低？
+- en: These are all reasons that we pair partial dependence with ICE. As a local explanation
+    technique, ICE is less susceptible to global changes in correlations and interactions.
+    If something looks off with partial dependence, first check if partial dependence
+    follows the local behavior of ICE curves or if it diverges from the ICE curves.
+    If it diverges, it’s likely safer to take our explanatory information from ICE,
+    and if possible, to investigate what distribution, correlation, interaction, or
+    security problems are altering the partial dependence.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些都是我们将部分依赖与ICE结合的原因。作为一种局部解释技术，ICE对于全局相关性和交互作用的变化不太敏感。如果部分依赖看起来有些不对劲，首先检查一下部分依赖是否遵循ICE曲线的局部行为，或者是否与ICE曲线有所不同。如果有不同，从ICE中获取解释信息可能更为安全，如果可能的话，还要调查分布、相关性、交互或安全问题是否改变了部分依赖。
+- en: Shapley Values
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 夏普利值
+- en: Recall that SHAP is a way to generate local feature attribution values with
+    a great deal of theoretical support (at least by ML standards). A SHAP value tells
+    us how much a feature’s value for a certain row moved the model prediction away
+    from the mean prediction. But how does SHAP do it? It does it by “removing” the
+    feature from that row’s prediction repeatedly and in concert with other removed
+    features. By removing features and measuring differences in the model prediction,
+    we start to get a good picture of how each feature affects each prediction.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SHAP 是一种生成本地特征归因值的方法，具有相当多的理论支持（至少按照机器学习的标准来看）。一个 SHAP 值告诉我们，某行的某个特征值如何将模型预测从平均预测中移开。但是，SHAP
+    是如何做到的呢？它通过反复“移除”该行预测中的特征，并与其他移除的特征协同作用来实现。通过移除特征并测量模型预测的差异，我们开始得到每个特征如何影响每个预测的清晰图像。
+- en: Note
+  id: totrans-28
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Remember from [Chapter 2](ch02.html#unique_chapter_id_2) that Shapley values
+    are a post hoc explanation technique, borrowed from economics and game theory,
+    that decompose model predictions into contributions from each input feature.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请回忆[第 2 章](ch02.html#unique_chapter_id_2)，Shapley 值是一种事后解释技术，借鉴于经济学和博弈论，将模型预测分解为每个输入特征的贡献。
+- en: Because SHAP can use *background* datasets, or specific datasets from which
+    to draw random samples to use as a substitute for removed features, we have to
+    consider [context](https://oreil.ly/HNpls) in both the dataset to be explained
+    and the background dataset. Because of the definition of partial dependence and
+    ICE, we usually use very simple background datasets for these techniques, and
+    we may not even think of them as background datasets at all. We are essentially
+    just replacing the value for an entire feature (partial dependence) or a row (ICE)
+    with some known value of that feature in order to generate a curve. When it comes
+    to Shapley values, we have a choice for (1) which observations we explain (anything
+    from a single row to an entirely new sample of data) and (2) which background
+    dataset to use when generating Shapley values (anything from not using a background
+    set, to using random data, to using highly massaged background data designed to
+    address context or causality issues).
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 SHAP 可以使用*背景*数据集，或者从中抽取随机样本作为替代移除特征的数据集，我们必须考虑[上下文](https://oreil.ly/HNpls)
+    ，无论是在要解释的数据集还是背景数据集中。由于部分依赖和ICE的定义，我们通常对这些技术使用非常简单的背景数据集，甚至可能根本不将它们视为背景数据集。我们基本上只是用整个特征的某个已知值（部分依赖）或一行的某个已知值（ICE）替换值，以生成曲线。关于
+    Shapley 值，我们可以选择(1)解释哪些观测（从单行到完全新的数据样本）和(2)生成 Shapley 值时使用哪个背景数据集（从不使用背景集，到使用随机数据，到使用高度修饰的背景数据，旨在解决上下文或因果关系问题）。
+- en: In addition to considering the correlations, interactions, and security of the
+    dataset we are explaining, we also have to ask whether our choice of background
+    is appropriate and whether explanations make sense in the context in which they
+    will be judged. We’ll go into detail later in the chapter as to how we can choose
+    an appropriate background dataset for our Shapley value explanations, depending
+    on the question that our explanations are trying to answer. In practice, this
+    complex analysis often boils down to computing explanations on a few different
+    datasets and making sure results are salient and stable. Computing Shapley-based
+    explanations also means documenting the background dataset used and the reasons
+    for choosing this dataset.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了考虑我们正在解释的数据集的相关性、交互作用和安全性之外，我们还必须询问我们选择的背景是否合适，解释是否在其将被评判的环境中有意义。我们将在本章后面详细介绍如何为我们的
+    Shapley 值解释选择合适的背景数据集，这取决于我们的解释试图回答的问题。实际上，这种复杂的分析通常归结为在几个不同的数据集上计算解释，并确保结果显著和稳定。计算基于
+    Shapley 的解释还意味着记录所使用的背景数据集及选择该数据集的原因。
+- en: Model Documentation
+  id: totrans-32
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型文档
+- en: Model documentation is the physical manifestation of accountability in large
+    organizations. When we have to write a document about a model we built, knowing
+    that our name will be ascribed to the same document, we hope that this encourages
+    more deliberate design and implementation choices. And if we don’t make sensible
+    choices or document bad choices, or the documentation is clearly missing or dishonest,
+    there can be consequences for our poor model building. Model documentation is
+    also important for maintenance and incident response. When we’ve moved on to our
+    next big data science job, and our older models start getting stale and causing
+    problems, documentation enables a new set of practitioners to understand how the
+    model was intended to work, how to maintain it in future iterations, and how to
+    fix it.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型文档是大型组织中责任追溯的实体表现。当我们必须撰写关于我们构建的模型的文档时，知道我们的名字将与同一份文档相关联，我们希望这能促使更多慎重的设计和实施选择。如果我们没有做出明智的选择或者记录了不良选择，或者文档显然缺失或不诚实，我们的模型构建可能会受到影响。模型文档对于维护和事件响应也非常重要。当我们转向下一个重要的数据科学工作时，我们的旧模型开始变得陈旧并引发问题时，文档能让新一代从业者理解模型的预期工作方式，如何在将来迭代中维护它，以及如何修复它。
+- en: 'There are now several standards for model documentation, including the following:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在有几个模型文档的标准，包括以下内容：
+- en: '[Model cards](https://oreil.ly/h7eJC), with Google-provided [example model
+    cards](https://oreil.ly/OJkfE)'
+  id: totrans-35
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[模型卡片](https://oreil.ly/h7eJC)，带有由Google提供的[示例模型卡片](https://oreil.ly/OJkfE)。'
+- en: Model risk management in-depth documentation; see the [2021 model risk management
+    guidance](https://oreil.ly/XDF9u) from the US Office of the Comptroller of the
+    Currency
+  id: totrans-36
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型风险管理深入文档；请参阅来自美国国家银行监察官办公室的[2021模型风险管理指南](https://oreil.ly/XDF9u)
+- en: The EU Artificial Intelligence Act [documentation template](https://oreil.ly/tyS-i);
+    see Document 2, Appendix IV
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 欧盟人工智能法案的[文档模板](https://oreil.ly/tyS-i)；请参见文档2，附录IV
+- en: Notice that all of these templates come from either a leading commercial user
+    and developer of ML, or a very serious government body. If readers have avoided
+    model documentation until now, expect that to change in the future as regulations
+    are enacted, and especially for important applications of ML. All of these templates
+    also benefit greatly from explainable models and post hoc explanation, because
+    increased transparency is yet a another goal and benefit of model documentation.
+    Transparency in ML models allows us to understand, and then to justify, design
+    and implementation trade-offs. If what we see in an explainable model or post
+    hoc explanation result appears reasonable and we can write a few commonsense sentences
+    to justify the observed outcomes, that’s what we’re going for in this chapter.
+    If, instead, we’re using an unexplainable model and don’t understand how design
+    and implementation trade-offs affect model behavior, our documented justifications
+    will likely be much weaker, and open us and our model up to potentially unpleasant
+    external scrutiny.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，所有这些模板都来自于领先的商业用户和机器学习开发者，或者非常严肃的政府机构。如果读者直到现在都避免模型文档，预计随着法规的颁布而会改变，特别是对于机器学习的重要应用。所有这些模板还极大地受益于可解释模型和事后解释，因为增加的透明度是模型文档的另一个目标和好处。机器学习模型的透明度使我们能够理解，并且能够证明设计和实施的权衡。如果我们在可解释模型或事后解释的结果中看到的结果似乎合理，并且我们可以写几句常识性的句子来证明观察到的结果，那就是我们在本章中追求的。如果相反，我们使用的是不可解释的模型，并且不理解设计和实施权衡如何影响模型行为，我们的文档化理由可能会弱化，从而使我们和我们的模型面临潜在的不愉快的外部审查。
+- en: The GAM Family of Explainable Models
+  id: totrans-39
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 可解释模型的GAM家族
+- en: In this section, we’ll form a baseline with a linear additive penalized regression
+    model, then compare that baseline to a GAM that allows for complex nonlinearity,
+    but in an independent, additive, and highly explainable fashion. We’ll then compare
+    the GLM and GAM to an EBM with a small number of two-way interactions. Because
+    all of our models are constructed with additive independent functional forms,
+    and because we will use only a small number of meaningful interactions, all our
+    models will be very explainable. Additivity will enable us to make clear and justifiable
+    choices about introducing nonlinearity and interactions.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将形成一个基准线性累加惩罚回归模型，然后将该基准与允许复杂非线性但以独立、累加和高度可解释方式进行的GAM进行比较。然后我们将GLM和GAM与具有少量二路交互的EBM进行比较。因为我们所有的模型都是以累加独立的函数形式构建的，并且因为我们将只使用少量有意义的交互作用，所以我们所有的模型都将是非常可解释的。累加性将使我们能够对引入非线性和交互作用做出清晰和有理的选择。
+- en: Note
+  id: totrans-41
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Progressing from GLM, to GAM, to EBM is a generalizable workflow that allows
+    us to make explainable, empirical, and deliberate decisions about introducing
+    nonlinearity (via GAM) and interactions (via EBM) into our models while comparing
+    results to a baseline (GLM).
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从GLM到GAM再到EBM是一个通用的工作流程，允许我们对引入非线性（通过GAM）和交互作用（通过EBM）到我们的模型中做出可解释、经验和有意识的决策，同时将结果与基线（GLM）进行比较。
+- en: Elastic Net–Penalized GLM with Alpha and Lambda Search
+  id: totrans-43
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 弹性网-惩罚GLM与Alpha和Lambda搜索
+- en: 'As the name suggests, GLMs extend the idea of an ordinary linear regression
+    and generalize for error distributions belonging to exponential families, in addition
+    to the Gaussian distribution of error used in standard linear regression. Another
+    vital component of a GLM is the link function that connects the expected value
+    of the response to the linear components. Since this link function can be any
+    monotonic differentiable function, GLMs can handle a wide variety of distributions
+    of training data outcome values: linear, binomial (as in our current example),
+    Poisson, and several others. Penalizing a GLM refers to using sophisticated constraints
+    and iterative optimization methods to handle correlations, feature selection,
+    and outliers. Putting all these together results in a robust modeling technique
+    with good predictive power and very high explainability.'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如其名所示，广义线性模型（GLMs）扩展了普通线性回归的思想，并且泛化到属于指数族的误差分布，除了标准线性回归中使用的高斯分布误差之外。GLM的另一个重要组成部分是连接响应期望值与线性分量的链接函数。由于此链接函数可以是任何单调可微的函数，GLMs可以处理各种训练数据结果值的分布：线性的、二项式的（就像我们当前的例子中），泊松分布，以及其他几种。对GLM进行惩罚是指使用复杂的约束和迭代优化方法来处理相关性、特征选择和异常值。所有这些综合起来形成了一种具有良好预测能力和非常高可解释性的稳健建模技术。
+- en: '[Elastic net](https://oreil.ly/K7_R0) is a popular regularization technique
+    that combines the advantages of both [L1 (LASSO)](https://oreil.ly/BqHjO) and
+    [L2 (ridge)](https://oreil.ly/ORzCT) regression into one model. Whereas the L1
+    regularization enables feature selection, thereby inducing sparsity and higher
+    explainability in the trained model, L2 regularization effectively handles correlation
+    between the predictors. The iteratively reweighted least squares (IRLS) method
+    is often paired with elastic net to handle outliers as well.'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[弹性网](https://oreil.ly/K7_R0)是一种流行的正则化技术，将[L1（LASSO）](https://oreil.ly/BqHjO)和[L2（岭）](https://oreil.ly/ORzCT)回归的优点结合到一个模型中。L1正则化实现了特征选择，从而引入稀疏性并提高了训练模型的可解释性，而L2正则化有效地处理了预测变量之间的相关性。通常将迭代重新加权最小二乘法（IRLS）方法与弹性网结合起来，以处理异常值。'
+- en: 'Training a penalized GLM will serve two useful benchmarking purposes:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练惩罚GLM将有两个有用的基准作用：
+- en: Since our GLM does not include any nonlinearity or feature interactions, it
+    can serve as the perfect benchmark to test certain hypotheses, i.e., whether nonlinearities
+    and interactions actually result in a better model or not, which we’ll cover in
+    the upcoming sections.
+  id: totrans-47
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由于我们的GLM不包含任何非线性或特征交互，它可以作为一个完美的基准来测试某些假设，即非线性和交互是否实际上会导致更好的模型，我们将在接下来的章节中讨论这些内容。
+- en: The GLM also acts as a starting point for initial feature selection based on
+    the features selected by L1 regularization.
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: GLM也作为根据L1正则化选择的特征的初始特征选择的起点。
+- en: We’ll start our first example for this chapter by training an elastic net–penalized
+    logistic regression using [H2O’s GLM algorithm](https://oreil.ly/bI_dI), which
+    works in a distributed fashion and scales well for large datasets. In the H2O
+    GLM, the regularization parameters are denoted by `alpha` and `lambda`. While
+    `alpha` specifies the regularization distribution between L1 and L2 penalties,
+    `lambda` indicates the regularization strength. The recommended way to find optimal
+    regularization settings in H2O GLM is via a grid search. H2O offers two types
+    of grid searches—Cartesian and random search. Cartesian is an exhaustive search
+    that tries all the combinations of model hyperparameters specified in a grid of
+    possible values supplied by the user. On the other hand, random grid search samples
+    sets of model parameters randomly from the given set of possible values based
+    on a stopping criterion. By default, H2O will use Cartesian search, and we’ll
+    use that for our use case because it won’t take too long to search over a small
+    number of `alpha` values.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将通过使用[H2O的GLM算法](https://oreil.ly/bI_dI)来训练一个弹性网络惩罚逻辑回归的第一个示例，该算法可以在分布式环境中工作，并且对大型数据集具有良好的扩展性。
+    在H2O GLM中，正则化参数用`alpha`和`lambda`表示。 虽然`alpha`指定了L1和L2惩罚之间的正则化分布，`lambda`表示正则化强度。
+    在H2O GLM中查找最佳正则化设置的推荐方法是通过网格搜索。 H2O提供两种类型的网格搜索——笛卡尔和随机搜索。 笛卡尔搜索是一种穷举搜索，尝试用户提供的可能值网格中指定的所有模型超参数组合。
+    另一方面，随机网格搜索会从给定可能值集中随机抽样模型参数集合，基于停止条件。 默认情况下，H2O将使用笛卡尔搜索，我们将在我们的用例中使用它，因为在少量`alpha`值上搜索不会花费太长时间。
+- en: Warning
+  id: totrans-50
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Whenever we conduct a grid search, we implicitly open ourselves up to issues
+    related to overfitting and multiple comparisons. Try to use bootstrapping or reusable
+    holdout methods with grid searches if possible.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当进行网格搜索时，我们都会暗含地引发与过拟合和多重比较相关的问题。 如果可能的话，尝试使用自举法或可重用的留置方法进行网格搜索。
+- en: In the following code, we start by defining a grid of model hyperparameters
+    for `alpha` values. It is important to note here that to preserve the stabilizing
+    functionality of L2 penalties and the feature selection functionality of L1 penalties,
+    `alpha` should never be 0 or 1\. This is because when `alpha` is 0, it denotes
+    only the L2 penalty, while a value of 1 for `alpha` signifies only L1\. H2O’s
+    GLM implementation comes with a handy `lambda_search` option. When set to `True`,
+    this option searches over various `lambda` values starting from `lambda_max` (no
+    features in the model) to `lambda_min` (many features in the model). Both `alpha`
+    and `lambda` are selected by validation-based early stopping. This means that
+    the GLM will automatically stop fitting the model when there is no significant
+    improvement on the validation set, as a means to limit overfitting.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下面的代码中，我们首先定义了一个`alpha`值的模型超参数网格。 这里需要注意的是，为了保持L2惩罚的稳定功能和L1惩罚的特征选择功能，`alpha`永远不应该是0或1。
+    这是因为当`alpha`为0时，表示仅使用L2惩罚，而当`alpha`为1时，表示仅使用L1。 H2O GLM的实现带有一个方便的`lambda_search`选项。
+    当设置为`True`时，该选项会从`lambda_max`（模型中没有特征）到`lambda_min`（模型中有许多特征）搜索各种`lambda`值。 `alpha`和`lambda`都是通过基于验证的早停法来选择的。
+    这意味着当在验证集上没有显著的改善时，GLM将自动停止拟合模型，以限制过拟合。
+- en: '[PRE0]'
+  id: totrans-53
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Using this function to run a Cartesian search over `alpha`, and letting H2O
+    search over the best `lambda` values, our best GLM ends up with an AUC score of
+    0.73 on the validation dataset. After the grid search, the six `PAY_*` repayment
+    status features have the largest coefficients in the selected model.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用此函数在`alpha`上运行笛卡尔搜索，让H2O搜索最佳`lambda`值，我们最好的GLM在验证数据集上获得0.73的AUC分数。 网格搜索后，被选中模型中的六个`PAY_*`还款状态特征具有最大的系数。
+- en: Note
+  id: totrans-55
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: An AUC score of 0.73 means there is a 73% chance our model will properly rank
+    a randomly drawn positive row with a higher output probability than that of a
+    randomly drawn negative row.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AUC分数为0.73表示我们的模型正确排名随机抽取的正样本行的概率比随机抽取的负样本行的输出概率高的概率为73%。
+- en: To understand how the model treats various features, we plot partial dependence
+    in conjunction with ICE plots for the features of interest. Additionally, a histogram
+    of the feature of interest, including an overlay of the mean value of the target
+    column, i.e., `DELINQ_NEXT`, is displayed alongside. This should give us a good
+    idea of whether the model is behaving reasonably and if any data sparsity issues
+    could result in meaningless predictions.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解模型如何处理各种特征，我们将部分依赖图与ICE图结合起来，以研究感兴趣的特征。此外，还显示了感兴趣特征的直方图，包括目标列的均值值覆盖，即`DELINQ_NEXT`。这应该能很好地告诉我们模型的行为是否合理，以及是否存在任何数据稀疏问题可能导致预测无意义。
+- en: Let’s revisit [Figure 6-1](#pd_ice_example). The `PAY_0` feature has the steepest
+    partial dependence and ICE curve, thereby suggesting that it’s the most important
+    input feature. The partial dependence and ICE plots are in harmony, i.e., they
+    do not diverge, implying that the partial dependence can be relied upon. Additionally,
+    there is a monotonic increasing relationship of predicted probability of default
+    and `PAY_0` lateness of payment. This means that as the delay in payment increases,
+    the probability that a customer will default also becomes larger. This is in line
+    with our intuition of how credit card payments work.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们重新审视[图 6-1](#pd_ice_example)。`PAY_0`特征具有最陡的部分依赖和ICE曲线，因此表明它是最重要的输入特征。部分依赖和ICE图是协调的，即它们不会发散，这意味着可以依赖部分依赖。此外，预测的违约概率与`PAY_0`付款延迟之间存在单调增加的关系。这意味着随着付款延迟的增加，客户违约的概率也会变大。这符合我们对信用卡付款运作方式的直觉。
+- en: Now let’s review the histogram on the top. For customers with late payments,
+    there are some apparent data sparsity problems. For instance, in regions where
+    `PAY_0 > 1`, there is little or no training data. Also, the mean `DELINQ_NEXT`
+    values do exhibit some nonlinear patterns in this region. It is all but obvious
+    that predictions made in these regions will be less trustworthy. After all, a
+    standard ML model like this can only learn from the data, unless we provide it
+    additional domain knowledge. However, the good news is that the logistic form
+    of our penalized GLM not only prevents it from being fooled by low-confidence
+    dips in conditional mean `DELINQ_NEXT` around `PAY_* = 6`, but also from overfitting
+    noise in these areas of sparse training data. The model treats the other `PAY_*`
+    features similarly, but assigns them flatter logistic curves. In all cases, the
+    probability of default increases monotonically with the lateness of payment, as
+    expected. To see the other partial and dependence and ICE plots, check out the
+    code resources for this chapter.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们来看一下顶部的直方图。对于有逾期付款的客户，存在一些明显的数据稀疏问题。例如，在`PAY_0 > 1`的地区，几乎没有或没有训练数据。此外，在这个区域内，均值`DELINQ_NEXT`值展示了一些非线性模式。显然，在这些区域进行的预测将不太可信。毕竟，像这样的标准ML模型只能从数据中学习，除非我们提供额外的领域知识。然而，好消息是我们的惩罚GLM的逻辑形式不仅可以防止它被`PAY_*
+    = 6`周围的条件均值低置信度干扰，而且可以防止过度拟合这些稀疏训练数据区域中的噪声。模型类似地处理其他`PAY_*`特征，但分配给它们更平坦的逻辑曲线。在所有情况下，违约的概率都随着付款延迟的增加而单调增加，符合预期。要查看其他部分依赖和ICE图，请查看本章的代码资源。
+- en: We now have a robust and explainable baseline model. Because its behavior makes
+    so much sense and is so easy to interpret, it may be hard to beat. A validation
+    AUC of 0.73 is nothing remarkable, but having an explainable model that behaves
+    in a manner that aligns to time-tested causal relationships that we can count
+    on once deployed—that’s priceless for risk mitigation purposes. We also have to
+    remember that validation and test data assessment scores can be misleading in
+    more complex ML models. We can have a high AUC in static validation or test data,
+    just to find out that the high AUC arose from overfitting to some specific phenomenon
+    that’s no longer present in our operational domain. In the next section, we’ll
+    first introduce some nonlinearities via GAMs and then feature interactions, in
+    addition to nonlinearities via EBMs. We’ll then assess our model for explainability
+    and performance quality with an eye toward real-world performance. We’ll try to
+    do honest experiments and make deliberate choices about whether more complexity
+    is justified.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了一个强大且可解释的基线模型。由于其行为非常合乎逻辑且易于解释，可能很难超越。验证的 AUC 值为 0.73 并不引人注目，但是在部署后，行为符合经过时间测试的因果关系的可解释模型是无价的风险缓解工具。我们还必须记住，在更复杂的
+    ML 模型中，验证和测试数据评估分数可能会误导我们。我们可以在静态验证或测试数据中获得高 AUC，但后来发现高 AUC 是由于过拟合某些特定现象，而这些现象在我们的操作领域中已不复存在。在下一节中，我们将首先通过
+    GAM 引入一些非线性，然后通过特征交互和 EBMs 引入非线性。然后，我们将评估我们的模型以获得可解释性和性能质量，关注实际性能。我们将尝试进行诚实的实验，并慎重选择是否有必要增加更多复杂性。
+- en: Generalized Additive Models
+  id: totrans-61
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 广义可加模型
+- en: While linear models are highly interpretable, they cannot accurately capture
+    the nonlinearities typically present in real-world datasets. This is where GAMs
+    come into play. GAMs, originally [developed at Stanford in the late 1980s](https://oreil.ly/tl_oq)
+    by eminent statisticians Trevor Hastie and Rob Tibshirani, model nonlinear relationships
+    of each input feature with individual spline shape functions and add them all
+    together to make a final model. GAMs can be thought of as additive combinations
+    of spline shape functions. An important idea for GAMs is that even though we treat
+    every feature in a very complex way, it is done in an additive and independent
+    manner. This not only preserves explainability but also enables editing and debugging
+    with relative ease.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管线性模型具有高度的可解释性，但它们无法准确捕捉通常存在于现实世界数据集中的非线性关系。这就是 GAM 的作用所在。GAM 最初由斯坦福的杰出统计学家
+    Trevor Hastie 和 Rob Tibshirani 在上世纪80年代末开发，通过个体样条形状函数模型化每个输入特征的非线性关系，并将它们全部加在一起形成最终模型。GAM
+    可以被看作是样条形状函数的加法组合。对于 GAM 的一个重要思想是，尽管我们以非常复杂的方式处理每个特征，但是这是以一种加法和独立的方式进行的。这不仅保留了可解释性，还使得相对容易进行编辑和调试。
+- en: When it comes to implementing GAMs, packages like [gam](https://oreil.ly/mt1ty)
+    and [mgcv](https://oreil.ly/SW3rz) are some great options in R. As for Python,
+    the choice is limited, as most of the packages are in the experimental phase,
+    like [H2O’s GAM implementation](https://oreil.ly/_ak0k). Another alternative,
+    [pyGAM](https://oreil.ly/dZ9tU), derives its inspiration from R’s mgcv package;
+    has been shown to offer a [good combination of accuracy, robustness, and speed](https://oreil.ly/Cyn-l);
+    and has a familiar scikit-like API.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当涉及到实现 GAM 时，像 [gam](https://oreil.ly/mt1ty) 和 [mgcv](https://oreil.ly/SW3rz)
+    这样的包是 R 中的一些很好的选择。至于 Python，选择有限，因为大多数包都处于实验阶段，比如 [H2O 的 GAM 实现](https://oreil.ly/_ak0k)。另一个选择是
+    [pyGAM](https://oreil.ly/dZ9tU)，它从 R 的 mgcv 包中汲取灵感；已被证明在准确性、稳健性和速度方面提供了良好的结合；并且具有类似
+    scikit 的 API。
+- en: 'We’ll use pyGAM to train a GAM on the same credit card dataset we used in the
+    last section. Specifically, with the following code, we’ll implement a logistic
+    model using pyGAM’s `LogisticGAM` class. There are three important parameters
+    that can be tuned to obtain the best model: number of splines; `lam`, or the strength
+    of regularization penalty; and constraints to inject prior knowledge into the
+    model. pyGAM provides an inbuilt grid search method to search over the smoothing
+    parameters automatically.'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用 pyGAM 在与上一节相同的信用卡数据集上训练 GAM。具体来说，通过以下代码，我们将使用 pyGAM 的 `LogisticGAM` 类实现一个逻辑回归模型。有三个重要的参数可以调节以获得最佳模型：样条的数量；`lam`，或正则化惩罚的强度；以及注入模型先验知识的约束。pyGAM
+    提供了内置的网格搜索方法，可以自动搜索平滑参数。
+- en: '[PRE1]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: This code instantiates a `LogisticGAM` model that will train for up to 100 iterations.
+    The `n_splines` parameter specifies the number of spline terms, or the complexity
+    of the function used to fit each input feature. More spline terms typically results
+    in more complex spline shape functions. `lam` corresponds somewhat to `lambda`
+    in penalized regression, and the preceding code searches over several values to
+    find the best strength of regularization as defined by `lam`. One parameter we
+    are not taking advantage of is `constraints`. `constraints` allows users to specify
+    a list of constraints for encoding prior knowledge. The available constraints
+    are monotonic increasing or decreasing smoothing and convex or concave smoothing.
+    We’ll work with similar constraints later in the chapter; it’s very instructive
+    to see what not using constraints means for our GAM.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这段代码实例化了一个`LogisticGAM`模型，最多将训练100次迭代。`n_splines`参数指定了样条项的数量，或者用于拟合每个输入特征的函数的复杂度。更多的样条项通常会导致更复杂的样条形状函数。`lam`在某种程度上对应于惩罚回归中的`lambda`，前面的代码搜索了几个值，以找到最佳的正则化强度，即由`lam`定义的。我们没有利用的一个参数是`constraints`。`constraints`允许用户指定一个编码先验知识的约束列表。可用的约束条件包括单调递增或递减平滑以及凸或凹平滑。我们将在本章后面使用类似的约束条件；对于我们的GAM来说，看看不使用约束条件意味着什么是非常有教育意义的。
+- en: 'A question that we’re trying to answer deliberately in this example is: are
+    nonlinearities truly helpful to our model, or just overfitting noise? Many data
+    science practitioners today assume more complexity results in better models, but
+    we’ll use GAMs to run an experiment to decide whether introducing nonlinearity
+    actually improves our model, from both a performance quality perspective and an
+    interpretability perspective.'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个示例中，我们有意要回答的一个问题是：非线性真的有助于我们的模型，还是只是过拟合的噪音？今天许多数据科学实践者认为更复杂的模型会导致更好的模型，但我们将使用广义加性模型（GAMs）来进行实验，以决定引入非线性是否实际上能够从性能质量和可解释性的角度改善我们的模型。
+- en: After we train our model, we calculate its validation AUC, which turns out to
+    be 0.75—a notch higher as compared to our penalized GLM. The increase in the GAM
+    AUC can likely be attributed to the introduction of nonlinearity, which our GLM
+    failed to capture. However, it is important to note here that a higher AUC doesn’t
+    always guarantee better models, and this example is a classic case to prove the
+    point. In the preceding section, we spent a bit of time analyzing how GLM treats
+    the `PAY_0` feature, or a customer’s most recent repayment status, and it did
+    a reasonably good job. Let’s now look at how the GAM treats the same `PAY_0` feature
+    ([Figure 6-2](#pd_ice_example_gam)).
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练完模型后，我们计算了其验证AUC，结果为0.75——与我们的惩罚GLM相比略有提高。GAM的AUC增加很可能归因于引入了非线性，而我们的GLM未能捕捉到这一点。然而，重要的是要注意这里高AUC并不总是保证更好的模型，这个例子是一个经典案例来证明这一点。在前面的章节中，我们花了一点时间分析GLM如何处理`PAY_0`特征，即客户的最近偿还状态，它做得相当不错。现在让我们来看看GAM如何处理同样的`PAY_0`特征（[图6-2](#pd_ice_example_gam)）。
+- en: '![mlha 0602](assets/mlha_0602.png)'
+  id: totrans-69
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0602](assets/mlha_0602.png)'
+- en: Figure 6-2\. A partial dependence plot that incorporates ICE, histograms, and
+    conditional means to increase trustworthiness and effectiveness for `PAY_0` in
+    the example GAM ([digital, color version](https://oreil.ly/KT-fl))
+  id: totrans-70
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-2。在示例GAM中，这是一个部分依赖图，结合了ICE、直方图和条件均值，以增加`PAY_0`的可信度和有效性（[数字，彩色版本](https://oreil.ly/KT-fl)）
+- en: '[Figure 6-2](#pd_ice_example_gam) shows that there is clearly some weirdness
+    in the partial dependence and ICE plots generated via a GAM. We observe that as
+    the lateness of payment increases, the chances that a customer will default on
+    the payment decreases. This is obviously not correct. Most people don’t magically
+    become more likely to pay bills after months of being late. The same strange behavior
+    is also observed for `PAY_4` and `PAY_6`, as can be seen in [Figure 6-3](#pd_ice_example_gam_4_6).
+    The `PAY_4` probability of default looks to decrease as payment lateness increases,
+    and `PAY_6` appears to bounce noisily around a mean prediction. Both modeled behaviors
+    are counterintuitive, both contradict the GLM baseline model, and both fail to
+    model the conditional mean behavior displayed on the righthand side of [Figure 6-3](#pd_ice_example_gam_4_6).'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 6-2](#pd_ice_example_gam)显示出通过GAM生成的部分依赖和ICE图表存在明显的一些异常。我们观察到随着支付延迟的增加，客户违约的可能性减少。这显然是不正确的。大多数人在几个月拖欠账单后并不会神奇地变得更愿意支付账单。同样的奇怪行为也可以在[图 6-3](#pd_ice_example_gam_4_6)中观察到，对于`PAY_4`和`PAY_6`同样存在。`PAY_4`违约概率似乎随着支付延迟的增加而减少，而`PAY_6`则表现出在均值预测周围嘈杂地反弹。这两种建模行为都是违反直线模型(GLM)基线模型的直觉，也都未能对[图 6-3](#pd_ice_example_gam_4_6)右侧显示的条件均值行为进行建模。'
+- en: '![mlha 0603](assets/mlha_0603.png)'
+  id: totrans-72
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0603](assets/mlha_0603.png)'
+- en: Figure 6-3\. A partial dependence plot that incorporates ICE, histograms, and
+    conditional means for `PAY_4` and `PAY_6` ([digital, color version](https://oreil.ly/m4yK6))
+  id: totrans-73
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-3\. 包含ICE、直方图和`PAY_4`以及`PAY_6`条件均值的部分依赖图表（[数字，彩色版本](https://oreil.ly/m4yK6))
+- en: The bottom line is that although our validation AUC is higher, this is definitely
+    a model that we wouldn’t want to deploy. As is apparent from [Figure 6-2](#pd_ice_example_gam),
+    the GAM has either overfit noise in the training data, been fooled by the low-confidence
+    dips in the conditional mean `DELINQ_NEXT` around `PAY_* = 6`, or is reverting
+    to a mean prediction due to data sparsity for `PAY_0 > 1`.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 底线是，尽管我们的验证AUC更高，但这绝对不是我们想要部署的模型。正如从[图 6-2](#pd_ice_example_gam)显而易见的，GAM可能在训练数据中过度拟合噪音，被低置信度的`DELINQ_NEXT`条件均值在`PAY_*
+    = 6`周围的低谷所欺骗，或者由于`PAY_0 > 1`的数据稀疏性而恢复到均值预测。
+- en: 'So what’s the workaround, and how do we use such a model? Well, that’s precisely
+    where GAMs shine. The behavior displayed by the GAM, in this case, is a general
+    problem observed for high-capacity nonlinear models. However, unlike many other
+    types of ML models, GAMs not only highlight such inconsistencies but also offer
+    ways to debug them through commonsense model editing. More plainly, we can discuss
+    the GAM results with domain experts, and if they agree with the more plausible
+    GAM splines for `PAY_2`, `PAY_3`, and `PAY_5`, we could keep those in the model
+    and perhaps gain a boost in the model performance. As for the obviously problematic
+    splines for `PAY_0`, `PAY_4`, and `PAY_6`, they can be replaced with something
+    that makes more sense. One option is their learned behavior from the logistic
+    regression model as shown in the following expression:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，有什么解决方法，我们如何使用这样的模型呢？这正是GAMs发挥作用的地方。在这种情况下，GAM展示的行为是高容量非线性模型普遍存在的问题。然而，与许多其他类型的ML模型不同的是，GAMs不仅突出显示这些不一致之处，而且通过常识性的模型编辑提供了调试的方法。更明确地说，我们可以与领域专家讨论GAM的结果，如果他们同意`PAY_2`、`PAY_3`和`PAY_5`更合理的GAM样条，我们可以将其保留在模型中，也许能提升模型的性能。至于显然存在问题的`PAY_0`、`PAY_4`和`PAY_6`的样条，可以用更合理的东西来替换。一个选择是它们从逻辑回归模型中学习的行为，如下表达式所示：
+- en: <math><mrow><mover accent="true"><mi>p</mi> <mo>^</mo></mover> <mo>=</mo> <msub><mi>β</mi>
+    <mn>0</mn></msub> <mo>+</mo> <mfrac><mn>1</mn> <mrow><mn>1</mn><mo>+</mo><mo form="prefix">exp</mo><mo>(</mo><mo>-</mo><mrow><msub><mi>β</mi>
+    <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>0</mn></msub> <mo>,</mo><mi>G</mi><mi>L</mi><mi>M</mi></mrow></msub>
+    <mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>0</mn></msub></mrow> <mo>)</mo></mrow></mfrac>
+    <mo>+</mo> <msub><mi>β</mi> <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>2</mn></msub>
+    <mo>,</mo><mi>G</mi><mi>A</mi><mi>M</mi></mrow></msub> <mi>g</mi> <mrow><mo>(</mo>
+    <mi>P</mi> <mi>A</mi> <msub><mi>Y</mi> <mn>2</mn></msub> <mo>)</mo></mrow> <mo>+</mo>
+    <msub><mi>β</mi> <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>3</mn></msub>
+    <mo>,</mo><mi>G</mi><mi>A</mi><mi>M</mi></mrow></msub> <mi>g</mi> <mrow><mo>(</mo>
+    <mi>P</mi> <mi>A</mi> <msub><mi>Y</mi> <mn>3</mn></msub> <mo>)</mo></mrow> <mo>+</mo>
+    <mfrac><mn>1</mn> <mrow><mn>1</mn><mo>+</mo><mo form="prefix">exp</mo><mo>(</mo><mo>-</mo><mrow><msub><mi>β</mi>
+    <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>4</mn></msub> <mo>,</mo><mi>G</mi><mi>L</mi><mi>M</mi></mrow></msub>
+    <mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>4</mn></msub></mrow> <mo>)</mo></mrow></mfrac>
+    <mo>+</mo> <msub><mi>β</mi> <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>5</mn></msub>
+    <mo>,</mo><mi>G</mi><mi>A</mi><mi>M</mi></mrow></msub> <mi>g</mi> <mrow><mo>(</mo>
+    <mi>P</mi> <mi>A</mi> <msub><mi>Y</mi> <mn>5</mn></msub> <mo>)</mo></mrow> <mo>+</mo>
+    <mfrac><mn>1</mn> <mrow><mn>1</mn><mo>+</mo><mo form="prefix">exp</mo><mo>(</mo><mo>-</mo><mrow><msub><mi>β</mi>
+    <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>6</mn></msub> <mo>,</mo><mi>G</mi><mi>L</mi><mi>M</mi></mrow></msub>
+    <mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>6</mn></msub></mrow> <mo>)</mo></mrow></mfrac>
+    <mo>+</mo> <mo>⋯</mo></mrow></math>
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math><mrow><mover accent="true"><mi>p</mi> <mo>^</mo></mover> <mo>=</mo> <msub><mi>β</mi>
+    <mn>0</mn></msub> <mo>+</mo> <mfrac><mn>1</mn> <mrow><mn>1</mn><mo>+</mo><mo form="prefix">exp</mo><mo>(</mo><mo>-</mo><mrow><msub><mi>β</mi>
+    <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>0</mn></msub> <mo>,</mo><mi>G</mi><mi>L</mi><mi>M</mi></mrow></msub>
+    <mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>0</mn></msub></mrow> <mo>)</mo></mrow></mfrac>
+    <mo>+</mo> <msub><mi>β</mi> <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>2</mn></msub>
+    <mo>,</mo><mi>G</mi><mi>A</mi><mi>M</mi></mrow></msub> <mi>g</mi> <mrow><mo>(</mo>
+    <mi>P</mi> <mi>A</mi> <msub><mi>Y</mi> <mn>2</mn></msub> <mo>)</mo></mrow> <mo>+</mo>
+    <msub><mi>β</mi> <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>3</mn></msub>
+    <mo>,</mo><mi>G</mi><mi>A</mi><mi>M</mi></mrow></msub> <mi>g</mi> <mrow><mo>(</mo>
+    <mi>P</mi> <mi>A</mi> <msub><mi>Y</mi> <mn>3</mn></msub> <mo>)</mo></mrow> <mo>+</mo>
+    <mfrac><mn>1</mn> <mrow><mn>1</mn><mo>+</mo><mo form="prefix">exp</mo><mo>(</mo><mo>-</mo><mrow><msub><mi>β</mi>
+    <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>4</mn></msub> <mo>,</mo><mi>G</mi><mi>L</mi><mi>M</mi></mrow></msub>
+    <mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>4</mn></msub></mrow> <mo>)</mo></mrow></mfrac>
+    <mo>+</mo> <msub><mi>β</mi> <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>5</mn></msub>
+    <mo>,</mo><mi>G</mi><mi>A</mi><mi>M</mi></mrow></msub> <mi>g</mi> <mrow><mo>(</mo>
+    <mi>P</mi> <mi>A</mi> <msub><mi>Y</mi> <mn>5</mn></msub> <mo>)</mo></mrow> <mo>+</mo>
+    <mfrac><mn>1</mn> <mrow><mn>1</mn><mo>+</mo><mo form="prefix">exp</mo><mo>(</mo><mo>-</mo><mrow><msub><mi>β</mi>
+    <mrow><mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>6</mn></msub> <mo>,</mo><mi>G</mi><mi>L</mi><mi>M</mi></mrow></msub>
+    <mi>P</mi><mi>A</mi><msub><mi>Y</mi> <mn>6</mn></msub></mrow> <mo>)</mo></mrow></mfrac>
+    <mo>+</mo> <mo>⋯</mo></mrow></math>
+- en: where β[0] is an intercept term and each *g* represents a GAM spline function.
+    Model editing is infinitely flexible; we could replace the learned spline on only
+    a certain region of its domain, or otherwise edit the shape function to a domain
+    expert’s liking.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中 β[0] 是截距项，每个 *g* 代表一个 GAM 样条函数。模型编辑具有无限的灵活性；我们可以仅在其定义域的某个区域替换学习的样条，或者根据领域专家的喜好编辑形状函数。
+- en: Editability is a great feature for a predictive model, but we also need to be
+    careful with it. If we are to edit a custom model as suggested by the preceding
+    equation, it really needs to be stress tested more than usual. Let’s not forget,
+    the coefficients weren’t learned together and may not account for one another
+    well. There could also be boundary problems—the edited model could easily result
+    in predictions above 1 and below 0\. Another potentially more palatable debugging
+    strategy is to use the constraint functionality provided by pyGAM. A positive
+    monotonic constraint would likely fix the problems in the `PAY_0`, `PAY_4`, and
+    `PAY_6` splines.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可编辑性是预测模型的一个重要特性，但我们也需要小心使用它。如果按照前述方程建议编辑自定义模型，它确实需要比通常更多地进行压力测试。不要忘记，系数并非一起学习，可能无法很好地相互解释。还可能存在边界问题——编辑后的模型很容易导致预测值超过1或低于0。另一种更可接受的调试策略是利用
+    pyGAM 提供的约束功能。正单调约束很可能能够修复`PAY_0`、`PAY_4`和`PAY_6`样条中的问题。
+- en: Whether we choose to edit the example GAM or retrain it with constraints, we’ll
+    likely see lower validation and test data performance quality. However, when we’re
+    most concerned with dependable real-world performance, we sometimes have to give
+    up worshiping at the altar of holdout dataset performance. While model editing
+    may sound strange, the preceding model makes sense. What seems more strange to
+    us is deploying models whose behavior is only justified by a few rows of high-noise
+    training data in obvious contradiction of decades of causal norms. We’d argue
+    the preceding model is much less likely to result in a catastrophic failure than
+    the nonsense splines learned by the unconstrained GAM.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论是选择编辑示例GAM还是在约束条件下重新训练它，我们很可能会看到较低的验证和测试数据性能质量。然而，当我们最关心可靠的现实世界性能时，有时不得不放弃对保留数据集性能的崇拜。虽然模型编辑听起来可能很奇怪，但前述模型是有道理的。对我们来说更奇怪的是，部署的模型行为仅由少数高噪声训练数据行来合理化，明显违反数十年的因果规范。我们认为前述模型不太可能导致灾难性失败，而不受约束的GAM学习的荒谬样条则可能会。
+- en: This is just one of many scenarios where traditional model assessment can be
+    misleading when it comes to choosing the best real-world model. As was shown in
+    the GAM example, we can’t assume that nonlinearities make better models. Moreover,
+    GAMs allow us to test the implicit hypothesis that nonlinearity is better. With
+    GAMs, we can create a model, interpret and analyze the results, and then edit
+    it or debug any detected issues. GAMs help us uncover what our model has learned,
+    keep the correct results, and edit and rectify the wrong ones so that we do not
+    deploy risky models.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在选择最佳现实世界模型时，传统模型评估往往会产生误导性，这只是其中一个场景。正如GAM示例所示，我们不能假设非线性能够使模型更好。此外，GAM允许我们测试隐含的假设，即非线性更优。利用GAM，我们可以创建模型，解释和分析结果，然后编辑或调试任何检测到的问题。GAM帮助我们揭示模型学到了什么，保持正确结果，并编辑和纠正错误结果，从而避免部署风险模型。
+- en: GA2M and Explainable Boosting Machines
+  id: totrans-81
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: GA2M与可解释增强机器（Explainable Boosting Machines）
+- en: When a small group of interacting pairs of features is added to a standard GAM,
+    the resulting model is called a GA2M—a generalized additive model with two-way
+    interactions. Adding these pairwise interactions to traditional GAMs has been
+    shown to substantially increase model performance while retaining explainability,
+    as discussed in [Chapter 2](ch02.html#unique_chapter_id_2). Additionally, just
+    like GAMs, GA2Ms are easily editable.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当将一小组相互作用的特征对添加到标准GAM中时，生成的模型称为GA2M——带有双向交互作用的广义加性模型。如同讨论中所述，在传统GAM中添加这些成对交互作用已被证明显著提高了模型性能，同时保持了可解释性。此外，与GAM一样，GA2M也易于编辑。
+- en: The [EBM](https://oreil.ly/_tS2Q) is a fast implementation of the GA2M algorithm
+    by Microsoft Research. The shape functions in an EBM are trained iteratively via
+    boosting, making EBM training more robust, while retaining accuracy comparable
+    to unexplainable tree-based models like random forest and XGBoost. The EBM comes
+    packaged within a broader ML toolkit called [InterpretML](https://oreil.ly/Uofrw),
+    an open source package for training explainable models and explaining other systems.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[EBM](https://oreil.ly/_tS2Q)是微软研究通过GA2M算法快速实现的。EBM中的形状函数通过Boosting算法进行迭代训练，使EBM训练更加健壮，同时保持了与难以解释的基于树的模型（如随机森林和XGBoost）相媲美的准确性。EBM作为更广泛的ML工具包InterpretML的一部分提供，后者是一个用于训练可解释模型和解释其他系统的开源软件包。'
+- en: We’ll continue with our credit card example and train an EBM to predict which
+    customer has a high chance of defaulting on their next payment. The EBM achieves
+    a validation AUC of 0.78, which is the highest compared to traditional GAMs and
+    GLMs. The bump in accuracy is likely due to the introduction of nonlinearity *and*
+    interactions. Explaining EBMs and GA2Ms is also easy. Like traditional GAMs, we
+    can plot the shape functions of individual features and their accompanying histograms
+    describing the model behavior and data distribution for that feature, respectively.
+    The interaction terms can be rendered as a contour plot—still easy to understand.
+    Let’s dig in a bit more by looking at how an EBM treats `LIMIT_BAL`, `PAY_0`,
+    and `PAY_2` features, as shown in [Figure 6-4](#ebm).
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将继续使用我们的信用卡示例，并训练一个EBM来预测哪些客户在下次付款中有高违约概率。EBM实现了验证AUC为0.78，与传统的GAM和GLM相比是最高的。准确性的提升可能是由于引入了非线性
+    *和* 交互作用。解释EBM和GA2Ms也很容易。与传统的GAM一样，我们可以绘制单个特征的形状函数及其伴随的直方图，描述该特征的模型行为和数据分布。交互项可以呈现为等高线图——依然容易理解。让我们更深入地看一下EBM如何处理
+    `LIMIT_BAL`、`PAY_0`和`PAY_2`特征，如 [图6-4](#ebm) 所示。
+- en: '![mlha 0604](assets/mlha_0604.png)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0604](assets/mlha_0604.png)'
+- en: Figure 6-4\. Three important input features and an interaction feature with
+    accompanying histograms for an EBM ([digital, color version](https://oreil.ly/l9lTU))
+  id: totrans-86
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-4\. EBM的三个重要输入特征和一个交互特征，伴随直方图（[数字，彩色版本](https://oreil.ly/l9lTU))
+- en: In [Figure 6-4](#ebm), we can see three standard shape function plots for `LIMIT_BAL`,
+    `PAY_0`, and `PAY_2`, but we can also see a contour plot for the `PAY_0 x PAY_2`
+    interaction. Each of these plots, even the slightly more complex contour plot,
+    allows humans to check the behavior of the model, and when needed, to edit it.
+    The behavior of `LIMIT_BAL` looks reasonable, as increasing credit limits are
+    expected to be correlated with a decreasing probability of default. That’s what
+    we observe, at least up to the high ranges of `LIMIT_BAL` in training data. Above
+    $700,000, we see the shape function turn back upward—​likely related to sparsity
+    in training data in this region. The EBM treats `PAY_0` more logically than our
+    GAM. Under the EBM, `PAY_0` probabilities of default increase for `PAY_0 > 1`
+    and don’t drop back down to unrealistic values, but do decrease. Again, this is
+    likely related to sparsity in certain regions of training data. `PAY_2` appears
+    to be somewhat noisy. Also, the interaction term exhibits the same unrealistic
+    behavior that was observed under the GAM for some individual `PAY_*` features;
+    increased lateness results in a lower probability of default, except for low values
+    of `PAY_0`, and high values of `PAY_2`, where model outputs rocket upward. Like
+    the GAM, the EBM seems to have some strange behaviors based on noise and sparsity
+    in training data. That may be another reason why its AUC is higher—it’s modeling
+    noise specific to this dataset in certain cases. At least strange behavior is
+    plainly obvious, and this model may be a good candidate for model editing. Monotonic
+    constraints, discussed in the next section, might also help here, but they were
+    not yet available for the EBM in interpret.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '在 [图6-4](#ebm) 中，我们可以看到 `LIMIT_BAL`、`PAY_0`和`PAY_2`的三个标准形状函数图，但我们还可以看到 `PAY_0
+    x PAY_2` 交互作用的等高线图。这些图表，即使是稍微复杂的等高线图，都允许人们检查模型的行为，并在需要时进行编辑。 `LIMIT_BAL` 的行为看起来很合理，因为提高信用额度预计与违约概率下降相关。至少在训练数据的高范围内，我们观察到了这一点。超过70万美元，我们看到形状函数再次向上转向——这可能与该区域训练数据的稀疏性有关。EBM比我们的GAM更符合逻辑地处理
+    `PAY_0`。在EBM下，`PAY_0`的违约概率在 `PAY_0 > 1` 时增加，并且不会回落到不现实的值，但会减少。同样，这可能与某些区域的训练数据稀疏性有关。
+    `PAY_2` 看起来有些嘈杂。此外，交互项表现出与某些单独 `PAY_*` 特征在GAM中观察到的相同不现实行为；延迟增加导致违约概率降低，除了`PAY_0`的低值和`PAY_2`的高值，模型输出急剧上升。与GAM一样，EBM似乎在特定情况下基于噪声和训练数据稀疏性具有一些奇怪的行为。这可能是其AUC更高的另一个原因——它在某些情况下对此数据集的噪声建模。至少奇怪的行为显而易见，并且该模型可能是模型编辑的良好候选。在下一节讨论的单调约束可能也有所帮助，但目前尚未对EBM进行解释。  '
+- en: There are two other very important aspects of [Figure 6-4](#ebm) that are not
+    necessarily characteristic of EBMs, but that also require a second look—the shaded
+    regions around the shape functions and the histograms beneath the shape functions.
+    Both of these features help users decide the level of trustworthiness for the
+    model. If the histograms indicate that little training data is available in a
+    certain region, or the shaded error bars show that the function has high variance
+    in a certain training data domain, that part of the function is probably less
+    trustworthy and model editing can be considered. The shape function for `LIMIT_BAL`
+    over $700,000 is an example of both sparsity in training data and high variance
+    in predictions. These two issues often go hand in hand when training, explaining,
+    and debugging ML models.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有Figure 6-4的两个其他非常重要的方面（#ebm）不一定是EBMs的特征，但也需要仔细查看——形状函数周围的阴影区域和形状函数下方的直方图。这两个功能都帮助用户决定模型的可信度水平。如果直方图表明某个区域的训练数据很少，或者阴影误差条显示函数在某个训练数据域中具有高方差，则该函数的那部分可能不太可信，并且可以考虑对模型进行编辑。`LIMIT_BAL`超过$700,000的形状函数就是训练数据稀疏和预测高方差的例子。这两个问题在训练、解释和调试ML模型时经常同时出现。
+- en: 'One additional slightly tricky aspect of working with EBMs is accessing information
+    for our own plotting needs. While EBM provides amazing interactive plotting capabilities
+    out-of-the-box, we often like to create our own plots or data structures, especially
+    to compare with other models. We found it necessary to interact with EBM’s `_internal_obj`
+    JSON structure to do so on several occasions. Take, for instance, accessing feature
+    importance values as follows:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与EBMs一起工作的另一个稍微棘手的方面是访问我们自己绘图需求的信息。虽然EBM提供了令人惊叹的即时绘图功能，但我们经常喜欢创建自己的图形或数据结构，特别是与其他模型进行比较。我们发现有必要在多个场合与EBM的`_internal_obj`
+    JSON结构交互以实现这一点。例如，访问特征重要性值如下所示：
+- en: '[PRE2]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: To extract feature importance to manipulate ourselves in the version of interpret
+    we had access to, instead of relying on the EBM’s default plotting, we had to
+    calculate global explanations using `explain_global()`, then extract feature names
+    and importance scores from JSON within the returned object. We then used this
+    information to create a Pandas `DataFrame`, and from there, most standard operations
+    like plotting, selecting, or manipulating, are easy.^([1](ch06.html#idm45990009014096))
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在我们可以访问的解释版本中提取特征重要性以操作自身，而不依赖于EBM的默认绘图，我们必须使用`explain_global()`计算全局解释，然后从返回对象的JSON中提取特征名称和重要性分数。然后，我们使用这些信息创建一个Pandas
+    `DataFrame`，然后大多数标准操作如绘图、选择或操作，都很容易。^([1](ch06.html#idm45990009014096))
+- en: With that, we’ll close out our first set of examples. In this section, we introduced
+    a benchmark GLM, then deliberately introduced nonlinearities via GAMs and interactions
+    via GA2Ms and EBMs that made our models more complex. However, due to the additive
+    nature of GLMs, GAMs, and EBMs, not only did we retain explainability and gain
+    in silico performance quality, but we also created a set of editable models that
+    we can compare to one another, and even combine, to build the best possible model
+    for real-world deployment. The next section will continue these themes and dive
+    into constraints and post hoc explanation with XGBoost.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这样，我们将结束我们的第一个示例集。在本节中，我们介绍了一个基准GLM，然后通过GAM和GA2Ms引入了非线性和互动，以及通过EBMs使我们的模型更复杂。然而，由于GLM、GAM和EBM的加法特性，我们不仅保留了可解释性和硅上性能质量，而且还创建了一组可编辑的模型，我们可以相互比较，甚至结合，以构建最佳的真实部署模型。接下来的部分将继续探讨这些主题，并深入讨论XGBoost的约束和事后解释。
+- en: XGBoost with Constraints and Post Hoc Explanation
+  id: totrans-93
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: XGBoost与约束和事后解释
+- en: In this example, we’ll train and compare two XGBoost classifier models—one with
+    monotonic constraints, and one without. We’ll see that the constrained model is
+    more robust than the unconstrained and no less accurate. Then, we’ll examine three
+    powerful post hoc explanation methods—decision tree surrogates, partial dependence
+    and ICE, and SHAP values. We’ll conclude with a technical discussion of SHAP value
+    calculations and background datasets, and we’ll provide guidance so readers can
+    choose the appropriate specifications for the application at hand.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，我们将训练和比较两个 XGBoost 分类器模型——一个带有单调约束，一个没有。我们将看到，受限模型比非受限模型更为稳健，且准确性不减。接着，我们将研究三种强大的事后解释方法——决策树替代品、部分依赖和
+    ICE、以及 SHAP 值。最后，我们将进行关于 SHAP 值计算和背景数据集的技术讨论，并为读者提供指导，以便选择适合当前应用的规范。
+- en: Constrained and Unconstrained XGBoost
+  id: totrans-95
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 受限和非受限 XGBoost
+- en: '[XGBoost](https://oreil.ly/n98WV) is an incredibly popular model architecture
+    for prediction tasks on large, structured datasets. So what is an XGBoost model?
+    The models produced by XGBoost are ensembles of *weak learners*. That is, XGBoost
+    produces many small models in a sequence, and then to make a final prediction,
+    it sums up the predictions of these small models. Typically, the first model in
+    the sequence fits the data, and each subsequent model predicts the residuals of
+    the models that came before it to correct their errors.^([2](ch06.html#idm45990006363360))
+    In this section, we’ll use XGBoost to train an ensemble of shallow decision trees.
+    We’ll be working with a binary classification problem, but XGBoost can be used
+    to model other problem types, such as regression, multiclass classification, survival
+    time, and more.'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[XGBoost](https://oreil.ly/n98WV) 是一种在大型结构化数据集上进行预测任务的极为流行的模型架构。那么，XGBoost
+    模型是什么呢？XGBoost 生成的模型是*弱学习器*的集成。也就是说，XGBoost 生成了许多小模型并将它们的预测结果求和以进行最终预测。通常情况下，序列中的第一个模型适配数据，随后的每个模型预测之前模型的残差以校正其错误。^([2](ch06.html#idm45990006363360))
+    在本节中，我们将使用 XGBoost 训练一组浅层决策树的集成。我们将处理一个二分类问题，但 XGBoost 还可用于建模其他问题类型，如回归、多类分类、生存时间等等。'
+- en: 'XGBoost is so popular, in part, because it tends to produce robust models that
+    generalize well on unseen data. That doesn’t mean we, as model developers, can
+    fall asleep at the wheel. We have to use reasonable hyperparameters and techniques
+    such as early stopping to ensure that the strengths of XGBoost are realized. Another
+    important technique that XGBoost allows us to apply is monotonic constraints on
+    our models. These constraints lock down the direction of the relationship between
+    certain features and the model output. They allow us to say, “If feature `X_1`
+    increases, then the model output cannot decrease.” In short, these constraints
+    allow us to apply our own domain knowledge to make more robust models. Let’s take
+    a look at some code to train an XGBoost model:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: XGBoost 之所以如此受欢迎，部分原因是它倾向于产生在未见数据上泛化良好的强大模型。这并不意味着作为模型开发者的我们可以在开发中掉以轻心。我们必须使用合理的超参数和技术，比如早停法，以确保实现
+    XGBoost 的优势。XGBoost 允许我们应用的另一项重要技术是对模型施加单调约束。这些约束锁定了某些特征与模型输出之间的关系方向。它们允许我们说：“如果特征
+    `X_1` 增加，则模型输出不会减少。”简而言之，这些约束允许我们应用自己的领域知识来创建更加强大的模型。让我们看一下训练 XGBoost 模型的一些代码：
+- en: '[PRE3]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: First, let’s look at the values in the `params` dictionary. The parameter `eta`
+    is the *learning rate* of our model. In gradient boosting, each tree we add into
+    our ensemble is similar to a gradient descent step. The larger the value of `eta`,
+    the more each additional tree impacts our model. The smaller the value of `eta`,
+    the less weight is given to individual decision trees in the boosting sequence.
+    If we used `eta = 1.0`, our model’s final prediction would be an unweighted sum
+    of individual decision tree outputs, and would almost certainly overfit to the
+    training data. Make sure to set a reasonable learning rate (say, between 0.001
+    and 0.3) when training XGBoost or other gradient boosting models.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们看看`params`字典中的值。参数`eta`是我们模型的*学习率*。在梯度提升中，我们添加到集成中的每棵树都类似于梯度下降的一步。`eta`值越大，每棵额外树对模型的影响越大。`eta`值越小，对提升序列中的个别决策树的权重越小。如果我们使用`eta
+    = 1.0`，我们模型的最终预测将是各个决策树输出的无加权和，几乎肯定会过拟合训练数据。在训练 XGBoost 或其他梯度提升模型时，请务必设置合理的学习率（比如在
+    0.001 到 0.3 之间）。
+- en: Note
+  id: totrans-100
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注
+- en: XGBoost also offers [interaction constraints](https://oreil.ly/NR9bo) to control
+    how input features affect one another in a model. This is another simple method
+    to inject domain expertise into ML models. Interaction constraints may be particularly
+    helpful for bias mitigation by eliminating known proxy interactions for gender
+    or race, such as combinations of name, age, or zip code.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: XGBoost还提供[交互约束](https://oreil.ly/NR9bo)来控制模型中输入特征如何相互影响。这是将领域专业知识注入ML模型的另一种简单方法。交互约束可能特别有助于通过消除已知的性别或种族的代理交互（如姓名、年龄或邮政编码的组合）来减轻偏见。
+- en: The parameters `subsample` and `colsample_bytree` also protect against overfitting.
+    Both ensure that each individual decision tree does not see the entire training
+    dataset. In this case, each tree sees a random 75% of rows of the training data
+    (`subsample = 0.75`), and a random 80% of columns of the training data (`colsample_bytree
+    = 0.8`). Then, we have some parameters that dictate the size of the final model.
+    `max_depth` is the depth of the trees in the model. Deeper trees include more
+    feature interactions and create more complex response functions than shallow trees.
+    We usually want to keep our trees shallow when training XGBoost and other GBM
+    models—after all, the strength of these models comes from them being an ensemble
+    of weak learners. Of course, grid search and other structured methods for selecting
+    hyperparameters are the better practice for choosing these values, but that’s
+    not the focus of this chapter.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 参数`subsample`和`colsample_bytree`也可以防止过拟合。两者确保每棵决策树不会看到整个训练数据集。在这种情况下，每棵树看到的训练数据的行数是随机选择的75%（`subsample
+    = 0.75`），列数是随机选择的80%（`colsample_bytree = 0.8`）。然后，我们有一些参数来决定最终模型的大小。`max_depth`是模型中树的深度。更深的树包括更多的特征交互，并创建比较浅的树更复杂的响应函数。通常情况下，在训练XGBoost和其他GBM模型时，我们希望保持树的深度较浅——毕竟，这些模型的强大之处在于它们是弱学习器的集成。当然，网格搜索和其他结构化方法用于选择超参数值是更好的实践，但这不是本章的重点。
+- en: Finally, in the preceding code snippet, we’re training a model using validation-based
+    [early stopping](https://oreil.ly/zacj5). We do this by feeding a dataset (or
+    in this case, two datasets) into the `evals` parameter, and by specifying `early_stopping_rounds`.
+    So what is going on here? In each round of the training sequence, the collection
+    of decision trees trained so far is evaluated on the datasets in the `evals` watchlist.
+    If the evaluation metric (in this case, AUC) does not improve for `early_stopping_rounds`
+    rounds, then training stops. If we didn’t specify early stopping, then training
+    would proceed until `num_boost_round` trees are built—often an arbitrary stopping
+    point. We should almost always use early stopping when training our GBM models.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，在前面的代码片段中，我们正在使用基于验证的模型训练[提前停止](https://oreil.ly/zacj5)。我们通过将数据集（或在本例中，两个数据集）传递到`evals`参数中，并指定`early_stopping_rounds`来实现这一点。那么这里发生了什么？在训练序列的每一轮中，到目前为止训练的决策树集合将在`evals`监视列表中的数据集上进行评估。如果评估指标（在本例中是AUC）在`early_stopping_rounds`轮中没有改善，那么训练将停止。如果我们没有指定提前停止，那么训练将继续直到构建`num_boost_round`棵树——通常是一个任意的停止点。在训练GBM模型时，我们几乎总是应该使用提前停止。
+- en: Warning
+  id: totrans-104
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: If we pass multiple datasets into `evals`, only the *last* dataset in the list
+    will be used to determine if the early stopping criterion has been met. Furthermore,
+    the final model will have too many trees. Whenever we make a prediction with the
+    model, we should specify how many trees to use using the `iteration_range` parameter—see
+    [the documentation](https://oreil.ly/OZ5FF) for more info.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们将多个数据集传入`evals`，则列表中的*最后一个*数据集将用于确定是否满足提前停止的条件。此外，最终模型将拥有太多的树。每当我们使用模型进行预测时，应该使用`iteration_range`参数指定要使用多少棵树，请参阅[文档](https://oreil.ly/OZ5FF)获取更多信息。
+- en: As we’ll see, *unconstrained* XGBoost was free to assign probabilities to individual
+    observations based on sometimes spurious patterns in the training data. We can
+    often do better using the knowledge in our own brains and with the help of domain
+    experts, in addition to what can be learned solely from training data.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们将会看到的那样，*非约束*的XGBoost可以基于训练数据中有时是虚假的模式为个别观测分配概率。我们通常可以通过利用我们自己大脑中的知识和领域专家的帮助来更好地处理这些问题，除了仅仅从训练数据中学到的内容。
+- en: We know, for example, that if someone is more and more overdue on their credit
+    card payments, then they almost certainly have a higher likelihood of being late
+    on their next payment. That means that for all `PAY_*` features in our dataset,
+    we’d like the model output to increase when the feature value increases, and vice
+    versa. XGBoost monotonic constraints allow us to do exactly that. For each feature
+    in the dataset, we can specify if we’d like that feature to have a positive, negative,
+    or no monotonic relationship with the model output.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，我们知道，如果某人的信用卡支付越来越逾期，那么他们下次支付迟到的可能性几乎肯定更高。这意味着在我们的数据集中的所有 `PAY_*` 特征上，我们希望模型输出随着特征值的增加而增加，反之亦然。XGBoost
+    的单调约束正好可以做到这一点。对于数据集中的每个特征，我们可以指定我们希望该特征与模型输出具有正向、负向或无单调关系。
+- en: Our dataset only contains 19 features, and we can reason through the underlying
+    causal relationship with default risk for each one. What if our dataset contains
+    hundreds of features? We’d like to train a robust, constrained model, but maybe
+    we’re unsure about a monotonic causal link between certain features and the target.
+    An alternative (or supplemental) method for deriving monotonic constraints uses
+    Spearman correlation. In the following code, we implement a function that examines
+    the pairwise Spearman correlation coefficient between each feature and the target.
+    If the Spearman coefficient is greater in magnitude than a user-specified threshold,
+    that feature is assumed to have a monotonic relationship with the target. The
+    function returns a tuple containing values –1, 0, and 1—exactly the form of input
+    expected by XGBoost when specifying monotonic constraints.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的数据集只包含 19 个特征，我们可以推理出每个特征与违约风险之间的基础因果关系。如果我们的数据集包含数百个特征怎么办？我们希望训练一个稳健的、有约束的模型，但可能对某些特征与目标之间的单调因果链接不确定。推导单调约束的另一种（或补充）方法使用斯皮尔曼相关系数。在下面的代码中，我们实现了一个函数，检查每个特征与目标之间的成对斯皮尔曼相关系数。如果斯皮尔曼系数的大小超过用户指定的阈值，那么假设该特征与目标具有单调关系。该函数返回一个包含值
+    -1、0 和 1 的元组——这正是 XGBoost 在指定单调约束时期望的输入形式。
+- en: '[PRE4]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Note
+  id: totrans-110
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: We use Spearman correlation coefficients rather than the default Pearson correlation
+    because GBMs are nonlinear models, even when constrained. XGBoost monotonic constraints
+    impose *mono­t⁠onicity* rather than *linearity*—Spearman correlation measures
+    exactly the strength of a monotonic relationship, whereas Pearson correlation
+    measures the strength of a linear relationship.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用斯皮尔曼相关系数而不是默认的皮尔逊相关系数，因为 GBM 是非线性模型，即使在约束条件下也是如此。XGBoost 的单调约束施加*单调性*而不是*线性性*——斯皮尔曼相关系数恰好测量单调关系的强度，而皮尔逊相关系数测量线性关系的强度。
+- en: In [Figure 6-5](#spearman_corrs_monotonic_constraints), we’ve plotted the Spearman
+    correlation coefficient of each feature against the target variable. The vertical
+    lines indicate the threshold value of 0.1\. We can see that this data-driven approach
+    suggests imposing monotonic constraints for the `PAY_*` features. We’re using
+    the threshold of 0.1 as an informal marker of practical significance. We may not
+    want to apply any constraints to those input features whose Spearman correlation
+    is less than 0.1 in magnitude. As payment and credit limits increase, probability
+    of default should decrease. As late payments increase, probability of default
+    should increase. The results of this data-driven approach reflect common sense
+    too. That’s the most important consideration when generating constraints, since
+    we’re trying to inject causal domain knowledge into our model.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 6-5](#spearman_corrs_monotonic_constraints) 中，我们绘制了每个特征与目标变量的斯皮尔曼相关系数。垂直线表示阈值为
+    0.1\. 我们可以看到，这种数据驱动的方法建议对 `PAY_*` 特征施加单调约束。我们使用 0.1 作为实际显著性的非正式标记。对于那些斯皮尔曼相关系数小于
+    0.1 的输入特征，我们可能不想应用任何约束。随着支付和信用额度的增加，违约的概率应该降低。随着逾期支付的增加，违约的概率应该增加。这种数据驱动方法的结果也反映了常识。这是在生成约束时最重要的考虑因素，因为我们试图将因果领域知识注入到我们的模型中。
+- en: '![mlha 0605](assets/mlha_0605.png)'
+  id: totrans-113
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0605](assets/mlha_0605.png)'
+- en: Figure 6-5\. Spearman correlation coefficients between target `DELINQ_NEXT`
+    and each feature, with vertical bars indicating a cutoff value of 0.1 ([digital,
+    color version](https://oreil.ly/qolIs))
+  id: totrans-114
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-5\. 目标 `DELINQ_NEXT` 与每个特征之间的斯皮尔曼相关系数，垂直条表示截断值为 0.1（[数字，彩色版本](https://oreil.ly/qolIs)）
+- en: Next, we train the constrained model with the constraints suggested by the analysis
+    shown in [Figure 6-5](#spearman_corrs_monotonic_constraints). Let’s make a few
+    observations about the resulting constrained and unconstrained models. By looking
+    at the output of `xgb.train()` with `verbose_eval=True` in the code [example](https://oreil.ly/BN3dS),
+    we see that the unconstrained model has a higher AUC on the training set (0.829
+    vs. 0.814), but shows equal performance to the constrained model on the validation
+    set (0.785 vs. 0.784). This suggests that the constrained model is less overfit
+    than the unconstrained model—with the exact same set of hyperparameters, the constrained
+    model picks up on a higher proportion of the true signal in the data. As our analyses
+    will show, there are additional reasons that we expect better performance (and
+    better stability) from the constrained model in vivo.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们使用分析中显示的[图 6-5](#spearman_corrs_monotonic_constraints)中建议的约束条件来训练受限模型。让我们对生成的受限和非受限模型做几点观察。通过在代码示例中使用`xgb.train()`并设置`verbose_eval=True`，我们可以看到，在训练集上，非受限模型具有更高的AUC（0.829
+    vs. 0.814），但在验证集上与受限模型表现相同（0.785 vs. 0.784）。这表明，相同的超参数集下，受限模型比非受限模型过拟合较少——受限模型能更好地捕捉数据中的真实信号比例。正如我们的分析将展示的那样，我们预计受限模型在实际应用中将表现更好（且更稳定）的原因还有其他方面。
+- en: Finally, let’s look at the feature importance for the two models in [Figure 6-6](#xgb_feature_importance).
+    We can compute the feature importance values for XGBoost models in many ways.
+    Here, we’ll look at the average coverage of the splits in the ensemble. The coverage
+    of a split is just the number of training samples that flow through the split.
+    This is a traditional calculation for feature importance. It does not have the
+    same theoretical guarantees as, for example, SHAP techniques.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，让我们看一下[图 6-6](#xgb_feature_importance)中两个模型的特征重要性。我们可以通过多种方式计算XGBoost模型的特征重要性值。在这里，我们将查看集成中分裂的平均覆盖度。分裂的覆盖度就是流经分裂的训练样本数。这是特征重要性的传统计算方法。与例如SHAP技术相比，它没有同样的理论保证。
+- en: '![mlha 0606](assets/mlha_0606.png)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0606](assets/mlha_0606.png)'
+- en: Figure 6-6\. The feature importance values of the constrained and unconstrained
+    models, as measured by average coverage ([digital, color version](https://oreil.ly/MAs3a))
+  id: totrans-118
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-6\. 受限和非受限模型的特征重要性值，通过平均覆盖度测量（[数字，彩色版本](https://oreil.ly/MAs3a)）
+- en: We can see that the constrained model spreads the feature importance more evenly
+    among the entire input feature set. The unconstrained model gives a disproportionate
+    share of the feature importance to the `PAY_0` feature. This is even more evidence
+    that the constrained model will be more robust when deployed. If a model focuses
+    all its decision-making capacity on one feature, then it’s going to fail when
+    the distribution of that feature drifts with new data. Being too dependent on
+    a single feature is also a security risk. It’s easier for bad actors to understand
+    how the model works and take advantage of it.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以看到，受限模型将特征重要性更均匀地分布在整个输入特征集中。而非受限模型则将大部分特征重要性分配给`PAY_0`特征。这进一步证明，当部署时，受限模型将更加健壮。如果一个模型将所有决策能力集中在一个特征上，那么当该特征的分布随着新数据而漂移时，该模型将失败。过度依赖单一特征也存在安全风险。坏人更容易理解模型的工作原理并利用它。
+- en: Warning
+  id: totrans-120
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: When we see feature importance values concentrated on one or a few features,
+    our model is more likely to be unstable and insecure postdeployment. Our model
+    might be overly sensitive to drift in the data distribution along a single dimension,
+    and a malicious actor only needs to manipulate the value of one feature to alter
+    model outcomes. If an ML model is focusing on only one or two features, consider
+    replacing it with a simpler model or a business rule.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们看到特征重要性值集中在一个或几个特征上时，我们的模型更可能在部署后不稳定且不安全。我们的模型可能过于依赖数据分布沿单一维度的漂移，而恶意行为者只需操纵一个特征的值即可改变模型结果。如果一个机器学习模型只关注一个或两个特征，考虑用更简单的模型或业务规则替换它。
+- en: Explaining Model Behavior with Partial Dependence and ICE
+  id: totrans-122
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用部分依赖和ICE解释模型行为
+- en: Let’s continue our comparison of the constrained and unconstrained XGBoost models
+    by looking at a side-by-side partial dependence and ICE plot for `PAY_0`. In the
+    previous sections, we’ve already discussed how the conditional mean of the target
+    variable shows a spurious dip around `PAY_0 = 6`, where our training data is sparse.
+    Let’s see how our two XGBoost models handle this data deficiency.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们继续比较约束和无约束的XGBoost模型，通过观察 `PAY_0` 的部分依赖和ICE图表的并排展示。在前面的部分中，我们已经讨论了目标变量的条件均值在
+    `PAY_0 = 6` 处显示出虚假下降的情况，而我们的训练数据在这里稀疏。让我们看看我们的两个XGBoost模型如何处理这些数据缺乏的情况。
+- en: In [Figure 6-7](#constrained_unconstrained_pay_0), we can see how the unconstrained
+    model overfits to the spurious relationship between `PAY_0` and `DELINQ_NEXT`,
+    to a small extent. On the other hand, the constrained model is forced to obey
+    the commonsense relationship that more delayed payments should not lead to a lower
+    risk of delinquency. This is reflected in the monotonically increasing partial
+    dependence and ICE plots for `PAY_0` under our constrained model.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [Figure 6-7](#constrained_unconstrained_pay_0) 中，我们可以看到无约束模型对 `PAY_0` 和 `DELINQ_NEXT`
+    之间的虚假关系过度拟合，尽管程度较小。另一方面，约束模型被迫遵守更加符合常识的关系，即延迟支付次数增加不应导致拖欠风险降低。这反映在我们约束模型下 `PAY_0`
+    的部分依赖和ICE图表中表现为单调递增。
+- en: Note
+  id: totrans-125
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: One difficulty with ICE is picking which individuals to plot first. A good way
+    to get started with ICE plots is to pick individuals or rows at the deciles of
+    predicted outcomes. This gives a coarse picture of local behavior, and from there,
+    we can dive deeper if needed.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ICE的一个困难在于选择哪些个体首先绘制。开始绘制ICE图的一个好方法是选择在预测结果的十分位数上的个体或行。这给出了局部行为的粗略图像，从而我们可以根据需要进行更深入的探索。
+- en: We can also see that for both models, there are large changes in the output
+    across the range of `PAY_0` values. That is, both the partial dependence and ICE
+    plots show lots of vertical movement as we sweep `PAY_0` from –2 to 8\. The model
+    outputs are highly sensitive to the values of this feature—which is exactly why
+    we saw such high feature importance values for `PAY_0` in [Figure 6-6](#xgb_feature_importance).
+    If we don’t observe these kinds of value changes for a feature our model says
+    is very important, that’s a sign that more debugging may be required.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以看到，对于两种模型，`PAY_0` 值的范围内输出变化很大。换句话说，部分依赖和ICE图表显示，随着我们将 `PAY_0` 从 –2 到 8
+    进行扫描，模型输出对该特征值非常敏感。这正是为什么我们在 [Figure 6-6](#xgb_feature_importance) 中看到 `PAY_0`
+    的特征重要性值如此之高的原因。如果我们对于模型认为非常重要的特征未观察到这类数值变化，那就意味着可能需要进行更多的调试工作。
+- en: '![mlha 0607](assets/mlha_0607.png)'
+  id: totrans-128
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0607](assets/mlha_0607.png)'
+- en: Figure 6-7\. Partial dependence and ICE plots of the `PAY_0` feature for the
+    constrained (top) and unconstrained (bottom) models ([digital, color version](https://oreil.ly/ulxRP))
+  id: totrans-129
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 6-7\. `PAY_0` 特征在约束（顶部）和无约束（底部）模型的部分依赖和ICE图表（[数字，彩色版本](https://oreil.ly/ulxRP)）
+- en: Partial dependence and ICE plots can also reveal where there are feature interactions
+    in our model. Take a look at the partial dependence and ICE plot for `LIMIT_BAL`
+    under our unconstrained model in [Figure 6-8](#unconstrained_limit_bal_pd_ice).
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部分依赖和ICE图表还可以揭示模型中的特征交互情况。看一看我们无约束模型下 `LIMIT_BAL` 的部分依赖和ICE图表在 [Figure 6-8](#unconstrained_limit_bal_pd_ice)
+    中的表现。
+- en: '![mlha 0608](assets/mlha_0608.png)'
+  id: totrans-131
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0608](assets/mlha_0608.png)'
+- en: Figure 6-8\. Partial dependence and ICE plots of the `LIMIT_BAL` feature for
+    the unconstrained model ([digital, color version](https://oreil.ly/D-CeU))
+  id: totrans-132
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 6-8\. `LIMIT_BAL` 特征在无约束模型下的部分依赖和ICE图表（[数字，彩色版本](https://oreil.ly/D-CeU)）
+- en: As discussed in [“Partial Dependence and Individual Conditional Expectation”](#pd_ice_refresher),
+    when partial dependence and ICE curves diverge, as they do here, it is suggestive
+    of correlations or interactions in our data and model. Moreover, we can look back
+    to the [EBM training](https://oreil.ly/lW3kV) and see that two important interactions
+    identified by the EBM are `LIMIT_BAL x BILL_AMT2` and `LIMIT_BAL x BILL_AMT1`.
+    It’s plausible that our unconstrained XGBoost model picked up on these interactions
+    as well. In contrast to the EBM, our XGBoost models are riddled with various high-degree
+    feature interactions. But partial dependence and ICE, combined with the EBM’s
+    ability to learn two-way interactions, can help us understand some of the interactions
+    in our XGBoost models too. Another great tool for understanding complex feature
+    interactions in ML models is the surrogate decision tree, which we’ll discuss
+    next.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[“部分依赖和个体条件期望”](#pd_ice_refresher)所讨论的，当部分依赖和ICE曲线分歧时，正如在这里所做的那样，这表明我们的数据和模型中存在相关性或交互作用。
+    此外，我们可以回顾一下[EBM训练](https://oreil.ly/lW3kV)，看到EBM识别的两个重要交互作用是`LIMIT_BAL x BILL_AMT2`和`LIMIT_BAL
+    x BILL_AMT1`。 我们的无约束XGBoost模型很可能也捕捉到了这些交互作用。 与EBM相比，我们的XGBoost模型充满了各种高度特征交互作用。
+    但是部分依赖和ICE结合EBM学习两路交互作用的能力，也可以帮助我们理解XGBoost模型中的一些交互作用。 在理解ML模型中复杂特征交互作用的工具中，另一个好工具是替代决策树，我们将在下文中讨论。
+- en: Decision Tree Surrogate Models as an Explanation Technique
+  id: totrans-134
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 决策树替代模型作为一种解释技术
+- en: The analysis we’ve conducted so far has shown that our unconstrained XGBoost
+    model does not perform better than the constrained version. The partial dependence
+    and ICE plots we’ve looked at show that by tethering the constrained model to
+    reasonable real-world relationships, we’ve successfully prevented the model from
+    picking up on spurious relationships in the training data. Since our constrained
+    model appears logically superior to the alternative, the next sections will focus
+    exclusively on this model.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们进行的分析表明，我们的无约束XGBoost模型表现并不比约束版本更好。 我们查看的部分依赖和ICE图表显示，通过将约束模型绑定到合理的现实世界关系，我们成功地防止了模型在训练数据中捕捉到虚假关系。
+    由于我们的约束模型显然优于替代方案，接下来的部分将专注于该模型。
+- en: 'First, we’re going to continue our exploration of the model’s behavior through
+    a post hoc explanation technique—decision tree surrogate models. A *surrogate
+    model* is just a simple model meant to mimic the behavior of a more complex model.
+    In our case, we’re trying to mimic our constrained XGBoost model with roughly
+    100 trees using a single, shallow decision tree. A decision tree is a data-derived
+    flowchart, so we can look at the decision tree surrogate as a flowchart and explain
+    how the more complex GBM is operating in simpler terms. This is what makes decision
+    tree surrogates a powerful explanation technique. We use the `DecisionTreeRegressor`
+    implementation from `sklearn` to train our surrogate model:'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们将通过一种事后解释技术——决策树替代模型，继续探索模型的行为。 *替代模型*只是一个简单的模型，旨在模仿更复杂的模型的行为。 在我们的案例中，我们试图用一个单一的、浅显的决策树来模拟约100棵树的受限XGBoost模型。
+    决策树是一个数据导出的流程图，因此我们可以把决策树替代看作一个流程图，并用更简单的术语解释更复杂的GBM是如何运作的。 这就是决策树替代成为强大解释技术的原因。
+    我们使用`sklearn`中的`DecisionTreeRegressor`实现来训练我们的替代模型：
+- en: '[PRE5]'
+  id: totrans-137
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Note
+  id: totrans-138
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Surrogate modeling is also known by other names, such as *model compression*
+    or *model extraction*.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 替代建模也被称为*模型压缩*或*模型提取*。
+- en: Notice that we’re training a regression model targeted at the output of the
+    model we’re trying to explain. That is, the surrogate is totally focused on mimicking
+    the behavior of the larger model, not just making a simpler classification model.
+    We’ve also chosen to train a decision tree of depth four. Any deeper, and we might
+    have a hard time explaining what is happening in the surrogate model itself.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们正在训练一个针对我们试图解释的模型输出的回归模型。 也就是说，替代模型完全专注于模仿更大模型的行为，而不仅仅是制作一个更简单的分类模型。 我们还选择训练一个深度为四的决策树。
+    如果再深入一些，我们可能会很难解释替代模型本身发生了什么。
+- en: Warning
+  id: totrans-141
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Surrogate models do not always work well. Always check that surrogate models
+    have good performance quality and stability characteristics. We put forward a
+    simple surrogate modeling approach here. See [“Interpreting Blackbox Models via
+    Model Extraction”](https://oreil.ly/O4Kia), [“Extracting Tree-Structured Representations
+    of Trained Networks”](https://oreil.ly/BQnI7), and [“The Price of Interpretability”](https://oreil.ly/CNgUA)
+    for more information on surrogate approaches and what, if any, guarantees can
+    be made about their fidelity.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 替代模型并非总是表现良好。始终检查替代模型的性能质量和稳定特性。我们在这里提出了一种简单的替代建模方法。有关替代方法及其忠实性的更多信息，请参阅[“通过模型提取解释黑盒模型”](https://oreil.ly/O4Kia)，[“提取训练网络的树结构表示”](https://oreil.ly/BQnI7)和[“可解释性的代价”](https://oreil.ly/CNgUA)。
+- en: 'Before we examine our surrogate model, we must ask whether we can trust it.
+    Decision tree surrogates are a powerful technique, but they don’t come with many
+    mathematical guarantees. One simple way of assessing our surrogate’s quality is
+    to compute accuracy metrics on cross-validation folds. Why cross-validation and
+    not just a validation dataset? A pitfall of single decision tree models is their
+    sensitivity to changes in the training dataset, so by computing accuracy on multiple
+    holdout folds, we’re checking whether our surrogate model is accurate and stable
+    enough to trust:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在检查我们的替代模型之前，我们必须问自己是否能够信任它。决策树替代模型是一种强大的技术，但它们并不附带许多数学保证。评估我们的替代品质量的一个简单方法是计算交叉验证折叠上的准确度指标。为什么使用交叉验证而不只是一个验证数据集？单一决策树模型的一个缺点是它们对训练数据集变化的敏感性，因此通过计算多个留出折叠上的准确度，我们可以检查我们的替代模型是否足够准确和稳定，可以信任：
+- en: '[PRE6]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: '[PRE7]'
+  id: totrans-145
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: These results look great. We can see that the surrogate model has a high accuracy
+    across every cross-validation fold, with very little variation. With some confidence
+    that our decision tree is a reasonable surrogate, let’s plot the surrogate model
+    ([Figure 6-9](#decision_tree_surrogate)).
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些结果看起来很棒。我们可以看到，在每个交叉验证折叠中，替代模型的准确率都很高，变化非常小。有了一些对我们的决策树是一个合理替代的信心，让我们来绘制替代模型（[图 6-9](#decision_tree_surrogate)）。
+- en: '![mlha 0609](assets/mlha_0609.png)'
+  id: totrans-147
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0609](assets/mlha_0609.png)'
+- en: Figure 6-9\. The decision tree surrogate for our constrained XGBoost model
+  id: totrans-148
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-9\. 受限 XGBoost 模型的决策树替代品
+- en: Notice in [Figure 6-9](#decision_tree_surrogate) that the surrogate model splits
+    on the `PAY_0` feature first. That is, in order to optimally mimic the behavior
+    of the constrained XGBoost model, the first thing the surrogate model does is
+    to separate observations into two groups—those with `PAY_0` ≤ `1.5` and those
+    with higher `PAY_0` values. We can crudely approximate feature importance by looking
+    at the depth of each feature’s splits in the surrogate model, so this result is
+    consistent with our feature importance analysis. A good sign.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意 [图 6-9](#decision_tree_surrogate) 中的替代模型首先基于`PAY_0`特征进行分割。也就是说，为了最优地模仿受约束的
+    XGBoost 模型的行为，替代模型首先将观察结果分为两组——那些`PAY_0` ≤ `1.5`和那些具有更高`PAY_0`值的观察结果。我们可以通过查看每个特征在替代模型中的分割深度粗略地近似特征重要性，因此这个结果与我们的特征重要性分析一致。一个好的迹象。
+- en: 'Since our surrogate model is so simple, we can also make lots of plain-language
+    observations about it. For example, we can trace the paths of the highest- and
+    lowest-risk observations and explain how our surrogate is treating them:'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们的替代模型如此简单，我们还可以对其进行大量简单语言观察。例如，我们可以追踪最高风险和最低风险观察结果的路径，并解释我们的替代模型如何处理它们：
+- en: 'The lowest-risk observations traverse the following decision path: September,
+    2005 repayment status on-time or one month late (`PAY_0` ≤ `1.5`) AND August,
+    2005 repayment status on-time or one month late (`PAY_2` ≤ `1.5`) AND August,
+    2005 repayment amount is more than $1,603.5 (`PAY_AMT2` > $1,603.5). These rules
+    focus on customers who make recent payments in a timely fashion, and make large
+    payments. Makes sense.'
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最低风险的观察结果遵循以下决策路径：2005 年 9 月还款状态准时或晚一个月 (`PAY_0` ≤ `1.5`) 和 2005 年 8 月还款状态准时或晚一个月
+    (`PAY_2` ≤ `1.5`) 和 2005 年 8 月还款金额超过 $1,603.5 (`PAY_AMT2` > $1,603.5)。这些规则侧重于近期按时还款且进行大额还款的客户。很合理。
+- en: 'The highest-risk observations traverse the following decision path: September,
+    2005 repayment status more than one month late (`PAY_0` > `1.5`) AND August, 2005
+    repayment status more than one month late (`PAY_2` > `1`) AND April, 2005 repayment
+    status more than one month late (`PAY_6` > `1`). These rules consider unfavorable
+    repayment statuses over time—​also logical.'
+  id: totrans-152
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 风险最高的观察结果遵循以下决策路径：2005 年 9 月还款状态超过一个月迟缴（`PAY_0` > `1.5`）和 2005 年 8 月还款状态超过一个月迟缴（`PAY_2`
+    > `1`）以及 2005 年 4 月还款状态超过一个月迟缴（`PAY_6` > `1`）。这些规则考虑了随时间不利的还款状态—同样是合乎逻辑的。
+- en: These explanations take into account repayment statuses and repayment amounts.
+    For acceptance decisions, the more complex GBM seems to focus on more recent status
+    and amount information, and for denial decisions, our GBM is probably looking
+    for payment status patterns over time.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些解释考虑了还款状态和还款金额。对于接受决策，更复杂的 GBM 似乎侧重于更近期的状态和金额信息；而对于拒绝决策，我们的 GBM 可能正在寻找随时间变化的付款状态模式。
+- en: The last thing we’ll notice is that each time one feature follows from another
+    in a decision tree path, those features are likely interacting in our GBM. We
+    can easily identify the main feature interactions that our XGBoost model has learned
+    by examining the surrogate model. Interestingly, we can also look back and see
+    that the [EBM](https://oreil.ly/1R_hN) also picked up on some of the same interactions,
+    such as `PAY_0 x PAY_2` and `PAY_0 x PAY_AMT2`. With all these tools—EBMs, partial
+    dependence and ICE, and surrogate decision trees—we can really get a solid picture
+    of what’s in our data and what’s reasonable to expect from model behavior. That’s
+    very different from training a single unexplainable model and checking a few test
+    data assessment metrics. We’re starting to learn how these models work, so we
+    can make human judgment calls about their real-world performance.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后我们会注意到，每当一个特征跟随另一个特征在决策树路径中时，这些特征很可能在我们的 GBM 模型中发生交互作用。通过检查替代模型，我们可以轻松地识别出我们的
+    XGBoost 模型学到的主要特征交互作用。有趣的是，我们也可以回顾一下看到，[EBM](https://oreil.ly/1R_hN) 也捕捉到了一些相同的交互作用，比如
+    `PAY_0 x PAY_2` 和 `PAY_0 x PAY_AMT2`。通过这些工具— EBM、部分依赖和 ICE，以及替代决策树—我们可以真正了解我们的数据中包含了哪些信息，以及从模型行为中合理期待什么。这与训练单一无法解释模型并检查几个测试数据评估指标截然不同。我们开始了解这些模型的工作方式，因此可以就它们的实际表现做出人类判断。
+- en: What’s more, we can use this information about interactions to boost the performance
+    of linear models, such as a penalized logistic regression, by including these
+    learned interactions as input features. If we want to stick with the most conservative
+    model forms for our highest-risk applications, we can use a GLM and likely get
+    a boost in performance quality with this information about important interactions.
+    As readers can see, we can make all kinds of simple, explainable observations
+    about our XGBoost model through the use of decision tree surrogates. And we’ve
+    collected loads of useful information for model documentation and other risk management
+    purposes along the way.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更重要的是，我们可以利用这些关于交互作用的信息来提升线性模型的性能，比如惩罚逻辑回归，通过将这些学到的交互作为输入特征。如果我们希望在最高风险应用中坚持最保守的模型形式，我们可以使用
+    GLM，并且很可能通过这些重要交互作用信息提升性能质量。正如读者所见，通过决策树替代，我们可以对我们的 XGBoost 模型进行各种简单、可解释的观察。在这个过程中，我们还收集了大量用于模型文档和其他风险管理目的的有用信息。
+- en: Shapley Value Explanations
+  id: totrans-156
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Shapley 值解释
+- en: The last post hoc explanation tool to discuss before we close the chapter is
+    Shapley values. In [“Local explanations and feature attribution”](ch02.html#local_feature_importance),
+    we mentioned that Shapley values can be used as a local feature attribution technique.
+    In fact, Shapley values come with a host of mathematical guarantees that suggest
+    that they are usually the best choice for feature attribution and importance calculations.
+    The research and open source communities, led by Scott Lundberg at University
+    of Washington and Microsoft Research, have developed a host of tools for generating
+    and visualizing SHAP values. These tools live in the SHAP Python package, and
+    that’s what we’ll use in this section.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于在我们结束这一章之前讨论的最后一种事后解释工具是 Shapley 值。在[“局部解释和特征归因”](ch02.html#local_feature_importance)中，我们提到
+    Shapley 值可以作为局部特征归因技术使用。事实上，Shapley 值具有一系列数学保证，表明它们通常是特征归因和重要性计算的最佳选择。由华盛顿大学和微软研究机构的
+    Scott Lundberg 领导的研究和开源社区开发了大量用于生成和可视化 SHAP 值的工具。这些工具存在于 SHAP Python 包中，这也是我们将在本节中使用的工具。
+- en: Remember that *local* feature attribution methods assign a value to each feature
+    for each observation, quantifying how much that feature contributed to the predicted
+    value that the observation received. In this section, we’ll see how to use SHAP
+    values and the SHAP package to explain the behavior of our models. In the final
+    section of this chapter, we’ll examine some of the subtleties to Shapley value–based
+    explanations, and the pitfalls they pose to practitioners.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，*局部*特征归因方法为每个观测分配一个值，量化该特征对该观测接收到的预测值贡献了多少。在本节中，我们将看到如何使用SHAP值和SHAP包来解释我们模型的行为。在本章的最后一节中，我们将检查基于Shapley值的解释的一些细微差别，以及它们对从业者造成的困扰。
+- en: 'Let’s take a look at some code to generate SHAP values for our monotonic XGBoost
+    model:'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看一些代码来生成我们的单调XGBoost模型的SHAP值：
+- en: '[PRE8]'
+  id: totrans-160
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: We’re using the SHAP package’s `TreeExplainer` class. This class can generate
+    SHAP values for XGBoost, LightGBM, CatBoost, and most tree-based scikit-learn
+    models. The `TreeExplainer` is discussed in Scott Lundberg’s papers [“Consistent
+    Individualized Feature Attribution for Tree Ensembles”](https://oreil.ly/VZz75)
+    and [“From Local Explanations to Global Understanding with Explainable AI for
+    Trees”](https://oreil.ly/7fdWE), among others. They’re a great example of the
+    computational breakthroughs that have made the SHAP package so successful. If
+    you need to generate SHAP values for a model not based on trees, take a look at
+    the examples in the [SHAP package documentation](https://oreil.ly/5h0zu)—there
+    are multiple examples for tabular, text, and image data.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用SHAP包的`TreeExplainer`类。该类可以为XGBoost、LightGBM、CatBoost和大多数基于树的scikit-learn模型生成SHAP值。`TreeExplainer`在Scott
+    Lundberg的论文[“Consistent Individualized Feature Attribution for Tree Ensembles”](https://oreil.ly/VZz75)和[“From
+    Local Explanations to Global Understanding with Explainable AI for Trees”](https://oreil.ly/7fdWE)中有讨论。它们是使SHAP包如此成功的计算突破的一个很好的例子。如果您需要为非基于树的模型生成SHAP值，请查看[SHAP包文档](https://oreil.ly/5h0zu)中的示例——其中包含用于表格、文本和图像数据的多个示例。
+- en: Note
+  id: totrans-162
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If you need to explain a model that’s not tree- or neural-network-based, don’t
+    forget about comparison to prototypes and counterfactual explanations. These powerful
+    explanation concepts can be more effective than general-purpose model-agnostic
+    approaches like local model-agnostic interpretable explanations (LIME) or kernel
+    SHAP.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你需要解释一个不基于树或神经网络的模型，请不要忘记与原型和反事实解释进行比较。这些强大的解释概念可能比通用的模型无关方法（如局部模型无关可解释性解释（LIME）或核
+    SHAP）更有效。
+- en: To begin, let’s take a look at the SHAP values associated with the `PAY_0` feature
+    in [Figure 6-10](#shap_dependence_pay_0).
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们看看[图 6-10](#shap_dependence_pay_0) 中`PAY_0`特征的SHAP值。
+- en: '![mlha 0610](assets/mlha_0610.png)'
+  id: totrans-165
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0610](assets/mlha_0610.png)'
+- en: Figure 6-10\. Dependence plot for the `PAY_0` feature, showing the distribution
+    of SHAP values in each bucket of feature values ([digital, color version](https://oreil.ly/hF4eJ))
+  id: totrans-166
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-10\. `PAY_0`特征的依赖图，显示每个特征值桶中SHAP值的分布（[数字，彩色版本](https://oreil.ly/hF4eJ))
+- en: Each dot in [Figure 6-10](#shap_dependence_pay_0) is one observation’s SHAP
+    value for the `PAY_0` feature, or contribution to the model prediction, with an
+    x-coordinate given by the value of `PAY_0`. The scatter plot is superimposed over
+    a histogram of feature values in the dataset, just like our partial dependence
+    and ICE plots. In fact, this scatter plot can be directly compared to the partial
+    dependence and ICE plots for `PAY_0`. In the SHAP scatter plot, we can see the
+    whole range of feature attribution values within each bucket of `PAY_0` values.
+    Notice that the range is widest in the `PAY_0` = 2 bucket—some observations with
+    `PAY_0` = 2 are penalized approximately half as much as others. This SHAP scatter
+    plot is one of many summarizing plots included in the SHAP package. For a more
+    thorough overview, take a look at the [examples in the documentation](https://oreil.ly/xWxlG)
+    as well as this chapter’s Jupyter notebook examples.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 6-10](#shap_dependence_pay_0) 中的每个点都是`PAY_0`特征的一个观测的SHAP值，即对模型预测的贡献，x坐标由`PAY_0`的值给出。这个散点图覆盖在数据集特征值直方图的上方，就像我们的偏依赖和ICE图一样。事实上，这个散点图可以直接与`PAY_0`的偏依赖和ICE图进行比较。在SHAP散点图中，我们可以看到`PAY_0`值桶内的特征归因值的整个范围。请注意，`PAY_0`
+    = 2 桶中的范围最宽——某些具有`PAY_0` = 2的观测被罚款的大约是其他观测的一半。这个SHAP散点图是SHAP包中包含的许多总结图之一。要获取更全面的概述，请查看[文档中的示例](https://oreil.ly/xWxlG)以及本章的Jupyter笔记本示例。'
+- en: 'As we saw in [Chapter 2](ch02.html#unique_chapter_id_2), we can construct a
+    measure of overall *feature importance* by taking the mean of absolute SHAP values.
+    Instead of a standard horizontal bar chart of feature importance values, we can
+    use the SHAP plotting functionality to look at feature importance explicitly as
+    an aggregation of local explanations:'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在[第 2 章](ch02.html#unique_chapter_id_2)中所看到的，我们可以通过取绝对 SHAP 值的均值来构建总体*特征重要性*的度量。与特征重要性值的标准水平条形图不同，我们可以使用
+    SHAP 绘图功能明确地查看特征重要性，作为局部解释的聚合：
+- en: '[PRE9]'
+  id: totrans-169
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: '[Figure 6-11](#feature_importance_beeswarm) gives us an interesting perspective
+    on feature importance. Notice that some features (e.g., `PAY_0`, `PAY_AMT1`) have
+    a few dots exhibiting extreme SHAP values, whereas other features (e.g., `LIMIT_BAL`,
+    `PAY_AMT3`) have a high feature importance because a lot of individual observations
+    have somewhat high absolute SHAP values. Put another way, local explanations allow
+    us to distinguish between high-frequency, low-magnitude effects versus low-frequency,
+    high-magnitude effects. This is important, because each of those high-magnitude,
+    low-frequency effects represent real people being impacted by our model.'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 6-11](#feature_importance_beeswarm)为我们提供了一个关于特征重要性的有趣视角。请注意，某些特征（例如 `PAY_0`，`PAY_AMT1`）具有一些显示极端
+    SHAP 值的点，而其他特征（例如 `LIMIT_BAL`，`PAY_AMT3`）由于许多个体观测具有相对较高的绝对 SHAP 值而具有高特征重要性。换句话说，局部解释使我们能够区分高频率、低幅度效果与低频率、高幅度效果。这很重要，因为每一个高幅度、低频率效果都代表着我们模型影响到的真实人群。'
+- en: '![mlha 0611](assets/mlha_0611.png)'
+  id: totrans-171
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0611](assets/mlha_0611.png)'
+- en: Figure 6-11\. Feature importances, shown as the aggregation of individual observations’
+    absolute SHAP values ([digital, color version](https://oreil.ly/cjUiE))
+  id: totrans-172
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-11\. 特征重要性，显示为个体观测的绝对 SHAP 值的聚合（[数字版，彩色](https://oreil.ly/cjUiE)）
+- en: Shapley value–based explanations have seen widespread adoption due to their
+    strong theoretical underpinning and the robust set of tools built around them.
+    Since these quantities can be computed at an observation-by-observation level,
+    they can likely be used to generate adverse action notices or other turn-down
+    reports (when used properly, tested for fidelity and stability, and paired with
+    constrained models). Have a look at our code [examples](https://oreil.ly/machine-learning-high-risk-apps-code),
+    read some papers and documentation, and start generating SHAP values for our model.
+    But please read the next section, where we discuss some of the assumptions and
+    limitations behind every SHAP computation.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于 Shapley 值的解释由于其坚实的理论基础和围绕它们构建的强大工具集而被广泛采用。由于这些数量可以在逐个观测的水平上计算，因此它们可能被用来生成拒绝行动通知或其他拒绝报告（当正确使用、测试其忠实性和稳定性，并与约束模型配对时）。看一看我们的代码[示例](https://oreil.ly/machine-learning-high-risk-apps-code)，阅读一些论文和文档，并开始为我们的模型生成
+    SHAP 值。但请阅读下一节，我们将讨论每个 SHAP 计算背后的假设和限制。
+- en: Problems with Shapley values
+  id: totrans-174
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Shapley 值存在的问题
+- en: 'In [Chapter 2](ch02.html#unique_chapter_id_2) and [“Shapley Values”](#shapley_values_refresher),
+    we introduced the idea of a *background dataset* that underlies Shapley value
+    calculations. When SHAP wants to understand the impact of a feature on a certain
+    prediction, it replaces the value of the feature in the training or test data
+    with a random value drawn from the background data and compares predictions from
+    the two different datasets many times over, with lots of perturbations regarding
+    which features use normal data and which features use background data. Here’s
+    a useful way to think of background datasets: when we calculate a SHAP value for
+    an observation, we’re answering the question “Why did this observation get this
+    prediction *rather than some other prediction*?” The “other prediction” that observations
+    are compared against is dictated by the choice of background data, or *reference
+    distribution*.'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第 2 章](ch02.html#unique_chapter_id_2)和[“Shapley Values”](#shapley_values_refresher)中，我们介绍了支持
+    Shapley 值计算的*背景数据集*的概念。当 SHAP 希望了解某个特征对某个预测的影响时，它会用背景数据中抽取的随机值替换训练或测试数据中特征的值，并多次比较来自两个不同数据集的预测，关于哪些特征使用正常数据和哪些特征使用背景数据的扰动很多。关于背景数据集的有用思考方式如下：当我们为一个观测计算
+    SHAP 值时，我们正在回答“为什么这个观测获得了这个预测*而不是其他预测*？”观测所比较的“其他预测”由背景数据的选择或*参考分布*决定。
+- en: 'In the following code, we create two sets of SHAP values for the same observations—except
+    in one instance we do not specify a reference distribution, and in the other we
+    do:'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下面的代码中，我们为相同的观测创建了两组SHAP值——除了一个实例我们没有指定参考分布，而在另一个实例中我们有：
+- en: '[PRE10]'
+  id: totrans-177
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: By setting `feature_perturbation='tree_path_dependent'`, we’re opting not to
+    define a reference distribution at all. Instead, SHAP uses information collected
+    from the trained GBM model trees to implicitly define its own background data.
+    This is similar to using the training data as our background data, but not exactly
+    the same.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过设置`feature_perturbation='tree_path_dependent'`，我们选择不定义任何参考分布。相反，SHAP使用从训练好的GBM模型树中收集的信息来隐式定义自己的背景数据。这类似于使用训练数据作为我们的背景数据，但并非完全相同。
+- en: 'Next, we define an `explainer` with `feature_perturbation=''interventional''`,
+    for which we pass a reference distribution composed of training samples that received
+    a probability of delinquency of less than 10%. If the reference distribution is
+    what we compare each observation against, then we would expect these two sets
+    of SHAP values to be meaningfully different. After all, these questions are incredibly
+    different: “Why did this observation get this prediction, *rather than the average
+    prediction in the training data*?” versus “Why did this observation get this prediction,
+    *rather than the predictions given to approved applicants*?” As discussed in [Chapter 2](ch02.html#unique_chapter_id_2),
+    the latter question is much more aligned with US regulatory commentary on adverse
+    action notices. This is an example of what Professor Beicek means when he says,
+    “Don’t explain without context!”'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们定义一个带有`feature_perturbation='interventional'`的`explainer`，对于这个`explainer`，我们传递一个由得到逾期概率小于10%的训练样本组成的参考分布。如果参考分布是我们将每个观测值与之比较的内容，那么我们期望这两组SHAP值在含义上是不同的。毕竟，这些问题是非常不同的：“为什么这个观测值得到这个预测，*而不是训练数据中的平均预测*？”与“为什么这个观测值得到这个预测，*而不是给予批准申请者的预测*？”正如在[第2章](ch02.html#unique_chapter_id_2)中讨论的那样，后一个问题与美国对不良行为通知的法规评论更加一致。这就是当Beicek教授说“不要脱离上下文来解释！”时的一个例子。
+- en: 'Although some argue `tree_path_dependent` feature perturbations are *true to
+    the data*—that is, they tell us about more than just this one model’s behavior—as
+    shown in [“Explaining Individual Predictions When Features Are Dependent: More
+    Accurate Approximations to Shapley Values”](https://oreil.ly/3PBGX), this is probably
+    not true. *True to the data* feature attributions would require that we know the
+    full joint probability distribution of our data, and this is a very challenging
+    technical problem that we can’t hope to solve by looking at the path structure
+    of the trees in our model. It’s better to use `interventional` feature perturbations
+    and recognize that our SHAP values are *true to model* and don’t generalize outside
+    of our model. Our suggestion is to only use `tree_path_dependent` feature perturbations
+    when you have no other choice. The main reason for using them would be if you
+    don’t have access to a background dataset, and you have to infer it from the model.
+    If you have access to the training data, explicitly pass it in to the SHAP explainer
+    and use `interventional` feature perturbations.'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管一些人认为`tree_path_dependent`特征扰动*符合数据*——也就是说，它们告诉我们不仅仅是这个模型的行为，正如在[“当特征相关时解释个别预测：对Shapley值的更准确近似”](https://oreil.ly/3PBGX)中所示的那样，这可能并不是真的。*符合数据*的特征归因需要我们知道数据的完整联合概率分布，而这是一个非常具有挑战性的技术问题，我们不能仅凭模型中树的路径结构来解决。最好使用`interventional`特征扰动，并认识到我们的SHAP值是*符合模型*的，不适用于模型之外的泛化。我们建议仅在没有其他选择时使用`tree_path_dependent`特征扰动。使用它们的主要原因是如果您无法访问背景数据集，并且必须从模型中推断它。如果您可以访问训练数据，请明确传递给SHAP解释器并使用`interventional`特征扰动。
+- en: Warning
+  id: totrans-181
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: As of the writing of this book, best practices indicate that it’s better to
+    use `interventional` feature perturbations and recognize that our explanations
+    don’t generalize outside of our model. Only use `tree_path_dependent` feature
+    perturbations when you have no other choice.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到本书撰写时，最佳实践表明最好使用`interventional`特征扰动，并认识到我们的解释不适用于模型之外的泛化。只有在没有其他选择时才使用`tree_path_dependent`特征扰动。
+- en: On to [Figure 6-12](#ref_versus_no_ref_dist) to try to show why all this matters.
+    In [Figure 6-12](#ref_versus_no_ref_dist), we show two sets of SHAP values for
+    the same observation—one calculated without a reference distribution and `feature_perturbation='tree_path_dependent'`,
+    and one calculated against a reference of approved applicants and `feature_perturbation​='inter⁠ven⁠tional'`.
+    First off, for some observations, we can see large differences in the SHAP values
+    under these two different types of SHAP explanations.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 继续查看[图 6-12](#ref_versus_no_ref_dist)，试图展示为什么所有这些都很重要。在[图 6-12](#ref_versus_no_ref_dist)中，我们展示了同一观察结果的两组SHAP值——一组是在没有参考分布和`feature_perturbation='tree_path_dependent'`的情况下计算的，另一组是针对批准申请人的参考分布和`feature_perturbation='interventional'`计算的。首先，对于某些观察结果，在这两种不同类型的SHAP解释下可以看到很大的SHAP值差异。
+- en: '![mlha 0612](assets/mlha_0612.png)'
+  id: totrans-184
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0612](assets/mlha_0612.png)'
+- en: Figure 6-12\. SHAP values for the same observation, generated with and without
+    a reference distribution consisting of observations with an assigned probability
+    of delinquency less than 10% ([digital, color version](https://oreil.ly/jN3lj))
+  id: totrans-185
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-12\. 同一观察结果的SHAP值，分别使用和不使用参考分布，参考分布中的观察结果具有小于10%违约概率（[数字，彩色版本](https://oreil.ly/jN3lj)）
+- en: Imagine adverse action notices sent out on the basis of these two explanations.
+    With no reference distribution, the top four features that contributed to a larger
+    probability of delinquency are `PAY_0`, `LIMIT_BAL`, `BILL_AMT5`, and `PAY_AMT3`.
+    But if we specify a context-specific reference distribution, these top four features
+    are `PAY_AMT1`, `PAY_AMT2`, `PAY_AMT3`, and `LIMIT_BAL`. In a credit lending context,
+    where *recourse* (the ability to appeal a model decision) is a crucial part of
+    trust and responsible deployment, which explanation is correct? It’s likely to
+    be the explanations based on interventional feature perturbation, and due to using
+    approved applicants in the background data, they are also framed more logically
+    in terms of regulatory requirements.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下，基于这两种解释发送的不良行动通知。没有参考分布，导致违约可能性更大的前四个特征是`PAY_0`、`LIMIT_BAL`、`BILL_AMT5`和`PAY_AMT3`。但是，如果我们指定一个上下文特定的参考分布，这四个顶级特征将是`PAY_AMT1`、`PAY_AMT2`、`PAY_AMT3`和`LIMIT_BAL`。在信贷借贷背景下，*追索权*（对模型决策提出异议的能力）是信任和负责任部署的重要组成部分，哪种解释是正确的呢？很可能是基于干预特征扰动的解释，由于使用了背景数据中的批准申请人，它们在法规要求方面也更合理。
+- en: However, those interventional explanations are unique to the model, and therefore
+    they only provide accurate reason codes to the applicant if the applicant will
+    be scored in the future using the exact same model. It’s going to raise eyebrows
+    if an applicant gets different adverse action notices for similar credit products,
+    especially from the same lender, just because of some model-specific mechanism
+    in an ML pipeline. It’s not impossible that tree-path-dependent explanations will
+    be more consistent across different models—as claimed by some—but that highlights
+    another difficulty. Both path-dependent and interventional SHAP values can give
+    explanations based on features not used in a specific decision. That’s a big problem
+    for adverse action notices and actionable recourse. However, we would still suggest
+    using the interventional explanations when you use SHAP, while also acknowledging
+    and testing for their shortcomings.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这些干预式解释是针对模型的特定的，因此只有在未来使用完全相同模型对申请人评分时，才能为申请人提供准确的原因代码。如果由于ML管道中的某些模型特定机制，同一借款人因类似信贷产品而获得不同的不良行动通知，这将引起关注。树路径依赖解释跨不同模型可能更加一致——正如某些人所声称的那样——但这也突显了另一个困难。无论如何，路径依赖和干预式SHAP值都可以基于未在具体决策中使用的特征提供解释。这对于不良行动通知和可操作追索权是一个大问题。然而，当您使用SHAP时，我们仍建议使用干预式解释，并同时承认并测试其局限性。
+- en: 'Even when we get all the details related to feature perturbation and background
+    data right, there’s still a fundamental limitation of ML explanation we need to
+    keep in mind. A denied applicant wants to know how to change their credit profile
+    in order to get approved for credit in the future—that’s the question framed by
+    our approved applicant reference distribution. However, we need to exercise some
+    caution even when using a meaningful and context-specific reference distribution.
+    The recourse question, “What should I change [about my credit profile] in order
+    to receive a favorable outcome in the future?” is fundamentally a *causal* question—and
+    we’re not working with causal models. To quote the creator of the SHAP package,
+    Scott Lundberg, [“Be careful when interpreting predictive models in search of
+    causal insights”](https://oreil.ly/mME7V). He goes on to say:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使我们正确获取了与特征扰动和背景数据相关的所有细节，机器学习解释仍然存在一个根本性的局限性需要牢记。被拒申请人想知道如何改变他们的信用档案以便将来能够获得批准——这是我们通过已批准申请人参考分布所提出的问题。然而，即使使用了有意义且特定上下文的参考分布，我们在使用解释模型时也需要谨慎一些。关于这种回溯问题，“为了将来获得有利结果，我应该改变[我的信用档案]中的什么？”根本上是一个*因果*问题——而我们并非在使用因果模型。引用SHAP包的创始人Scott
+    Lundberg的话，[“在寻找因果洞察的预测模型解释时要小心”](https://oreil.ly/mME7V)。他接着说：
+- en: Predictive machine learning models like XGBoost become even more powerful when
+    paired with interpretability tools like SHAP. These tools identify the most informative
+    relationships between the input features and the predicted outcome, which is useful
+    for explaining what the model is doing, getting stakeholder buy-in, and diagnosing
+    potential problems. It is tempting to take this analysis one step further and
+    assume that interpretation tools can also identify what features decision makers
+    should manipulate if they want to change outcomes in the future. However, […​]
+    using predictive models to guide this kind of policy choice can often be misleading.
+  id: totrans-189
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: XGBoost等预测机器学习模型与SHAP等解释性工具配对使用时，可以变得更加强大。这些工具能够识别输入特征与预测结果之间最具信息量的关系，这对于解释模型行为、获得利益相关者支持和诊断潜在问题非常有用。分析可以更进一步，假设解释工具还能识别决策者在想要改变未来结果时应该操控哪些特征。然而，[...​]使用预测模型来指导此类政策选择往往会产生误导。
+- en: For all of their mathematical guarantees and ease-of-use, Shapley-value-based
+    explanations are not a magic wand. Instead, they are yet another explainability
+    tool in our toolbox for explaining models. We have to combine our post hoc explainability
+    techniques with intrinsically explainable model architectures such as GLMs, GAMs,
+    or tightly constrained XGBoosts, to achieve true interpretability. And we have
+    to stay humble and remember that ML is all about correlation, and not causation.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于所有的数学保证和易用性来说，基于Shapley值的解释并非魔法棒。相反，它们只是我们解释模型工具箱中的又一种工具。我们必须将事后解释技术与本质上可解释的模型架构（如GLM、GAM或严格约束的XGBoost）结合起来，才能实现真正的可解释性。我们必须保持谦逊，并记住机器学习关注的是相关性，而不是因果关系。
+- en: Better-Informed Model Selection
+  id: totrans-191
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 更加明智的模型选择
+- en: To conclude this chapter, let’s return to the `PAY_0` feature, and compare how
+    each of the five models we built treat this feature. Remember that `PAY_0` represents
+    repayment status, where higher values correspond to a greater delay in repayment.
+    Obviously, higher values should correspond to a greater risk of delinquency. However,
+    the training data we used is sparse for higher values of the feature, so we have
+    only a few observations after more than one month’s delay. With that in mind,
+    let’s examine five partial dependence and ICE plots for each model’s treatment
+    of this feature, as shown in [Figure 6-13](#all_pd_ice_pay_0). We need to ask
+    ourselves, “Which of these models would I trust the most with a billion-dollar
+    lending portfolio?”
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结束本章之前，让我们回到`PAY_0`特征，比较我们建立的五个模型如何处理这个特征。请记住，`PAY_0`代表还款状态，较高的值对应更大的还款延迟。显然，较高的值应该对应更大的违约风险。然而，我们使用的训练数据在特征较高值时很稀疏，所以在一个月以上延迟后，我们只有很少的观察数据。考虑到这一点，让我们分析每个模型对这个特征的五个部分依赖和ICE图表，如[图6-13](#all_pd_ice_pay_0)所示。我们需要问自己：“对于一个十亿美元的贷款投资组合，我最信任哪个模型？”
+- en: 'Three of our models show a response to the spurious dip in the mean target
+    value in the sparse region of the feature space: the GAM, EBM, and unconstrained
+    XGBoost. The GLM and constrained XGBoost models were forced to ignore this phenomenon.
+    Since the GAM and EBM are additive models, we know that the partial dependence
+    and ICE plots are truly representative of their treatment of this feature. The
+    unconstrained XGBoost model is so full of feature interactions that we cannot
+    be so sure. But the partial dependence does track with ICE, so it’s probably a
+    good indicator of true model behavior. We’d say it’s a choice between the penalized
+    GLM and the constrained XGBoost model. Which model is the best choice? By using
+    these explainable models and post hoc explainers, we can make a much more deliberate
+    choice than in the traditional opaque ML workflow—and that’s what’s most important.
+    Remember, if we were choosing by pure performance, we’d pick a model that treats
+    our most important feature in a somewhat silly way.'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的三个模型对特征空间稀疏区域中目标值均值的虚假下降表现出响应：GAM、EBM 和无约束 XGBoost。GLM 和约束 XGBoost 模型被迫忽略了这一现象。由于
+    GAM 和 EBM 是加法模型，我们知道偏依赖图和 ICE 图确实代表了它们对这一特征的处理。无约束 XGBoost 模型充满了特征交互，因此我们不能那么确定。但是偏依赖确实与
+    ICE 相匹配，因此这可能是真实模型行为的一个很好指标。我们可以说这是在惩罚 GLM 和约束 XGBoost 模型之间做出选择。哪个模型是最佳选择？通过使用这些可解释模型和事后解释器，我们可以比传统的不透明机器学习工作流程更加慎重地做出选择。这才是最重要的。记住，如果我们只根据性能选择，我们可能会选择一个对最重要的特征处理方式有些愚蠢的模型。
+- en: 'The story that emerges out of this deep dive into explainability in practice
+    is this: first, we understand which relationships between feature and target are
+    truly meaningful, and which are noise. Second, if we need to be able to explain
+    our model’s behavior—and we probably do—we need to choose a model architecture
+    that is intrinsically explainable. That way, we’ll have both the model and the
+    explainers available to double-check each other. Third, we must force our model
+    to obey reality with constraints. People are still smarter than computers! Finally,
+    we’ll need to examine our trained model with a diverse set of post hoc explainability
+    techniques such as partial dependence and ICE plots, surrogate models, and SHAP
+    values. Working this way, we can make informed and reasonable model selection
+    choices, and not simply overfit potentially biased and inaccurate training data.'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过对可解释性实践的深入探索，我们得出以下结论：首先，我们了解到特征与目标之间哪些关系真正具有意义，哪些是噪音。其次，如果我们需要能够解释我们模型的行为——而我们很可能需要——我们需要选择一种本质上可解释的模型架构。这样，我们既有了模型，也有了解释器来相互核对。第三，我们必须强制我们的模型遵守现实的约束条件。人类仍然比计算机聪明！最后，我们需要用多样的后验解释技术来检查我们训练好的模型，如偏依赖图和
+    ICE 图、代理模型以及 SHAP 值。通过这种方式工作，我们可以做出知情且合理的模型选择，而不只是过度拟合潜在偏倚和不准确的训练数据。
+- en: '![mlha 0613](assets/mlha_0613.png)'
+  id: totrans-195
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0613](assets/mlha_0613.png)'
+- en: Figure 6-13\. Partial dependence and ICE plots for the five models trained in
+    this chapter ([digital, color version](https://oreil.ly/3X2X4))
+  id: totrans-196
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-13。本章训练的五个模型的偏依赖图和 ICE 图（[数字、彩色版](https://oreil.ly/3X2X4)）
+- en: Resources
+  id: totrans-197
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 资源
+- en: Further Reading
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进一步阅读
+- en: '[*Elements of Statistical Learning* (chapters 3, 4, 9, and 10)](https://oreil.ly/S72E1)'
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[*统计学习基础*（第3、4、9和10章）](https://oreil.ly/S72E1)'
+- en: Code Examples
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码示例
+- en: '[Machine-Learning-for-High-Risk-Applications-Book](https://oreil.ly/machine-learning-high-risk-apps-code)'
+  id: totrans-201
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[面向高风险应用的机器学习书籍](https://oreil.ly/machine-learning-high-risk-apps-code)'
+- en: Explainable Modeling Tools
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可解释建模工具
+- en: '[arules](https://oreil.ly/bBv9s)'
+  id: totrans-203
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[arules](https://oreil.ly/bBv9s)'
+- en: '[causalml](https://oreil.ly/XsiMk)'
+  id: totrans-204
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[因果机器学习](https://oreil.ly/XsiMk)'
+- en: '[elasticnet](https://oreil.ly/pBOBN)'
+  id: totrans-205
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[elasticnet](https://oreil.ly/pBOBN)'
+- en: '[gam](https://oreil.ly/QS0bP)'
+  id: totrans-206
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[gam](https://oreil.ly/QS0bP)'
+- en: '[glmnet](https://oreil.ly/rMzEl)'
+  id: totrans-207
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[glmnet](https://oreil.ly/rMzEl)'
+- en: '[h2o-3](https://oreil.ly/PPUk5)'
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[h2o-3](https://oreil.ly/PPUk5)'
+- en: '[imodels](https://oreil.ly/coPjR)'
+  id: totrans-209
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[imodels](https://oreil.ly/coPjR)'
+- en: '[InterpretML](https://oreil.ly/AZYDz)'
+  id: totrans-210
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[InterpretML](https://oreil.ly/AZYDz)'
+- en: '[PiML](https://oreil.ly/ELrbE)'
+  id: totrans-211
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[PiML](https://oreil.ly/ELrbE)'
+- en: '[quantreg](https://oreil.ly/qBWk9)'
+  id: totrans-212
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[quantreg](https://oreil.ly/qBWk9)'
+- en: '[rpart](https://oreil.ly/yIml6)'
+  id: totrans-213
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[rpart](https://oreil.ly/yIml6)'
+- en: '[RuleFit](https://oreil.ly/K-qc4)'
+  id: totrans-214
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[RuleFit](https://oreil.ly/K-qc4)'
+- en: '[Rudin Group code](https://oreil.ly/QmRFF)'
+  id: totrans-215
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Rudin Group 代码](https://oreil.ly/QmRFF)'
+- en: '[sklearn-expertsys](https://oreil.ly/igFz6)'
+  id: totrans-216
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[sklearn-expertsys](https://oreil.ly/igFz6)'
+- en: '[skope-rules](https://oreil.ly/nfYau)'
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[skope-rules](https://oreil.ly/nfYau)'
+- en: '[tensorflow/lattice](https://oreil.ly/Z9iCS)'
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[tensorflow/lattice](https://oreil.ly/Z9iCS)'
+- en: Post Hoc Explanation Tools
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 后验解释工具
+- en: '[ALEPlot](https://oreil.ly/OSfUT)'
+  id: totrans-220
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[ALEPlot](https://oreil.ly/OSfUT)'
+- en: '[Alibi](https://oreil.ly/K4VEQ)'
+  id: totrans-221
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Alibi](https://oreil.ly/K4VEQ)'
+- en: '[anchor](https://oreil.ly/K3UuW)'
+  id: totrans-222
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[锚点](https://oreil.ly/K3UuW)'
+- en: '[DiCE](https://oreil.ly/-lwV4)'
+  id: totrans-223
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[DiCE](https://oreil.ly/-lwV4)'
+- en: '[h2o-3](https://oreil.ly/GtGvK)'
+  id: totrans-224
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[h2o-3](https://oreil.ly/GtGvK)'
+- en: '[ICEbox](https://oreil.ly/6nl1W)'
+  id: totrans-225
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[ICEbox](https://oreil.ly/6nl1W)'
+- en: '[iml](https://oreil.ly/x26l9)'
+  id: totrans-226
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[iml](https://oreil.ly/x26l9)'
+- en: '[InterpretML](https://oreil.ly/cuevp)'
+  id: totrans-227
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[InterpretML](https://oreil.ly/cuevp)'
+- en: '[lime](https://oreil.ly/j5Cqj)'
+  id: totrans-228
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[lime](https://oreil.ly/j5Cqj)'
+- en: '[Model Oriented](https://oreil.ly/7wUMp)'
+  id: totrans-229
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[Model Oriented](https://oreil.ly/7wUMp)'
+- en: '[PiML](https://oreil.ly/CqgSa)'
+  id: totrans-230
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[PiML](https://oreil.ly/CqgSa)'
+- en: '[pdp](https://oreil.ly/PasMQ)'
+  id: totrans-231
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[pdp](https://oreil.ly/PasMQ)'
+- en: '[shapFlex](https://oreil.ly/RADtC)'
+  id: totrans-232
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[shapFlex](https://oreil.ly/RADtC)'
+- en: '[vip](https://oreil.ly/YcD2_)'
+  id: totrans-233
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[vip](https://oreil.ly/YcD2_)'
+- en: ^([1](ch06.html#idm45990009014096-marker)) This inconvenience is being addressed
+    in current versions of the package. See [the documentation](https://oreil.ly/Z40st)
+    for more details.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch06.html#idm45990009014096-marker)) 当前版本的软件包正在解决这一不便。查看[文档](https://oreil.ly/Z40st)获取更多详细信息。
+- en: ^([2](ch06.html#idm45990006363360-marker)) For more details on gradient boosting,
+    see [*Elements of Statistical Learning*](https://oreil.ly/hvX2H), Chapter 10.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch06.html#idm45990006363360-marker)) 想要了解更多有关梯度提升的信息，请参阅《*统计学习基础*》（https://oreil.ly/hvX2H），第10章。

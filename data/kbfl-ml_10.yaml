@@ -1,0 +1,845 @@
+- en: Chapter 9\. Case Study Using Multiple Tools
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 9 章。使用多个工具的案例研究
+- en: In this chapter we’re going to discuss what to do if you need to use “other”
+    tools for your particular data science pipeline. Python has a plethora of tools
+    for handling a wide array of data formats. RStats has a large repository of advanced
+    math functions. Scala is the default language of big data processing engines such
+    as Apache Spark and Apache Flink. Legacy programs that would be costly to reproduce
+    exist in any number of languages.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将讨论如果您需要使用“其他”工具来处理特定的数据科学流水线时应该怎么做。Python 拥有丰富的工具来处理各种数据格式。RStats 拥有大量高级数学函数的仓库。Scala
+    是大数据处理引擎（如 Apache Spark 和 Apache Flink）的默认语言。在任何一种语言中都存在成本高昂且难以复制的旧程序。
+- en: A very important benefit of Kubeflow is that users no longer need to choose
+    which language is best for their entire pipeline but can instead use the best
+    language for each job (as long as the language and code are containerizable).
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow 的一个非常重要的好处是用户不再需要选择哪种语言最适合他们的整个流水线，而是可以针对每个作业使用最佳语言（只要语言和代码可以容器化）。
+- en: We will demonstrate these concepts through a comprehensive example denoising
+    CT scans. Low-dose CT scans allow clinicians to use the scans as a diagnostic
+    tool by delivering a fraction of the radiation dose—however, these scans often
+    suffer from an increase in white noise. CT scans come in a format known as DICOM,
+    and we’ll use a container with a specialized library called `pydicom` to load
+    and process the data into a `numpy` matrix.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将通过一个全面的例子演示这些概念，即去噪 CT 扫描。低剂量 CT 扫描允许临床医生通过传递辐射剂量的一小部分来使用扫描作为诊断工具——然而，这些扫描通常受到白噪声增加的影响。CT
+    扫描以 DICOM 格式呈现，并且我们将使用一个包含名为`pydicom`的专用库的容器来加载和处理数据为一个`numpy`矩阵。
+- en: Several methods for denoising CT scans exist; however, they often focus on the
+    mathematical justification, not the implementation. We will present an open source
+    method that uses a *singular value decomposition* (SVD) to break the image into
+    components, the “least important” of which are often the noise. We use Apache
+    Spark with the Apache Mahout library to do a singular value decomposition. Finally,
+    we use Python again to denoise the CT scans and visualize the results.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存在多种去噪 CT 扫描方法；然而，它们通常侧重于数学理论，而非实际实现。我们将介绍一种开源方法，该方法使用*奇异值分解*（SVD）将图像分解为组件，其中“最不重要”的部分通常是噪声。我们使用
+    Apache Spark 和 Apache Mahout 库进行奇异值分解。最后，我们再次使用 Python 对 CT 扫描进行去噪并可视化结果。
+- en: The Denoising CT Scans Example
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: '**去噪 CT 扫描示例**'
+- en: Computed tomography (CT) scans are used for a wide array of medical purposes.
+    The scans work by taking X-rays from multiple angles and forming image “slices”
+    that can then be stacked to create a 3D image of a person’s insides. In the United
+    States, health experts recommend a person receive no more than 100 milliSieverts
+    (mSv) of radiation throughout their lives, which is equivalent to about 25 chest
+    CT scans (at ~7 mSv each).
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 计算机断层扫描（CT 扫描）被用于广泛的医疗目的。这些扫描通过从多个角度获取 X 射线，并形成图像“切片”，然后可以堆叠以创建人体内部的三维图像。在美国，健康专家建议一个人在一生中接受的辐射不超过
+    100 毫西弗（mSv），相当于约 25 次胸部 CT 扫描（每次约 7 毫西弗）。
+- en: In the late twentieth and early twenty-first century, much research was done
+    on what are known as “low-dose” CT scans. A low-dose chest CT scan only delivers
+    1 to 2 mSv of radiation, but at a cost of a much noisier image, which can be harder
+    to read. These scans are popular tools for screening for lung cancer among habitual
+    smokers.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在二十世纪末和二十一世纪初，对所谓的“低剂量” CT 扫描进行了大量研究。低剂量胸部 CT 扫描仅释放 1 至 2 毫西弗（mSv）的辐射，但代价是图像更加嘈杂，这可能会增加阅读难度。这些扫描是习惯性吸烟者筛查肺癌的常用工具。
+- en: The cost of this low-dose CT scan is that the resultant image is lower quality,
+    or noisier. In the 2000s, much research was done on denoising these low-dose CT
+    scans. Most of the papers present methods and results only (no code). Further,
+    the FDA restricts what methods can be used for denoising CT scans, which has led
+    to almost all solutions being proprietary and expensive. Denoising seeks to improve
+    image quality by removing the white noise that is often present in these low-dose
+    CT scans.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种低剂量 CT 扫描的成本是生成图像质量较低或更嘈杂。在 2000 年代，对去噪这些低剂量 CT 扫描进行了大量研究。大多数论文仅呈现方法和结果（无代码）。此外，FDA
+    限制了可用于去噪 CT 扫描的方法，这导致几乎所有解决方案都是专有且昂贵的。去噪旨在通过去除这些低剂量 CT 扫描中经常存在的白噪声来提高图像质量。
+- en: At the time of the writing of this book, the novel coronavirus more popularly
+    known as COVID-19 has escalated into a global pandemic. It has been shown that
+    chest CT scans are a more sensitive early-detection test than the reverse transcription
+    polymerase chain reaction (RT-PCR) test, especially at early stages of infection.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在撰写本书时，被广为人知的新型冠状病毒 COVID-19 已经升级为全球大流行。已经证明，胸部 CT 扫描比逆转录聚合酶链式反应（RT-PCR）检测更具敏感性，尤其是在感染的早期阶段。
+- en: As multiple repositories of CT scans are coming online and asking AI researchers
+    to assist in fighting the pandemic, we have sought to add a method for denoising
+    CT scans based entirely on off-the-shelf open source components. Namely we will
+    use Python, Apache Spark, Apache Mahout (a Spark library specializing in distributed
+    linear algebra), and Kubeflow.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着多个 CT 扫描库的上线，并请求 AI 研究人员协助抗击大流行病，我们致力于基于现成的开源组件添加一种去噪 CT 扫描的方法。我们将使用 Python、Apache
+    Spark、Apache Mahout（一个专门用于分布式线性代数的 Spark 库）和 Kubeflow。
+- en: We will not delve into the math of what we are doing here, but we strongly encourage
+    you to consult this paper.^([1](ch09.xhtml#idm45831167801576))
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不会深入讨论这里正在做的数学内容，但我们强烈建议您参考这篇论文。^([1](ch09.xhtml#idm45831167801576))
+- en: In this example, we will instead focus on the “how” of doing this technique
+    with Kubeflow, and encourage readers to add their own steps at the end of this
+    pipeline, which can then be freely shared with other researchers.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，我们将专注于使用 Kubeflow 执行此技术的“如何”，并鼓励读者在管道的末尾添加自己的步骤，然后可以自由地与其他研究人员分享。
+- en: Data Prep with Python
+  id: totrans-13
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用 Python 进行数据准备
+- en: CT scan images are commonly stored in the DICOM format. In this format each
+    “slice” of the image is stored in its own file, along with some metadata about
+    the image, such as space between pixels, and space between slices. We want to
+    read all of these files and create a 3D tensor of the pixel values. Then we want
+    to “flatten” that tensor into a two-dimensional matrix, on which we can then perform
+    a singular value decomposition.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CT 扫描图像通常以 DICOM 格式存储。在这种格式中，图像的每个“切片”都存储在自己的文件中，同时包含一些关于图像的元数据，例如像素之间的间距和切片之间的间距。我们希望读取所有这些文件并创建一个像素值的
+    3D 张量。然后，我们希望将该张量“展平”为一个二维矩阵，以便进行奇异值分解。
+- en: There are several places where you can get DICOM file sets. For the paper, we
+    retrieved some from [*https://coronacases.org*](https://coronacases.org) (though
+    downloading the DICOMs can be a bit tricky). Other places you can find DICOM files
+    are CT scans from the [Public Lung Image Database](https://oreil.ly/fDXRn), a
+    CD you may have received from the doctor if you’ve ever had a CT scan, and other
+    places online.^([2](ch09.xhtml#idm45831167786776)) The important thing is, we
+    need one directory of DICOM files that comprise a single CT scan. We will assume
+    there exists *some* DICOM file set comprising a single CT scan in the directory
+    `/data/dicom`.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几个地方可以获取 DICOM 文件集。在本文中，我们从 [*https://coronacases.org*](https://coronacases.org)
+    获取了一些（尽管下载 DICOM 可能有点棘手）。您可以在其他地方找到 DICOM 文件，例如来自医生的 CT 扫描光盘、以及其他在线地点。^([2](ch09.xhtml#idm45831167786776))
+    重要的是，我们需要一个包含单个 CT 扫描所有 DICOM 文件的目录。我们假设在目录 `/data/dicom` 中存在 *某些* DICOM 文件集组成的单个
+    CT 扫描。
+- en: Converting a DICOM image into a tensor is shockingly easy, if you have the right
+    dependencies in place. We will use `pydicom`, which is a well-supported Python
+    interface for working with DICOM images. Unfortunately, the `pydicom` Docker images
+    do not include Grassroots DICOM (GDCM), which is required for converting the DICOM
+    into a pixel array. Our solution to this problem was to use the `pydicom` Docker
+    container as a base image, then build a compatible GDCM version. The resulting
+    image we’ve named `rawkintrevo/covid-prep-dicom`. With `pydicom` and GDCM it’s
+    easy to convert DICOM images into tensors; we will use a Lightweight Python Function
+    to do the rest (see [Example 9-1](#Ltwt_Pythonf_converts_DICOMs)).
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你已经准备好了正确的依赖项，将 DICOM 图像转换为张量实际上非常简单。我们将使用 `pydicom`，这是一个与 DICOM 图像工作的良好支持的
+    Python 接口。不幸的是，`pydicom` Docker 镜像不包括 Grassroots DICOM（GDCM），后者是将 DICOM 转换为像素数组所必需的。我们解决这个问题的方法是使用
+    `pydicom` Docker 容器作为基础镜像，然后构建一个兼容的 GDCM 版本。我们得到的镜像我们命名为 `rawkintrevo/covid-prep-dicom`。有了
+    `pydicom` 和 GDCM，将 DICOM 图像转换为张量就很容易；我们将使用一个轻量级 Python 函数来完成剩余的工作（参见 [示例 9-1](#Ltwt_Pythonf_converts_DICOMs)）。
+- en: Example 9-1\. Lightweight Python function converts DICOMs to tensors
+  id: totrans-17
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 9-1\. 轻量级 Python 函数将 DICOM 转换为张量
+- en: '[PRE0]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO1-1)'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO1-1)'
+- en: Our imports must occur within the function (not globally).
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的导入必须在函数内进行（而不是全局的）。
+- en: '[![2](Images/2.png)](#co_case_study_using_multiple_tools_CO1-2)'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](Images/2.png)](#co_case_study_using_multiple_tools_CO1-2)'
+- en: This function reads the list of “slices,” which themselves are 2D images, and
+    stacks them into a 3D tensor.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此函数读取“切片”列表，它们本身是2D图像，并将它们堆叠成3D张量。
+- en: '[![3](Images/3.png)](#co_case_study_using_multiple_tools_CO1-3)'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](Images/3.png)](#co_case_study_using_multiple_tools_CO1-3)'
+- en: We use `numpy` to reshape the 3D tensor into a 2D matrix.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用`numpy`将3D张量重塑为2D矩阵。
+- en: Next, let’s consider denoising our CT scan using Apache Spark and Apache Mahout.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们考虑使用Apache Spark和Apache Mahout对我们的CT扫描进行去噪处理。
+- en: DS-SVD with Apache Spark
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用Apache Spark进行DS-SVD
+- en: 'The mathematics behind distributed stochastic singular value decomposition
+    (DS-SVD) are well beyond the scope of this book; however, we direct you to learn
+    more in *Apache Mahout: Beyond MapReduce*, on the [Apache Mahout website](https://oreil.ly/T3VUE),
+    or in the aforementioned paper.'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '分布式随机奇异值分解（DS-SVD）背后的数学远远超出了本书的范围；然而，我们建议您在*Apache Mahout: Beyond MapReduce*中，或者在[Apache
+    Mahout网站](https://oreil.ly/T3VUE)或前述论文中进一步了解。'
+- en: We seek to decompose our CT scan into a set of features, and then drop the least
+    important features, as these are probably noise. So let’s jump into decomposing
+    a CT scan with Apache Spark and Apache Mahout.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们希望将CT扫描分解为一组特征，然后丢弃最不重要的特征，因为这些可能是噪音。因此，让我们使用Apache Spark和Apache Mahout来分解CT扫描。
+- en: A significant feature of Apache Mahout is its “R-Like” domain-specific language,
+    which makes math code written in Scala easy to read. In [Example 9-2](#decompose_scala_mahout)
+    we load our data into a Spark RDD, wrap that RDD in a Mahout distributed row matrix
+    (DRM), and perform the DS-SVD on the matrix, which yields three matrices that
+    we will then save.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Mahout的一个显著特性是其“R-Like”领域特定语言，它使得用Scala编写的数学代码易于阅读。在[示例 9-2中](#decompose_scala_mahout)，我们将数据加载到Spark
+    RDD中，将RDD包装在Mahout分布式行矩阵（DRM）中，并对矩阵执行DS-SVD，从而得到三个矩阵，然后我们将它们保存。
+- en: Example 9-2\. Decomposing a CT scan with Spark and Mahout
+  id: totrans-30
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 9-2\. 使用Spark和Mahout分解CT扫描
+- en: '[PRE1]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO2-1)'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO2-1)'
+- en: Load the data.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加载数据。
+- en: '[![2](Images/2.png)](#co_case_study_using_multiple_tools_CO2-2)'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](Images/2.png)](#co_case_study_using_multiple_tools_CO2-2)'
+- en: Wrap the RDD in a DRM.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将RDD包装在DRM中。
+- en: '[![3](Images/3.png)](#co_case_study_using_multiple_tools_CO2-3)'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](Images/3.png)](#co_case_study_using_multiple_tools_CO2-3)'
+- en: Perform the DS-SVD.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行DS-SVD。
+- en: '[![4](Images/4.png)](#co_case_study_using_multiple_tools_CO2-4)'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](Images/4.png)](#co_case_study_using_multiple_tools_CO2-4)'
+- en: Save the output.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保存输出。
+- en: And so in just a few lines of Scala we are able to execute an out-of-core singular
+    value decomposition.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以只需几行Scala代码，我们就能执行一个基于外存的奇异值分解。
+- en: Visualization
+  id: totrans-41
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 可视化
+- en: There are lots of good libraries for visualization in R and Python, and we want
+    to use one of these for visualizing our denoised DICOMs. We also want to save
+    our final images to somewhere more persistent than a persistent volume container
+    (PVC), so that we can come back later to view our images.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在R和Python中有许多用于可视化的优秀库，我们希望使用其中之一来可视化我们的去噪DICOM。我们还希望将最终的图像保存到比持久卷容器（PVC）更持久的位置，以便稍后查看我们的图像。
+- en: 'This phase of the pipeline will have three steps:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管道的这个阶段将有三个步骤：
+- en: Download the DRMs that resulted from the DS-SVD.
+  id: totrans-44
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 下载由DS-SVD生成的DRM。
+- en: Recombine the matrices into a DICOM, denoised by setting some of the diagonal
+    values of the matrix *s* to zero.
+  id: totrans-45
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将矩阵重新组合成DICOM，通过将矩阵*s*的一些对角线值设为零来去噪。
+- en: Render a slice of the resulting DICOM visually.
+  id: totrans-46
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 视觉化以图形方式呈现去噪DICOM的切片。
+- en: Note
+  id: totrans-47
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Visualization could be easily accomplished in R or Python. We will proceed in
+    Python, but using the `oro.dicom` package in R. We have chosen Python because
+    Google officially supports a Python API for interacting with Cloud Storage.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可视化可以轻松在R或Python中完成。我们将在Python中进行，但使用R中的`oro.dicom`包。我们选择Python是因为Google正式支持用Python
+    API与Cloud Storage进行交互。
+- en: Downloading DRMs
+  id: totrans-49
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 下载DRM
+- en: Recall the DRM is really just a wrapper around an RDD. In the cloud storage
+    bucket, it will be represented as a directory full of “parts” of the matrix. To
+    download these files we use the helper function shown in [Example 9-3](#download_dir_helper).
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下，DRM实际上只是RDD的包装器。在云存储桶中，它将被表示为一个“部分”矩阵的目录。为了下载这些文件，我们使用了[示例 9-3中](#download_dir_helper)展示的辅助函数。
+- en: Example 9-3\. Helper function to download a directory from GCS
+  id: totrans-51
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 9-3\. 下载GCS目录的辅助函数
+- en: '[PRE2]'
+  id: totrans-52
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: At the time of writing, Mahout’s integration with Python is sparse (there is
+    no PySpark equivalent to this code).
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在撰写本文时，Mahout与Python的集成很少（这段代码没有PySpark的等效代码）。
+- en: Also, there are no helper functions for reading Mahout DRMs into Python NumPy
+    arrays, so we must write another helper function to assist us with that (shown
+    in [Example 9-4](#mahout_helper)).
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，没有用于将Mahout DRMs读入Python NumPy数组的辅助函数，因此我们必须编写另一个辅助函数来帮助我们完成（在[示例 9-4](#mahout_helper)中显示）。
+- en: Example 9-4\. Helper function to read Mahout DRMs into NumPy matrices
+  id: totrans-55
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 9-4\. 辅助函数，用于将Mahout DRMs读入NumPy矩阵
+- en: '[PRE3]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO3-1)'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO3-1)'
+- en: Remember, most Mahout DRMs will be in “parts” of files, so we must iterate through
+    the parts to reconstruct the matrix.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，大多数Mahout DRMs将在文件的“部分”中，因此我们必须迭代这些部分来重构矩阵。
+- en: Recomposing the matrix into denoised images
+  id: totrans-59
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 重新构建矩阵以生成去噪图像
+- en: In a singular value decomposition, the diagonal matrix of singular values are
+    typically denoted with a sigma. In our code, however, we use the letter `s`. By
+    convention, these values are typically ordered from most important to least important,
+    and happily, this convention is followed in the Mahout implementation. To denoise
+    the images, we simply set the last few values of the diagonals to zero. The idea
+    is that the least important basis vectors probably represent noise which we seek
+    to get rid of (see [Example 9-5](#image_writer)).
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在奇异值分解中，奇异值的对角矩阵通常用σ表示。然而，在我们的代码中，我们使用字母`s`。按照惯例，这些值通常从最重要到最不重要排序，并且幸运的是，Mahout实现遵循了这一惯例。为了去噪图像，我们只需将对角线的最后几个值设为零。这个想法是，最不重要的基础向量可能代表我们希望消除的噪声（参见[示例 9-5](#image_writer)）。
+- en: Example 9-5\. A loop to write several images
+  id: totrans-61
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 9-5\. 用于写入多个图像的循环
+- en: '[PRE4]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO4-1)'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO4-1)'
+- en: Set the last `p`% of the singular values to equal zero.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将最后`p`%的奇异值设为零。
+- en: '[![2](Images/2.png)](#co_case_study_using_multiple_tools_CO4-2)'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](Images/2.png)](#co_case_study_using_multiple_tools_CO4-2)'
+- en: '`@` is the “matrix multiplication” operator.'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`@` 是“矩阵乘法”操作符。'
+- en: '[![3](Images/3.png)](#co_case_study_using_multiple_tools_CO4-3)'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](Images/3.png)](#co_case_study_using_multiple_tools_CO4-3)'
+- en: We’re presuming our original image was 512 x 512 x 301 slices, which may or
+    may not be correct for your case.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们假设我们的原始图像是512 x 512 x 301个切片，这可能对您的情况正确或不正确。
+- en: '[![4](Images/4.png)](#co_case_study_using_multiple_tools_CO4-4)'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](Images/4.png)](#co_case_study_using_multiple_tools_CO4-4)'
+- en: Take the 150th slice.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 取第150个切片。
+- en: '[![5](Images/5.png)](#co_case_study_using_multiple_tools_CO4-5)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![5](Images/5.png)](#co_case_study_using_multiple_tools_CO4-5)'
+- en: We’ll talk about this function in the next section.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在下一节讨论此函数。
+- en: Now in our bucket, we will have several images in the `/output/` folder, named
+    for what percentage of denoising they have been through.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在在我们的存储桶中，我们将在`/output/`文件夹中有几张图像，命名为去噪的百分比。
+- en: Our output was an image of one slice of the DICOM. Instead, we could have output
+    several full DICOM files (one for each level of denoising) that could then be
+    viewed in a DICOM viewer, though the full example is a bit involved and out of
+    scope for this text. We encourage you to read [`pydicom`’s documentation](https://oreil.ly/_1-sT)
+    if you are interested in this output.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的输出是DICOM一个切片的图像。相反，我们可以输出几个完整的DICOM文件（每个去噪级别一个），然后可以在DICOM查看器中查看，尽管完整的示例有点复杂，超出了本文的范围。如果您对此输出感兴趣，我们建议阅读[`pydicom`的文档](https://oreil.ly/_1-sT)。
+- en: The CT Scan Denoising Pipeline
+  id: totrans-75
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: CT扫描去噪管道
+- en: To create our pipeline, we will first create a manifest for our Spark job, which
+    will specify what image to use, what secrets to use to mount what buckets, and
+    a wide array of other information. Then we will create a pipeline using our containers
+    from earlier steps and the manifest we define, which will output a PNG of one
+    slice of the DICOM image with varying levels of noise removed.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建我们的管道，我们将首先为我们的Spark作业创建一个清单，该清单将指定要使用的图像，要使用的密钥以挂载哪些存储桶，以及各种其他信息。然后，我们将使用我们之前步骤中的容器和我们定义的清单创建一个管道，该管道将输出DICOM图像的一个切片的PNG格式，去除不同程度的噪音。
+- en: Spark operation manifest
+  id: totrans-77
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Spark操作清单
+- en: Spark read/wrote the files from GCS because it has issues with ReadWriteOnce
+    (RWO) PVCs. We’ll need to download output from GCS, then upload.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark从GCS读取/写入文件，因为它与ReadWriteOnce（RWO）PVC存在问题。我们需要从GCS下载输出，然后上传。
+- en: The Apache Spark operator does not like to read from ReadWriteOnce PVCs. If
+    your Kubernetes is using these operators, and you can’t request ReadWriteMany
+    (as, for example, is the case on GCP), then you will need to use some other storage
+    for the original matrix which is to be decomposed.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Spark 操作员不喜欢从 ReadWriteOnce PVC 读取。如果您的 Kubernetes 使用这些操作员，并且无法请求 ReadWriteMany（例如在
+    GCP 上的情况），那么您将需要使用其他存储来存储将要分解的原始矩阵。
+- en: Most of our containers to this point have used `ContainerOp`. As a Spark job
+    may actually consist of several containers, we will use a more generic `ResourceOp`.
+    Defining `ResourceOp`s gives us much more power and control, but this comes at
+    the cost of the pretty Python API. To define a `ResourceOp` we must define a manifest
+    (see [Example 9-6](#spark_manifest)) and pass that to the `ResourceOp` creation
+    (see the next section).
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们的大部分容器都使用了 `ContainerOp`。由于 Spark 作业实际上可能包含多个容器，我们将使用一个更通用的`ResourceOp`。定义
+    `ResourceOp` 给了我们更多的力量和控制，但这也以 Python API 不那么美观为代价。要定义一个 `ResourceOp`，我们必须定义一个清单（参见
+    [示例 9-6](#spark_manifest)），并将其传递给 `ResourceOp` 的创建（请参阅下一节）。
+- en: Example 9-6\. Spark operation manifest
+  id: totrans-81
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 9-6\. Spark 操作清单
+- en: '[PRE5]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO5-1)'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO5-1)'
+- en: 'Name of the app: you can check on progress in the console with `kubectl logs
+    spark-app-driver`.'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序的名称：您可以使用`kubectl logs spark-app-driver`在控制台上查看进度。
+- en: '[![2](Images/2.png)](#co_case_study_using_multiple_tools_CO5-2)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](Images/2.png)](#co_case_study_using_multiple_tools_CO5-2)'
+- en: Different cloud providers use slightly different configurations here.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不同的云提供商在这里使用略有不同的配置。
+- en: '[![3](Images/3.png)](#co_case_study_using_multiple_tools_CO5-5)'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](Images/3.png)](#co_case_study_using_multiple_tools_CO5-5)'
+- en: We’re doing a decomposition on a very large matrix—you may want to give even
+    more resources than this if you can spare them.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在一个非常大的矩阵上进行分解，如果有余力，可能需要提供更多资源。
+- en: Note
+  id: totrans-89
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Because we are accessing GCP, we need to base our image from `gcr.io/spark-operator/spark:v2.4.5-gcs-prometheus`,
+    which has additional included JARs for accessing GCP (otherwise we would use `gcr.io/spark-operator/spark:v2.4.5`).
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为我们正在访问 GCP，所以我们需要基于`gcr.io/spark-operator/spark:v2.4.5-gcs-prometheus`这个镜像，它包含了用于访问
+    GCP 的额外的 JAR 包（否则我们将使用`gcr.io/spark-operator/spark:v2.4.5`）。
+- en: While this is tuned for GCP, with a very minimal change in configuration, specifically
+    around the secrets, this could easily be ported to AWS or Azure.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管这是为 GCP 调整的，但在配置上进行非常少量的更改，特别是在密钥周围，这很容易转移到 AWS 或 Azure。
+- en: If you are familiar with Kubernetes, you are probably used to seeing manifests
+    represented as YAML files. Here we have created a manifest with a Python dictionary.
+    Next we will use this dictionary in our pipeline definition to create a `ResourceOp`.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您熟悉 Kubernetes，您可能已经习惯于将清单表示为 YAML 文件。在这里，我们创建了一个包含 Python 字典的清单。接下来，我们将在我们的流水线定义中使用这个字典来创建一个`ResourceOp`。
+- en: The pipeline
+  id: totrans-93
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 流水线
+- en: Finally, we have all of our necessary components. We will create a pipeline
+    that strings them together into a repeatable operation for us.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们拥有了所有必要的组件。我们将创建一个将它们串联在一起的流水线，以便为我们创建一个可重复操作。
+- en: 'To review, [Example 9-7](#ct_scan_denoise) does the following:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回顾一下，[示例 9-7](#ct_scan_denoise) 进行以下操作：
+- en: Downloads CT scans from GCP to a local PVC.
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从 GCP 下载 CT 扫描到本地 PVC。
+- en: Converts the CT scans (DICOM files) into a matrix (*s.csv*).
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将 CT 扫描（DICOM 文件）转换为矩阵（*s.csv*）。
+- en: A Spark job does a distributed stochastic singular value decomposition and writes
+    the output to GCP.
+  id: totrans-98
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Spark 作业进行分布式随机奇异值分解，并将输出写入 GCP。
+- en: The decomposed matrix is recomposed with some of the singular values set to
+    zero—thus denoising the image.
+  id: totrans-99
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将分解的矩阵重新组合，其中一些奇异值被设为零，从而去噪图像。
+- en: Example 9-7\. CT scan denoising pipeline
+  id: totrans-100
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 9-7\. CT 扫描去噪流水线
+- en: '[PRE6]'
+  id: totrans-101
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO6-1)'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_case_study_using_multiple_tools_CO6-1)'
+- en: This container was not discussed, but it simply downloads images from a GCP
+    bucket to our local PVC.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此容器未进行讨论，但其简单地从 GCP 存储桶下载图像到我们的本地 PVC。
+- en: '[![2](Images/2.png)](#co_case_study_using_multiple_tools_CO6-2)'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](Images/2.png)](#co_case_study_using_multiple_tools_CO6-2)'
+- en: Here we convert our DICOM into a matrix and upload it to a specified GCP bucket.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此，我们将 DICOM 转换为矩阵并上传到指定的 GCP 存储桶。
+- en: '[![3](Images/3.png)](#co_case_study_using_multiple_tools_CO6-4)'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](Images/3.png)](#co_case_study_using_multiple_tools_CO6-4)'
+- en: This is the Spark job that calculates the singular value decomposition.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是计算奇异值分解的 Spark 作业。
+- en: '[![4](Images/4.png)](#co_case_study_using_multiple_tools_CO6-5)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](Images/4.png)](#co_case_study_using_multiple_tools_CO6-5)'
+- en: This is where DICOM images are reconstructed.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是 DICOM 图像重建的地方。
+- en: '[![5](Images/5.png)](#co_case_study_using_multiple_tools_CO6-3)'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![5](Images/5.png)](#co_case_study_using_multiple_tools_CO6-3)'
+- en: For GCP we `use_gcp_secret`, but similar functions exist for Azure and AWS.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于 GCP 我们 `use_gcp_secret`，但是 Azure 和 AWS 也有类似的功能。
+- en: For illustration, Figures [9-1](#ct_original) through [9-3](#ct_1030) are slices
+    of the DICOM image at various levels of denoising. As we are not radiology experts,
+    we won’t try to make any points about changes in quality or what is optimal, other
+    than to point out that at 10% denoising we’ve probably gone too far, and at 30%
+    we unquestionably have.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明，图 [9-1](#ct_original) 到 [9-3](#ct_1030) 是 DICOM 图像在不同去噪水平上的切片。由于我们不是放射学专家，我们不会试图指出质量变化或最佳选择，除了指出在10%
+    去噪时我们可能做得太过头了，在30% 时毫无疑问是如此。
+- en: '![Original DICOM Slice](Images/kfml_0901.png)'
+  id: totrans-113
+  prefs: []
+  type: TYPE_IMG
+  zh: '![原始 DICOM 切片](Images/kfml_0901.png)'
+- en: Figure 9-1\. Original slice of DICOM
+  id: totrans-114
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-1\. 原始 DICOM 切片
+- en: '![1% and 5% Denoised](Images/kfml_0902.png)'
+  id: totrans-115
+  prefs: []
+  type: TYPE_IMG
+  zh: '![1% 和 5% 去噪](Images/kfml_0902.png)'
+- en: Figure 9-2\. 1% denoised DICOM slice (left); 5% denoised DICOM slice (right)
+  id: totrans-116
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-2\. 1% 去噪 DICOM 切片（左）；5% 去噪 DICOM 切片（右）
+- en: '![10% and 30% Denoised](Images/kfml_0903.png)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![10% 和 30% 去噪](Images/kfml_0903.png)'
+- en: Figure 9-3\. 10% denoised DICOM slice (left); .5% denoised DICOM slice (right)
+  id: totrans-118
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-3\. 10% 去噪 DICOM 切片（左）；.5% 去噪 DICOM 切片（右）
+- en: Again we see that while this pipeline is now hardcoded for GCP, it can with
+    only a few lines of updates be changed to work with AWS or Azure; specifically,
+    how we mount secrets to the container. A significant advantage of this is that
+    we are able to safely decouple passcodes from code.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次看到，尽管此流水线现在是为 GCP 硬编码的，但只需更新几行代码即可将其更改为与 AWS 或 Azure 兼容；具体来说，是如何将秘密挂载到容器中的。这样做的一个重要优势是我们能够安全地将密码与代码解耦。
+- en: Sharing the Pipeline
+  id: totrans-120
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 分享流水线
+- en: A final important benefit of Kubeflow is the reproducibility of experiments.
+    While often underscored in academia, reproducibiltiy is an important concept in
+    business settings as well. By containerizing pipeline steps, we can remove hidden
+    dependencies that allow a program to only run on one device—or, to put it another
+    way, reproducibility prevents you from developing an algorithm that only runs
+    on one person’s machine.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow 的另一个重要优势是实验的可重现性。尽管在学术界经常被强调，但在商业环境中，可重现性也是一个重要的概念。通过容器化流水线步骤，我们可以消除隐藏的依赖项，使程序不再只能在一个设备上运行，或者换句话说，可重现性可以防止您开发一个只能在某人的机器上运行的算法。
+- en: The pipeline we present here should run on any Kubeflow deployment.^([3](ch09.xhtml#idm45831165586696))
+    This also allows for rapid iteration. Any reader can use this pipeline as a basis
+    and, for instance, could create a final step where some deep learning is performed
+    on the denoised images and the original images to compare the effects of denoising.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在这里呈现的流水线应该可以在任何 Kubeflow 部署上运行。^([3](ch09.xhtml#idm45831165586696)) 这也允许快速迭代。任何读者都可以将此流水线用作基础，例如可以创建一个最终步骤，在此步骤中对去噪图像和原始图像执行一些深度学习，以比较去噪的效果。
+- en: Conclusion
+  id: totrans-123
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: We have now seen how to create very maintainable pipelines by leveraging containers
+    that have most, if not all, of the required dependencies to make our program run.
+    This not only removes the technical debt of having to maintain a system with all
+    of these dependencies, but makes the program much more transferable, and our research
+    much more easily transferable and reproducible.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经看到如何通过利用包含大部分甚至所有所需依赖项的容器来创建非常易于维护的流水线。这不仅消除了必须维护具有所有这些依赖项的系统的技术债务，还使得程序更易于转移，并且我们的研究更易于转移和重现。
+- en: There exists a large and exciting galaxy of Docker containers, and odds are
+    you already have some steps Dockerized in preexisting containers. Being able to
+    leverage these containers for Kubeflow Pipeline steps is certainly one of Kubeflow’s
+    biggest strengths.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存在着一个庞大且令人兴奋的 Docker 容器星系，很可能您已经在现有容器中 Dockerize 了一些步骤。能够利用这些容器作为 Kubeflow 流水线步骤的一部分，无疑是
+    Kubeflow 的最大优势之一。
+- en: ^([1](ch09.xhtml#idm45831167801576-marker)) The full paper can be found [here](https://oreil.ly/OXrFs).
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch09.xhtml#idm45831167801576-marker)) 完整的论文可以在 [这里](https://oreil.ly/OXrFs)
+    找到。
+- en: ^([2](ch09.xhtml#idm45831167786776-marker)) The [Radiological Society of North
+    America](https://oreil.ly/VI-V0) hopes to publish a repository of COVID-19 CT
+    scans soon.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch09.xhtml#idm45831167786776-marker)) [北美放射学会](https://oreil.ly/VI-V0)
+    希望尽快发布 COVID-19 CT 扫描的存储库。
+- en: ^([3](ch09.xhtml#idm45831165586696-marker)) With minor tuning for no GCE deployments.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch09.xhtml#idm45831165586696-marker)) 针对不使用 GCE 部署的微调。

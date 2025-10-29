@@ -1,0 +1,1724 @@
+- en: Chapter 2\. Data Management Principles
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第2章 数据管理原则
+- en: 'In this book, we are rarely concerned with the algorithmic details of how models
+    are constructed or how they’re structured. The most exciting algorithmic development
+    of last year is the mundane executable of next year. Instead, we are overwhelmingly
+    interested in two things: the data used to construct the models, and the processing
+    pipeline that takes the data and transforms it into models.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书中，我们很少关注模型构建的算法细节或其结构化方式。去年最激动人心的算法发展是明年平凡的可执行内容。相反，我们对两件事情极为感兴趣：用于构建模型的数据以及将数据转换成模型的处理管道。
+- en: Ultimately, ML systems are data processing pipelines, and their purpose is to
+    extract usable and repeatable insights from data. There are some key differences
+    between ML pipelines and conventional log processing or analysis pipelines, however.
+    ML pipelines have some very different and specific constraints and fail in different
+    ways. Their success is hard to measure, and many failures are difficult to detect.
+    (We cover these topics at length in [Chapter 9](ch09.xhtml#monitoring_and_observability_for_models).)
+    Fundamentally, they consume data, and output a processed representation of that
+    data (though vastly different forms of both). As such, ML systems depend thoroughly
+    and completely on the structure, performance, accuracy, and reliability of their
+    underlying data systems. This is the most useful way to think about ML systems
+    from the reliability point of view.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，ML系统是数据处理管道，其目的是从数据中提取可用和可重复的见解。然而，ML管道与传统的日志处理或分析管道有一些关键的不同和特定的约束，并以不同的方式失败。它们的成功很难衡量，并且许多失败很难检测到。（我们在[第9章](ch09.xhtml#monitoring_and_observability_for_models)详细讨论这些主题。）基本上，它们消耗数据，并输出该数据的加工表示（尽管两者的形式大相径庭）。因此，ML系统彻底和完全依赖其基础数据系统的结构、性能、准确性和可靠性。这是从可靠性角度来看ML系统最有用的思考方式。
+- en: 'In this chapter, we will start with a deep dive on data itself:'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将深入研究数据本身：
+- en: Where data comes from
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据的来源
+- en: How to interpret data
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何解释数据
+- en: Data quality
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据质量
+- en: Updating data sources (which we use and how we use them)
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更新数据源（我们如何使用它们以及如何使用它们）
+- en: Assembling data into an appropriate form for use
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将数据整理成适合使用的形式
+- en: 'We’ll cover the production requirements of data and show that, just like models,
+    *data in production has a lifecycle*:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将介绍数据的生产需求，并展示，就像模型一样，*生产中的数据有一个生命周期*：
+- en: Ingestion
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 摄入
+- en: Cleaning and data consistency
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 清理和数据一致性
+- en: Enrichment and extension
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 丰富和扩展
+- en: Storage and replication
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 存储和复制
+- en: Use in training
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在训练中的使用
+- en: Deletion
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 删除
+- en: The stability of data and metadata definitions as well as version control of
+    those definitions are crucial, and we’ll explain how to achieve them.^([1](ch02.xhtml#ch01fn12))
+    We’ll also cover data access constraints, privacy, and auditability concerns and
+    show some approaches to ensuring *data provenance* (where the data comes from)
+    and *data lineage* (who has been responsible for it since we got it). At the end
+    of this chapter, we expect you to have a complete but superficial understanding
+    of the primary issues involved in making the data processing chain reliable and
+    manageable.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据和元数据定义的稳定性以及这些定义的版本控制至关重要，我们将解释如何实现它们。^([1](ch02.xhtml#ch01fn12)) 我们还将涵盖数据访问约束、隐私和可审计性问题，并展示确保*数据来源*（数据的来源）和*数据血统*（自我们获得以来谁负责它）的一些方法。在本章末尾，我们期望您对使数据处理链可靠且可管理的主要问题有完整但表面的理解。
+- en: Data as Liability
+  id: totrans-17
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 数据作为负债
+- en: 'Writing about ML almost universally suggests that data is an important *asset*
+    in ML systems. This perspective is sound: it’s certainly impossible to have an
+    ML system without data. As shown in [Figure 2-1](#trade_offs_of_data_sizecomma_model_err),
+    it is often true that a simple (or even simplistic) ML system with more (and higher-quality)
+    training data can outperform a more sophisticated system with less, or less representative,
+    data.^([2](ch02.xhtml#ch01fn13))'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 写作关于ML的几乎普遍建议数据在ML系统中是一个重要的*资产*。这种观点是正确的：没有数据，确实无法有ML系统。正如图[2-1](#trade_offs_of_data_sizecomma_model_err)所示，通常情况下，具有更多（和更高质量）训练数据的简单（甚至简化的）ML系统可以胜过具有较少或较不代表性数据的更复杂系统。
+- en: Organizations continue to scramble to collect as much data as possible, hoping
+    to find ways to turn that data into value. Indeed, many organizations have made
+    this into a profoundly successful business model. Think of Netflix, whose ability
+    to recommend high-quality shows and movies to customers was an early differentiator.
+    Netflix also reportedly used this data, once it got into the content production
+    side of the business, to figure out what shows to make for which audiences, based
+    on a detailed understanding of what people want to watch.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组织继续争相收集尽可能多的数据，希望找到将这些数据转化为价值的方法。事实上，许多组织已将此变成了一个极其成功的商业模式。想想 Netflix，其向客户推荐高质量节目和电影的能力是早期的差异化因素。据报道，Netflix
+    还利用这些数据，在进入内容制作业务后，根据对人们想观看什么的详细了解，确定为哪些受众制作哪些节目。
+- en: '![Illustrative trade-offs of data size, model error rates, and risk of problems
+    or issues associated with the data](Images/reml_0201.png)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![数据大小、模型错误率及与数据相关的问题或风险的权衡示意图](Images/reml_0201.png)'
+- en: Figure 2-1\. Illustrative trade-offs of data size, model error rates, and risk
+    of problems or issues associated with the data
+  id: totrans-21
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 2-1\. 数据大小、模型错误率及与数据相关的问题或风险的权衡示意图
+- en: Of course, just like anything could be an asset, under the right (wrong) circumstances,
+    it can also be a liability. In the case of data, the most important thing to say
+    is that the acquisition, collection, and curation of data can expose areas of
+    unexpected nuance and complexity in the data. Not accounting for these can lead
+    to potential harm for us and for our users. All of these methods must be scoped
+    appropriately for the type of data—medical records probably require different
+    treatment from job history, for example. Of course, the best ways to curate data
+    are high cost, so there’s no free lunch here.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，就像任何东西都可能是一种资产，在适当（不适当）的情况下，它也可能成为一种负债。对于数据来说，最重要的是说，数据的获取、收集和整理可能会揭示出数据中意想不到的微妙和复杂性。如果不考虑这些因素，可能会对我们和我们的用户造成潜在危害。所有这些方法必须根据数据类型适当地加以限定——例如，医疗记录可能需要与工作历史有所不同的处理。当然，最佳的数据整理方式成本高昂，所以这里没有免费的午餐。
+- en: The intent of this short section is not to be the authoritative work on data
+    collection, storage, reporting, and deletion practices. That is well beyond the
+    scope of this section and even of this book. The intent here is to enumerate enough
+    of the complexity to dissuade any readers from simply thinking “more data == better”
+    or thinking “this stuff is easy.” Let’s go through the lifecycle of data and see
+    where some of the challenges come from.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个简短部分的目的不是成为关于数据收集、存储、报告和删除实践的权威作品。这远远超出了本部分甚至本书的范围。这里的目的是列举出足够的复杂性，以阻止任何读者简单地认为“更多数据
+    == 更好”，或者认为“这些东西很简单”。让我们来看看数据的生命周期，看看其中一些挑战来自哪里。
+- en: First, the data must be collected in compliance with applicable laws, which
+    might be based on where our organization is located, where the data originates,
+    and on organizational policies. We’ll definitely need to think this through (and
+    talk to lawyers for all of the jurisdictions we might be operating in). There
+    are significant restrictions on what counts as data about people, how to get permission
+    to store the data, how to store and retrieve the permission that was granted,
+    whether we need to provide access to the data to the people who provided it, and
+    under what circumstances. These restrictions may come from laws, industry practices,
+    insurance regulations, corporate governance policies, or any range of other sources.
+    Examples of common restrictions in some jurisdictions include prohibition against
+    collecting personally identifiable information (PII) about an individual without
+    their explicit written consent, along with the requirement to delete that data
+    upon request by the data subject. Whether and how to collect data is not a technical
+    question. It is a question of policy and governance. (Parts of this topic are
+    covered much more thoroughly in [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical).)
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，数据必须依照适用法律收集，这可能取决于我们组织所在地、数据来源地以及组织政策。我们肯定需要深思熟虑（并与我们可能运营的所有司法辖区的律师交流）。关于个人数据的内容有显著的限制，包括哪些算是关于人的数据、如何获得存储数据的许可、如何存储和检索已获得的许可、是否需要向提供数据的人提供访问权限以及在什么情况下需要。这些限制可能来自法律、行业实践、保险法规、公司治理政策或其他各种来源。某些司法辖区通常的限制包括禁止在未经明确书面同意的情况下收集个人可识别信息（PII），以及根据数据主体的请求删除该数据的要求。如何收集数据以及是否收集数据并非技术问题，而是政策和治理问题。（此主题的部分内容在[第六章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)中更加详细地讨论。）
+- en: If we are allowed to collect and store the data, it must be secured from external
+    access. Very few good things happen to organizations as a result of revealing
+    their users’ private data. Moreover, access must be restricted, even to employees.
+    Employees should not be able to view or change private user data without restriction
+    and without detailed logging of that.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们被允许收集和存储数据，必须确保防止外部访问。很少有好事发生在组织因泄露用户私人数据而导致的结果。此外，即使对员工也必须限制访问。员工不应无限制地查看或更改私人用户数据，并且必须详细记录这些操作。
+- en: Another approach to reducing data access and reducing the auditing surface is
+    to anonymize the data. One relatively simple and valuable option is to use *pseudonymization*.
+    Here, private identifiers are replaced with others in a reversible fashion, and
+    reversing the pseudonymization requires access to an additional data or system.
+    This protects the data from casual inspection by engineers working on the pipeline
+    but permits discovery if we find that we need to reverse the anonymization. Pseudonymization
+    also hopefully preserves the properties of data that are relevant to our model.
+    In other words, if it is important that a data field be similar in a certain way
+    under particular circumstances (think of postal codes, for example, which are
+    prefix-identical when they are in the same town or the same part of the same city),
+    then our pseudonymization might need to preserve that. While this level of protection
+    has value against casual inspection, it is important to treat pseudonymized data
+    as potentially just as risky as completely nonanonymized data. History is full
+    of cases of this data being used to expose the very real and private information
+    of users (see the following sidebar).
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 减少数据访问和审计表面的另一种方法是对数据进行匿名化处理。一个相对简单且有价值的选项是使用*pseudonymization*（伪名化）。在这种情况下，私人标识符以可逆转的方式替换为其他标识符，并且要逆转伪名化需要访问额外的数据或系统。这保护了数据免受工作在管道上的工程师的随意检查，但如果我们发现需要逆转匿名化，则可以进行发现。伪名化还希望保留对于我们模型相关的数据特性。换句话说，如果某个数据字段在特定情况下保持某种相似性很重要（例如，考虑邮政编码，在同一城镇或同一城市的同一部分时，它们的前缀是相同的），那么我们的伪名化可能需要保留这种特性。尽管这种保护级别对于防止随意检查具有价值，但重要的是将伪名化数据视为与完全非匿名化数据一样有风险。历史上存在许多这类数据被用来暴露用户真实和私人信息的案例（请参见以下边栏）。
+- en: A better approach is permanently removing any direct connection between private
+    data about a person and the data that we use to train on. If we are able to permanently
+    remove any connection between the private data and the person, we substantially
+    reduce the risk of the data and increase the flexibility we have to handle it.
+    This is, of course, harder than it seems.^([3](ch02.xhtml#ch01fn14)) Doing this
+    in a way that’s not trivially reversible but still valuable can be difficult.
+    Although many good techniques exist, one common basic idea is to combine collections
+    of data to ensure that no reported piece of data is tied to a unique identifier
+    for any fewer than a certain number of real people. This is the approach taken
+    by many serious population research organizations, including, notably, the United
+    States Census Bureau. There are, however, many subtleties in getting this right.
+    Correct anonymization is a topic that is mostly beyond the scope of this book,
+    although we’ll refer to it.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更好的方法是永久性地删除个人私密数据与我们用于训练的数据之间的直接连接。如果我们能永久性地消除私密数据与个人之间的关联，就能显著降低数据的风险，并增加我们处理数据的灵活性。当然，这比看起来要困难得多。^([3](ch02.xhtml#ch01fn14))以一种不是轻而易举可逆的方式实现这一点，同时还有价值，确实很难。虽然有许多良好的技术存在，一个常见的基本想法是结合数据集，以确保没有任何一条报告的数据与任何少于某个真实人数的唯一标识符相关联。这是许多严肃的人口研究组织采取的方法，包括美国人口普查局。然而，要做到这一点，有许多微妙之处需要注意。正确的匿名化超出了本书的范围，尽管我们会提到它。
+- en: Finally, we will ultimately need to be able to delete data. We might do this
+    at the request of individual users, local laws, regulations like the European
+    Union’s General Data Protection Regulation, or [GDPR](https://gdpr-info.eu), or
+    in other cases where we no longer have permission to store the data. It turns
+    out that deleting data and having it *actually* be deleted is surprisingly hard.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们最终需要能够删除数据。我们可能会在个别用户的请求、本地法律、欧盟的《通用数据保护条例》（[GDPR](https://gdpr-info.eu)）等法规或其他情况下进行此操作，即使我们不再有权限存储数据。删除数据并实际上让其被删除是非常困难的事情。
+- en: This has been true since at least the early MS-DOS days, when deleting a file
+    just removed the reference to it and not the actual data itself, meaning you could
+    reconstruct the file with sufficient determination and luck. Everything about
+    today’s computing environment makes deletion even harder than it was in those
+    days, from having to track down multiple copies of the data to metadata management.
+    In most distributed storage systems, data is divided into many pieces and stored
+    across a collection of physical machines. Depending on the implementation, it
+    may be practically impossible to determine every durable storage device (hard
+    disk drive or solid state drive) that might have the data written on it.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自从早期的MS-DOS时代以来，删除文件只是删除了对它的引用，而没有真正删除数据本身，这意味着您可以在足够的决心和运气下重建文件。如今的计算环境使删除变得更加困难，从追踪多个数据副本到元数据管理，无所不在。在大多数分布式存储系统中，数据被分成许多片段并存储在一组物理机器上。根据实现方式，可能几乎不可能确定每个可靠存储设备（硬盘驱动器或固态驱动器）可能存有数据。
+- en: It’s important to be certain that people want their data deleted without putting
+    up arbitrary barriers. One way to balance this is to impose a short delay before
+    really deleting the data. A user might be granted a few hours or even days after
+    requesting data be deleted to cancel that request. But at some point, once we’ve
+    confirmed the request is intended and legitimate, we will need to track down every
+    copy of the data and eliminate it. Depending on how it is stored, data structures,
+    indices, and backups may be reconstructed to make accessing nearby data as efficient
+    and reliable as it had been.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保人们希望删除他们的数据，而不是设立随意障碍，这一点非常重要。在平衡这一点时，可以在真正删除数据之前施加一段短暂的延迟。用户可能会在请求删除数据后被授予几小时甚至几天的时间来取消请求。但是，一旦确认请求是真实和合法的，我们将需要追踪到每一份数据副本并消除它。根据存储方式，数据结构、索引和备份可能需要重建，以确保访问附近数据的效率和可靠性与之前一样。
+- en: 'As with most things, the task of deleting data is made better by putting explicit
+    thought into it. If your system hasn’t had that much thought put in, you can use
+    a couple of workarounds. Here are two common optimizations:'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 和大多数事情一样，删除数据的任务通过深思熟虑可以更好地完成。如果您的系统没有经过深思熟虑，可以使用一些变通方法。以下是两种常见的优化方法：
+- en: Periodically rewrite the data
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定期重写数据
+- en: When there is a process that regenerates the data, we can take advantage of
+    the “don’t delete data immediately” recommendation noted previously to simply
+    schedule the “deleted” data to not be included the next time the data is rewritten.
+    This assumes that the period of data regeneration matches the expected and acceptable
+    delay in deletion. This also assumes that the rewrite of the data is effective
+    at actually deleting the data, which may well not be the case at all.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当存在一个重新生成数据的过程时，我们可以利用先前提到的“不要立即删除数据”的建议，简单地安排“已删除”的数据，在下次数据重写时不包括这些数据。这假设数据再生周期与预期的和可接受的删除延迟相匹配。这还假设数据的重写有效地删除数据，这很可能根本不是事实。
+- en: Encrypt all of the data and throw away some keys
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加密所有数据并丢弃一些密钥。
+- en: 'A system designed in this way has some significant advantages. In particular,
+    it protects private data “at rest” (written to persistent storage). Deleting data
+    is also trivial: if we lose the key to a user’s data, we can no longer read that
+    data. The downsides are mostly avoidable but worth considering seriously: anyone
+    employing this strategy will need very, very reliable key-handling systems because
+    if the keys are lost, *all* of the data is lost. This can also make it difficult
+    to reliably delete a single key from every backup of the key system.'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种设计方式的系统具有一些显著的优势。特别是，它保护“静止”状态的私密数据（写入持久存储）。删除数据也很简单：如果我们丢失了用户数据的密钥，我们就无法再读取这些数据。缺点大多是可以避免的，但值得认真考虑：任何采用这种策略的人都需要非常非常可靠的密钥处理系统，因为如果丢失密钥，*所有*数据都会丢失。这也可能使得从密钥系统的每个备份中可靠删除单个密钥变得困难。
+- en: The Data Sensitivity of ML Pipelines
+  id: totrans-36
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 机器学习管道的数据敏感性
+- en: The primary difference between ML pipelines and most data processing pipelines
+    is that ML pipelines are unusually sensitive to their input data compared to most
+    other data processing pipelines. All data processing pipelines are, in some sense,
+    subject to the correctness and volume of their input data, but ML pipelines are
+    furthermore sensitive to subtle changes in *distribution* of the data. A pipeline
+    can easily go from mostly right to significantly wrong simply by omitting a small
+    fraction of the data, provided that small fraction is not random, or is somehow
+    not evenly sampled in the range of characteristics our model is sensitive to.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习管道与大多数数据处理管道的主要区别在于，机器学习管道对其输入数据的敏感性通常比大多数其他数据处理管道更高。所有数据处理管道在某种意义上都受其输入数据的正确性和数量的影响，但机器学习管道对数据*分布*的细微变化特别敏感。一个管道可以很容易地从大部分正确变成显著错误，只要省略了一小部分数据，而这一小部分数据不是随机的，或者在我们的模型敏感的特征范围内没有均匀采样。
+- en: An easy thought experiment here is to consider a real-world system like *yarnit.ai*
+    that somehow loses all of the data from a particular country, region, or language.
+    For example, if we drop all of the data from December 31 of a given year, we lose
+    the ability to detect New Year’s Eve shopping trends, which may be substantially
+    different from the surrounding days in December and January. In many of these
+    cases, losing a small amount of data that turns out to be systematically biased
+    results in significant confusion in the understanding and predictions of our models.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里进行一个简单的思维实验，考虑一个像*yarnit.ai*这样的真实系统，它不知何故丢失了特定国家、地区或语言的所有数据。例如，如果我们删除了某一年的12月31日的所有数据，我们将失去检测跨年购物趋势的能力，这可能与12月和1月的其他日子有显著不同。在许多这些情况下，丢失了一小部分数据，结果是系统地有偏见的，会导致对我们模型的理解和预测产生显著混乱。
+- en: 'As a result of this sensitivity, the ability to aggregate, process, and monitor
+    *data*, rather than only the live systems, is critical to successfully managing
+    ML data pipelines. We discuss monitoring data in some depth in [Chapter 9](ch09.xhtml#monitoring_and_observability_for_models),
+    but here is a preview. A key insight to monitoring data is the slicing, or division,
+    of the data along various axes (determining *which* axes are the best to slice
+    the data is an important activity in exploratory data analysis, or EDA, and is
+    beyond the scope of this book). In a system that is trying to track real-time
+    activities, we might divide data in buckets of data age: recent, one to two hours
+    old, three to six hours old, etc. We might track which buckets we are currently
+    processing data from so that we can understand how far behind we have gotten.
+    But we can, and should, track various other histograms that are relevant to our
+    application. The ability to detect when *all* or *almost all* of a subset of the
+    data is gone will matter enormously.'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这种敏感性，聚合、处理和监控*数据*的能力至关重要，而不仅仅是实时系统。我们在[第9章](ch09.xhtml#monitoring_and_observability_for_models)中详细讨论了数据监控，但这里提前预览一下。监控数据的一个关键见解是将数据沿着各种轴线（确定*哪些*轴线最适合切分数据是探索性数据分析中的重要活动，超出本书的范围）进行切片或分割。在试图追踪实时活动的系统中，我们可以根据数据的年龄分成数据桶：最近的、1到2小时前的、3到6小时前的等等。我们可以追踪当前正在处理数据的数据桶，以便了解我们已经落后了多少。但我们可以并且应该追踪与我们的应用程序相关的各种其他直方图。检测当*全部*或*几乎全部*子集数据消失时的能力将非常重要。
+- en: For example, in our shopping site *yarnit.ai*, we may train on searches to try
+    to predict the best results for any given search (where “best” is “most likely
+    to be purchased”—we are in the selling business, after all!). We operate our site
+    in multiple languages in multiple markets. Let’s say that a widespread payments
+    outage affects only our Spanish language site, resulting in a drastically lower
+    number of completed orders from people searching in Spanish. A model whose job
+    is to recommend products for customers to buy will learn that Spanish-language
+    results are significantly less likely to result in purchases than results in other
+    languages. The model will show fewer results in Spanish and may even start showing
+    results in other languages to Spanish-speaking users. Of course, the model will
+    not be able to “know” the reasons for this change in behavior.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，在我们的购物网站*yarnit.ai*中，我们可能会根据搜索来训练，以预测任何给定搜索的最佳结果（其中“最佳”意味着“最有可能被购买”——毕竟我们是在销售业务中！）。我们在多个市场以多种语言运营我们的网站。假设一个广泛的支付故障只影响我们的西班牙语站点，导致使用西班牙语搜索的人完成订单的数量大幅减少。一个旨在推荐客户购买产品的模型将会学习到，与其他语言的结果相比，西班牙语结果显著减少购买的可能性。该模型将会展示更少的西班牙语结果，甚至可能开始向使用西班牙语的用户展示其他语言的结果。当然，该模型将无法“知道”这种行为变化的原因。
+- en: This might result in a small decline in total purchases if our site is predominantly
+    a North American or European site, but a massive decline in the total number of
+    searches and purchases in Spanish. If we train on this data, our model will probably
+    have terrible results for Spanish-language searches. It might learn that Spanish-language
+    queries never buy anything (since this will essentially be true). The model might
+    start exhibiting exploratory behavior—if all of the Spanish language results are
+    equally terrible, then any result *might* be good, so the model will try to find
+    anything that Spanish-language searchers might actually buy. This will result
+    in terrible search results and lower sales once our Spanish site’s payment outage
+    is over. This is a pretty bad outcome. (For a more complete treatment of a similar
+    problem, see [Chapter 11](ch11.xhtml#incident_response).)
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们的网站主要是北美或欧洲网站，这可能会导致总购买量略微下降，但西班牙语的搜索和购买总数将大幅下降。如果我们基于这些数据进行训练，我们的模型可能会对西班牙语搜索结果表现出糟糕的结果。它可能会学到西班牙语查询从不购买任何东西（因为这基本上是真实的）。模型可能会开始展示探索性行为——如果所有的西班牙语结果都一样糟糕，那么任何结果*可能*都是好的，因此模型将尝试找到西班牙语搜索者实际可能购买的任何东西。这将导致糟糕的搜索结果和销售额下降，一旦我们的西班牙站点的支付故障解决后，后果将非常糟糕。这是一个相当糟糕的结果。（有关类似问题的更完整处理，请参见[第11章](ch11.xhtml#incident_response)。）
+- en: The change in query volume might not be easily detectable at the gross query
+    volume level either, as the total queries in Spanish might be small compared to
+    those in other languages in total. We’ll talk about ways to monitor training pipelines
+    and detect these kinds of shifts in distribution in [Chapter 9](ch09.xhtml#monitoring_and_observability_for_models).
+    This example is given just to motivate the thought that ML pipelines really are
+    somewhat more difficult to operate reliably because of these kinds of subtle failure
+    modes.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查询量的变化可能在总体查询量水平上也不容易检测到，因为西班牙语的总体查询量可能与其他语言相比较小。我们将讨论如何监控训练管道，并检测这些分布变化的方法，详见[第9章](ch09.xhtml#monitoring_and_observability_for_models)。这个例子只是为了激发思考，即ML管道确实更难以可靠地运行，因为这些微妙的故障模式。
+- en: With these constraints in mind, let’s review the lifecycle of data in our system.
+    We’ll have to think about the data as under our care from the moment of its creation
+    until we delete it.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在考虑这些限制的情况下，让我们回顾一下我们系统中数据的生命周期。我们必须从数据被创建的那一刻开始，将其视为我们的责任，直到我们删除它。
+- en: Phases of Data
+  id: totrans-44
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 数据的各个阶段
+- en: Most teams rely on the platforms they use, including their data storage and
+    processing platforms, to provide most of what they need. YarnIt is not a large
+    organization, but we’ll still involve staff responsible for business management,
+    data engineering, and operations to help us understand and meet the requirements
+    here. We are lucky enough to have SREs who will address reliability concerns related
+    to the storage and processing of data.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数团队依赖于他们使用的平台，包括他们的数据存储和处理平台，以提供他们需要的大部分内容。YarnIt并不是一个大型组织，但我们仍然会让负责业务管理、数据工程和运营的员工帮助我们理解和满足这里的需求。我们很幸运有SREs来解决与数据存储和处理相关的可靠性问题。
+- en: The data management stage is fundamentally about transforming the data we have
+    into a format and storage organization suitable for using it for later stages
+    of the process. During this process, we will also probably apply a range of data
+    transformations that are model specific (or at least model-domain specific) in
+    order to prepare the data for training. Our next operations on the data will be
+    to train ML models, anonymize certain sensitive items of data, and delete data
+    when we no longer need it or are asked to do so. To prepare for these operations
+    on the data, we will continue to take input from the business leaders to answer
+    questions about our primary use cases for the data, along with possible areas
+    for future exploration.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据管理阶段基本上是将我们拥有的数据转换为适合后续处理阶段使用的格式和存储组织。在此过程中，我们还可能应用一系列特定于模型（或至少是模型领域特定）的数据转换，以准备数据进行训练。我们对数据的下一步操作将是训练ML模型、匿名化某些敏感数据项，并在不再需要或被要求这样做时删除数据。为了为这些数据操作做好准备，我们将继续从业务领导者那里获取输入，以回答关于我们数据主要用例及未来探索可能领域的问题。
+- en: 'As with most of the sections of this book, deep familiarity with ML is not
+    required or sometimes even desirable in order to design and run reliable ML systems.
+    However, a basic understanding of model training does directly inform what we
+    do with data as we get it ready. Data management in modern ML environments consists
+    of multiple phases before feeding the data into model-training pipelines, as illustrated
+    in [Figure 2-2](#ml_data_management_phases):'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与本书的大部分章节一样，要设计和运行可靠的ML系统，并不一定需要或有时甚至不希望深入了解ML。然而，对模型训练的基本理解确实直接影响我们如何准备数据。在现代ML环境中，数据管理在将数据馈送到模型训练管道之前包含多个阶段，如[图2-2](#ml_data_management_phases)所示：
+- en: Creation
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创造
+- en: Ingestion
+  id: totrans-49
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 摄入
+- en: Processing (which includes validation, cleaning, and enrichment)
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 处理（包括验证、清洗和增强）
+- en: Post-processing (which includes data management, storage, and analysis)
+  id: totrans-51
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 后处理（包括数据管理、存储和分析）
+- en: '![ML data management phases](Images/reml_0202.png)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ML数据管理阶段](Images/reml_0202.png)'
+- en: Figure 2-2\. ML data management phases
+  id: totrans-53
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图2-2. ML数据管理阶段
+- en: Creation
+  id: totrans-54
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 创造
+- en: It may seem either odd or obvious to state, but ML training data comes from
+    *somewhere*. Perhaps your dataset comes from elsewhere, such as a colleague in
+    another department or from an academic project, and was created there. But datasets
+    are all created at some point via some process. Here we are referring to data
+    creation as the process of generating or capturing the data in *some* data storage
+    system but not *our* data storage system. Examples here include logs from serving
+    systems, large collections of images captured from an event, diagnostic data from
+    medical procedures, and so on. Implicit in this process is that we will want to
+    design new systems and adapt existing systems to generate more data than we might
+    otherwise, so that our ML systems have something to work with.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或许这样说会显得奇怪或显而易见，但是机器学习训练数据来自于*某处*。也许您的数据集来自于其他地方，比如另一个部门的同事或者来自学术项目，并在那里创建。但数据集总是通过某种过程在某一时点创建的。在这里，我们指的是数据创建作为在*某些*数据存储系统中生成或捕获数据的过程，但不是*我们*的数据存储系统。例如，这些例子包括来自服务系统日志、从事件中捕获的大量图像集、医疗程序的诊断数据等。在这个过程中隐含的是，我们希望设计新系统并改进现有系统，以生成比我们可能需要的更多的数据，以便我们的机器学习系统有东西可以使用。
+- en: Some datasets work well when they are static (or at least don’t change quickly),
+    and others are useful only when frequently updated. A photo-recognition dataset,
+    for example, may be usable for many months, as long as it is suitably representative
+    of the types of photos we would like to recognize with our model. On the other
+    hand, if the outside photos represent only winter environments from a temperate
+    climate, the distribution of the photo set will be significantly different from
+    the expected set of images we need to recognize. It will therefore not be useful
+    as the environment warms during spring in those places. Likewise, if we’re trying
+    to recognize fraud in transactions at *yarnit.ai* automatically, we will want
+    to be training our model continuously on recent transactions along with information
+    about whether those transactions were fraudulent. Otherwise, someone might come
+    up with a neat idea of how to steal all of our knitting supplies that is hard
+    to detect, and we might never teach our model how to detect it.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有些数据集在静态时表现良好（或至少不会迅速更改），而其他数据集仅在频繁更新时才有用。例如，一个照片识别数据集在很多个月内可能是可用的，只要它合适地代表了我们想用我们的模型识别的照片类型。另一方面，如果外部照片只代表了温带气候下的冬季环境，则照片集的分布将与我们需要识别的预期图像集显著不同。因此，在这些地方春季升温时，它将不会有用。同样地，如果我们试图自动识别*yarnit.ai*上的交易欺诈，我们将希望不断地在最新交易上训练我们的模型，并提供关于这些交易是否欺诈的信息。否则，有人可能会想出一个难以检测的聪明办法来窃取我们所有的编织用品，我们可能永远不会教会我们的模型如何检测它。
+- en: The kinds of data we collect and the data artifacts we create can be unstructured,
+    semi-structured, or very well structured ([Figure 2-3](#ml_training_data_categories)).
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们收集的数据类型和我们创建的数据产物可以是非结构化、半结构化或非常结构化（[图 2-3](#ml_training_data_categories)）。
+- en: '*Structured data* is quantitative with a predefined data model/schema, highly
+    organized, and stored in tabular formats like spreadsheets or relational databases.
+    Names, addresses, geolocation, dates, and payment information are all common examples
+    of structured data. Since it is well formatted, structured data can be easily
+    processed by relatively simple code using obvious heuristics.'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*结构化数据* 是定量的，具有预定义的数据模型/架构，高度组织化，并以类似电子表格或关系数据库的表格格式存储。名称、地址、地理位置、日期和付款信息都是结构化数据的常见例子。由于其格式良好，结构化数据可以通过相对简单的代码和明显的启发式算法轻松处理。'
+- en: On the other hand, *unstructured data* is qualitative without a standard data
+    model/schema, so it cannot be processed and analyzed using conventional data methods
+    and tools. Examples of unstructured data include email body text, product descriptions,
+    web text, and video and audio files. Semi-structured data doesn’t have a specific
+    data model/schema but includes tags and semantic markers and so is a type of structured
+    data that lies between structured and unstructured data. Examples of semi-structured
+    data include email, which can be searched by Sender, Receiver, Inbox, Sent, Drafts,
+    etc., and social media content that may be categorized as Public, Private, and
+    Friends, as well as by user-maintained labels such as hashtags. The character
+    of the internal structure of the data will have significant implications for the
+    way we process, store, and use it.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，*非结构化数据* 是没有标准数据模型/架构的定性数据，因此无法使用传统的数据方法和工具进行处理和分析。非结构化数据的例子包括电子邮件正文、产品描述、网页文本以及视频和音频文件。半结构化数据没有特定的数据模型/架构，但包括标签和语义标记，因此是介于结构化数据和非结构化数据之间的一种结构化数据类型。半结构化数据的例子包括可以按发件人、收件人、收件箱、已发送、草稿等搜索的电子邮件，以及社交媒体内容，可以根据公开、私密和朋友分类，还可以根据用户维护的标签（如标签）进行分类。数据的内部结构特性将对我们处理、存储和使用数据的方式产生重大影响。
+- en: '![ML training data categories](Images/reml_0203.png)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![机器学习训练数据分类](Images/reml_0203.png)'
+- en: Figure 2-3\. ML training data categories
+  id: totrans-61
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图2-3\. 机器学习训练数据分类
+- en: Although bias in models comes from the structure of the model as well as the
+    data, the circumstances of data creation have profound implications for correctness,
+    fairness, and ethics. Though we treat this in considerably more detail in Chapters
+    [5](ch05.xhtml#evaluating_model_validity_and_quality) and [6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical),
+    the primary recommendation we can make here is that you have some kind of process
+    to establish whether your model is biased. We can do this in numerous ways and
+    the simplest is probably the [Model Cards](https://oreil.ly/h7E8h) approach, but
+    having any process that does this and having it be organizationally accepted is
+    much better than not having such a process.^([4](ch02.xhtml#ch01fn15)) It’s definitely
+    the first thing to do as we begin to address ethics and fairness considerations
+    in our ML system. You could relatively easily combine the effort to detect bias
+    into a data provenance or data lifecycle meeting or tracking process, for example.
+    But every organization doing ML should establish some kind of process, and review
+    it as part of continuous improvement.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管模型中的偏见来自模型结构以及数据，但数据创建的环境对正确性、公平性和伦理有深远影响。虽然我们在第[5](ch05.xhtml#evaluating_model_validity_and_quality)章和第[6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)章中详细讨论这一点，但我们在这里能够提出的主要建议是您应该有某种流程来确定您的模型是否存在偏见。我们可以通过多种方式做到这一点，最简单的可能是采用[模型卡片](https://oreil.ly/h7E8h)方法，但是任何具备这种流程并且被组织接受的流程都比没有这种流程要好得多。这绝对是在我们开始处理机器学习系统中的伦理和公平考虑时要做的第一件事情。例如，您可以相对容易地将检测偏见的工作整合到数据溯源或数据生命周期会议或跟踪流程中。但是，每个从事机器学习的组织都应该建立某种流程，并将其作为持续改进的一部分进行审查。
+- en: Recall, though, that bias comes from many sources and shows up at many stages
+    through the process. There is no guaranteed way to ensure data fairness. One useful
+    precursor to success here is to have an inclusive company culture full of people
+    from all kinds of backgrounds with differing and creative points of view. There’s
+    good evidence that people with very different backgrounds and perspectives, while
+    working in an environment of trust and respect, produce much better and more useful
+    ideas than teams that are all similar. This can be part of a robust defense against
+    the kinds of bias that slips through the checks described previously. It will
+    not, however, prevent all bad outcomes without process and tooling, just as no
+    human effort prevents all bad outcomes without systems help.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下，偏见来自很多来源，并且在整个过程中的多个阶段都会显现出来。没有确保数据公平性的绝对方法。在这里取得成功的一个有用前提是拥有一个包容性强的公司文化，这个文化包括来自各种背景、拥有不同和创新观点的人员。有充分的证据表明，具有非常不同背景和观点的人，在建立在信任和尊重基础上的环境中工作，比那些成员相似的团队产生更好、更有用的想法。这可以成为对通过先前描述的检查中可能出现的偏见的一种强有力的防御措施的一部分。然而，这并不会在没有过程和工具支持的情况下防止所有不良后果，正如没有系统帮助的人类努力也无法防止所有不良后果一样。
+- en: 'One final note on dataset creation, or rather, dataset augmentation: if we
+    have a small amount of training data but not enough to train a high-quality model
+    on, we may need to augment that data. Tools are available that can do so. For
+    example, [Snorkel](https://www.snorkel.org/features) provides a programmatic interface
+    for taking a small number of data points and permuting them into a larger number
+    of more varied data points, essentially making up imaginary but statistically
+    valid training data. This is one good place to start, as it allows us to easily
+    expand a small dataset into a large one. Although it might appear that these programmatically
+    created datasets are somehow less valuable or less useful, there is good evidence
+    that this approach can yield extremely good results at low cost, although it does
+    need to be used with caution.^([5](ch02.xhtml#ch01fn16))'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后关于数据集创建或者说数据集增强的一个注意事项：如果我们有少量的训练数据，但不足以训练高质量的模型，可能需要增强这些数据。现有工具可以实现这一点。例如，[Snorkel](https://www.snorkel.org/features)提供了一个编程接口，可以将少量数据点排列成更多更多样化的数据点，从本质上讲，这些数据是虚构的但在统计上是有效的训练数据。这是一个很好的起点，因为它可以帮助我们轻松地将小数据集扩展成大数据集。尽管从表面上看，这种程序生成的数据集可能不那么有价值或有用，但有充分的证据表明，这种方法可以以较低的成本获得极好的结果，尽管使用时需要谨慎。^([5](ch02.xhtml#ch01fn16))
+- en: Ingestion
+  id: totrans-65
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据摄取
+- en: The data needs to be received into the system and written to storage for further
+    processing. At this stage, a filtering and selection step necessarily occurs.
+    Not all data created may be ingested or collected, because we don’t want or need
+    to.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据需要进入系统并写入存储以进行进一步处理。在这个阶段，必然会进行过滤和选择。由于我们不需要或不希望所有创建的数据都被摄取或收集，因此可能不会收到全部数据。
+- en: We may filter data by type at this stage (data fields or elements that we do
+    not believe will be useful for our model). We may also simply sample at this stage
+    if we have so much data we do not believe we can afford to process all of it,
+    as ML training and other data processing is often extremely computationally expensive.
+    Sampling data can be an effective way to save money on intermediate processing
+    and training costs, but it is important to measure the quality cost of sampling
+    and compare that to the savings. Data should also be sampled proportional to the
+    volume/rate per time period or per other slice in the data we care about. This
+    will avoid missing detail during bursty periods. However, sampling is likely to
+    occasionally lose some detail for some events. This is unavoidable.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以在这个阶段按类型过滤数据（即我们认为对我们的模型不会有用的数据字段或元素）。如果数据量很大，我们认为无法承担处理所有数据，我们也可以在这个阶段进行简单的抽样。由于机器学习训练和其他数据处理通常非常耗费计算资源，抽样数据可以是节省中间处理和训练成本的有效方式，但重要的是要衡量抽样的质量成本，并将其与节省的成本进行比较。数据还应该按照我们关心的每个时间段或其他切片的体积/速率进行比例抽样。这样可以避免在突发期间丢失细节。然而，抽样很可能偶尔会在某些事件上失去一些细节，这是无法避免的。
+- en: In general, ML training systems perform better with more data. Pedants will
+    immediately think of many exceptions, but this is a useful starting point. Therefore,
+    any reduction in data may well impact quality at the same time as reducing costs.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，机器学习训练系统在使用更多数据时表现更好。吹毛求疵者会立即想到许多例外情况，但这是一个有用的起点。因此，任何数据的减少可能会同时影响质量和成本。
+- en: Depending on the volume of data and the complexity of our service, the ingestion
+    phase may be as simple as “dump some files in that directory over there” or as
+    sophisticated as a remote procedure call (RPC) endpoint that receives specifically
+    formatted files and confirms a reference to the data bundle that was received
+    so that its progress through the system can be tracked. In most cases, we will
+    want to provide data ingestion via at least a simple API because this provides
+    an obvious place to acknowledge receipt/storage of the data, log the ingestion,
+    and apply any governance policies about the data.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据数据量和服务的复杂性，摄取阶段可能仅仅是“将一些文件倒入那个目录”或者是一个复杂的远程过程调用（RPC）端点，接收特定格式的文件并确认接收到的数据包的参考，以便能够追踪其在系统中的进展。在大多数情况下，我们希望至少通过一个简单的API提供数据摄取，因为这提供了一个明显的地方来确认数据的接收/存储，记录摄取过程，并应用任何关于数据的治理政策。
+- en: Reliability concerns during the ingestion phase typically focus on correctness
+    and throughput. *Correctness* is the general property that the data is properly
+    read and written in the correct place without being unnecessarily skipped or misplaced.
+    While the idea of misplacing data sounds amusing, it absolutely happens, and it’s
+    easy to see how it could. A date- or time-oriented bucketing system in storage
+    combined with an off-by-one error in the ingestion process could end up with every
+    day’s data stored in the previous day’s directory. Monitoring the existence and
+    condition of data before and during ingestion is the most difficult part of the
+    data pipeline.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在摄取阶段的可靠性关注点通常集中在正确性和吞吐量上。*正确性*是数据在正确位置正确读取和写入的一般属性，而不会被不必要地跳过或放错地方。虽然放错数据的想法听起来有些滑稽，但这绝对会发生，并且很容易理解为什么会发生。存储中的日期或时间导向的分桶系统与摄入过程中的一个偏移错误结合起来，可能导致每天的数据存储在前一天的目录中。在摄入数据之前和期间监控数据的存在和状态是数据流水线中最困难的部分。
+- en: Processing
+  id: totrans-71
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 处理
+- en: Once we have successfully loaded (or ingested) the data into a reasonable feature
+    storage system, most data scientists or modelers will go through a set of common
+    operations to make the data ready for training. These operations—validation, cleaning
+    and ensuring data consistency, and enriching and extending—are detailed next.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们成功地将数据加载（或摄取）到一个合理的特征存储系统中，大多数数据科学家或建模者将进行一系列常见的操作，使数据准备好进行训练。这些操作——验证、清洗和确保数据一致性，以及丰富和扩展——将在接下来详细说明。
+- en: Validation
+  id: totrans-73
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 验证
+- en: No matter how efficient and powerful our ML models are, they can never do what
+    we want them to do with bad data. In production, a common reason for errors in
+    the data is bugs in the code that is collecting the data in the first place. Data
+    ingested from external sources might have a lot of errors even though a well-defined
+    schema exists for each source (for example, having a float value for an integer
+    field). So, it is extremely important to validate the incoming data, especially
+    when there is a well-defined schema and/or an ability to compare against the last-known
+    valid feed.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论我们的机器学习模型多么高效和强大，如果数据质量不好，它们都不能按照我们的期望进行。在生产环境中，数据错误的常见原因是首次收集数据的代码中存在的错误。来自外部来源的数据可能会存在许多错误，即使每个来源都有一个明确定义的模式（例如，整数字段的浮点值）。因此，在有明确定义的模式和/或能够与上次已知有效的数据进行比较时，验证传入的数据尤为重要。
+- en: Validation is performed against a common definition of the field—i.e., is it
+    what we expect it to be? To perform this validation, we need to both store and
+    be able to reference those standard definitions. Using a comprehensive metadata
+    system to manage the consistency and track the definition of fields is critical
+    to maintaining an accurate representation of the data. This is covered in much
+    more detail in [Chapter 4](ch04.xhtml#feature_and_training_data).
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 验证是根据领域的通用定义进行的，即它是否符合我们的预期？为了进行此验证，我们需要存储并能够引用这些标准定义。使用全面的元数据系统来管理一致性并跟踪字段的定义，对于维护数据的准确表示至关重要。这在[第四章](ch04.xhtml#feature_and_training_data)中有更详细的讨论。
+- en: Cleaning and ensuring data consistency
+  id: totrans-76
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 清洗和确保数据一致性
+- en: Even with a decent validation framework in place, most data is still messy.
+    It may have missing fields, duplicates, misclassifications, or even encoding errors.
+    The more data we have, the more likely that cleaning and data consistency will
+    be its own stage of processing.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使有了一个体面的验证框架，大多数数据仍然杂乱无章。它可能存在缺失字段、重复、错误分类，甚至编码错误。数据越多，清洗和数据一致性就越可能成为处理的一个阶段。
+- en: 'This might seem frustrating and unnecessary: building an entire system simply
+    to check the data sounds a bit overblown to many people doing so for the first
+    time. The reality is that our ML pipeline will assuredly have code whose job is
+    to clean the data. We can either put this code in a single place, where it can
+    be reviewed and improved, or put aspects of it throughout the training pipeline.
+    That second strategy makes for extremely fragile pipelines as the assumptions
+    about data correctness grow but our ability to ensure that they are met does not.
+    Moreover, as we improve some of the code for validating and correcting data, we
+    might neglect to implement those improvements in all of the many places where
+    we are performing that work. Or worse, we can be counterproductive. For example,
+    we can “correct” the same data multiple times in ways that eliminate the original
+    information in the data. We can also have potential race conditions whereby different
+    parts of the process are cleaning or making consistent the same data differently.'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对许多初次这样做的人来说，这似乎很令人沮丧且不必要：建立一个完整的系统仅仅为了检查数据听起来有点夸张。事实上，我们的机器学习流水线肯定会有专门清理数据的代码。我们可以把这些代码放在一个地方，可以进行审查和改进，或者把它们放在整个训练流水线的各个环节中。第二种策略会导致流水线非常脆弱，因为关于数据正确性的假设会增多，但我们确保这些假设得到满足的能力并没有增强。此外，当我们改进某些用于验证和校正数据的代码时，我们可能会忽视在执行这些工作的所有许多地方实施这些改进。或者更糟糕的是，我们可能会适得其反。例如，我们可以多次“修正”同一数据，以消除数据中的原始信息。我们还可能存在潜在的竞争条件，即流程的不同部分在不同的方式上清理或使数据一致。
+- en: 'Another set of data consistency tasks during this portion is the normalization
+    of data. *Normalization* generally refers to a set of techniques used to transform
+    the input data into a similar scale, which is useful for methods like deep learning
+    that rely on gradient descent or similar numerical optimization methods for training.
+    Some standard techniques here, depicted in [Figure 2-4](#normalization_techniques_as_presented),
+    include the following:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一部分的另一组数据一致性任务是数据的归一化。*归一化*通常指一组技术，用于将输入数据转换为类似的比例，这对于依赖于梯度下降或类似数值优化方法进行训练的深度学习等方法非常有用。一些标准技术如
+    [图2-4](#normalization_techniques_as_presented) 所示，包括以下内容：
+- en: Scaling to a range
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缩放到一个范围
+- en: Mapping all of the X values of the data to a fixed range, often 0 to 1, but
+    sometimes (for something like height or age) other values that represent the common
+    min and max values.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将数据的所有X值映射到一个固定的范围，通常是0到1，但有时（例如身高或年龄）也可以是其他代表常见最小和最大值的数值。
+- en: Clipping
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 截断
+- en: Cutting off the maximum values of the data. This is useful when the dataset
+    has a small number of extreme outliers.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 截断数据的最大值。当数据集存在少数极端异常值时，这是有用的。
+- en: Log scaling
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对数缩放
+- en: '*x*’ = log(*x*). This is useful when the data has a power law distribution,
+    with a small number of very large values and a large number of very small values.'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*x*’ = log(*x*)。当数据呈幂律分布，具有少数非常大的值和大量非常小的值时，这是有用的。'
+- en: Z-score normalization
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Z分数标准化
+- en: Maps the variable to the number of standard deviations from the mean.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将变量映射到距离均值的标准偏差数量。
+- en: It is important to note that each of these techniques can be dangerous if any
+    of the range or distribution or means are calculated on a set of test data with
+    different properties than the dataset where it is later applied.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要注意的是，如果在一个具有与稍后应用它的数据集不同属性的测试数据集上计算任何范围、分布或平均值，这些技术中的每一种都可能存在风险。
+- en: 'A final related and common technique is that of putting the data into *buckets*:
+    we map a range of data into a much smaller set of groups that represent the same
+    range. For example, we could measure age in years, but when training we could
+    bucket on decades so that everyone who is 30 to 39 gets put into the “30s” bucket.
+    Bucketing can be the source of many difficult-to-detect errors. Imagine, for example,
+    that one system buckets age on decade boundaries and another on five-year boundaries.
+    When we bucket the data, we have to give serious consideration to preserving the
+    existing data and writing out a new, correctly formatted field for each record.
+    If (when?) we change the bucketing strategy, we’ll be glad we did; otherwise,
+    it will be impossible to switch.'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一个相关且常见的技术是将数据放入*桶*中：我们将一系列数据映射到表示相同范围的一组更小的组中。例如，我们可以用年龄来衡量年龄，但在训练时，我们可以按十年为单位分桶，以便所有年龄在30到39岁之间的人都被放入“30年代”桶中。分桶可能导致许多难以检测的错误。例如，一个系统按十年边界分桶，另一个系统按五年边界分桶。在我们分桶数据时，我们必须认真考虑保留现有数据，并为每个记录编写一个新的、正确格式的字段。如果（何时？）我们改变分桶策略，我们会很高兴我们这样做了；否则，将无法进行切换。
+- en: '![Normalization techniques as presented in Google Developers Data Prep course](Images/reml_0204.png)'
+  id: totrans-90
+  prefs: []
+  type: TYPE_IMG
+  zh: '![标准化技术，如Google Developers数据准备课程中所示](Images/reml_0204.png)'
+- en: Figure 2-4\. Normalization techniques as presented in Google Developers [Data
+    Prep course](https://oreil.ly/0cgBm)
+  id: totrans-91
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图2-4\. 标准化技术，如Google Developers的[数据准备课程](https://oreil.ly/0cgBm)
+- en: Enriching and extending
+  id: totrans-92
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 丰富和扩展
+- en: In this stage, we combine our data with data from other sources. The most common
+    and fundamental way to extend the data is through *labeling*. This process identifies
+    a given event or record by bringing in confirmation from an outside source of
+    data (sometimes a human). Labeled data is the key driver of all supervised ML
+    and is often one of the most challenging and expensive parts of the whole ML process.
+    Without a sufficient volume of high-quality labeled data, supervised learning
+    won’t work. (Labeling and labeling systems are covered extensively in [Chapter 4](ch04.xhtml#feature_and_training_data).)
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个阶段，我们将我们的数据与其他来源的数据结合起来。最常见和基本的扩展数据的方式是通过*标记*。这个过程通过从外部数据源（有时是人类）确认来标识特定事件或记录。标记数据是所有监督机器学习的关键驱动因素，并且通常是整个机器学习过程中最具挑战性和昂贵的部分之一。没有足够数量和高质量的标记数据，监督学习将无法进行。（标记和标记系统在[第4章](ch04.xhtml#feature_and_training_data)中有详尽的讨论。）
+- en: But labeling is only one way to extend data. We might use many external data
+    sources to extend our training data. Let’s say we believe for some reason that
+    the temperature at a person’s location will predict what they will buy.^([6](ch02.xhtml#ch01fn17))
+    We can take our logs of searches on the *yarnit.ai* site and add the temperature
+    at the approximate geolocation of the user at the time they were visiting the
+    web page. We could do this by finding or creating a temperature history service
+    or dataset. This will allow us to train a model based on `source temperature`
+    as a feature and see what kind of predictions we can make with it. This is probably
+    a terrible idea, but it is not completely impractical.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是标记只是扩展数据的一种方式。我们可能会使用许多外部数据源来扩展我们的训练数据。假设出于某种原因我们相信一个人所在位置的温度会预测他们将购买什么。^([6](ch02.xhtml#ch01fn17))
+    我们可以取得在用户访问网页时的大致地理位置的温度，将其加入到*yarnit.ai*网站搜索日志中。我们可以通过查找或创建温度历史服务或数据集来实现这一点。这将允许我们基于`source
+    temperature`作为特征训练模型，看看我们可以做出什么样的预测。这可能是一个糟糕的想法，但并非完全不切实际。
+- en: Storage
+  id: totrans-95
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 存储
+- en: 'Finally, we need to store the data somewhere. How and where we store the data
+    is mostly driven by how we tend to use it, which is really a set of questions
+    about training and serving systems. We go into this considerably more in [Chapter 4](ch04.xhtml#feature_and_training_data),
+    but there are two predominant concerns here: efficiency of storage and metadata.'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们需要将数据存储在某个地方。我们如何存储数据的方式和位置大部分由我们倾向于如何使用它来驱动，这实际上是一系列关于训练和服务系统的问题。我们在[第4章](ch04.xhtml#feature_and_training_data)中对此进行了更详细的讨论，但这里有两个主要关注点：存储效率和元数据。
+- en: 'The efficiency of a storage system is driven by access patterns that are influenced
+    by the model structure, team structure, and training process. To make sensible
+    choices about our storage system, here are some basic questions we need to answer:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储系统的效率受访问模式的驱动，这些模式受模型结构、团队结构和训练过程的影响。为了对我们的存储系统做出明智的选择，这里有一些我们需要回答的基本问题：
+- en: Are we training models once over this data or many times?
+  id: totrans-98
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们是否仅仅在这些数据上训练模型一次，还是多次？
+- en: Will each model read *all* of the data or only parts of it? If only some of
+    the data will be read, is the subset being read selected by the type of data (some
+    fields and not others) or by randomly sampling the data (30% of all records)?
+  id: totrans-99
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个模型会读取*全部*数据还是只有部分数据？如果只读取部分数据，所选子集是通过数据类型（某些字段而非其他字段）还是通过随机抽样数据（所有记录的30%）选择的？
+- en: In particular, do related teams read slightly different subsets of the fields
+    in the data?
+  id: totrans-100
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 特别是，相关团队是否读取数据中的不同字段子集？
+- en: Do we need to read the data in any particular order?
+  id: totrans-101
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们需要按特定顺序读取数据吗？
+- en: 'On the subject of reuse of data, it turns out that almost all data is read
+    multiple times and the storage system should be built for that, even if model
+    owners assert that they will train only one model on the data once. Why? Model
+    development is inherently an iterative process. An ML engineer makes a model (reading
+    the data necessary to do so), measures how well the model performs at its designed
+    task, and then deploys it. Then they get another idea: an idea of how to improve
+    the model in some way. Before you know it, they’re back rereading the same data
+    to try out their new idea. Every system we build, from data to training all the
+    way to serving, should be built with the assumption that model developers will
+    semi-continuously retrain the same models in order to improve them. Indeed, as
+    they do so, they might read different subsets of the data each time.'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于数据重用，事实证明几乎所有数据都会被多次读取，因此存储系统应该以此为基础构建，即使模型所有者声称他们只会对数据训练一次模型也是如此。为什么？模型开发本质上是一个迭代过程。ML工程师创建一个模型（读取必要的数据以完成此操作），衡量模型在设计任务中的表现，并部署它。然后，他们想出了另一个想法：如何以某种方式改进模型。在你意识到之前，他们又重新读取相同的数据来尝试新的想法。我们建立的每个系统，从数据到训练再到服务，都应该基于这样一个假设：模型开发人员将半连续地重新训练同一模型以改进其性能。实际上，当他们这样做时，他们可能每次都会读取数据的不同子集。
+- en: Given this, a column-oriented storage scheme with one column per feature is
+    a common design architecture, especially for models training on structured data.^([7](ch02.xhtml#ch01fn18))
+    Most readers will be familiar with row-oriented storage, in which every fetch
+    of data from the database retrieves all of the fields of a matching row. This
+    is an appropriate architecture for collections of applications that all use most
+    or all of the data—in other words, a collection of very similar applications.
+    Column-oriented data facilitates the retrieval of only a subset of fields. This
+    is much more useful for a collection of applications (ML training pipelines in
+    this case) that each use a given subset of the data. In other words, column-oriented
+    data storage allows different models that efficiently read different subsets of
+    features and do so without reading in the whole row of data every time. The more
+    data we collect in one place, the more likely it is that we will have different
+    models using very different subsets of that data.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴于此，以每个特征为一列的列式存储方案是一种常见的设计架构，尤其是对于在结构化数据上进行模型训练的情况。^([7](ch02.xhtml#ch01fn18))
+    大多数读者熟悉行式存储，即从数据库中提取数据时检索匹配行的所有字段。这是一种适合所有使用大部分或全部数据的应用集合的架构，换句话说，是一组非常相似的应用集合。列式数据便于仅检索字段子集。这对于使用给定数据子集的应用集合（在这种情况下是ML训练流水线）非常有用。换句话说，列式数据存储允许不同的模型有效地读取不同的特征子集，而无需每次读取整行数据。我们在同一位置收集的数据越多，就越有可能有不同的模型使用该数据的完全不同子集。
+- en: This approach is way too complicated for some training systems, however. As
+    an example, if we’re training on a lot of images that aren’t preprocessed, we
+    really don’t need to have a column-oriented storage system—we can just read image
+    files from a directory or a bucket. However, say we are reading something more
+    structured, such as transaction data logs with fields like timestamp, source,
+    referrer, amount, item, shipping method, and payment mechanism. Then, assuming
+    that some models will use some of those features and others will use others will
+    motivate us to use a column-oriented structure.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，对于某些训练系统而言，这种方法实在太复杂了。例如，如果我们正在处理大量未经预处理的图像，我们实际上不需要采用列式存储系统——我们可以直接从目录或存储桶中读取图像文件。但是，假设我们正在读取更结构化的数据，例如具有时间戳、来源、引荐者、金额、商品、运输方式和支付机制等字段的交易数据日志。那么，假设某些模型将使用其中一些特征，而其他模型将使用其他特征，这将促使我们采用列式结构。
+- en: Metadata helps humans interact with the storage. When multiple people work on
+    building models on the same data (or when the same person works on this over time),
+    metadata about the stored features provides huge value. It is the roadmap to understanding
+    how the last model was put together and how we might want to put together the
+    model. Metadata for storage systems is one of the more commonly undervalued parts
+    of an ML system.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 元数据帮助人类与存储进行交互。当多人在同一数据上构建模型（或同一人在一段时间内进行此工作）时，有关存储特征的元数据提供了巨大的价值。它是理解上一个模型是如何组合的以及我们可能如何组合模型的路线图。存储系统的元数据是机器学习系统中常被低估的部分之一。
+- en: 'This section should clarify that our data management system is primarily motivated
+    by two factors:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节应明确指出，我们的数据管理系统主要受两个因素驱动：
+- en: The business purpose to which we intend to put the data
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们打算利用数据的业务目的
+- en: What problem are we trying to solve? What is the value of that problem to our
+    organization or our customers?
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们试图解决什么问题？这个问题对我们的组织或客户有什么价值？
+- en: The model structure and strategy
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型结构和策略
+- en: What models do we plan to build? How are they put together? How often are they
+    refreshed? How many of them are there? How similar to one another are they?
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们计划构建哪些模型？它们是如何组合的？它们多频繁地刷新？有多少个模型？它们彼此有多相似？
+- en: Every choice we make about our data management system is constrained by, and
+    constrains, these two factors. And if data management is about how and why we
+    write data, ML training pipelines are about how and why we read it.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们对数据管理系统的每个选择都受到这两个因素的制约，并且也对它们施加制约。如果数据管理是关于我们如何以及为何写数据，那么机器学习训练流水线就是关于我们如何以及为何读数据。
+- en: Management
+  id: totrans-112
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 管理
+- en: Typically, data storage systems implement credential-based access controls to
+    restrict unauthorized users from accessing the data. Such simple techniques can
+    serve only a basic ML implementation. In more advanced scenarios, especially when
+    the data contains confidential information, we need to have more granular data
+    access management methodologies in place. For example, we might want to allow
+    only model developers to access the features that they directly work on or restrict
+    their access to a subset of the data in some other way (perhaps only recent data).
+    Alternatively, we might anonymize or pseudononymize the data either at rest or
+    when it is being accessed. Finally, we might allow production engineers to access
+    all of the data, but only after demonstrating that they need to during an incident
+    and having their access carefully logged and monitored by a separate team. (Some
+    interesting aspects of this are discussed in [Chapter 11](ch11.xhtml#incident_response).)
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 典型情况下，数据存储系统实施基于凭证的访问控制，以限制未经授权的用户访问数据。这种简单的技术只能满足基本的机器学习实现。在更复杂的场景中，特别是当数据包含机密信息时，我们需要采用更精细的数据访问管理方法。例如，我们可能希望只允许模型开发者访问他们直接工作的特征，或者以其他方式限制他们对数据子集的访问（也许只能访问最近的数据）。另外，我们可能会在数据静态存储或访问时对数据进行匿名化或伪匿名化处理。最后，我们可能会允许生产工程师访问所有数据，但只有在事故期间证明确实需要访问，并且通过一个独立团队仔细记录和监控他们的访问情况。（这些有趣的方面在[第
+    11 章](ch11.xhtml#incident_response)中有所讨论。）
+- en: SREs can configure data access restrictions on the storage system in production
+    to allow data scientists to read data securely via authorized networks like virtual
+    private networks (VPNs), implement audit logging to track which users and training
+    jobs are accessing what data, generate reports, and monitor usage patterns. Business
+    owners and/or product managers can define user permissions based on the use cases.
+    We may need to generate and use different kinds of metadata for these dimensions
+    of heterogeneity to maximize our ability to access and modify the data for subsequent
+    phases.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SREs可以在生产环境中配置数据访问限制，允许数据科学家通过授权网络（如虚拟专用网络（VPN））安全读取数据，实施审计日志记录以跟踪哪些用户和训练作业正在访问哪些数据，生成报告并监视使用模式。业务所有者和/或产品经理可以根据使用案例定义用户权限。我们可能需要生成和使用不同类型的元数据来处理这些异构性维度，以最大化我们访问和修改数据以供后续阶段使用的能力。
+- en: Analysis and Visualization
+  id: totrans-115
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 分析与可视化
+- en: '*Data analysis and visualization* is the process of transforming large amounts
+    of data into an easy-to-navigate representation using statistical and/or graphical
+    techniques and tools.^([8](ch02.xhtml#ch01fn19)) It is an essential task of ML
+    architectures and knowledge-discovery techniques to make data less confusing and
+    more accessible. It is not enough just to show a pie chart or bar graph. We need
+    to provide the human reader an explanation of what each record in the dataset
+    means, how it is linked with the records in other datasets, and whether it is
+    clean and safe to use for training models. It is practically impossible for data
+    scientists to look at large datasets without well-defined and high-performant
+    data visualization tools and processes.'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*数据分析和可视化*是将大量数据转换为使用统计和/或图形技术和工具易于导航的表示的过程。^([8](ch02.xhtml#ch01fn19)) 这是ML架构和知识发现技术的基本任务，使数据变得更少混乱和更易访问。仅仅展示饼图或条形图是不够的。我们需要为人类读者提供每个数据集记录意味着什么，它与其他数据集中的记录如何关联以及它是否干净安全可用于训练模型的解释。对于数据科学家来说，要查看大型数据集而没有定义良好且高性能的数据可视化工具和流程几乎是不可能的。'
+- en: Data Reliability
+  id: totrans-117
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 数据可靠性
+- en: Because our data processing system needs to work, the data must have several
+    characteristics as it traverses the system. Articulating these characteristics
+    can be controversial. To some people, they seem obvious, and to others, they seem
+    impossible to really guarantee. Both of these perspectives miss the point.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为我们的数据处理系统需要正常运行，数据在穿越系统时必须具备几个特性。明确这些特性可能是有争议的。对一些人来说，它们似乎是显而易见的，而对另一些人来说，似乎是不可能真正保证的。这两种观点都错过了关键点。
+- en: 'The intent of articulating a set of invariants that should always be true about
+    our data is that it permits us all to notice when they are not true, or when a
+    system cannot properly guarantee that they will be true. This permits us to take
+    action to do better in the future. Note that the topic of reliability, even of
+    data management systems, is extremely broad and cannot be covered completely here;
+    for much more detail, see [*Site Reliability Engineering: How Google Runs Production
+    Systems*](https://oreil.ly/ZzIkN), edited by Betsy Beyer et al. (O’Reilly, 2016).'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 阐明关于我们的数据应始终如一的不变性的意图是，它允许我们所有人在这些不真实或系统不能正确保证它们将如实时发现时采取行动以在未来做得更好。请注意，可靠性的主题，即使是数据管理系统，也是非常广泛的，这里无法完全覆盖；有关更多详细信息，请参见[*《站点可靠性工程：谷歌如何运行生产系统》*](https://oreil.ly/ZzIkN)，由Betsy
+    Beyer等人编辑（O’Reilly出版社，2016年）。
+- en: This section covers just the basics of making sure that the data is not lost
+    (durability), is the same for all copies (consistency), and is tracked carefully
+    as it changes over time (version control). We also cover how to think about how
+    fast the data can be read (performance) and how often it’s not ready to be read
+    (availability). A quick overview of these concepts should prepare us to focus
+    on the right areas.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这部分仅涵盖确保数据不会丢失（持久性）、所有副本一致性和随时间变化进行严格跟踪（版本控制）的基础知识。我们还将介绍如何考虑数据读取速度（性能）以及数据尚未准备好进行读取的频率（可用性）。对这些概念的快速概述应使我们能够专注于正确的领域。
+- en: Durability
+  id: totrans-121
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 持久性
+- en: When spelling out the requirements for storage systems, durability is the most
+    often overlooked because it is assumed. *Durability* is the property of the storage
+    system having your data, and having not lost, deleted, overwritten, or corrupted
+    it. We definitely want that property with a very high probability.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在详细说明存储系统要求时，持久性通常是被忽视最多的，因为它被视为理所当然。*持久性*是存储系统拥有您的数据并且没有丢失、删除、覆盖或损坏的属性。我们绝对希望以非常高的概率拥有这种属性。
+- en: Durability is normally expressed as an annual percentage of bytes or blocks
+    that are not lost irretrievably. Common values for good storage systems here are
+    11 or 12 nines, which can also be expressed as “99.999999999% or more of bytes
+    stored are not lost.” While this may be the offering of the raw underlying storage
+    system, our guarantees might be quite a bit more modest because we’re writing
+    software that interacts with the storage system.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持久性通常以每年无法取回丢失的字节或块的百分比表达。在这里，良好存储系统的常见值为11或12个9，也可以表达为“存储的字节99.999999999%或更多不丢失”。虽然这可能是底层存储系统的提供，但我们的保证可能要逊色得多，因为我们正在编写与存储系统交互的软件。
+- en: One important note is that some systems have extremely durable data, in the
+    sense that nothing is lost, but do have failure modes leaving some data inaccessible
+    for extremely long periods of time. This might include cases where the data needs
+    to be recovered from another slower storage system (say, a tape drive) or copied
+    from off-site over a slow network connection. If this is raw data and is important
+    to the model, you may have to recover it. But for data that is somehow derived
+    from existing raw data, reliability engineers will want to consider whether it
+    might be easier to simply re-create the data rather than restore it.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个重要的注意事项是，一些系统具有极其耐用的数据，即没有任何数据丢失，但却有可能出现故障模式，导致某些数据长时间无法访问。这可能包括需要从另一个较慢的存储系统（例如磁带驱动器）恢复数据，或者通过缓慢的网络连接从离线位置复制数据。如果这是原始数据并且对模型很重要，可能需要恢复它。但对于某种方式从现有原始数据派生的数据，可靠性工程师可能会考虑是否更容易仅重新创建数据而不是恢复它。
+- en: For an ML storage system with many data transformations, we need to be careful
+    about how those transformations are written and monitored. We should log data
+    transformations and, if we can afford to, store copies of the data pre- and post-transformation.
+    The hardest place to keep track of the data is on ingestion, when the data goes
+    from an unmanaged to a managed state. Since we recommend using an API for ingestion,
+    this provides a clear place to ensure that the data is stored, to log the transaction,
+    and to acknowledge the receipt of the data. If the data is not cleanly and durably
+    received, the sending system can, of course, retry the send operation while the
+    data is still available.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于具有许多数据转换的机器学习存储系统，我们需要谨慎考虑这些转换的编写和监控方式。我们应该记录数据转换，并且如果负担得起的话，存储数据转换前后的副本。在数据从未管理状态转为管理状态的摄取过程中，跟踪数据是最困难的地方。由于我们建议在摄入过程中使用
+    API，这为确保数据存储、记录事务和确认接收数据提供了一个明确的位置。如果数据未能干净地和持久地接收，则发送系统当然可以重试发送操作，而数据仍然可用。
+- en: At each stage of data transformation, if we can afford it, we should store pre-
+    and post-transformation copies of the data. We should monitor throughput of the
+    transformations as well and expected data size changes. For example, if we sample
+    the data by 30%, the post-transformation data should obviously be 30% the size
+    of the pre-transformation data, unless an error occurs. On the other hand, if
+    we’re transforming a float into an integer by bucketing, depending on the data
+    representation, we could expect the resulting data size to remain unchanged. If
+    it’s much bigger or much smaller, we almost certainly have a problem.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在数据转换的每个阶段，如果我们负担得起的话，应该存储数据的转换前后的副本。我们还应该监控转换的吞吐量以及预期的数据大小变化。例如，如果我们对数据进行30%的抽样，则转换后的数据显然应该是转换前数据大小的30%，除非发生错误。另一方面，如果我们通过分桶将浮点数转换为整数，根据数据表示的方式，我们可以预期结果数据大小保持不变。如果结果数据要么大得多要么小得多，那几乎可以肯定存在问题。
+- en: Consistency
+  id: totrans-127
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 一致性
+- en: We may want to guarantee that, as we access data from multiple computers, the
+    data is the same with every read; this is the property of *consistency*. ML systems
+    of any scale are usually distributed. Most of the processing that we are doing
+    is fundamentally parallelizable, and assuming that we’ll be using clusters of
+    machines from the beginning is generally worthwhile. This means that the storage
+    system will be available via a networking protocol from other computers, and introduces
+    challenges for reliability. Significantly, it introduces the fact that different
+    versions of the same data might be available at the same time. It is difficult
+    to guarantee that data is replicated, available, and consistent everywhere.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们从多台计算机访问数据时，我们可能希望保证每次读取的数据都是相同的；这就是*一致性*的特性。任何规模的机器学习系统通常都是分布式的。我们正在进行的大部分处理基本上是可以并行化的，并且假设从一开始就使用机器集群通常是值得的。这意味着存储系统将通过网络协议从其他计算机访问，并引入了可靠性方面的挑战。特别是，它引入了相同数据的不同版本可能同时存在的事实。很难保证数据在任何地方都是复制的、可用的和一致的。
+- en: Whether the model-training system cares about consistency is actually a property
+    of the model and the data. Not all training systems are sensitive to inconsistency
+    in the data. For that matter, not all *data* is sensitive to inconsistencies.
+    One way to think about this is to consider how dense or sparse the data is. Data
+    is *sparse* when the information that each piece represents is rare. Data is *dense*
+    when the information that each piece of data represents is common. Data is sparse
+    when the dataset has a lot of zero values. So if *yarnit.ai* has 10 popular yarns
+    that represent almost all of what we sell, the data for any given purchase of
+    one of those yarns is dense—it’s unlikely to teach us very much that’s new. If
+    a single purchase of a popular yarn is readable in one copy of our storage system
+    but not another, the model will be essentially unaffected. On the other hand,
+    if 90% of our purchases are for different yarns, every single purchase is important.
+    If one part of our training system sees a purchase of a particular yarn and another
+    does not, we might produce an incoherent model with respect to that particular
+    yarn, or yarns that our model represents as similar to that yarn. Under some circumstances,
+    consistency is difficult to guarantee, but often if we can wait somewhat longer
+    for the data to arrive and sync, we can easily guarantee this property.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 是否模型训练系统关注一致性实际上是模型和数据的一个属性。并非所有的训练系统都对数据的不一致性敏感。就此而言，并非所有*数据*都对不一致性敏感。一个思考的方式是考虑数据的密集度或稀疏度。当每个数据片段所代表的信息很稀少时，数据是*稀疏*的。当每个数据片段所代表的信息很常见时，数据是*密集*的。当数据集中有大量零值时，数据是稀疏的。因此，如果*yarnit.ai*有10种畅销毛线，几乎代表了我们销售的全部内容，那么对于任何一种毛线的购买来说，数据是密集的——这不太可能教给我们太多新东西。如果一种畅销毛线的单次购买在我们的存储系统的一个副本中可读，而在另一个副本中不可读，模型基本上不会受到影响。另一方面，如果我们90%的购买是不同种类的毛线，那么每一次购买都很重要。如果我们的某一部分训练系统看到了某种特定毛线的购买，而另一部分没有看到，我们可能会产生相对于该特定毛线或我们模型表示为与该毛线相似的毛线的不一致模型。在某些情况下，一致性很难保证，但通常情况下，如果我们可以稍等数据到达和同步，我们可以轻松地保证这一属性。
+- en: We can eliminate consistency concerns in the data layer in two straightforward
+    ways. The first is to build models that are resilient to inconsistent data. Just
+    as with other data processing systems, ML systems offer trade-offs. If we can
+    tolerate inconsistent data, especially when the data is recently written, we might
+    be able to train our models significantly faster and operate our storage system
+    more cheaply. The cost, in this case, is flexibility and guarantees. If we go
+    down this path, we limit ourselves to indefinitely operating the storage system
+    with these guarantees and we can train only models that are satisfied with this
+    property. That’s one choice.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过两种简单直接的方式消除数据层面的一致性问题。第一种是构建能够抵御不一致数据的模型。就像其他数据处理系统一样，机器学习系统也需要权衡。如果我们能够容忍不一致数据，特别是当数据最近写入时，我们可能能够显著加快模型训练速度并更便宜地操作我们的存储系统。在这种情况下的成本是灵活性和保证。如果我们选择这条路，我们就限制了自己只能无限期地在这些保证下操作存储系统，并且只能训练满足这一属性的模型。这是一个选择。
+- en: The second choice is to operate a training system that provides consistency
+    guarantees. The most common way to do that for a replicated storage system is
+    for the system itself to provide information about what data is completely and
+    consistently replicated. Systems that read the data can consume this field and
+    choose to train only on the data that is fully replicated. This is often more
+    complicated for the storage system since we need to provide an API to replication
+    status. It may also be significantly more expensive or slower. If we want to use
+    the data quickly after ingestion and transformation, we may need to have lots
+    of resources provisioned for networking (to copy the data) and storage I/O capacity
+    (to write the copies).
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个选择是运行一个提供一致性保证的训练系统。对于一个复制的存储系统来说，最常见的做法是系统本身提供关于哪些数据是完全和一致地复制的信息。读取数据的系统可以消费这个字段，并选择仅在完全复制的数据上进行训练。这对存储系统来说通常更复杂，因为我们需要提供复制状态的
+    API。这可能也更昂贵或更慢。如果我们希望在摄入和转换后快速使用数据，我们可能需要为网络（复制数据）和存储 I/O 容量（写入副本）预留大量资源。
+- en: Thinking through consistency requirements is a strategic decision. It has long-term
+    implications for balancing costs and capabilities and should be made with both
+    ML engineers and organizational decision makers involved.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 思考一致性需求是战略性决策。这对于平衡成本和能力具有长期影响，并且应该由机器学习工程师和组织决策者共同参与决策。
+- en: Version Control
+  id: totrans-133
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 版本控制
+- en: ML dataset versioning is, in many ways, similar to traditional data and/or source
+    code versioning used to bookmark the state of the data so that we can apply a
+    specific version of the dataset for future experiments. *Versioning* becomes important
+    when new data is available for retraining and when we’re planning to implement
+    different data preparation or feature engineering techniques. In production environments,
+    ML experts deal with a large volume of datasets, files, and metrics to carry out
+    day-to-day operations. The varying versions of these artifacts need to be tracked
+    and managed as experiments are performed on them in multiple iterations. Version
+    control is a great practice for managing numerous datasets, ML models, and files
+    in addition to keeping a record of multiple iterations—i.e., when, why, and what
+    was altered.^([9](ch02.xhtml#ch01fn20))
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习数据集的版本管理，在许多方面与传统数据和/或源代码版本控制类似，用于书签化数据状态，以便将来应用特定版本的数据集进行后续实验。*版本控制* 在新数据可用进行重新训练时以及计划实施不同数据准备或特征工程技术时变得重要。在生产环境中，机器学习专家处理大量数据集、文件和指标，以进行日常操作。这些工件的不同版本需要在多次迭代中进行跟踪和管理。版本控制是管理众多数据集、机器学习模型和文件以及记录多次迭代的良好实践——即何时、为何以及做了什么修改。^([9](ch02.xhtml#ch01fn20))
+- en: Performance
+  id: totrans-135
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 性能
+- en: The storage system needs fast-enough write throughput to rapidly ingest the
+    data and not slow transformations. The system needs fast-enough read bandwidth
+    to enable us to rapidly train models using the access patterns that fit our modeling
+    behavior. It is worth noting that the cost of slow read performance can be quite
+    significant for the simple reason that ML training often uses relatively expensive
+    compute resources (GPUs or high-end CPUs). When these processors are stalled waiting
+    on data to train on, they are simply burning cycles and time with no useful work
+    done. Many organizations believe they cannot afford to invest in their storage
+    system, when they actually cannot afford not to.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储系统需要足够快的写入吞吐量，以快速摄取数据而不影响转换速度。系统需要足够快的读取带宽，使我们能够根据适合我们建模行为的访问模式快速训练模型。值得注意的是，慢读取性能的代价可能相当高，因为机器学习训练通常使用相对昂贵的计算资源（如GPU或高端CPU）。当这些处理器因等待训练数据而停滞不前时，它们只是在消耗周期和时间，而没有完成任何有用的工作。许多组织认为自己无法投资于其存储系统，但实际上它们无法承担不投资的后果。
+- en: Availability
+  id: totrans-137
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 可用性
+- en: The data we write needs to be there when we read it. *Availability* is, in some
+    ways, the product of durability, consistency, and performance. If the data is
+    in our storage system and is consistently replicated, and we are able to read
+    it with reasonable performance, then the data will count as available.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们写入的数据在我们阅读时需要存在。*可用性* 在某些方面是耐久性、一致性和性能的产物。如果数据存在于我们的存储系统中，并且被一致地复制，我们能够以合理的性能读取它，那么这些数据就算是可用的。
+- en: Data Integrity
+  id: totrans-139
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 数据完整性
+- en: Data that is valuable should be treated as such. This means respecting provenance,
+    security, and integrity.^([10](ch02.xhtml#ch01fn21)) Our data management system
+    will need to be designed for these properties from the beginning to be able to
+    make appropriate guarantees about the kind of access controls and other data integrity
+    we can offer.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有价值的数据应当受到妥善对待。这意味着尊重数据的来源、安全性和完整性。^([10](ch02.xhtml#ch01fn21)) 我们的数据管理系统将需要从一开始就设计这些特性，以便能够为我们提供的访问控制和其他数据完整性做出适当的保证。
+- en: 'Data integrity has three other big themes in addition to security and integrity:
+    privacy, policy compliance, and fairness. It is worth taking a moment to consider
+    these topics from a general point of view. We need to ensure that we understand
+    the requirements presented by these areas so that we can ensure that the storage
+    system and API that we build offer the kinds of guarantees we require.'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据完整性除了安全性和完整性外还有三个重要主题：隐私、政策合规性和公平性。值得花时间从总体角度考虑这些主题。我们需要确保理解这些领域所提出的要求，以便确保我们构建的存储系统和API能够提供我们所需的各种保证。
+- en: Security
+  id: totrans-142
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 安全性
+- en: Valuable ML data often begins its life as private data. Some organizations choose
+    to build processes to simply exclude all PII from their datastore. This is a good
+    idea for several reasons. It simplifies access control problems. It eliminates
+    the operational burden of data deletion requests.^([11](ch02.xhtml#ch01fn22))
+    Finally, it removes the risk of storing private information. As we’ve discussed,
+    data should properly be considered a liability as much as an asset.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有价值的ML数据通常以私有数据的形式开始其生命周期。一些组织选择建立流程，从其数据存储中简单地排除所有PII。出于几个原因，这是一个好主意。它简化了访问控制问题。它消除了数据删除请求的运营负担。^([11](ch02.xhtml#ch01fn22))
+    最后，它消除了存储私人信息的风险。正如我们讨论过的，数据应该像资产一样被视为一种负债。
+- en: We may have successfully excluded PII from the ML datastore. But we probably
+    shouldn’t count on that for two reasons. On the one hand, we may not have excluded
+    PII as effectively as we think we have. As previously mentioned, it is notoriously
+    difficult to identify PII without a thoughtful analysis so unless there is careful,
+    time-consuming, human review of *all* data that is added to the feature store,
+    it is extremely likely that some of the data in combination with other data does
+    contain PII. On the other hand, for many organizations, it may simply not be feasible
+    to reasonably exclude all PII from the datastore. Such organizations are obliged
+    to strongly guard their datastore as a result.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可能已经成功地从ML数据存储中排除了PII。但是，出于两个原因，我们可能不应该完全依赖于此。一方面，我们可能没有像我们认为的那样有效地排除PII。正如前面提到的，如果没有对添加到特征存储中的*所有*数据进行深思熟虑的人工审查，要识别PII是非常困难的，因此极有可能一些数据与其他数据结合在一起确实包含PII。另一方面，对于许多组织来说，合理地从数据存储中排除所有PII可能根本不可行。因此，这些组织有义务强化对其数据存储的保护。
+- en: Beyond concerns about PII, teams will likely develop particular uses for particular
+    kinds of data. Reasonable use of the datastore will restrict access to certain
+    data to the team most likely to need and use that data. Thoughtful restriction
+    of access will actually increase productivity if model developers can easily access
+    (and only access) the data they are most likely to use to build models.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于个人可识别信息（PII）的担忧之外，团队可能会针对特定类型的数据开发特定的使用方式。数据存储的合理使用将限制对某些数据的访问，仅允许最有可能需要和使用该数据的团队访问。深思熟虑地限制访问将实际上提高生产力，因为模型开发人员可以轻松访问（并且只访问）他们最有可能用于构建模型的数据。
+- en: In all cases, systems engineers should track metadata about which development
+    teams build which models and which models depend on which features in the feature
+    store—effectively an audit trail. This metadata is useful, if not required, for
+    operational and security-related purposes.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在所有情况下，系统工程师应跟踪关于哪些开发团队构建了哪些模型以及哪些模型依赖于特征存储中哪些特征的元数据，这有效地形成审计跟踪。这些元数据对于操作和安全相关目的是有用的，如果不是必需的。
+- en: Privacy
+  id: totrans-147
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 隐私
+- en: When ML data is about individuals, the storage system will need to have privacy-preserving
+    characteristics. One of the fastest ways to transform data from an asset to a
+    liability is by leaking private information about customers or partners.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当ML数据涉及个人时，存储系统需要具有保护隐私的特性。将客户或合作伙伴的私人信息泄露是将数据从资产转变为负债的最快方式之一。
+- en: 'We can make two architecturally different choices about dealing with private
+    data: eliminate it or lock it down. To the extent that we can still get excellent
+    results, eliminating private data is an extremely sound strategy. If we prevent
+    PII data from ever being stored in the data storage system, we eliminate most
+    of the risk of holding private data. This may be difficult—not only because it
+    is not always easy to recognize private data, but also because it’s not always
+    possible to get great results without private data.'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以在处理私有数据方面做出两种不同的架构选择：消除或锁定。在我们仍然可以获得优秀结果的情况下，消除私有数据是一种极其合理的策略。如果我们防止PII数据被存储在数据存储系统中，我们就消除了大部分持有私有数据的风险。这可能会很困难——不仅因为识别私有数据并不总是容易，还因为在没有私有数据的情况下很难获得出色的结果。
+- en: '![Choices and processing as data moves through at ML system](Images/reml_0205.png)'
+  id: totrans-150
+  prefs: []
+  type: TYPE_IMG
+  zh: '![数据在ML系统中移动时的选择和处理](Images/reml_0205.png)'
+- en: Figure 2-5\. Choices and processing as data moves through an ML system
+  id: totrans-151
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图2-5\. 数据在ML系统中移动时的选择和处理
+- en: 'Given all of this complexity, it’s substantially better and easier to anonymize
+    data as we ingest it. As previously mentioned, the topic of anonymization is technically
+    complex, but everyone building an ML system needs to know two key facts:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到所有这些复杂性，将数据在摄取时进行匿名化要更好、更容易。如前所述，匿名化的话题在技术上很复杂，但每个构建机器学习系统的人都需要了解两个关键事实：
+- en: Anonymization is hard
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 匿名化很难。
+- en: It’s a topic people study and develop expertise on. Don’t try to just muddle
+    through. Take it seriously and do it right.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是人们研究并发展专业知识的一个话题。不要试图随便应付。认真对待并做到完美。
+- en: Anonymization is context dependent
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 匿名化取决于上下文
+- en: There is no guaranteed way to anonymize data without knowing what other data
+    exists and how the two bits of data relate to each other.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有一种确保可以在不了解其他数据存在及其数据之间关系的情况下对数据进行匿名化的方法。
+- en: Anonymization is difficult but not at all impossible, and when done properly,
+    it avoids a host of other problems. Note that doing so durably will require periodic
+    review to ensure that current anonymization still matches the assumptions made
+    about the data and access permissions when it was implemented, as well as a review
+    every time new data sources are added to ensure that connections among data sources
+    do not undermine anonymization. This topic is covered more extensively in [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical).
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 匿名化虽然困难，但并非不可能，而且在正确执行时，可以避免一系列其他问题。请注意，这样做会需要定期审查，以确保当前的匿名化仍符合在实施时对数据和访问权限的假设，以及每次添加新数据源时的审查，以确保数据源之间的连接不会破坏匿名化。关于这个主题，在[第6章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)中有更详细的讨论。
+- en: Policy and Compliance
+  id: totrans-158
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 策略与合规
+- en: Policy and compliance typically flow from requirements originating outside your
+    organization. In some cases “outside the organization” actually means a boss or
+    a lawyer working for YarnIt but implementing an external legal requirement of
+    some kind, and in other cases it means a national government directly intervening.
+    These requirements often have painful and powerful reasons behind them, but these
+    backstories are usually not obvious when looking at the requirements themselves.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 策略和合规通常源自于你的组织之外的要求。在某些情况下，“组织之外”实际上指的是YarnIt的老板或律师执行外部的法律要求，而在其他情况下，它可能意味着国家政府直接介入。这些要求通常背后有痛苦而强大的理由，但通常在看待这些要求本身时并不明显。
+- en: 'Here’s an annoying but powerful example: European regulations about cookie
+    consent in browsers often seem overbearing, intrusive, or silly to web users,
+    both European and non-European. The idea that websites should get explicit consent
+    to store an identifier on the user’s machine might appear unnecessary. But anyone
+    who understands the privacy-violating power of the third-party ad cookie can attest
+    that a really strong rationale lies behind at least some restrictions on cookies.
+    While the “ask every user for every website” approach probably isn’t the most
+    elegant and scalable, it is much more understandable when we know more about how
+    these cookies can be used and how difficult it is to protect against their bad
+    usage.'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一个令人讨厌但又强有力的例子：关于浏览器中的cookie同意的欧洲法规经常给欧洲和非欧洲的网站用户们显得过于烦扰、侵入性或愚蠢。网站需要明确获得用户同意以在用户设备上存储标识符的想法可能看起来是不必要的。但任何了解第三方广告cookie侵犯隐私能力的人都可以证明，至少在一些对cookie的限制背后有一个非常强大的理由。虽然“对每个网站的每个用户都询问”的方式可能不是最优雅和可扩展的，但当我们更了解这些cookie如何被使用及保护用户隐私的难度时，这种做法就更容易理解了。
+- en: Policy and compliance requirements for data storage should be taken seriously.
+    But it’s a mistake to read the letter of a requirement or standard without understanding
+    the intent behind it. Often, whole industries of consultants have developed difficult
+    compliance practices when a simple approach might also be in compliance.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对数据存储的政策和合规要求应该认真对待。但单纯根据要求或标准的字面意思而不了解背后意图是一个错误。通常，整个咨询行业已经开发出了复杂的合规实践，而简单的方法也可能是合规的。
+- en: Anonymization, as mentioned previously, is one potential compliance shortcut.
+    If private data requires special treatment, there may be a way to avoid those
+    requirements simply by determining (and *documenting*) that we are not storing
+    any private data.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，匿名化是一种潜在的合规捷径。如果私人数据需要特别处理，也许可以通过确定（并*记录*）我们没有存储任何私人数据的方式来避免这些要求。
+- en: 'There are two other things to note about policy and governance requirements:
+    jurisdictions and reporting.'
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于政策和治理要求，还有两件事需要注意：司法管辖区和报告。
+- en: Jurisdictional rules
+  id: totrans-164
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 司法管辖规则
+- en: The world is increasingly filled with governments that assert control over the
+    handling of data stored in or sourced from their geographic location. While this
+    seems reasonable in principle, it does not map at all cleanly onto the way that
+    the world has been building networked computer systems for the past few decades.
+    It may not even be possible for some cloud providers to ensure that data generated
+    in one country is processed in that country. YarnIt plans to sell globally, even
+    though we may launch with only a few supported countries to start. So we will
+    have to think carefully about what data storage and processing requirements we
+    need to comply with.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当今世界上充斥着越来越多的政府，他们主张对存储在其地理位置中的数据处理进行控制。虽然原则上这似乎合理，但却并不完全符合过去几十年来构建网络计算机系统的方式。甚至对于一些云服务提供商来说，确保在一个国家生成的数据在该国家内处理可能都不可能。YarnIt计划全球销售，即使我们可能最初只在少数几个国家推出。因此，我们必须仔细考虑需要遵守的数据存储和处理要求。
+- en: 'For larger organizations, one choice of jurisdiction is more important than
+    any other: the host country of the corporate headquarters. This matters because
+    the government of that country is able to exert authority over data residing in
+    any other country. Picking the country of incorporation can have profound implications
+    to our data management system, but it’s not a factor most people carefully consider.
+    They should.'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于较大的组织来说，一个司法管辖区的选择比任何其他选择都更为重要：公司总部所在国家。这很重要，因为该国政府能够对存储在任何其他国家的数据行使权力。选择公司注册国可以对我们的数据管理系统产生深远的影响，但这并不是大多数人仔细考虑的因素。他们应该考虑。
+- en: Reporting requirements
+  id: totrans-167
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 报告要求
+- en: Remember that compliance work entails reporting. In many cases, reporting can
+    be integrated into the way we monitor the service. Compliance requirements are
+    SLOs, and reporting includes the SLIs that establish the status of our implementation
+    with respect to those compliance SLOs. Thinking of it this way normalizes this
+    work alongside the rest of the implementation and reliability work we need to
+    do.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，合规工作需要报告。在许多情况下，报告可以融入我们监控服务的方式中。合规要求是服务水平目标（SLOs），报告包括服务水平指标（SLIs），这些指标确定了我们在合规SLOs方面的实施状态。这样考虑可以将这项工作与我们需要完成的其他实施和可靠性工作正常化。
+- en: Conclusion
+  id: totrans-169
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: 'This has been a rapid and superficial introduction (though it probably doesn’t
+    feel like that) to thinking about data systems for ML. At this point, you may
+    not be comfortable building a complete system for data ingestion and processing,
+    but the basic elements of such a system should be clear. More importantly, you
+    should be able to identify where some of the biggest risks and pitfalls lie. To
+    start making concrete progress on this, most readers will want to divide their
+    efforts into the following areas:'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个快速而肤浅的介绍（尽管可能并不感觉如此），以思考ML数据系统。此时，你可能还不太能够构建完整的数据摄入和处理系统，但应该清楚这样一个系统的基本要素。更重要的是，你应该能够识别出一些最大的风险和陷阱所在。为了在这方面取得实际进展，大多数读者将希望将他们的努力分成以下几个方面：
+- en: Policy and governance
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 政策与治理
+- en: Many organizations start work on ML from the product or engineering groups.
+    As we have highlighted, however, having a consistent set of policy decisions and
+    a consistent approach to governance will be critical in the long run. Organizations
+    that haven’t yet started on this effort should do so immediately. [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)
+    is a good place to start.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多组织从产品或工程团队开始进行ML工作。正如我们所强调的，然而，长远来看，拥有一致的政策决策和一致的治理方法将至关重要。尚未开始这项工作的组织应立即着手。[第六章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)
+    是一个很好的起点。
+- en: To have the most impact in this area, you should identify the likely biggest
+    problems or gaps and address them first. Perfection is not possible, given the
+    current state of our understanding of the risks of using ML incorrectly and the
+    tools available. But reducing instances of egregious violations absolutely is
+    possible and is a reasonable goal.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在这个领域产生最大影响，你应该首先确定可能存在的最大问题或差距，并优先解决它们。考虑到当前我们对错误使用ML风险的理解及可用工具的现状，完美是不可能的。但绝对可以减少严重违规的情况，并且这是一个合理的目标。
+- en: Data sciences and software infrastructure
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据科学与软件基础设施
+- en: If we have started using ML at all, it is likely that our data science teams
+    are already building bespoke data transformation pipelines in various places around
+    the organization. Cleaning, normalizing, and transforming the data are normal
+    operations that are required to do ML. To avoid future technical ML debt, we should
+    start building software infrastructure to centralize these transformation pipelines
+    as soon as is practical.^([13](ch02.xhtml#ch01fn24))
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们已经开始使用机器学习，很可能我们的数据科学团队已经在组织的各个地方建立了定制的数据转换管道。清理、规范化和转换数据是正常操作，需要进行机器学习。为了避免未来的技术机器学习债务，我们应尽快开始建立软件基础设施，将这些转换管道集中起来。^([13](ch02.xhtml#ch01fn24))
+- en: Teams that have already solved their own problems may be resistant to this centralization.
+    However, by operating data transformation as a service, it is sometimes possible
+    to entice all new users and even some existing users to transfer allegiance to
+    the centralized system. Over time, we should try to consolidate data transformations
+    in a single, well managed place.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 已经解决了自身问题的团队可能会对这种中心化产生抵触情绪。然而，通过将数据转换作为服务运行，有时可以吸引所有新用户甚至一些现有用户转移到中心化系统。随着时间的推移，我们应该努力将数据转换集中在一个单一、良好管理的地方。
+- en: Infrastructure
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基础设施
+- en: We obviously need significant data storage and processing infrastructure to
+    manage ML data well. The biggest element here is the feature storage system (often
+    simply referred to as the *feature store*). We discuss the useful elements of
+    a feature store in detail in [Chapter 4](ch04.xhtml#feature_and_training_data).
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们显然需要大量的数据存储和处理基础设施来有效管理机器学习数据。其中最重要的元素是特征存储系统（通常简称为*特征存储*）。我们在[第四章](ch04.xhtml#feature_and_training_data)详细讨论了特征存储系统的有用元素。
+- en: ^([1](ch02.xhtml#ch01fn12-marker)) Version control for different versions of
+    the data itself might also be warranted if the data is mutable and updated.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch02.xhtml#ch01fn12-marker)) 如果数据本身是可变的并且经常更新，也许还需要为数据的不同版本进行版本控制。
+- en: ^([2](ch02.xhtml#ch01fn13-marker)) For the data to be useful, it has to be of
+    high quality (accurate, sufficiently detailed, representative of things in the
+    world that our model cares about). And for supervised learning, the data has to
+    be consistently and accurately labeled—that is, if we have pictures of yarn and
+    pictures of needles, we need to know which ones are which so that we can use that
+    fact to train a model to recognize these kinds of pictures. Without high-quality
+    data, we cannot expect high-quality results.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch02.xhtml#ch01fn13-marker)) 数据要想成为有用的，必须是高质量的（准确的、足够详细的、代表我们模型关心的世界事物）。对于监督学习来说，数据必须是一致且准确标记的——也就是说，如果我们有羊毛和针的图片，我们需要知道哪些是哪些，这样我们才能用这个事实来训练模型识别这些类型的图片。没有高质量的数据，我们就不能期望得到高质量的结果。
+- en: ^([3](ch02.xhtml#ch01fn14-marker)) The case of AOL search logs is the most famous
+    such debacle; see [“A Face Is Exposed for AOL Searcher No. 4417749”](https://oreil.ly/WALx5)
+    by Michael Barbaro and Tom Zeller Jr. This incident is also explained at Wikipedia’s
+    [“AOL search log release” page](https://oreil.ly/cBpOve).
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch02.xhtml#ch01fn14-marker)) AOL搜索日志案例是最著名的失败案例；详见Michael Barbaro和Tom
+    Zeller Jr.的[“A Face Is Exposed for AOL Searcher No. 4417749”](https://oreil.ly/WALx5)。这一事件也在维基百科的[“AOL
+    search log release”页面](https://oreil.ly/cBpOve)有所解释。
+- en: ^([4](ch02.xhtml#ch01fn15-marker)) A complementary approach to Model Cards for
+    datasets is known as Data Cards; see the [Data Cards Playbook site](https://oreil.ly/aaSMr).
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch02.xhtml#ch01fn15-marker)) 与数据集的模型卡片相辅相成的方法称为数据卡片；详见[数据卡片实战站点](https://oreil.ly/aaSMr)。
+- en: ^([5](ch02.xhtml#ch01fn16-marker)) See [“Learning to Compose Domain-Specific
+    Transformations for Data Augmentation”](https://oreil.ly/uxLdr) by Alexander J.
+    Ratner et al. for more details.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch02.xhtml#ch01fn16-marker)) 更多详情请参见Alexander J. Ratner等人的[“Learning to
+    Compose Domain-Specific Transformations for Data Augmentation”](https://oreil.ly/uxLdr)。
+- en: ^([6](ch02.xhtml#ch01fn17-marker)) There is very little reason to believe this
+    is true, but it’s vaguely plausible and moderately amusing. If anyone implements
+    “source temperature” as a feature and finds it to be valuable, please contact
+    the authors for an autographed book.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch02.xhtml#ch01fn17-marker)) 没有太多理由相信这是真的，但这个想法似乎有些合理和有趣。如果有人实现“源温度”作为一个功能，并发现它很有价值，请联系作者领取签名书。
+- en: ^([7](ch02.xhtml#ch01fn18-marker)) Most common, large data storage and analysis
+    services from large cloud providers are column oriented. Google Cloud BigQuery,
+    Amazon RedShift, and Microsoft Azure SQL Data Warehouse are all column oriented,
+    as is the main data store for data services provider Snowflake. Both PostgreSQL
+    and MariaDB Server have column-oriented configuration options as well.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch02.xhtml#ch01fn18-marker)) 大多数常见的大数据存储和分析服务来自大型云提供商都是面向列的。Google Cloud
+    BigQuery、Amazon RedShift 和 Microsoft Azure SQL Data Warehouse 都是面向列的，数据服务提供商 Snowflake
+    的主要数据存储也是如此。PostgreSQL 和 MariaDB Server 都有面向列的配置选项。
+- en: ^([8](ch02.xhtml#ch01fn19-marker)) Data scientists, data analysts, research
+    scientists, and applied scientists use various data visualization tools and techniques
+    including infographics, heatmaps, fever charts, area charts, and histograms. For
+    more insights, refer to Wikipedia’s [“Data and information visualization” page](https://oreil.ly/DL2B2).
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch02.xhtml#ch01fn19-marker)) 数据科学家、数据分析师、研究科学家和应用科学家使用各种数据可视化工具和技术，包括信息图表、热力图、发烧图、面积图和直方图。欲知更多，请参考维基百科的[“数据和信息可视化”页面](https://oreil.ly/DL2B2)。
+- en: ^([9](ch02.xhtml#ch01fn20-marker)) Some readers might read “version control”
+    and think “Git.” A content-indexed software version control system like Git is
+    not really appropriate or necessary to track versions of ML data. We are not making
+    thousands of small and structured changes, but rather generally adding and deleting
+    whole files or sections. The version control we need tracks what the data refers
+    to, who created/updated it, and when it was created. Many ML modeling and training
+    systems include some version control. MLflow is one example.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch02.xhtml#ch01fn20-marker)) 一些读者可能会看到“版本控制”就想到“Git”。像 Git 这样的基于内容索引的软件版本控制系统并不真正适用或必要于跟踪
+    ML 数据的版本。我们并非在进行数千次小而结构化的更改，而是通常在添加和删除整个文件或部分。我们需要的版本控制跟踪数据指向的内容，谁创建/更新了它，以及创建时间。许多
+    ML 建模和训练系统都包括一些版本控制。MLflow 就是一个例子。
+- en: ^([10](ch02.xhtml#ch01fn21-marker)) Data durability, discussed previously in
+    [“Durability”](#durability), is often included as a key concept in data integrity.
+    Since this entire chapter is about data management, durability has been grouped
+    with reliability concepts, and *integrity* here refers to properties we can assert
+    about the data, beyond its mere existence and accessibility.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([10](ch02.xhtml#ch01fn21-marker)) 在[“耐久性”](#durability)一节中讨论的数据耐久性通常被包括为数据完整性的关键概念之一。由于整个章节都是关于数据管理的，耐久性已与可靠性概念一起分组，这里的
+    *完整性* 指的是我们可以对数据断言的属性，而不仅仅是其存在和可访问性。
+- en: '^([11](ch02.xhtml#ch01fn22-marker)) One useful summary can be found in the
+    Databricks article “Best Practices: GDPR and CCPA Compliance Using Delta Lake,”
+    especially the section on [pseudonymization](https://oreil.ly/I5hPt).'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([11](ch02.xhtml#ch01fn22-marker)) 一个有用的总结可以在 Databricks 的文章《最佳实践：使用 Delta
+    Lake 实现 GDPR 和 CCPA 合规性》中找到，特别是关于[化名处理](https://oreil.ly/I5hPt)的部分。
+- en: '^([12](ch02.xhtml#ch01fn23-marker)) See [“Federated Learning: Collaborative
+    Machine Learning Without Centralized Training Data”](https://oreil.ly/ptj9h) by
+    Brendan McMahan and Daniel Ramage for a general overview and reasonable links
+    to the topic as it was in 2017\. Federated learning has, of course, continued
+    to evolve since then.'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([12](ch02.xhtml#ch01fn23-marker)) 参见 Brendan McMahan 和 Daniel Ramage 的《联合学习：无需集中训练数据的协作机器学习》[概述](https://oreil.ly/ptj9h)，以及至
+    2017 年该主题的合理链接。联合学习自然在那之后继续发展。
+- en: ^([13](ch02.xhtml#ch01fn24-marker)) The technical debt in ML systems is often
+    fairly different from what we see in other software systems. One paper that explains
+    this in detail is [“Hidden Technical Debt in Machine Learning Systems”](https://oreil.ly/3SV7Q)
+    by D. Sculley (a coauthor of this book) et al.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([13](ch02.xhtml#ch01fn24-marker)) ML 系统中的技术债务通常与我们在其他软件系统中看到的情况有很大不同。详细解释这一点的一篇论文是[《机器学习系统中的隐藏技术债务》](https://oreil.ly/3SV7Q)，作者包括
+    D. Sculley（本书的共同作者）等人。

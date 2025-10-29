@@ -1,0 +1,2036 @@
+- en: Chapter 10\. Deployment Patterns for Machine Learning Models
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第10章。机器学习模型的部署模式
+- en: 'Throughout this book, we’ve been discussing the machine learning lifecycle.
+    As a quick reminder, at a high level, the lifecycle of a machine learning system
+    is similar to the software development lifecycle. This means it includes multiple
+    stages, which we can summarize as follows:'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在整本书中，我们讨论了机器学习生命周期。作为一个快速提醒，在高层次上，机器学习系统的生命周期类似于软件开发生命周期。这意味着它包括多个阶段，我们可以总结如下：
+- en: Development
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开发
+- en: Training the model
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练模型
+- en: Validation
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 验证
+- en: Validating the model
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 验证模型
+- en: Staging
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分阶段
+- en: Testing the model in a production-like environment
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在类似生产环境的环境中测试模型
+- en: Deployment
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署
+- en: Putting the machine learning system into production
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将机器学习系统投入生产
+- en: Archiving
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存档
+- en: Retiring the model and, if necessary, replacing it with a new version
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 淘汰模型，必要时用新版本替换
+- en: In the previous chapters, we’ve covered the first few stages of the lifecycle
+    in depth, including various tools and methods for distributed training. In this
+    final chapter, I will provide guidance on how to think through the deployment
+    process and what considerations you should be aware of. Deployment takes place
+    once you have a model that produces accurate results that you are content with
+    and you’re ready to serve it and put it into production. If this is not the case,
+    it’s best to continue exploring with additional algorithms and parameters, and
+    perhaps fresh data.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们深入探讨了生命周期的前几个阶段，包括分布式训练的各种工具和方法。在本章的最后，我将提供关于如何思考部署过程以及需要注意的考虑事项的指导。部署发生在你拥有一个产生准确结果并且你对其满意的模型后，你准备好将其提供并投入到生产中。如果情况不是这样的话，最好继续探索使用额外的算法和参数，也许还需要新的数据。
+- en: When thinking about deploying a model, we need to define when and where it will
+    be used in the overall production system workflow. It may be part of a bigger
+    data flow, or it may be a standalone application exposing APIs for users to interact
+    with. The model can also be wrapped and served as a UDF as part of a Spark flow
+    (more on that later).
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在考虑部署模型时，我们需要定义在整个生产系统工作流程中模型将在何时何地使用。它可能是更大数据流的一部分，也可能是一个独立的应用程序，为用户提供交互的API。该模型还可以作为
+    Spark 流的一部分封装并作为 UDF 提供服务（稍后详述）。
+- en: 'This chapter covers the following:'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖以下内容：
+- en: Deployment patterns
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 部署模式
+- en: Monitoring tactics
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 监控策略
+- en: The production feedback loop
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 生产反馈循环
+- en: Deploying with MLlib
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 MLlib 进行部署
+- en: Deploying with MLflow
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 MLflow 进行部署
+- en: Iterative development
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 迭代开发
+- en: Deployment Patterns
+  id: totrans-21
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 部署模式
+- en: You have various options for deploying your machine learning models. We’ll dig
+    into some of them in this chapter, and I’ll provide practical examples as well.
+    Each pattern will require different code and components to keep the model performing
+    well in production. So how do you know which one will work best for your use case?
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你有多种选项可以部署你的机器学习模型。我们将在本章中详细探讨其中一些，并且我也会提供实际的例子。每种模式都需要不同的代码和组件，以保证模型在生产环境中的良好表现。那么，你如何知道哪一种模式最适合你的用例呢？
+- en: When considering the best pattern for deploying your model, the focus should
+    be on the business requirements. Will the model be used for batch processing or
+    stream processing? Where will it be used? In the case of a high-level client application
+    that runs locally on the user’s machine, for example, the model will typically
+    be loaded into memory so the user can interact with it directly. This is the case
+    with IoT devices like smart cars, for example, where the model is likely deployed
+    to the car to reduce communication and network overhead.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在考虑部署模型的最佳模式时，重点应放在业务需求上。模型将用于批处理还是流处理？它将在哪里使用？例如，对于运行在用户本地机器上的高级客户端应用程序，通常会将模型加载到内存中，以便用户可以直接与之交互。这种情况在像智能汽车这样的物联网设备中很常见，例如，模型可能被部署到汽车上以减少通信和网络开销。
+- en: Another thing you will need to consider is whether the production environment
+    differs from your development and testing environment. This is typically the case.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个需要考虑的事项是生产环境是否与开发和测试环境不同。通常情况下是这样的。
+- en: Let’s look at a few of the deployment patterns that you might use, depending
+    on your particular business requirements, to give you an idea of the things you
+    will need to keep in mind when evaluating the options.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看一些部署模式，这些模式可能根据你特定的业务需求而使用，帮助你了解在评估选项时需要考虑的事项。
+- en: 'Pattern 1: Batch Prediction'
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '模式 1: 批量预测'
+- en: When using batch prediction, you run the model on new data and cache the results
+    in a database or some other persistent storage. This pattern is useful when you
+    want to generate predictions for a set of observations all at once and the results
+    are not latency-sensitive. It works well if you want to produce, say, one prediction
+    per user per day, running the prediction offline and caching the results.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用批量预测时，您会在新数据上运行模型，并将结果缓存到数据库或其他持久存储中。当您希望一次为一组观测值生成预测，并且结果对延迟不敏感时，这种模式非常有用。如果您希望每天为每个用户生成一个预测，可以离线运行预测并缓存结果，效果很好。
+- en: 'The pros of this method are straightforward. First, it is easy to implement
+    with Spark: just load the model using the Spark API. Second, it scales easily
+    to large amounts of data, and it’s a tried and tested approach. It also provides
+    results to the user quickly, since the predictions have already been made.'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法的优点很明显。首先，使用 Spark 很容易实现：只需使用 Spark API 加载模型。其次，它很容易扩展到大量数据，并且是一种经过验证的方法。它还能够快速为用户提供结果，因为预测已经完成。
+- en: What are the cons of this method? For one, it can be harder to scale with complex
+    inputs, which create a large amount of overhead for the batch prediction process
+    as it will need to cover all permutations of the features. As a result, it might
+    not be able to compute all the possible outputs in the time available.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法的缺点是什么？首先，对于复杂输入，它可能更难扩展，这会为批量预测过程带来大量开销，因为需要覆盖所有特征的所有排列。因此，在给定时间内可能无法计算所有可能的输出。
+- en: A second issue is that users might get outdated or “stale” predictions—they
+    may still be accurate, but they won’t be the most up to date. For example, a movie
+    recommendation system might fail to recommend the latest movies to a customer
+    if they haven’t been added to the movie options yet (say, if new movies are released
+    every day but the batch prediction only runs every 48 hours). The model is unaware
+    of the new movies, so it will recommend older ones.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个问题是用户可能会得到过时或“陈旧”的预测—尽管它们仍然准确，但不会是最新的。例如，如果新电影每天发布，但批量预测每 48 小时运行一次，那么电影推荐系统可能无法向客户推荐最新的电影。模型不知道新电影的存在，因此会推荐较旧的电影。
+- en: Because it takes time to process and cache the new outputs of the model, it
+    can also be hard to detect problems in the processing pipeline, such as the failure
+    of a batch job. This can result in the model itself becoming stale and irrelevant.
+    We will talk more about this issue in the section on monitoring.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为处理和缓存模型的新输出需要时间，也很难检测处理管道中的问题，比如批处理作业的失败。这可能导致模型本身变得陈旧和无关紧要。我们将在监控部分更详细地讨论这个问题。
+- en: 'Pattern 2: Model-in-Service'
+  id: totrans-32
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模式 2：模型服务化
+- en: With this pattern, the model is packaged up with the client-facing application
+    and deployed to a web server. As shown in [Figure 10-1](#a_production_system_with_the_model_depl),
+    the server loads the model and calls it to make predictions in real time, in response
+    to API calls from the client. The model benefits from access to the database as
+    needed.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种模式下，模型与面向客户端的应用程序捆绑在一起，并部署到 Web 服务器上。如[图 10-1](#a_production_system_with_the_model_depl)所示，服务器加载模型并调用它以实时进行预测，响应来自客户端的
+    API 调用。根据需要，模型可以访问数据库。
+- en: '![](assets/smls_1001.png)'
+  id: totrans-34
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_1001.png)'
+- en: Figure 10-1\. A production system with the model deployed to a server and the
+    client interacting with it
+  id: totrans-35
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-1\. 一个生产系统，模型部署在服务器上，客户端与之交互
+- en: 'While this approach is great for reusing existing production infrastructure,
+    there are many potential problems and compromises you must consider. For example:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管这种方法非常适合重用现有的生产基础设施，但您必须考虑许多潜在的问题和妥协。例如：
+- en: The backend of the web server itself may be written in a different language,
+    such as Java, while your model and libraries are written in Python.
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Web 服务器的后端本身可能是用不同的语言编写的，比如 Java，而您的模型和库则是用 Python 编写的。
+- en: Having the application and model deployment coupled means they will need to
+    share the same release schedule. Because the model will likely need to be updated
+    much more frequently, managing this process can be challenging and place a burden
+    on the rest of the engineering team.
+  id: totrans-38
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用程序与模型部署耦合意味着它们需要共享相同的发布时间表。由于模型可能需要更频繁地更新，管理这个过程可能会对工程团队的其他部分构成挑战和负担。
+- en: If you serve a large model, it may compete for resources with the other functions
+    of the web server. This can slow down the server’s response rate and overall throughput.
+  id: totrans-39
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你提供一个大型模型，它可能与 Web 服务器的其他功能竞争资源。这可能会降低服务器的响应速度和总吞吐量。
+- en: Web server hardware is often not optimized for machine learning models. For
+    example, a CPU works just fine for a web server, while a model might need a GPU
+    to quickly process and return a prediction.
+  id: totrans-40
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Web 服务器的硬件通常未经过优化以适应机器学习模型。例如，CPU 对于 Web 服务器来说效果很好，而模型可能需要 GPU 来快速处理并返回预测结果。
+- en: Last, there is the issue of scale. How does your web server scale to answer
+    more API requests? Does that fit with the model’s scaling strategy? Conflicts
+    here can limit the performance of the overall system.
+  id: totrans-41
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最后，还有规模的问题。你的 Web 服务器如何扩展以应对更多的 API 请求？这与模型的扩展策略是否匹配？这里的冲突可能会限制整个系统的性能。
+- en: 'Pattern 3: Model-as-a-Service'
+  id: totrans-42
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模式 3：模型即服务
+- en: This is another real-time pattern, where you deploy the model itself as a service
+    (aka a machine learning microservice) to avoid coupling with the backend server
+    hardware and possibly conflicting scaling requirements. That means the list of
+    cons from the last section will almost disappear. With this approach, the model
+    component has its own deployment cycle, code, versions, scaling strategy, etc.,
+    and the model is hosted on its own separate server. The backend server interacts
+    with the model by managing prediction requests, as shown in [Figure 10-2](#production_system_with_ml_application_a).
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是另一种实时模式，其中你将模型本身部署为一个服务（也称为机器学习微服务），以避免与后端服务器硬件的耦合和可能冲突的扩展要求。这意味着上一节中的缺点列表几乎会消失。通过这种方法，模型组件有自己的部署周期、代码、版本、扩展策略等，并且模型托管在自己独立的服务器上。后端服务器通过管理预测请求与模型交互，如[图 10-2](#production_system_with_ml_application_a)所示。
+- en: '![](assets/smls_1002.png)'
+  id: totrans-44
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_1002.png)'
+- en: Figure 10-2\. Production system with machine learning application and model
+    deployed separately
+  id: totrans-45
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-2\. 生产系统，机器学习应用和模型分开部署
+- en: 'There are great benefits to decoupling the system in this way, such as the
+    following:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将系统解耦有很多好处，比如：
+- en: Dependability
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可靠性
+- en: Bugs in the model are less likely to crash the whole application.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型中的错误不太可能使整个应用程序崩溃。
+- en: Scalability
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可扩展性
+- en: You can choose the optimal hardware for your machine learning application, without
+    it being coupled to the scaling strategy for the model itself.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以为你的机器学习应用选择最优的硬件，而不必与模型本身的扩展策略耦合。
+- en: Flexibility
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 灵活性
+- en: The model can be reused by multiple apps effortlessly; it’s a standalone service
+    that can be deployed in other constellations as well.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型可以轻松地被多个应用程序重复使用；它是一个独立的服务，也可以部署在其他系统中。
+- en: However, there are also drawbacks to this approach. Notably, the model-as-a-service
+    pattern adds latency to every call since the information must travel across the
+    network to the model service itself, and then the response needs to be sent back.
+    Additionally, from a production infrastructure perspective, this approach adds
+    the complexity of deploying a new service and managing the interactions with it.
+    Finally, from a data science viewpoint, it means that you will need to monitor
+    and manage your machine learning model service, and take responsibility for this
+    component if things stop working.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不过，这种方法也有其缺点。特别是，作为服务的模型模式会在每次调用时增加延迟，因为信息必须传输到模型服务本身，然后需要发送回响应。此外，从生产基础设施的角度来看，这种方法增加了部署新服务和管理与之交互的复杂性。最后，从数据科学的角度来看，这意味着你需要监控和管理你的机器学习模型服务，并在出现问题时负责这个组件。
+- en: Determining Which Pattern to Use
+  id: totrans-54
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 确定使用哪种模式
+- en: The three patterns we just discussed were each designed for different business
+    requirements, which translate into different computing requirements, such as latency,
+    throughput, request size, etc. All of these considerations factor into the decision
+    of which deployment pattern is most suitable for the task at hand.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们刚讨论的这三种模式各自设计用于不同的业务需求，这转化为不同的计算需求，比如延迟、吞吐量、请求大小等。所有这些考虑因素都影响了选择哪种部署模式最适合手头的任务。
+- en: 'At a high level, we can distinguish between two types of approach: *real time*
+    and *batch*, with the batch processing method having both the highest throughput^([1](ch10.xhtml#ch01fn28))
+    and the highest latency (minutes to weeks, depending on the processing schedule),
+    and the real-time methods having the lowest throughput and the lowest latency
+    (milliseconds). The number of concurrent requests, the size of the requests, and
+    the desired solution all impact the choice of which pattern to go with.'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从高层次来看，我们可以区分两种方法：*实时*和*批处理*，其中批处理方法具有最高的吞吐量^([1](ch10.xhtml#ch01fn28))和最高的延迟（取决于处理计划，从几分钟到几周），而实时方法具有最低的吞吐量和最低的延迟（毫秒级）。并发请求的数量、请求的大小以及所需的解决方案都会影响选择哪种模式。
+- en: 'With real-time approaches, the exact requirements of the system may vary, permitting
+    more or less tolerance with regard to latency. We can distinguish between three
+    general categories with regard to the level of guarantees that are required about
+    missing the deadline for delivering the results:'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实时方法中，系统的具体需求可能会有所不同，对于延迟的容忍度可能更多或更少。在交换信息时，无论是在团队内部还是跨团队之间，最好总是用延迟和吞吐量来交流，因为这些术语并不严格相关，机器学习团队可能会使用不同的术语来表达相同的需求。
+- en: Hard
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 硬
+- en: Missing a deadline is an absolute system failure.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 错过截止日期是绝对的系统失败。
+- en: Firm
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确定
+- en: It is tolerable to miss deadlines infrequently, but it may degrade the quality
+    of service provided by the system. After the deadline, the result is no longer
+    useful.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 偶尔错过截止日期是可以容忍的，但可能会降低系统提供的服务质量。一旦错过截止日期，结果就不再有用。
+- en: Soft
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 软
+- en: After its deadline, a result becomes less valuable, degrading the system’s quality.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 超过截止日期后，结果的价值降低，影响系统质量。
+- en: 'Another categorization you may see, especially if you are working with a data
+    engineer or come from a data engineering background, is *real time* versus *near
+    real time*, where:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你与数据工程师合作或具有数据工程背景，可能会看到另一种分类，即*实时*与*准实时*：
+- en: Real-time solutions prioritize latency over throughput and generate results
+    in a few milliseconds.
+  id: totrans-65
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 实时解决方案优先考虑延迟而不是吞吐量，并在几毫秒内生成结果。
+- en: Near real-time solutions require rapid inference/prediction, but the results
+    can be delivered with a delay on the order of a hundred milliseconds to a minute.
+    Spark’s Structured Streaming engine, for example, operates on microbatches and
+    processes data in near real time; we’ll look at this when we discuss deploying
+    with MLlib later in this chapter.
+  id: totrans-66
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 准实时解决方案需要快速的推断/预测，但结果可能会在百毫秒到一分钟的延迟内交付。例如，Spark的结构化流处理引擎在微批处理上运行，几乎实时地处理数据；我们稍后在本章讨论使用MLlib部署时会看到这一点。
+- en: Unfortunately, these terms are not strictly correlated, and machine learning
+    teams may use different terminology to express the same requirements. So it is
+    best to always communicate in terms of latency and throughput when exchanging
+    information within a team or across teams. [Figure 10-3](#the_great_range_of_latency_requirements)
+    shows the spectrum of latency requirements covered by the different approaches
+    to processing.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 遗憾的是，这些术语并不严格对应，机器学习团队可能会使用不同的术语来表达相同的需求。因此，在交换信息时，最好总是用延迟和吞吐量来交流。
+- en: '![](assets/smls_1003.png)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_1003.png)'
+- en: Figure 10-3\. The great range of latency requirements of different types of
+    machine learning applications
+  id: totrans-69
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-3\. 不同类型的机器学习应用程序的延迟需求的巨大范围
+- en: Production Software Requirements
+  id: totrans-70
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 生产软件要求
+- en: 'The main goal of deploying a model is to make it accessible to users, programs,
+    apps, or other models to interact with. However, there’s a lot more to it than
+    just putting your model out into the world. Regardless of the pattern you choose
+    for deployment, you will need to establish a framework for the process. To help
+    you with this, here are some of the questions that you should attempt to answer
+    as you prepare to deploy your finished model, organized by topic:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署模型的主要目标是使其可供用户、程序、应用程序或其他模型进行交互。但是，要将模型推向世界，除了简单地将模型发布外，还有许多要考虑的事情。无论您选择哪种部署模式，都需要建立一个过程框架。为了帮助您做到这一点，在准备部署完整模型时，以下是一些应尽力回答的问题，按主题组织：
+- en: Model application deployment
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型应用部署
+- en: How will you roll out your machine learning application? How will you manage
+    and update it once it’s in production? What will you do in the event of a failure?
+    As with software, you want to be able to turn the model into something that responds
+    to requests. Hard requirements are often set around the deployment process (for
+    example, rolling out gradually, rolling back instantly) and the monitoring process.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您将如何推出您的机器学习应用程序？一旦投入生产，您将如何管理和更新它？在发生故障时，您将怎么做？与软件一样，您希望能够将模型转变为响应请求的东西。通常在部署过程（例如逐步推出、立即回滚）和监控过程中会设置硬性要求。
+- en: Model package deployment
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型包部署
+- en: How will you package up the model together with its runtime environment, preprocessing,
+    and postprocessing? What is the deployment cycle, and how will you deal with versioning,
+    archiving, etc.? Today, you can choose from multiple deployment frameworks and
+    solutions—both TensorFlow and PyTorch provide their own deployment options, and
+    there are many other possibilities, such as KFServing. This book won’t discuss
+    them further, but knowing they exist is important.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何将模型与其运行时环境、预处理和后处理打包在一起？部署周期是什么，如何处理版本控制、存档等？今天，您可以选择多种部署框架和解决方案——TensorFlow和PyTorch都提供了它们自己的部署选项，还有许多其他可能性，如KFServing。本书不会进一步讨论它们，但知道它们的存在非常重要。
+- en: Dependency management
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 依赖管理
+- en: 'What are the immediate dependencies of the model itself? What does it need
+    to run? What else do you need to run your service or software? The code, model
+    weights, and dependencies all need to be part of the packaged deployment in order
+    for the model to make predictions. But *dependencies cause trouble*. Dependencies
+    in software are hard to maintain consistently; new versions often introduce changes
+    that may break the APIs or logic used to package and build the model. To overcome
+    this, software engineers use two main strategies:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型本身的即时依赖是什么？它需要什么来运行？您的服务或软件还需要什么？代码、模型权重和依赖项都需要成为打包部署的一部分，以便模型进行预测。但是*依赖项会带来麻烦*。软件中的依赖项很难保持一致；新版本通常会引入可能破坏用于打包和构建模型的API或逻辑的更改。为了克服这个问题，软件工程师采用了两种主要策略：
+- en: Limit the dependencies of serving the model
+  id: totrans-78
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 限制服务模型的依赖项
+- en: Use containers to fully control the versions and the runtime environment (discussed
+    next)
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用容器来完全控制版本和运行时环境（下面讨论）
+- en: 'Two well-known container technologies are Docker and Linux. The containers
+    hold the executable code and everything needed to run it, including the runtime,
+    tools, libraries, and settings (collectively called an *image*). Various containers
+    might be needed to satisfy all the requirements of a machine learning system:
+    for example, you might have containers for a web server, database, and job queue
+    as well as for the workers themselves.'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两种知名的容器技术是Docker和Linux。容器包含可执行代码及其运行所需的一切，包括运行时、工具、库和设置（统称为*镜像*）。一个机器学习系统可能需要各种容器来满足所有的需求：例如，您可能需要用于Web服务器、数据库和作业队列的容器，以及用于工作节点本身的容器。
+- en: Model runtime environment
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型运行时环境
+- en: Where and how is the model run? For example, the environment might require a
+    Python installation; in this case, there’s also a need for a Python-specific runtime
+    for the model to operate. This is why managing dependencies and runtime environments
+    with containers is a best practice.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型在哪里和如何运行？例如，环境可能需要Python安装；在这种情况下，模型操作还需要一个特定于Python的运行时。这就是为什么使用容器管理依赖项和运行时环境是最佳实践的原因。
+- en: REST APIs
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: REST API
+- en: REST APIs are commonly used to serve predictions in response to canonically
+    formatted HTTP requests—how do they behave, and how do you design them? How will
+    you package these APIs with your model? Again, the best option today is using
+    containers. You’ll also need to think about versioning for these APIs.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: REST API通常用于根据规范格式的HTTP请求提供预测响应——它们的行为如何，您如何设计它们？您将如何将这些API与您的模型打包？今天的最佳选择仍然是使用容器。您还需要考虑这些API的版本控制。
+- en: Note
+  id: totrans-85
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: There are alternatives to REST APIs, such as gRPC, that provide a similar experience
+    for receiving and answering requests. There is no unanimous standard for serving
+    machine learning models, so each implementation might be a bit different.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有一些替代REST API的选项，比如gRPC，它们提供了类似的接收和响应请求的体验。没有一致的标准用于服务机器学习模型，因此每个实现可能略有不同。
+- en: 'This list provides a starting point for thinking about packaging and deploying
+    your model. Once you’ve established the framework for this, you’ll need to consider
+    the production environment and how you will optimize and scale the deployment.
+    Here are some tips to help you better understand the relationships between these
+    topics and what to look for when you reach the optimization and scaling stage:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个清单为您在思考如何打包和部署模型时提供了一个起点。一旦您建立了这个框架，您需要考虑生产环境以及如何优化和扩展部署。以下是一些提示，帮助您更好地理解这些主题之间的关系，以及在达到优化和扩展阶段时需要注意的内容：
+- en: Performance optimization
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 性能优化
+- en: Performance is a critical part of every software solution. Machine learning
+    specifically brings additional requirements and considerations. For example, *to
+    GPU or not to GPU?* There are pros and cons to using GPUs to serve models in production
+    systems. On the plus side, it can result in higher throughput, and this is likely
+    the same hardware that you used to train the model. The drawbacks are that GPUs
+    are more complex to set up and often more expensive than CPUs. Having a GPU run
+    a couple of times for building the model is significantly less costly than having
+    it constantly running in production.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 性能是每个软件解决方案的关键部分。机器学习特别需要额外的要求和考虑因素。例如，*使用GPU还是不使用GPU？*在生产系统中为模型服务有使用GPU的利与弊。积极的一面是它可以提高吞吐量，而且很可能是您用来训练模型的相同硬件。缺点是GPU的设置更加复杂，通常比CPU更昂贵。让GPU多次运行以构建模型的成本远远低于在生产中持续运行。
+- en: Another aspect of optimization is *concurrency*. This means that we have multiple
+    copies of the model running on different cores of the system, be they GPUs or
+    CPUs. This approach supports a large volume of prediction requests, but it adds
+    the complexity of working with software threads. Working with a pool of threads
+    requires careful attention when tuning them to make predictions. If you need to
+    serve billions of requests daily, it’s critical to get this right. If you don’t
+    have any experience with threads and concurrency, it is best to consult an expert.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优化的另一个方面是*并发性*。这意味着我们在系统的不同核心上运行多个模型副本，无论是GPU还是CPU。这种方法支持大量的预测请求，但增加了使用软件线程的复杂性。使用线程池需要在调整时特别小心，以便进行预测。如果每天需要服务数十亿的请求，正确调整非常关键。如果您对线程和并发性没有经验，最好咨询专家。
+- en: Model distillation/compression
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型压缩与精简
+- en: 'This is related to the packaging of your model and the running environment.
+    It’s required when you need your model to have a smaller footprint. After training
+    the model, you save it in a certain file format, at a certain size. This file
+    requires information to be loaded into a machine’s RAM and executed. If that information
+    is too big to fit into your machine’s memory, you will need to find some creative
+    ways to compress it, or train a smaller model that imitates the larger one. This
+    research domain is driven by deep learning, which tends to result in very large
+    models. A technique you can try out is to train the model again with a smaller
+    numerical representation of the features—for example, you might use `int8` instead
+    of `float`, acknowledging the trade-off in accuracy. This is called *quantization*.^([2](ch10.xhtml#ch01fn29))
+    Both PyTorch and TensorFlow have quantization built in: the training process is
+    aware of it, and it often results in higher accuracy.'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这与您的模型打包和运行环境相关。当您需要模型具有更小的占用空间时，这是必需的。在训练完模型后，您会将其保存为某种文件格式，特定大小。此文件需要加载到机器的RAM并执行。如果信息量过大而无法适应机器内存，您将需要找到一些创造性的方法来进行压缩，或者训练一个模仿较大模型的较小模型。这个研究领域受深度学习驱动，往往导致非常大的模型。您可以尝试的一种技术是使用较小的数值表示再次训练模型，例如，您可以使用`int8`而不是`float`，在准确性上进行权衡。这被称为*量化*^([2](ch10.xhtml#ch01fn29))。PyTorch和TensorFlow都内置了量化：训练过程中已经考虑到它，通常会导致更高的准确性。
+- en: Caching layer
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缓存层
+- en: Depending on the model, some inputs might be more common than others. For these
+    cases, instead of calling the model for inference over and over again with the
+    same data, you can build in a caching layer dedicated to storing the results.
+    When a request comes in, you first search for the query in the cache, and then,
+    if there is no previously saved answer, you pass it on to the model to process.
+    The caching approach is very common when working with data and can be a useful
+    approach for machine learning systems.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据模型的不同，某些输入可能比其他输入更常见。对于这些情况，您可以建立一个专门存储结果的缓存层，而不是反复调用模型进行推断。当收到请求时，您首先在缓存中搜索查询，如果之前未保存过答案，则将其传递给模型进行处理。在处理数据时，缓存方法非常常见，对于机器学习系统也是一种有用的方法。
+- en: Horizontal scaling
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 横向扩展
+- en: At some point, all the optimization techniques you implement may prove to not
+    be enough—you may need to serve more frequent API calls and achieve higher throughput.
+    How do you go about it? When you have too much traffic for a single machine to
+    handle, you may need to divide it among multiple machines. For that, you will
+    have to spin up multiple copies of the model service and split the traffic using
+    a load balancer. More often than not, you will leverage a container orchestration
+    tool for this, such as Kubernetes with Docker.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些时候，您实施的所有优化技术可能会证明不够用——您可能需要处理更频繁的API调用并实现更高的吞吐量。您要怎么做？当单个机器无法处理太多流量时，您可能需要将流量分配到多台机器上。为此，您需要启动多个模型服务的副本，并使用负载均衡器分流流量。在这种情况下，您通常会利用容器编排工具，比如带有Docker的Kubernetes。
+- en: Managed option
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管理选项
+- en: You may also want to consider a managed solution to deploy your model as a service
+    without burdening your team with the responsibility for managing it. You may be
+    able to run it as a serverless function on a cloud platform, where the application
+    code and its dependencies are deployed into a container with a well-defined entry
+    point function. The benefit of most cloud solutions here is that you only pay
+    for the compute time. The challenges are the limited deployment package size,
+    lack of access to GPUs, lack of state management for caching, and limited deployment
+    tooling.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能还希望考虑采用托管解决方案来部署模型作为服务，而无需使团队负担管理责任。您可以在云平台上将其作为无服务器函数运行，其中应用代码及其依赖项部署到具有明确定义入口点函数的容器中。大多数云解决方案的好处在于您只需支付计算时间。挑战在于限制的部署包大小、无法访问GPU、缓存的状态管理不足以及有限的部署工具。
+- en: It’s important to keep all of these topics in mind, as they will guide you in
+    deciding on the best deployment option for your model.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要牢记所有这些话题，因为它们将指导您决定模型的最佳部署选项。
+- en: Monitoring Machine Learning Models in Production
+  id: totrans-100
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在生产中监控机器学习模型
+- en: 'Your job doesn’t end with deploying the model, of course. There are so many
+    things that can go wrong in production! To understand them better, consider the
+    two phases of testing that are part of the machine learning lifecycle: testing
+    the model during development (*validation*) and testing the model during staging,
+    in a production-like environment.'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，部署模型后您的工作并没有结束。在生产环境中可能会出现很多问题！为了更好地理解这些问题，考虑机器学习生命周期中的两个测试阶段：在开发过程中测试模型（*验证*），以及在类似于生产环境的阶段测试模型。
+- en: 'What are the first suspects to look at when our model is not performing as
+    expected? Here are a few examples of problems you may encounter when troubleshooting
+    training before deployment to production:'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们的模型表现不如预期时，应首先查看哪些问题？以下是在将训练问题排除之前到生产环境部署之前可能遇到的一些问题示例：
+- en: Validation loss is below target performance, which means the machine learning
+    model you trained is not performing as well as expected on previously unseen data.
+  id: totrans-103
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 验证损失低于目标性能，这意味着您训练的机器学习模型在先前未见数据上表现不如预期。
+- en: Test loss is too similar to validation loss (that is, the results are “too good
+    to be true”).
+  id: totrans-104
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 测试损失与验证损失过于相似（即结果“太好以至于难以置信”）。
+- en: 'Before moving your model from staging to production, be sure to take these
+    actions:'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在将模型从分阶段移至生产之前，请务必执行以下操作：
+- en: Verify that your model performs well on critical metrics with both the validation
+    and test sets.
+  id: totrans-106
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保您的模型在验证集和测试集上的关键指标表现良好。
+- en: Validate predictions qualitatively to make sure they make sense.
+  id: totrans-107
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定性验证预测结果确保其合理。
+- en: Validate that the production model has the same performance characteristics
+    as the development model.
+  id: totrans-108
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 验证生产模型具有与开发模型相同的性能特征。
+- en: If you’re updating or replacing an existing model, verify that the new model
+    performs better than the previous one. You may want to run several comparison
+    tests to assure confidence in the new model’s improvements.
+  id: totrans-109
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您正在更新或替换现有模型，请验证新模型的表现是否优于之前的模型。您可能需要运行几个比较测试来确保对新模型改进的信心。
+- en: While following these recommendations should help ensure that you get off to
+    a good start, there are, of course, many more things that can go wrong both in
+    testing and after deployment.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 遵循这些建议应该有助于确保您有一个良好的开端，当然，在测试和部署后还可能出现许多其他问题。
+- en: It is well known that machine learning models tend to degrade after we deploy
+    them, for various reasons. For example, changes may occur in our data or our business
+    problem; we might encounter the “long tail” problem that occurs when there are
+    many outliers in the data, or we may experience a complete domain shift. Let’s
+    take a closer look at some of the problems you may encounter after you deploy
+    your model and how to deal with them.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 众所周知，机器学习模型在部署后往往会出现退化，原因有多种。例如，数据或业务问题可能发生变化；当数据中存在许多异常值时可能会遇到“长尾”问题；或者我们可能经历完全的领域转变。让我们更详细地看看在部署模型后可能遇到的一些问题以及如何处理它们。
+- en: Data Drift
+  id: totrans-112
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据漂移
+- en: Model degradation is mainly caused by *data drift*. This means that the data
+    you’re feeding to the online algorithm has changed in some way relative to the
+    training data. This is usually statistically tested by comparing the distributions
+    of the production data and the training data.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型退化主要是由*数据漂移*引起的。这意味着您向在线算法提供的数据相对于训练数据发生了某种方式的变化。通常通过比较生产数据和训练数据的分布来进行统计测试。
+- en: Modern data architectures enable dynamic changes in the data structure and schema.
+    Data drift can occur any time the data structure, semantics, or infrastructure
+    change unexpectedly. This behavior can break processes and corrupt data. Because
+    data drift relates to changes in the data the application consumes, it can also
+    occur because the full variety of the real-world data wasn’t known or captured
+    during training efforts. It can arise from bugs in the upstream data pipelines,
+    too. To avoid this, we would want to look for changes in the data before it is
+    ingested into the model in production—for example, we might suddenly see negative
+    integer values, such as –1 or –5, when we know that integer values need to be
+    positive.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现代数据架构允许数据结构和架构动态变化。数据漂移可能会在数据结构、语义或基础设施意外改变时发生。这种行为可能会破坏流程并损坏数据。因为数据漂移涉及应用程序消耗的数据的变化，它也可能是由于在培训过程中未知或未捕获真实世界数据的全面变化引起的。它还可能是由上游数据管道中的错误引起的。为了避免这种情况，我们需要在将数据投入到生产模型之前检查数据的变化，例如，当我们知道整数值应该是正数时，我们可能会突然看到负整数值，如–1或–5。
+- en: Alternatively, it can also be that a change in the data was caused by a malicious
+    act by one of the system’s users, who decided to bombard it with artificial values
+    to affect the balance of the data in the system. It is important to monitor the
+    distribution of our data and its accuracy in order to guard against such attacks.
+    In most cases, you will want to bring in a domain expert for this.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，也可能是系统用户之一出于恶意目的而改变数据，决定用人工值轰炸系统以影响数据的平衡。监控数据分布及其准确性非常重要，以防范此类攻击。在大多数情况下，您需要引入领域专家来处理这个问题。
+- en: Changes in the distribution of the data can occur naturally as well. Suppose
+    that we add new users with different demographics. Our machine learning model
+    is not aware of the specific characteristics of these users, so to make accurate
+    predictions for them, we will need to retrain the model with training data that
+    reflects these demographics. Data can also be affected by large-scale events,
+    like the global pandemic and financial changes. Depending on the business problem
+    at hand, you may need to give some thought to how to better organize your model’s
+    features to cope with such unforeseen events. Again, this typically requires the
+    involvement of a domain expert.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据分布的变化也可能是自然发生的。假设我们增加了具有不同人口统计特征的新用户。我们的机器学习模型不了解这些用户的具体特征，因此为了对他们进行准确预测，我们需要使用反映这些人口统计特征的训练数据重新训练模型。数据也可能受到大规模事件的影响，例如全球大流行和金融变化。根据手头的业务问题，您可能需要考虑如何更好地组织模型的特征以应对这些不可预见的事件。同样，这通常需要领域专家的参与。
+- en: 'Changes in the model’s input data can occur quickly or gradually, over a long
+    period, and they can be permanent or temporary. From a time perspective, we can
+    distinguish between the following categories of data drift:'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型输入数据的变化可能会快速或逐渐发生，可以是永久的或临时的。从时间的角度来看，我们可以区分以下数据漂移类别：
+- en: Instantaneous drift
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即时漂移
+- en: With this type of drift, there is an immediate change in the data distribution
+    that is detectable, as shown in [Figure 10-4](#instantaneous_data_drift). An example
+    of when this might occur is when deploying a model in a new domain—like deploying
+    a self-driving car in a new city. It can also happen because of bugs in the preprocessing
+    pipeline or major events like a pandemic.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种类型的漂移会导致数据分布立即发生可检测的变化，如[图 10-4](#instantaneous_data_drift)所示。例如，当在新领域部署模型时，比如在新城市部署自动驾驶汽车时，可能会发生这种情况。这也可能是由于预处理流水线中的错误或大事件（如大流行）引起的。
+- en: '![Instantaneous data drift](assets/smls_1004.png)'
+  id: totrans-120
+  prefs: []
+  type: TYPE_IMG
+  zh: '![即时数据漂移](assets/smls_1004.png)'
+- en: Figure 10-4\. Instantaneous data drift
+  id: totrans-121
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-4\. 即时数据漂移
+- en: Gradual drift
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 渐变漂移
+- en: The values of the features may also change slowly over time, as shown in [Figure 10-5](#gradual_data_drift).
+    With gradual drift, there is no immediate change in the data distribution that
+    is detectable. For example, user preferences might change as a result of the user
+    population growing older or due to changes in the surrounding culture.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征值随时间可能会缓慢变化，如[图 10-5](#gradual_data_drift)所示。在渐变漂移中，没有可以检测到的数据分布的立即变化。例如，用户偏好可能因用户群体年龄增长或周围文化变化而改变。
+- en: '![Gradual data drift](assets/smls_1005.png)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_IMG
+  zh: '![渐变数据漂移](assets/smls_1005.png)'
+- en: Figure 10-5\. Gradual data drift
+  id: totrans-125
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-5\. 渐变数据漂移
+- en: Periodic drift
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 周期性漂移
+- en: This type of drift is less straightforward. As shown in [Figure 10-6](#periodic_data_drift),
+    changes in the data happen periodically over time, perhaps during the course of
+    a day or even a year. This kind of change may look similar to a directional drift,
+    but after some time there is a correction, and the values go back to what they
+    were before the drift. The changes tend to be cyclical, based on changes in the
+    seasons or during holiday periods, or daytime versus nighttime usage, or when
+    you have users in different time zones.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种类型的漂移不太直观。如[图 10-6](#periodic_data_drift)所示，数据随时间定期发生变化，可能在一天甚至一年的过程中发生。这种变化可能看起来类似于方向性漂移，但一段时间后会进行修正，值会回到漂移前的状态。这些变化往往是循环的，基于季节变化或节假日期间的变化，或者白天与夜晚的使用情况，或者不同时区的用户。
+- en: '![Periodic data drift](assets/smls_1006.png)'
+  id: totrans-128
+  prefs: []
+  type: TYPE_IMG
+  zh: '![周期性数据漂移](assets/smls_1006.png)'
+- en: Figure 10-6\. Periodic data drift
+  id: totrans-129
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-6\. 周期性数据漂移
+- en: Temporary drift
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 临时漂移
+- en: Temporary drift is often the most difficult kind to detect. Various events might
+    cause a significant change in the distribution of the data, such as a malicious
+    user attacking the model, or a Black Friday sale, or a new user using the system
+    in an unexpected way that the model wasn’t trained to handle. This churn in our
+    data manifests as a temporary drift, as shown in [Figure 10-7](#temporary_data_drift).
+    Because the distribution of the data returns to normal after some (usually short)
+    period of time, it can be easy to miss this kind of issue.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 临时漂移通常是最难检测的一种。各种事件可能导致数据分布显著变化，例如恶意用户攻击模型，或者黑色星期五促销，或者新用户以模型未曾训练处理的方式使用系统。我们数据中的这种波动表现为临时漂移，如[图 10-7](#temporary_data_drift)所示。由于数据分布在一段（通常很短的）时间后恢复正常，因此很容易忽略这种问题。
+- en: '![Temporary data drift](assets/smls_1007.png)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![临时数据漂移](assets/smls_1007.png)'
+- en: Figure 10-7\. Temporary data drift
+  id: totrans-133
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-7\. 临时数据漂移
+- en: Detecting all the different ways that data drift can manifest itself revolves
+    around identifying changes in the values of features over time. This is a real-world
+    machine learning problem that is known to have a massive impact in practice. New
+    users receiving stale recommendations, perhaps because of a bug in the retraining
+    pipeline, can lead to large amounts of user churn and potential revenue loss for
+    the organization.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检测数据漂移的各种表现方式，围绕着识别特征值随时间变化的变化。这是一个在实践中已知有巨大影响的真实世界机器学习问题。新用户收到过时推荐，可能是由于重新训练流水线中的错误导致的，这可能导致大量用户流失，并且可能对组织造成收入损失。
+- en: Model Drift, Concept Drift
+  id: totrans-135
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型漂移，概念漂移
+- en: There are scenarios where our whole model has to change. Changes in real-world
+    environments often result in *model drift*, which diminishes the predictive power
+    of the model. Many things may cause this, ranging from changes in the digital
+    environment (leading to changes in relationships between model variables) to changes
+    in user demographics or behaviors.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有些情况下，整个模型都必须更改。现实世界环境的变化经常导致*模型漂移*，从而降低了模型的预测能力。这可能由许多因素引起，从数字环境的变化（导致模型变量之间的关系变化）到用户人口统计或行为的变化。
+- en: Let’s say we are tracking user behavior for an online taxi booking service.
+    We’ve built a model based on use of the application at different times of the
+    day, depending on factors such as availability of public transport and number
+    of cars on the road. However, due to the pandemic, public transportation lines
+    have shut down and people are not commuting to the office anymore. User behavior
+    has changed due to real-world circumstances, so the application concept and the
+    model are not relevant anymore. We’ll need to retrain and adjust the model to
+    fit the new realities and keep recalibrating as user preferences continue to evolve.
+    These conditions might also impact the business model as a whole, which will require
+    updates to the system and the model as well.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们正在追踪在线打车服务的用户行为。我们根据应用在不同时间使用情况构建了一个模型，考虑因素包括公共交通的可用性和道路上的车辆数量。然而，由于大流行，公共交通线路已关闭，人们不再通勤上班。由于现实世界情况的改变，用户行为发生了变化，因此应用概念和模型已不再适用。我们需要重新训练和调整模型以适应新的现实情况，并随着用户偏好继续演变而不断重新校准。这些条件可能也会影响整体业务模型，因此还需要更新系统和模型。
+- en: Another example is a movie recommendation system. Suppose we’ve built one dedicated
+    to our users, and a new genre that users weren’t watching at all when we created
+    the system suddenly becomes popular (say, silent films). The system doesn’t cover
+    this genre, but because user preferences have changed, we need to retrain our
+    model to include data on this category.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个例子是电影推荐系统。假设我们为用户构建了一个系统，并且用户在我们创建系统时根本不看的一个新流派（比如无声电影）突然变得流行起来。系统不涵盖这种流派，但由于用户偏好已经改变，我们需要重新训练模型，包括这一类别的数据。
+- en: Detection of model drift is known to be a hard problem and often requires human
+    interaction. It’s important to work with users, customers, product managers, and
+    data analysts to better understand the changes that may affect the usefulness
+    of the model.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型漂移的检测被认为是一个难题，通常需要人工干预。重要的是与用户、客户、产品经理和数据分析师合作，更好地理解可能影响模型有效性的变化。
+- en: Distributional Domain Shift (the Long Tail)
+  id: totrans-140
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 分布领域偏移（长尾）
+- en: It goes without saying that this type of shift is often the hardest to detect.
+    It is also an important one that many organizations aren’t aware of.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 毫无疑问，这种类型的转变通常是最难检测到的。它也是许多组织意识不到的重要问题。
+- en: '*Domain shift* refers to a difference between the distribution in the training
+    dataset and the data the model encounters when deployed—that is, the distribution
+    of the data in production. This can occur because of the approximation functions
+    that machine learning algorithms use, combined with training a model on data sampled
+    from the underlying distribution. There may be artifacts that were introduced
+    by the sampling process, as well as artifacts that were completely missed due
+    to the data distribution having a long tail. This matters when outliers are significant
+    for the model and the business goal. Another way to look at it is to acknowledge
+    that the sampling data may not represent all the parts of the distribution that
+    we care about.'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*领域偏移*是指训练数据集分布与模型在部署时遇到的数据之间的差异——即生产数据的分布。这可能是因为机器学习算法使用的近似函数，结合了从基础分布中抽样的数据训练模型。由于抽样过程引入了可能存在的人为影响，以及由于数据分布存在长尾而完全忽略的影响。当异常值对模型和业务目标有显著影响时，这一点就显得至关重要。另一种看待这个问题的方式是承认抽样数据可能无法代表我们关心的分布的所有部分。'
+- en: Domain shifts often occur in practical applications of artificial intelligence,
+    and machine learning algorithms often have difficulty adapting to them. A domain
+    shift can happen because of bugs in the training data pipeline or bias in the
+    sampling process. This can happen when certain groups are underrepresented in
+    the training data or when the distribution of the training data does not accurately
+    represent real-world data anymore.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实际应用人工智能中，域漂移经常发生，而机器学习算法往往难以适应这些变化。域漂移可能是由于训练数据管道中的错误或抽样过程中的偏差引起的。这种情况可能发生在训练数据中某些群体被低估或训练数据的分布不再准确地代表现实世界数据时。
+- en: For example, suppose we are building a banking system for predicting loan default,
+    where one of the features is gender. If we train the model using old or insufficient
+    data, that data may be biased toward a specific gender. In real life, our model
+    will need to handle a greater variety of data due to societal changes, and the
+    mismatch between the training data and the production data can result in incorrect
+    outcomes.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 举例来说，假设我们正在建立一个银行系统，用于预测贷款违约，其中一个特征是性别。如果我们使用过时或不足的数据训练模型，那些数据可能会对特定性别产生偏见。在现实生活中，由于社会变化，我们的模型需要处理更多种类的数据，而训练数据与生产数据之间的不匹配可能导致错误的结果。
+- en: To avoid these problems, we need to watch for differences between the training
+    distribution and the production data distribution.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了避免这些问题，我们需要关注训练分布与生产数据分布之间的差异。
+- en: What Metrics Should I Monitor in Production?
+  id: totrans-146
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 我在生产环境中应该监控哪些指标？
+- en: Now that you understand the various potential changes that can occur in the
+    data, model, and distribution in production, we can discuss what metrics to monitor
+    to detect these changes.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经了解了生产中可能发生的各种潜在数据、模型和分布变化，我们可以讨论监控哪些指标来检测这些变化。
+- en: 'At a high level, any machine learning system we build has four characteristics
+    that will drive decisions about what to monitor and measure:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总体上说，我们构建的任何机器学习系统都具有四个特征，这些特征将决定我们监控和测量哪些内容：
+- en: Model metrics
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型指标
+- en: These include accuracy, robustness, and performance. Measuring these metrics
+    is typically harder in production systems than during training, as often we don’t
+    have access to all of the required data.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些包括准确性、鲁棒性和性能。在生产系统中测量这些指标通常比训练期间更加困难，因为我们通常无法访问所有必需的数据。
+- en: Business metrics
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 业务指标
+- en: 'These show the impact of the machine learning system on the business. For example,
+    for a recommendation system, we would monitor various metrics related to user
+    churn and user engagement: how many people are using the system, how frequently,
+    and for how long in each interaction. We can even split the user base into multiple
+    user groups and run A/B testing of different models in production. Monitoring
+    business metrics is often fairly straightforward, as many organizations already
+    have a business intelligence (BI) or analytics team that measures them. However,
+    there may be conflicting or hidden factors that affect these metrics, so it’s
+    best to combine these with other measures.'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些指标展示了机器学习系统对业务的影响。例如，对于推荐系统，我们将监控与用户流失和用户参与相关的各种指标：有多少人在使用系统，使用频率如何，每次互动多长时间。我们甚至可以将用户群体分成多个用户组，并在生产中运行不同模型的A/B测试。监控业务指标通常相对直接，因为许多组织已经有业务智能（BI）或分析团队来测量它们。但是，可能存在影响这些指标的冲突或隐藏因素，因此最好将它们与其他措施结合起来。
+- en: Model predictions versus actual behavior
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型预测与实际行为
+- en: These metrics show how well the model’s predictions correlate with actual user
+    or system behavior. Measuring them typically requires some creativity and tailor-made
+    solutions, as it involves capturing real behaviors rather than predicted ones.
+    Often, we will want to create a separate data pipeline to capture and save actual
+    behavior into a dataset. This will tell us how well the model is doing beyond
+    the model metrics that we measure.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些指标展示了模型的预测与实际用户或系统行为的相关性。通常，测量它们需要一些创造力和量身定制的解决方案，因为它涉及捕捉实际行为而不是预测行为。通常，我们会希望创建一个单独的数据管道来捕捉和保存实际行为到数据集中。这将告诉我们模型在模型指标之外的表现如何。
+- en: Hardware/networking metrics
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 硬件/网络指标
+- en: These show how the system is performing at the hardware/network level. Examples
+    include CPU/GPU utilization, average latency of requests, server response time,
+    server downtime, etc. Keeping track of these metrics is crucial, as it gives us
+    a detailed picture of the impact of the underlying hardware on the system. They
+    are relatively easy to measure since most production systems already have the
+    necessary tools in place, and there are various commercial solutions available
+    for this purpose.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些显示系统在硬件/网络层面的表现如何。例如包括CPU/GPU利用率，请求的平均延迟，服务器响应时间，服务器停机时间等。跟踪这些指标非常关键，因为它们为我们提供了关于底层硬件对系统影响的详细图景。它们相对容易测量，因为大多数生产系统已经具备必要的工具，并且有各种商业解决方案可供选择。
+- en: How Do I Measure Changes Using My Monitoring System?
+  id: totrans-157
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 如何使用我的监控系统测量变化？
+- en: There are multiple strategies for measuring changes in a machine learning system.
+    However, the main approach is similar. We want to be able to detect changes over
+    time, so to begin with, we need a reference to use as a point of comparison.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有多种策略可用于测量机器学习系统的变化。然而，主要方法类似。我们希望能够随时间检测变化，因此首先需要一个用作比较点的参考。
+- en: Define a reference
+  id: totrans-159
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 定义一个参考点
+- en: To build a reference, we look at different time windows of data that we consider
+    good. This will provide us with data points to compare against. Within those time
+    windows, we look for changes in the data and its distribution. As discussed in
+    Chapters [4](ch04.xhtml#data_ingestioncomma_preprocessingcomma), [5](ch05.xhtml#feature_engineering),
+    and [6](ch06.xhtml#training_models_with_spark_mllib), Spark provides us with tools
+    to gather statistics about our data. This is a good place to take advantage of
+    those, to establish a baseline so you can monitor for changes that might indicate
+    drift.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了建立一个参考基准，我们查看认为良好的不同时间窗口的数据。这将为我们提供要进行比较的数据点。在这些时间窗口内，我们寻找数据及其分布的变化。正如在第[4](ch04.xhtml#data_ingestioncomma_preprocessingcomma)、[5](ch05.xhtml#feature_engineering)和[6](ch06.xhtml#training_models_with_spark_mllib)章讨论的那样，Spark为我们提供了收集关于我们数据统计信息的工具。这是一个很好的利用机会，以建立一个基线，这样您就可以监控可能表明漂移的变化。
+- en: 'At this point you’re probably thinking, “That all sounds great, but how do
+    I pick a reference window?” One option is to start with a fixed window of production
+    data you believe to be healthy—an hour, a day, or whatever makes sense for your
+    business problem. Gather your metrics, and start iterating. Some systems will
+    leverage the sliding window approach, where the time window advances linearly
+    and each (possibly overlapping) segment is compared to the previous one. For example,
+    if I have an array of [1,2,3], a sliding window of size two will yield the following
+    list of arrays: [[1,2], [2,3]]. While this is a great technique for search, it
+    can generate high compute costs and is not very efficient for our current purposes.
+    Consider a timeline of 5 hours with a sliding window of 1 hour and a size of two.
+    You will end up calculating the metrics over four windows of time: [[1,2], [2,3],
+    [3,4], [4,5]].'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此时您可能在想，“这听起来都很好，但我该如何选择一个参考窗口？”一种选择是从您认为健康的生产数据开始使用固定窗口——一个小时、一天或适合您业务问题的任何时间。收集您的指标，并开始迭代。一些系统将利用滑动窗口方法，其中时间窗口线性前进，每个（可能重叠的）段与前一个段进行比较。例如，如果我有一个数组[1,2,3]，大小为两个的滑动窗口将生成以下数组列表：[[1,2]，[2,3]]。虽然这是一个搜索的好技术，但可能会产生高计算成本，并且对于我们当前的目的效率不高。考虑一个5小时的时间轴，滑动窗口为1小时，大小为2。您将在四个时间窗口内计算指标：[[1,2]，[2,3]，[3,4]，[4,5]]。
+- en: A better solution—and an industry best practice—is to use the training or validation
+    data and metrics as a reference. This is a more cost-efficient and straightforward
+    practice that is simpler to implement.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个更好的解决方案——也是行业最佳实践——是使用训练或验证数据和指标作为参考。这是一种更具成本效益和简单直接的做法，易于实施。
+- en: Measure the reference against fresh metrics values
+  id: totrans-163
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 将参考点与新鲜指标值进行比较
+- en: After defining a reference and computing the metrics, the next step is choosing
+    a window to measure against the reference. This is very much problem-dependent;
+    it correlates directly to the business goals and is determined by how frequently
+    you want to monitor the machine learning system and potentially replace or retrain
+    it as needed. You might want to monitor your data over a period of an hour, a
+    day, or a month.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在定义参考点并计算指标之后，下一步是选择一个窗口来对比参考点。这在很大程度上取决于具体问题；它直接与业务目标相关，并且由您希望监视机器学习系统的频率以及可能根据需要替换或重新训练它的方式决定。您可能希望在一小时、一天或一个月的时间段内监视您的数据。
+- en: To be more pragmatic, choose several window sizes with a reasonable amount of
+    data and compare them. For example, have 1-hour, 12-hour, and 1-day window sizes
+    and slide them over the recent data to monitor the system’s behavior. Be aware
+    that depending on the window size, you might miss detecting some outliers. You
+    might want to monitor different window sizes to measure different aspects.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了更加实用，选择几个合理大小的窗口，并比较它们。例如，有1小时、12小时和1天的窗口大小，并将它们滑动到最近的数据上以监控系统的行为。请注意，根据窗口大小的不同，您可能会错过检测到一些异常值的机会。您可能希望监视不同的窗口大小以衡量不同的方面。
+- en: Algorithms to use for measuring
+  id: totrans-166
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 用于衡量的算法
+- en: 'In statistics, you will find multiple algorithms for measuring the difference
+    between two datasets. The classic and best-known ones are the distance metrics.
+    As a data scientist, you might be familiar with these algorithms:'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在统计学中，您会发现多种算法用于衡量两个数据集之间的差异。经典且最为知名的算法是距离度量。作为一名数据科学家，您可能对以下算法较为熟悉：
+- en: Rule-base distance metrics
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于规则的距离度量
+- en: These measure how far the data is from the reference, given a set of rules.
+    They’re great for determining the quality of the data. We can compare minimum,
+    maximum, and mean values and check that they are within the acceptable/allowable
+    range. We can also check the number of data points to confirm data isn’t missing
+    or being dropped (for example, due to bad preprocessing), check for the presence
+    of null values, and monitor for data drift.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些算法根据一组规则测量数据与参考数据的距离。它们非常适合确定数据的质量。我们可以比较最小值、最大值和均值，并确保它们在可接受的范围内。我们还可以检查数据点的数量，以确认数据没有丢失或被丢弃（例如由于错误的预处理），检查空值的存在，并监测数据漂移。
+- en: D1 distance
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: D1距离
+- en: This is a classic distance metric that calculates the sum of the distances between
+    the fixed data values. It’s easy to interpret and simplifies monitoring in general.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个经典的距离度量，计算了固定数据值之间的距离之和。易于解释，并简化了一般的监控工作。
+- en: Kolmogorov–Smirnov statistic
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 科尔莫哥洛夫–斯米尔诺夫统计量
+- en: This finds the distance between the empirical and cumulative distribution functions.
+    It’s a commonly used metric that is relatively easy to interpret and plot on a
+    chart.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这找到了经验和累积分布函数之间的距离。这是一个常用的指标，相对容易理解并绘制在图表上。
+- en: Kullback–Leibler divergence
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 库尔巴赫–莱布勒散度
+- en: This measures the difference between two probability distributions over the
+    same variable *x*. It’s a statistical log-based equation that is sensitive to
+    the tails of the distribution. It detects outliers but is a bit difficult to comprehend
+    and interpret. This metric can be useful when you’re fully informed about how
+    to use it, but it won’t provide much insight in most cases.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法衡量了两个相同变量*x*上的两个概率分布之间的差异。它是一种统计学的基于对数的方程，对分布的尾部敏感。它可以检测异常值，但有点难以理解和解释。当您完全了解如何使用时，这种指标可能会很有用，但在大多数情况下并不会提供太多见解。
+- en: There are plenty of others too, but this list is enough to get you started.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有许多其他的指标，但这个列表足以让您开始了解。
+- en: What It Looks Like in Production
+  id: totrans-177
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 生产环境下的实际表现
+- en: To monitor drift, the simple tools that already exist in the production system
+    should work. Often, you will need to design a data pipeline with dedicated logic
+    for each of the types of drift you would like to measure. For example, as shown
+    in [Figure 10-8](#monitoring_drift), you might develop two data pipelines, each
+    of which returns a metric that signals the presence or absence of drift. The one
+    at the top compares recent data to the reference data, as described earlier. It
+    can be used to detect data drift. The one at the bottom detects drift in the model
+    itself, by comparing the model’s predictions with the actual outcomes/results
+    of the system. This will tell us if it’s time to retrain the machine learning
+    model. This can be an automated process or one that the team executes manually,
+    following a system alert. This approach is also called the *production feedback
+    loop*; we’ll dig into this in more detail in the next section.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要监测数据漂移，应该使用已存在于生产系统中的简单工具。通常情况下，您需要设计一个数据管道，并为您想要测量的每种漂移类型编写专用逻辑。例如，如图[10-8](#monitoring_drift)所示，您可以开发两个数据管道，每个管道返回一个信号指示漂移的存在或不存在。顶部的数据管道将最近的数据与参考数据进行比较，如前所述，可以用来检测数据漂移。底部的管道则通过比较模型的预测与系统实际结果来检测模型本身的漂移。这将告诉我们是否需要重新训练机器学习模型。这可以是一个自动化的过程，也可以是团队根据系统警报手动执行的过程。这种方法也称为*生产反馈循环*，我们将在下一节更详细地讨论这个问题。
+- en: '![](assets/smls_1008.png)'
+  id: totrans-179
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_1008.png)'
+- en: Figure 10-8\. Monitoring drift
+  id: totrans-180
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-8。监控漂移
+- en: It’s important to keep in mind, of course, that the model you develop will have
+    its own sensitivities, and there is no one-size-fits-all solution.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，重要的是要记住，您开发的模型将有其自身的敏感性，没有一种适合所有情况的解决方案。
+- en: The Production Feedback Loop
+  id: totrans-182
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 生产反馈循环
+- en: 'In production, a feedback loop is when the system saves the outputs of the
+    model and the corresponding end user actions as observed data and uses this data
+    to retrain and improve the model over time. The predictions/recommendations themselves
+    are compared against the user’s or system’s behavior and provide feedback on the
+    model’s performance. A well-known case study is Yupeng Fu and Chinmay Soman’s
+    [“Real-time Data Infrastructure at Uber”](https://oreil.ly/srOdn), which lays
+    out how Uber uses real-time production data to improve its machine learning system
+    by implementing two pipelines:'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产中，反馈循环是指系统将模型的输出和相应的最终用户操作保存为观察数据，并使用这些数据随时间重新训练和改进模型。预测/推荐本身将与用户或系统的行为进行比较，并提供有关模型性能的反馈。一个知名的案例研究是付宇鹏和Chinmay
+    Soman的[《Uber的实时数据基础设施》](https://oreil.ly/srOdn)，该案例展示了Uber如何利用实时生产数据通过实施两条流水线来改进其机器学习系统：
+- en: A pipeline that embeds the machine learning model and is used to predict ride
+    cost
+  id: totrans-184
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 嵌入机器学习模型并用于预测乘车成本的流水线。
+- en: A pipeline that captures the real outcome
+  id: totrans-185
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 捕获真实结果的流水线。
+- en: Uber uses this approach to monitor performance over time. The consumers of the
+    real-time data infrastructure, as described in the article, include the system
+    responsible for automated dynamic pricing of rides, dashboards, alerts, analytical
+    apps, and more. As you can see, the machine learning system is only part of the
+    larger story. However, the system does take this information into consideration
+    and updates the features in real time for the next round of predictions. The data
+    feedback loop is a critical system component, as it feeds information back into
+    the production system and triggers alerts.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Uber使用这种方法来随时间监控性能。根据文章描述的实时数据基础设施的消费者包括负责自动动态定价乘车、仪表板、警报、分析应用等系统。正如你所见，机器学习系统只是更大故事的一部分。然而，系统确实考虑了这些信息并实时更新下一轮预测的特征。数据反馈循环是关键的系统组成部分，因为它将信息反馈到生产系统并触发警报。
+- en: Bear in mind that while this approach works wonderfully for Uber’s use case,
+    it may not be applicable in other organizations. Designing a feedback loop that
+    is based on real outcomes will require you to think outside the box to understand
+    how it can be integrated with the larger system and what it makes sense to measure.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，尽管这种方法对Uber的用例非常有效，但可能不适用于其他组织。设计基于真实结果的反馈循环将需要您跳出思维定势，理解如何将其与更大的系统集成以及何种度量是有意义的。
+- en: Now that you have a better understanding of the theory—deployment patterns,
+    monitoring, feedback loops, and more—it’s time to get more practical with some
+    hands-on examples.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您对理论有了更好的理解——部署模式、监控、反馈循环等——是时候通过一些实际的示例更加实践了。
+- en: Deploying with MLlib
+  id: totrans-189
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用MLlib进行部署。
+- en: '[Chapter 6](ch06.xhtml#training_models_with_spark_mllib) covered how to leverage
+    Spark’s machine learning library, MLlib. You learned about its various capabilities,
+    including training, evaluating, and tuning your model; building a pipeline; and
+    saving the model to disk so it’s ready for deployment.'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第6章](ch06.xhtml#training_models_with_spark_mllib)介绍了如何利用Spark的机器学习库MLlib。您了解了其各种能力，包括训练、评估和调整模型；构建流水线；并将模型保存到磁盘，以便部署使用。'
+- en: MLlib’s model format is a dedicated format that holds metadata as well as the
+    actual data of the model. The metadata can comprise different elements, depending
+    on the machine learning algorithm.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MLlib的模型格式是一个专用格式，包含模型的元数据以及实际数据。元数据可以包括不同的元素，具体取决于机器学习算法。
+- en: 'For example, when working with MLlib’s `RandomForestClassifier`, the data will
+    include information about the weights, number of partitions, etc., for each tree
+    in the random forest (identified by a `treeID` parameter). The metadata, on the
+    other hand, will hold information about the model’s creation, such as:'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，当使用MLlib的`RandomForestClassifier`时，数据将包括关于每棵树（由`treeID`参数标识）中权重、分区数等的信息。另一方面，元数据将包含有关模型创建的信息，例如：
+- en: '[PRE0]'
+  id: totrans-193
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'And the model itself:'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以及模型本身：
+- en: '[PRE1]'
+  id: totrans-195
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'This information helps you load the model in a different environment. This
+    is helpful for deployment, since we can wrap the MLlib `load` function with the
+    rest of the application logic as part of the Spark workflow. The data to be loaded
+    and processed can come in two shapes: batch or streaming. In the next section,
+    we’ll walk through an example of building a pipeline for deploying a model with
+    streaming data.'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此信息帮助您在不同环境中加载模型。这对于部署非常有帮助，因为我们可以将MLlib的`load`函数与Spark工作流的其余应用程序逻辑一起包装。要加载和处理的数据可以是批处理或流处理两种形式。在下一节中，我们将通过一个示例来构建一个部署具有流数据的模型的流水线。
+- en: Tip
+  id: totrans-197
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Don’t forget to use the exact class that you used to save (and often train)
+    the model to load it afterward. Otherwise, with the highly coupled MLlib format,
+    it simply won’t work.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要忘记使用与保存（通常也是训练）模型时使用的确切类来加载模型。否则，对于高度耦合的MLlib格式，它根本不会工作。
+- en: Production Machine Learning Pipelines with Structured Streaming
+  id: totrans-199
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用结构化流的生产机器学习管道
+- en: 'Before we dive right in, a quick reminder: with Structured Streaming, the schema
+    of the data does not change as it’s read in. This simplifies our work, as schema
+    detection takes place earlier, well before the stream of data gets to the model.'
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们深入讨论之前，快速提醒一下：在结构化流处理中，数据的模式在读取时不会发生变化。这简化了我们的工作，因为模式检测发生在数据流到达模型之前的早期阶段。
+- en: 'To set up the pipeline, you’ll need to provide the following items:'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要设置管道，您需要提供以下内容：
+- en: Schema
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模式
+- en: The specification of the columns in the stream data.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流数据中列的规范。
+- en: Stream reader
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流读取器
+- en: The specification of the source of the streaming data. For testing, this can
+    also be a static dataset.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流数据的来源规范。对于测试，这也可以是静态数据集。
+- en: Machine learning model
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习模型
+- en: The model you wish to train.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您希望训练的模型。
+- en: 'The following code snippet demonstrates:'
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的代码片段演示了：
+- en: '[PRE2]'
+  id: totrans-209
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The streaming predictions can be used for aggregation, decision making, automation,
+    or whatever business task the machine learning model was designed for.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流预测可用于聚合、决策、自动化或机器学习模型设计的任何业务任务。
+- en: Let’s assume this model was designed to predict click rates. It captures user
+    impressions of a website and tries to predict if a user will click on a specific
+    link. For this particular use case, we can capture the user’s actual behavior—whether
+    they clicked or not—to compare the predicted versus actual results. Since it is
+    feasible to save the data and process it as a batch, it’s up to us to decide whether
+    to go with a batch or streaming approach.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设这个模型被设计用于预测点击率。它捕捉用户对网站的印象，并尝试预测用户是否会点击特定链接。对于这个特定的用例，我们可以捕捉用户的实际行为——他们是否点击——以比较预测结果和实际结果。由于可以保存数据并将其作为批处理处理，我们可以决定采用批处理还是流处理方法。
+- en: Using streaming data is always a more complicated solution. However, for a website
+    that runs A/B testing and needs to be updated on the fly, this might yield better
+    results.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用流数据始终是一个更复杂的解决方案。但是，对于运行A/B测试并需要实时更新的网站来说，这可能会产生更好的结果。
+- en: With a streaming solution, it is possible to capture both clicks and predictions
+    using two data streams and run a *stream–stream join*. This functionality, added
+    in Spark 2.3, allows us to join two streaming DataFrames. The downside of this
+    approach is that the table’s view will always be incomplete for both sides of
+    the join, which might make matches harder.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用流处理解决方案，可以使用两个数据流捕获点击和预测，并运行*流-流连接*。这个功能在Spark 2.3中添加，允许我们连接两个流数据框。这种方法的缺点是表的视图对于连接的两侧始终是不完整的，这可能使匹配变得更加困难。
+- en: Stream–stream joins are considered hard to do in an efficient manner in the
+    world of data processing, as they often require shuffling the data over the network
+    during real-time processing. Imagine you have an endless stream of data coming
+    into the system and you need to do a join with another endless stream of data.
+    How do you ensure the streams align correctly? To solve this problem, you can
+    think of it as performing a series of microbatch joins. Because the data may arrive
+    out of order, when performing a stream–stream join with Spark, you should make
+    sure to define the watermark delay (the maximum delay between event time and processing
+    time). This lets the engine know how late data can be and when it’s safe to process
+    each microbatch—that is, it defines the time range to wait until the shuffling
+    and join operations can start processing a given microbatch. It can be capped
+    by a timestamp or microbatch size (i.e., the number of rows in the batch).
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在数据处理的世界中，流-流连接被认为是难以高效执行的，因为它们通常需要在实时处理过程中通过网络进行数据洗牌。想象一下，您有一个无尽的数据流进入系统，并且需要与另一个无尽的数据流进行连接。如何确保流正确对齐？为了解决这个问题，您可以考虑执行一系列微批次连接。由于数据可能无序到达，因此在使用Spark进行流-流连接时，您应确保定义水印延迟（事件时间和处理时间之间的最大延迟）。这让引擎知道数据可以有多晚，以及何时安全地处理每个微批次—即，它定义了等待的时间范围，直到洗牌和连接操作可以开始处理给定的微批次。可以通过时间戳或微批次大小（即批次中的行数）进行限制。
+- en: To read about how to work with the Structured Streaming and batch APIs, stream*–*stream
+    joins, and more, visit the [Spark docs](https://oreil.ly/_MdEz).
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 若要了解如何使用结构化流和批处理API、流-流连接等更多信息，请访问[Spark文档](https://oreil.ly/_MdEz)。
+- en: Deploying with MLflow
+  id: totrans-216
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用MLflow部署
+- en: We discussed MLflow in [Chapter 3](ch03.xhtml#managing_the_ml_experiment_lifecycle_wi).
+    As a reminder, MLflow is a platform for managing the machine learning lifecycle
+    that enables logging and inspecting the results of your machine learning experiments.
+    It has components for tracking the experiments, packaging up the project code,
+    and packaging and deploying models, as well as a model registry.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在[第3章](ch03.xhtml#managing_the_ml_experiment_lifecycle_wi)中讨论了MLflow。作为提醒，MLflow是一个用于管理机器学习生命周期的平台，使您能够记录和检查机器学习实验的结果。它具有跟踪实验、打包项目代码、打包和部署模型以及模型注册的组件。
+- en: 'MLflow provides two different deployment options:'
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MLflow 提供了两种不同的部署选项：
+- en: As a microservice
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 作为微服务
+- en: As a UDF in a Spark flow
+  id: totrans-220
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 作为Spark流中的UDF
+- en: Deploying a machine learning model with MLflow requires you to create an MLflow
+    wrapper. We’ll look at that next, then dive into the two deployment options.
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用MLflow部署机器学习模型需要您创建一个MLflow包装器。接下来我们将看看这一点，然后深入探讨两种部署选项。
+- en: Defining an MLflow Wrapper
+  id: totrans-222
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 定义MLflow包装器
+- en: 'An MLflow wrapper—an instance of `mlflow.pyfunc.PyFuncModel`—wraps the model
+    and its metadata (the *MLmodel* file), making it easy to ship them together. Here
+    is a reminder of the structure of the model directory created by MLflow:'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MLflow包装器——*mlflow.pyfunc.PyFuncModel*的一个实例——包装了模型及其元数据（*MLmodel*文件），使它们可以轻松地一起发布。这里是MLflow创建的模型目录结构的提醒：
+- en: '[PRE3]'
+  id: totrans-224
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Because this machine learning model was created in an Anaconda environment,
+    the *MLmodel* folder holds the *conda.yaml* file alongside the *model.pkl* file.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为这个机器学习模型是在Anaconda环境中创建的，所以*MLmodel*文件夹包含*conda.yaml*文件和*model.pkl*文件。
+- en: 'The wrapper itself is a class that we save together with the model, which lets
+    the program that loads the model afterwards know how to load it and use it for
+    prediction. To connect training, deploying, and using the model, you have to define
+    the wrapper class and log it with MLflow’s `log_model` function before saving
+    the model. The following code snippet shows how:'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 包装器本身是一个类，我们与模型一起保存，这样后续加载模型的程序就知道如何加载它并用于预测。要连接训练、部署和使用模型，您必须在保存模型之前定义包装器类，并使用MLflow的`log_model`函数记录它。以下代码片段显示了如何执行：
+- en: '[PRE4]'
+  id: totrans-227
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Notice that you need to provide the `model_path` itself, including the `experiment_id`
+    and `run_id`, when you create an instance of your class, then log the model and
+    the wrapper instance together. This provides the connecting tissue between the
+    two.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，当您创建类的实例并记录模型和包装器实例时，需要提供`model_path`本身，包括`experiment_id`和`run_id`。这提供了连接两者之间的纽带。
+- en: 'Let’s break it down a bit further. Your wrapper class needs to implement `Python​Mo⁠del`.
+    This enables you to create MLflow models with the `python_function` (`pyfunc`)
+    model flavor, which can leverage custom inference logic and artifact dependencies
+    that MLflow manages for you. The interface has three functions: `__init__`, `load_context`,
+    and `predict`. To take advantage of it, your microservice must implement the `predict`
+    function; however, it can override the first two functions as necessary. Let’s
+    take a look at what each of them does:'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们进一步分解一下。您的包装类需要实现`PythonModel`。这使您能够使用`python_function`（`pyfunc`）模型风格创建MLflow模型，该模型可以利用MLflow为您管理的自定义推理逻辑和文物依赖关系。接口具有三个函数：`__init__`，`load_context`和`predict`。为了利用它，您的微服务必须实现`predict`函数；但是，您可以根据需要重写前两个函数。让我们看看它们各自的作用：
+- en: '`__init__`'
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`__init__`'
+- en: This is a Python private function responsible for setting global parameters.
+    It is called “init” because it performs the required initialization of the service
+    to be used later. This is the first function that MLflow calls when you call the
+    `load_model` function, used to load a model stored in `pyfunc` format. It takes
+    as input a `PythonModelContext` containing artifacts that can be used for making
+    predictions, which MLflow manages for you behind the scenes. The `PythonModelContext`
+    is available later as well, but for efficiency, it is best to load the context
+    and artifacts into memory as a global parameter that is part of the service you
+    are implementing.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个Python私有函数，负责设置全局参数。它被称为“init”，因为它执行了后续使用的服务所需的初始化。这是MLflow在调用`load_model`函数时调用的第一个函数，用于加载以`pyfunc`格式存储的模型。它接受一个包含MLflow在后台管理的可以用于进行预测的文物的`PythonModelContext`作为输入。`PythonModelContext`后续也可用，但为了效率，最好将上下文和文物加载到内存中作为实现服务的全局参数的一部分。
+- en: '`load_context`'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`load_context`'
+- en: This function is responsible for loading artifacts from the `PythonModelContext`.
+    MLflow calls it as soon as the `PythonModel` is constructed when loading a model
+    with `load_model`.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此函数负责从`PythonModelContext`中加载文物。当使用`load_model`加载模型时，MLflow在构造`PythonModel`时立即调用它。
+- en: '`predict`'
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`predict`'
+- en: MLflow invokes this function to get a prediction from the model. It takes a
+    `PythonModelContext` instance and a `pyfunc`-compatible input to evaluate and
+    returns a `pyfunc`-compatible output. Be aware that the model may take a long
+    time to return a result; you should be prepared for this, and you may want to
+    handle errors here too. You should also keep logs for alerting and for auditing
+    purposes in the future.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MLflow调用此函数从模型获取预测。它接受一个`PythonModelContext`实例和一个`pyfunc`兼容的输入以评估并返回一个`pyfunc`兼容的输出。请注意，模型可能需要很长时间才能返回结果；您应该为此做好准备，并且可能也希望在此处处理错误。您还应该保留日志以便将来进行警报和审计。
+- en: Let’s examine some sample code for a model built with TensorFlow. For this exercise,
+    our class is called `KerasCNNModelWrapper`. It wraps a `KerasCNN` TensorFlow model
+    that has been trained and tested by our data scientists.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们来看看使用TensorFlow构建的模型的一些示例代码。在本练习中，我们的类称为`KerasCNNModelWrapper`。它包装了我们的数据科学家训练和测试过的`KerasCNN`
+    TensorFlow模型。
+- en: 'First, we need to ensure we save the `model_path` parameter to memory:'
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们需要确保将`model_path`参数保存到内存中：
+- en: '[PRE5]'
+  id: totrans-238
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Note that we aren’t required to implement `__init__`, but for the sake of the
+    exercise, we will implement all of the functions.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们不需要实现`__init__`，但是为了练习的目的，我们将实现所有函数。
+- en: 'Next, let’s implement the `load_context` function. Here, we’ll load the model
+    from a Keras-native representation and save it to memory:'
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们实现`load_context`函数。在这里，我们将从Keras本机表示中加载模型并将其保存到内存中：
+- en: '[PRE6]'
+  id: totrans-241
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Note
+  id: totrans-242
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Loading the model using `mlflow.keras.load_model` is possible only if you’ve
+    trained and saved the model using MLflow. The `load_model` function takes care
+    of loading artifacts for prediction and everything that we need to run the model
+    in its desired environment.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`mlflow.keras.load_model`加载模型仅在您使用MLflow训练和保存模型时才可能。`load_model`函数负责加载预测所需的文物以及运行模型所需的一切。
+- en: 'Finally, we’ll implement `predict`. As mentioned previously, you must implement
+    this function every time you use MLflow. The `predict` function is responsible
+    for enriching the input data and preprocessing it to fit the model’s expected
+    format, as discussed in [Chapter 4](ch04.xhtml#data_ingestioncomma_preprocessingcomma).
+    Since in this exercise we’re classifying images, preprocessing the data involves
+    resizing and reshaping the images to fit the model’s expected dimensions. The
+    input is a pandas DataFrame, which can be of size 1 to *N*. `class_def` is a Python
+    dictionary of the classification options we have for the model. Our model classifies
+    images according to what appears in the image: a teapot, tweezers, spaghetti,
+    or a yo-yo. The `for` loop iterates over all the input, preprocesses the data,
+    and runs the `predict` function itself, which provides a probability for each
+    of the class options.'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们将实现`predict`。 如前所述，每次使用 MLflow 都必须实现此功能。 `predict` 函数负责丰富输入数据并预处理以适应模型期望的格式，如[第4章](ch04.xhtml#data_ingestioncomma_preprocessingcomma)所述。
+    由于在此练习中我们正在对图像进行分类，因此数据预处理涉及调整和重塑图像以适应模型期望的尺寸。 输入为 pandas DataFrame，大小可为 1 到 *N*。
+    `class_def` 是一个 Python 字典，表示模型的分类选项。 我们的模型根据图像中出现的内容对图像进行分类：茶壶、镊子、意大利面或溜溜球。 `for`
+    循环迭代所有输入，预处理数据，并运行 `predict` 函数本身，为每个类选项提供概率。
+- en: 'The function implementation is provided in the following code sample:'
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 函数实现在以下代码示例中提供：
+- en: '[PRE7]'
+  id: totrans-246
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: In the end, the function returns a Python list containing the prediction for
+    each input together with a JSON object representing the probabilities for all
+    of the classes as a dictionary.
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，该函数返回一个包含每个输入预测的 Python 列表，以及表示所有类的概率的 JSON 对象作为字典。
+- en: 'To connect everything together, we have to define the wrapper class and log
+    the model (as shown in the code snippet earlier in this section) before saving
+    it. Here’s how we do this for this model:'
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了将所有内容连接在一起，我们必须定义包装器类并记录模型（如本节前面的代码片段所示），然后保存它。 下面是我们为此模型执行此操作的方式：
+- en: '[PRE8]'
+  id: totrans-249
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Deploying the Model as a Microservice
+  id: totrans-250
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 将模型部署为微服务
+- en: In this section, we’ll explore how to implement the Model-as-a-Service pattern
+    discussed at the beginning of this chapter. MLflow provides a generic class called
+    `mlflow.deployments.BaseDeploymentClient` that exposes APIs that enable deployment
+    to custom serving tools. All you need to do is wrap your function with a microservice
+    that serves the function through an API of your choice. APIs define how computer
+    programs communicate with each other. Here we are entering the world of managing
+    and versioning APIs.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将探讨如何实现本章开头讨论的模型即服务模式。 MLflow 提供了一个名为`mlflow.deployments.BaseDeploymentClient`的通用类，该类提供了API，可用于部署到自定义服务工具。
+    您只需将函数包装为通过您选择的 API 提供服务的微服务。 API 定义了计算机程序之间的通信方式。 在这里，我们进入了管理和版本控制 API 的世界。
+- en: 'To simplify things, as discussed in the previous section, MLflow developed
+    a base class named `PythonModel` that represents a generic Python model that evaluates
+    inputs and produces API-compatible outputs. All you need to do is leverage this
+    class and the model that you’ve already logged using the wrapper class and the
+    artifact path and load it again. You provide the `load_model` function with the
+    `model_path` itself, specifying the correct `experiment_id` and `run_id`:'
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了简化事情，如前一节所述，MLflow 开发了一个名为`PythonModel`的基类，表示评估输入并生成 API 兼容输出的通用 Python 模型。
+    您只需利用此类和已使用包装器类和工件路径记录的模型再次加载它。 您将`load_model`函数提供给`model_path`本身，并指定正确的`experiment_id`和`run_id`：
+- en: '[PRE9]'
+  id: totrans-253
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: There are many ways to run a server; I won’t explore that topic in this book
+    since it depends on your cloud provider, production environment, risk assessment,
+    skill set, and more.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有许多运行服务器的方法； 我不会在本书中探讨这个主题，因为它取决于您的云提供商，生产环境，风险评估，技能集等。
+- en: Loading the Model as a Spark UDF
+  id: totrans-255
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 将模型作为 Spark UDF 加载
+- en: As discussed previously, MLflow enables us to train and load a model and manage
+    the artifacts in production. In the previous section, you learned how to load
+    a model as a standalone service. In this section, you will see how to load a model
+    as a Spark UDF, following the Batch Prediction and Model-in-Service patterns from
+    earlier in this chapter.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，MLflow 使我们能够在生产环境中训练和加载模型并管理工件。 在前一节中，您学习了如何将模型加载为独立服务。 在本节中，您将看到如何将模型加载为
+    Spark UDF，遵循本章早期的批量预测和模型服务模式。
+- en: From a coding perspective, ingesting data into Spark in a stream or in a batch
+    comes down to how we load the DataFrame. For batch data, we use the `read` function,
+    and for streaming data, we use `readStream`. A Spark application that uses `readStream`
+    will potentially never finish. It will listen to a specific channel and will keep
+    pulling new data from it. A batch job, in contrast, has a start and end time;
+    the job finishes at some point and is shut down.
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从编码的角度来看，将数据输入Spark中的流处理或批处理都取决于如何加载DataFrame。对于批处理数据，我们使用`read`函数，对于流处理数据，我们使用`readStream`。使用`readStream`的Spark应用可能永远不会结束。它会监听特定的通道并不断从中拉取新数据。相比之下，批处理作业有一个开始和结束时间；作业在某个时刻完成并关闭。
+- en: 'So how do you turn your model into a UDF with MLflow? This is straightforward,
+    using the `spark_udf` function that MLflow provides out of the box:'
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，如何使用MLflow将您的模型转换为UDF呢？使用MLflow提供的`spark_udf`函数非常简单：
+- en: '[PRE10]'
+  id: totrans-259
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'To combine the UDF with the Spark DataFrame you are working with, all you need
+    to do is call `loaded_model`:'
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将UDF与您正在处理的Spark DataFrame结合起来，您只需调用`loaded_model`即可：
+- en: '[PRE11]'
+  id: totrans-261
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'This creates a new Spark DataFrame called `images_df` with two new columns:
+    the first, `origin`, contains the original content of the images, and the second,
+    `my_predictions`, contains the model’s predictions. We specify `struct("origin")`
+    to ensure the data in this column is of the type that `pyfunc` is looking for
+    in the input. That’s it. Later, `scored_df` can be used downstream to check the
+    predictions themselves or take actions based on them. We drop the `origin` field
+    at the end since there is no need for it in the new `scored_df`; this reduces
+    the memory footprint.'
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建一个名为`images_df`的新Spark DataFrame，其中包含两列：第一列`origin`包含图像的原始内容，第二列`my_predictions`包含模型的预测结果。我们使用`struct("origin")`来确保该列的数据类型符合`pyfunc`在输入中期望的格式。至此，`scored_df`可以用于后续检查预测结果或基于预测结果采取行动。最后我们移除`origin`字段，因为在新的`scored_df`中这个字段是不必要的，这有助于减少内存占用。
+- en: How to Develop Your System Iteratively
+  id: totrans-263
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 如何迭代开发您的系统
+- en: As you most likely understand by now, you’ll want to trigger a new deployment
+    any time a new model is available that is more suitable for your needs or is superior
+    in some way to the current model running in production.
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您很可能已经理解，每当有新的更适合您需求或在某些方面优于当前正在生产中运行的模型时，您都会希望触发新的部署。
+- en: So how do you know when to replace an existing model? There are multiple ways
+    to go about it. The most common one is setting thresholds on test values. Let’s
+    say we aim for 80% accuracy on cost prediction for housing properties. Comparing
+    the actual data to our predictions, we determine that our model is performing
+    at a 75% accuracy rate. Should we take action? Probably, as this is below our
+    target accuracy threshold.
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，如何知道何时替换现有模型？有多种方法可以解决这个问题。最常见的方法是在测试值上设置阈值。假设我们的目标是房地产成本预测的准确率达到80%。将实际数据与我们的预测进行比较，我们确定我们的模型的准确率为75%。我们是否应该采取行动？可能是的，因为这低于我们的目标准确率阈值。
+- en: Can we produce a better model? This is a tricky question to answer. How do we
+    know for sure that a new model is going to perform better than the existing model?
+    We don’t. So we need to be able to track and monitor its performance and revert
+    to the previous version if necessary.
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们能够生产出更好的模型吗？这是一个棘手的问题。我们怎么知道新模型肯定比现有模型表现更好呢？我们不知道。因此，我们需要能够跟踪和监控其性能，并在必要时回退到先前的版本。
+- en: Of course, replacing the model is not the only possible solution. There are
+    multiple actions we can take when we determine that a model is underperforming,
+    including debugging the production system itself. The action you choose to take
+    will depend on your business goals.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，替换模型并不是唯一的可能解决方案。当我们确定模型表现不佳时，我们可以采取多种行动，包括调试生产系统本身。您选择采取的行动将取决于您的业务目标。
+- en: This section presents a strategy that you can apply to get the production system
+    up and running from scratch, and to develop it iteratively (in phases) afterward.
+    This framework, known as the Crawl, Walk, Run, Fly approach, can also enable you
+    to better evaluate your work and the expectations of the team you are working
+    with, as well as the state of your production system.
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节介绍了一种策略，您可以应用该策略从头开始使生产系统上线，并在之后（按阶段）进行迭代开发。这种框架被称为爬行、行走、奔跑、飞翔方法，还可以使您更好地评估您的工作及团队的期望，以及您的生产系统的状态。
+- en: At the beginning, you will *Crawl*—deployment operations will be manual, and
+    you will evaluate and check everything together with your team every time you
+    make a change or an error occurs.
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 起初，您将*爬行*——部署操作将是手动的，每次进行更改或出现错误时，您都会与您的团队一起评估和检查所有内容。
+- en: As you gain more knowledge about the system and its requirements, you will move
+    to the *Walk* stage. At this point, you will add automated testing and other automations
+    to your system. The goal here is to develop more confidence and start progressing
+    toward a potentially fully automated system.
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着你对系统及其需求的了解增加，你将进入*步行*阶段。此时，您将向系统添加自动化测试和其他自动化工具。这里的目标是增强信心，并开始朝着可能实现完全自动化的系统迈进。
+- en: Once you are happy with the manual deployment and automated testing procedures,
+    you will start creating scripts to connect the two. This is when you enter the
+    *Run* stage. You’ll add more testing for your model in production, fine-tune the
+    alerts, capture any changes in the data flowing into your machine learning model,
+    and monitor throughput and results.
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您对手动部署和自动化测试程序感到满意，您将开始编写脚本以连接这两者。这时您进入*运行*阶段。您将在生产中为您的模型添加更多测试，微调警报，捕捉流入您机器学习模型的数据的任何变化，并监视吞吐量和结果。
+- en: 'Finally, you will reach the *Fly* stage, where you will have such high confidence
+    in your system, code, scripts, and testing that you will be able to connect the
+    feedback loop of alerts and capturing data drift and changes in production together
+    with triggering a new training process. The Fly state is the holy grail for many
+    teams building and using machine learning systems. However, it is important to
+    take it one step at a time, making sure to stay agile. You have to Crawl before
+    you can Walk or Run, starting out by putting the model into production and monitoring
+    its behavior manually, but eventually you will Fly: your system will be running
+    comfortably on autopilot, and you will only need to fix bugs and introduce new
+    features. At this point, you will be fully connected to the deployment system
+    in your organization.'
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，你将达到*飞行*阶段，在这个阶段，你对系统、代码、脚本和测试有了极高的信心，能够将警报的反馈循环与生产中数据漂移和变化的捕捉以及触发新的训练流程联系在一起。飞行状态是许多构建和使用机器学习系统的团队梦寐以求的境界。然而，一步一个脚印，保持敏捷至关重要。在你能步行或跑之前，你必须爬行，从手动将模型投入生产并监控其行为开始，但最终你会飞行：你的系统将在自动驾驶模式下稳定运行，你只需修复错误并引入新功能。此时，你将完全接入组织中的部署系统。
+- en: Summary
+  id: totrans-273
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: 'In this final chapter, we’ve looked at the last part of the machine learning
+    lifecycle: deployment, monitoring, and retirement of existing models. Throughout
+    the book, you’ve learned about various strategies involved in the machine learning
+    workflow, from ingesting data into the system, to cleaning and organizing it,
+    to extracting features, to building models and iterating on them by leveraging
+    Spark together with PyTorch and TensorFlow. This book also discussed in depth
+    some of the issues you may encounter while building machine learning systems.
+    While there is still more to cover in the ever-evolving machine learning world,
+    such as securing systems, feature stores, more sophisticated caching techniques,
+    observability, and more, I hope this book has achieved its main goal of helping
+    you to develop a better understanding of the Spark ecosystem, as well as how it
+    can be integrated with other frameworks and leveraged for distributed training
+    purposes.'
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书的最后一章中，我们深入探讨了机器学习生命周期的最后部分：部署、监控和退役现有模型。在整本书中，您已经了解了涉及机器学习工作流程的各种策略，从将数据输入系统，清理和组织数据，提取特征，构建模型，到利用Spark与PyTorch和TensorFlow进行迭代。本书还深入讨论了构建机器学习系统时可能遇到的一些问题。虽然机器学习世界仍在不断发展，仍有许多需要探索的内容，如保障系统、特征存储、更复杂的缓存技术、可观察性等等，但我希望本书达到了其主要目标，帮助您更好地理解Spark生态系统，以及如何与其他框架集成并利用其进行分布式训练。
+- en: ^([1](ch10.xhtml#ch01fn28-marker)) Because the predictions are made ahead of
+    time, a batch processing model can handle a large number of requests quickly by
+    leveraging a caching mechanism and other methods.
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch10.xhtml#ch01fn28-marker)) 因为预测是提前完成的，批处理模型可以通过利用缓存机制和其他方法快速处理大量请求。
+- en: ^([2](ch10.xhtml#ch01fn29-marker)) *Quantization* is the mapping of input values
+    in a large (often continuous) set to output values in a small (often finite) set.
+    It supports producing a compressed model**.**
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch10.xhtml#ch01fn29-marker)) *量化*是将大（通常连续的）输入值映射到小（通常有限的）输出值集合的过程。它支持生成一个压缩模型**。**

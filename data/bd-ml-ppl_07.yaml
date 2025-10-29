@@ -1,0 +1,1860 @@
+- en: Chapter 7\. Model Analysis and Validation
+  id: totrans-0
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第 7 章 模型分析与验证
+- en: 'At this point in our machine learning pipeline, we have checked the statistics
+    of our data, we have transformed our data into the correct features, and we have
+    trained our model. Surely now it’s time to put the model into production? In our
+    opinion, there should be two extra steps before you move on to deploy your model:
+    analyzing your model’s performance in-depth and checking that it will be an improvement
+    on any model that’s already in production. We show where these steps fit into
+    the pipeline in [Figure 7-1](#filepos624974).'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在机器学习流水线的这一点上，我们已经检查了数据的统计信息，将数据转换为正确的特征，并训练了我们的模型。现在肯定是将模型投入生产的时候了吧？在我们看来，在部署模型之前应该有两个额外的步骤：深入分析模型的性能，并检查其是否优于已经投入生产的任何模型。我们展示了这些步骤如何融入流水线中，见[图
+    7-1](#filepos624974)。
+- en: '![](images/00116.jpg)'
+  id: totrans-2
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00116.jpg)'
+- en: Figure 7-1\. Model analysis and validation as part of ML pipelines
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7-1 模型分析与验证作为 ML 流水线的一部分
+- en: While we’re training a model, we’re monitoring its performance on an evaluation
+    set during training, and we’re also trying out a variety of hyperparameters to
+    get peak performance. But it’s common to only use one metric during training,
+    and often this metric is accuracy.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们训练模型时，我们会在训练过程中监控其在评估集上的表现，并尝试各种超参数以达到最佳表现。但通常在训练过程中只使用一个指标，而且这个指标通常是准确率。
+- en: When we’re building a machine learning pipeline, we’re often trying to answer
+    a complex business question or trying to model a complex real-world system. One
+    single metric is often not enough to tell us whether our model will answer that
+    question. This is particularly true if our dataset is imbalanced or if some of
+    our model’s decisions have higher consequences than others.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在构建机器学习流水线时，我们经常试图回答复杂的业务问题或建模复杂的现实系统。通常一个单一的指标不足以告诉我们我们的模型是否能够回答那个问题。特别是如果我们的数据集不平衡或者我们模型的一些决策比其他决策有更高的后果时，情况就更是如此。
+- en: In addition, a single metric that averages performance over an entire evaluation
+    set can hide a lot of important details. If your model is dealing with data that
+    is about people, does everyone who interacts with the model get the same experience?
+    Does your model perform better for female users than male users? Are users from
+    Japan seeing poorer results than users from the US? These differences can be both
+    commercially damaging and cause harm to real people. If your model is doing object
+    detection for an autonomous vehicle, does it work acceptably in all lighting conditions?
+    Using one metric for your whole training set can hide important edge and corner
+    cases. It’s essential to be able to monitor metrics across different slices of
+    your dataset.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，一个单一的指标，用于评估整个评估集的性能平均值，可能隐藏了许多重要的细节。如果您的模型处理的数据涉及到人们，那么与模型交互的每个人都会有相同的体验吗？您的模型对女性用户表现更好还是对男性用户表现更好？来自日本的用户是否比来自美国的用户看到更差的结果？这些差异可能会在商业上造成损害，并对真实的人造成伤害。如果您的模型正在为自动驾驶车辆进行物体检测，它是否在所有光照条件下都能正常工作？使用一个指标来评估整个训练集可能会隐藏重要的边缘和特殊案例。因此，能够跨数据集的不同切片监控指标是至关重要的。
+- en: It’s also extremely important to monitor your metrics through time—before deployment,
+    after deployment, and while in production. Even if your model is static, the data
+    that comes into the pipeline will change through time, often causing a decline
+    in performance.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在部署之前、部署之后以及生产过程中监控您的指标非常重要。即使您的模型是静态的，流水线中输入的数据会随时间变化，这经常会导致性能下降。
+- en: 'In this chapter we’ll introduce the next package from the TensorFlow ecosystem:
+    TensorFlow Model Analysis (TFMA), which has all these capabilities. We’ll show
+    how you can get detailed metrics of your model’s performance, slice your data
+    to get metrics for different groups, and take a deeper dive into model fairness
+    with Fairness Indicators and the What-If Tool. We’ll then explain how you can
+    go beyond analysis and start to explain the predictions your model is making.'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将介绍 TensorFlow 生态系统中的下一个工具包：TensorFlow Model Analysis（TFMA），它具有所有这些功能。我们将展示如何获取模型性能的详细指标，如何对数据进行切片以获取不同群体的指标，并深入探讨使用公平性指标和
+    What-If Tool 进行模型公平性分析。然后我们将解释如何在分析之外，开始解释模型的预测结果。
+- en: 'We’ll also describe the final step before deploying your new model: validating
+    that the model is an improvement on any previous version. It’s important that
+    any new model deployed into production represents a step forward so that any other
+    service depending on this model is improved in turn. If the new model is not an
+    improvement in some way, it is not worth the effort of deploying.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在部署新模型之前的最后一步，我们还将描述验证该模型是否优于任何先前版本。重要的是，部署到生产环境的任何新模型都代表了一步前进，以便依赖该模型的任何其他服务也得到改进。如果新模型在某些方面没有改进，那么部署的努力就不值得。
+- en: How to Analyze Your Model
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何分析您的模型
+- en: Our model analysis process starts with our choice of metrics. As we discussed
+    previously, our choice is extremely important to the success of our machine learning
+    pipeline. It’s good practice to pick multiple metrics that make sense for our
+    business problem because one single metric may hide important details. In this
+    section, we will review some of the most important metrics for both classification
+    and regression problems.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的模型分析过程始于我们对度量标准的选择。正如我们之前讨论的那样，我们的选择对我们的机器学习流水线的成功非常重要。在面对业务问题时，选择多个有意义的度量标准是一个好的实践，因为单一的度量标准可能隐藏重要的细节。在本节中，我们将回顾一些对分类和回归问题都非常重要的度量标准。
+- en: Classification Metrics
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分类度量指标
+- en: 'To calculate many classification metrics, it’s necessary to first count the
+    number of true/false positive examples and true/false negative examples in your
+    evaluation set. Taking any one class in our labels as an example:'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要计算许多分类度量指标，首先需要计算评估集中真假阳性示例和真假阴性示例的数量。以我们标签中的任一类别为例：
+- en: True positives
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 真阳性
+- en: Training examples that belong to this class and are correctly labelled as this
+    class by the classifier. For example, if the true label is `1`, and the predicted
+    label is `1`, the example would be a true positive.
+  id: totrans-15
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 属于该类别并且被分类器正确地标记为该类别的训练示例。例如，如果真实标签是`1`，预测标签也是`1`，则该示例将是真阳性。
+- en: False positives
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假阳性
+- en: Training examples that do not belong to this class and are incorrectly labelled
+    as this class by the classifier. For example, if the true label is `0`, and the
+    predicted label is `1`, the example would be a false positive.
+  id: totrans-17
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 训练示例不属于该类别，并且分类器错误地标记为该类别。例如，如果真实标签是`0`，但预测标签是`1`，则该示例将是假阳性。
+- en: True negatives
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 真阴性
+- en: Training examples that do not belong to this class and are correctly labelled
+    as not in this class by the classifier. For example, if the true label is `0`,
+    and the predicted label is `0`, the example would be a true negative.
+  id: totrans-19
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 训练示例不属于该类别，并且分类器正确地标记为不属于该类别。例如，如果真实标签是`0`，预测标签也是`0`，则该示例将是真阴性。
+- en: False negatives
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假阴性
+- en: Training examples that belong to this class and are incorrectly labelled as
+    not in this class by the classifier. For example, if the true label is `1`, and
+    the predicted label is `0`, the example would be a false negative.
+  id: totrans-21
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 属于该类别且被分类器错误地标记为不属于该类别的训练示例。例如，如果真实标签是`1`，但预测标签是`0`，则该示例将是假阴性。
+- en: These basic metrics are all commonly shown in [Table 7-1](#filepos630778).
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些基本度量通常显示在表格 7-1 中。
+- en: Table 7-1\. Confusion matrix
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 7-1\. 混淆矩阵
+- en: '|    | Predicted `1 ` | Predicted `0 ` |'
+  id: totrans-24
+  prefs: []
+  type: TYPE_TB
+  zh: '|    | 预测 `1 ` | 预测 `0 ` |'
+- en: '|   True value `1` |  True positives  |  False negatives  |'
+  id: totrans-25
+  prefs: []
+  type: TYPE_TB
+  zh: '|   真实值 `1` |  真阳性  |  假阴性  |'
+- en: '|   True value `0` |  False positives  |  True negatives  |'
+  id: totrans-26
+  prefs: []
+  type: TYPE_TB
+  zh: '|   真实值 `0` |  假阳性  |  真阴性  |'
+- en: If we calculate all these metrics for the model from our example project, we
+    get the results shown in [Figure 7-2](#filepos632588).
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们为示例项目中的模型计算所有这些度量指标，我们将得到图表 7-2 中显示的结果。
+- en: '![](images/00009.jpg)'
+  id: totrans-28
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00009.jpg)'
+- en: Figure 7-2\. Confusion matrix for our example project
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7-2\. 我们示例项目的混淆矩阵
+- en: 'We’ll see that these counts are particularly useful when we talk about model
+    fairness later in this chapter. There are several other metrics for comparing
+    models that combine these counts into a single number:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们在本章后面讨论模型公正性时，我们将看到这些计数特别有用。有几个其他度量标准用这些计数合并为一个单一数字比较模型：
+- en: Accuracy
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 准确率
+- en: Accuracy is defined as (true positives + true negatives)/total examples, or
+    the proportion of examples that were classified correctly. This is an appropriate
+    metric to use for a dataset where the positive and negative classes are equally
+    balanced, but it can be misleading if the dataset is imbalanced.
+  id: totrans-32
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 精度被定义为（真正例 + 真负例）/ 总示例数，或者分类正确的示例比例。这是用于数据集的合适度量标准，其中正类和负类平衡，但如果数据集不平衡，则可能会误导。
+- en: Precision
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 精度
+- en: Precision is defined as true positives/(true negatives + false positives), or
+    the proportion of examples predicted to be in the positive class that were classified
+    correctly. So if a classifier has high precision, most of the examples it predicts
+    as belonging to the positive class will indeed belong to the positive class.
+  id: totrans-34
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 精度被定义为真正例 /（真负例 + 假正例），或者被预测为正类的示例中被正确分类的比例。因此，如果分类器具有高精度，则它预测为正类的大多数示例将确实属于正类。
+- en: Recall
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 召回率
+- en: Recall is defined as true positives/(true positives + false negatives), or the
+    proportion of examples where the ground truth is positive that the classifier
+    correctly identified. So if a classifier has high recall, it will correctly identify
+    most of the examples that are truly in the positive class.
+  id: totrans-36
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 召回率被定义为真正例 /（真正例 + 假反例），或分类器正确识别的正类示例比例。因此，如果分类器具有高召回率，则它将正确识别大多数真正属于正类的示例。
+- en: Another way to generate a single number that describes a model’s performance
+    is the AUC (area under the curve). The “curve” here is the receiver operating
+    characteristic (ROC), which plots the true positive rate (TPR) against the false
+    positive rate (FPR).
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 描述模型性能的另一种方法是通过 AUC（曲线下面积）生成单个数字。这里的“曲线”是接收者操作特征（ROC），它绘制了真正例率（TPR）与假正例率（FPR）之间的关系。
+- en: 'The TPR is another name for recall, and it is defined as:'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TPR 是召回率的另一种称呼，定义如下：
+- en: 'The FPR is defined as:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: FPR 的定义如下：
+- en: The ROC is generated by calculating the TPR and FPR at all classification thresholds.
+    The classification threshold is the probability cutoff for assigning examples
+    to the positive or negative class, usually 0.5\. [Figure 7-3](#filepos635716)
+    shows the ROC and the AUC for our example project. For a random predictor, the
+    ROC would be a straight line from the origin to [1,1] that follows the x axis.
+    As the ROC moves further away from the x axis toward the upper left of the plot,
+    the model improves and the AUC increases. AUC is another useful metric that can
+    be plotted in TFMA.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ROC 是通过计算所有分类阈值下的 TPR 和 FPR 来生成的。分类阈值是将示例分配到正类或负类的概率截断值，通常为 0.5\. [图 7-3](#filepos635716)
+    显示了我们示例项目的 ROC 和 AUC。对于随机预测器，ROC 将是从原点到 [1,1] 的直线，沿 x 轴。随着 ROC 从 x 轴向绘图的左上方移动，模型改进并且
+    AUC 增加。AUC 是另一个可以在 TFMA 中绘制的有用指标。
+- en: '![](images/00022.jpg)'
+  id: totrans-41
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00022.jpg)'
+- en: Figure 7-3\. ROC for our example project
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7-3\. 我们示例项目的 ROC 曲线
+- en: Regression Metrics
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回归指标
+- en: 'In a regression problem, the model predicts some numerical value for each training
+    example, and this is compared with the actual value. Common regression metrics
+    we can use in TFMA include:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在回归问题中，模型为每个训练示例预测某个数值，并将其与实际值进行比较。在 TFMA 中可以使用的常见回归指标包括：
+- en: Mean absolute error (MAE)
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 平均绝对误差（MAE）
+- en: 'MAE is defined as:'
+  id: totrans-46
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: MAE 的定义如下：
+- en: where n is the number of training examples, y is the true value, and ŷ is the
+    predicted value. For each training example, the absolute difference is calculated
+    between the predicted value and the true value. In other words, the MAE is the
+    average error produced by the model.
+  id: totrans-47
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 其中 n 是训练示例的数量，y 是真实值，ŷ 是预测值。对于每个训练示例，计算预测值和真实值之间的绝对差。换句话说，MAE 是模型产生的平均误差。
+- en: Mean absolute percentage error (MAPE)
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 平均绝对百分比误差（MAPE）
+- en: 'MAPE is defined as:'
+  id: totrans-49
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: MAPE 的定义如下：
+- en: As the name implies, this metric gives the percentage error for all examples.
+    This is particularly useful for spotting when the model makes systematic errors.
+  id: totrans-50
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 正如其名称所示，该指标给出所有示例的百分比误差。当模型产生系统性错误时，这特别有用。
+- en: Mean squared error (MSE)
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 均方误差（MSE）
+- en: 'MSE is defined as:'
+  id: totrans-52
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: MSE 的定义如下：
+- en: This is similar to the MAE, except the y – ŷ term is squared. This makes the
+    effect of outliers on the overall error much greater.
+  id: totrans-53
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 这与 MAE 类似，只是 y – ŷ 项被平方。这使得异常值对整体误差的影响更大。
+- en: Once you have chosen the metrics that are appropriate for your business problem,
+    the next step is to include them in your machine learning pipeline. You can do
+    this using TFMA, which we will describe in the next section.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您选择了适合业务问题的指标，下一步就是将它们包含在您的机器学习流水线中。您可以使用TFMA来完成这一步骤，我们将在下一节中描述它。
+- en: TensorFlow Model Analysis
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow模型分析
+- en: TFMA gives us an easy way to get more detailed metrics than just those used
+    during model training. It lets us visualize metrics as time series across model
+    versions, and it gives us the ability to view metrics on slices of a dataset.
+    It also scales easily to large evaluation sets thanks to Apache Beam.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFMA提供了比模型训练期间仅使用的更详细的指标的简便方法。它允许我们将指标可视化为模型版本间的时间序列，并且可以查看数据集切片上的指标。由于使用了Apache
+    Beam，它还可以轻松扩展到大型评估集。
+- en: In a TFX pipeline, TFMA calculates metrics based on the saved model that is
+    exported by the `Trainer` component, which is exactly the one that will be deployed.
+    Thus, it avoids any confusion between different model versions. During model training,
+    if you are using TensorBoard you will only get approximate metrics extrapolated
+    from measurements on minibatches, but TFMA calculates metrics over the whole evaluation
+    set. This is particularly relevant for large evaluation sets.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TFX流水线中，TFMA基于由`Trainer`组件导出的保存模型计算指标，这正是将要部署的模型。因此，它避免了不同模型版本之间的混淆。在模型训练期间，如果使用TensorBoard，您将仅获得对小批量测量的近似指标，但TFMA会计算整个评估集上的指标。这对于大型评估集尤为重要。
+- en: Analyzing a Single Model in TFMA
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分析单个TFMA模型
+- en: 'In this section, we’ll look at how to use TFMA as a standalone package. TFMA
+    is installed as follows:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将介绍如何将TFMA作为一个独立的包使用。TFMA的安装方法如下：
+- en: '`$` `pip install tensorflow-model-analysis`'
+  id: totrans-60
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `pip install tensorflow-model-analysis`'
+- en: It takes a saved model and an evaluation dataset as input. In this example,
+    we’ll assume a Keras model is saved in `SavedModel` format and an evaluation dataset
+    is available in the TFRecord file format.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它接受一个保存的模型和一个评估数据集作为输入。在本例中，我们假设一个Keras模型以`SavedModel`格式保存，评估数据集以TFRecord文件格式可用。
+- en: 'First, the `SavedModel` must be converted to an `EvalSharedModel`:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，`SavedModel`必须转换为`EvalSharedModel`：
+- en: '`import``tensorflow_model_analysis``as``tfma``eval_shared_model``=``tfma``.``default_eval_shared_model``(``eval_saved_model_path``=``_MODEL_DIR``,``tags``=``[``tf``.``saved_model``.``SERVING``])`'
+  id: totrans-63
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`import``tensorflow_model_analysis``as``tfma``eval_shared_model``=``tfma``.``default_eval_shared_model``(``eval_saved_model_path``=``_MODEL_DIR``,``tags``=``[``tf``.``saved_model``.``SERVING``])`'
+- en: 'Next, we provide an `EvalConfig`. In this step, we tell TFMA what our label
+    is, provide any specifications for slicing the model by one of the features, and
+    stipulate all the metrics we want TFMA to calculate and display:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们提供了一个`EvalConfig`。在这一步中，我们告诉TFMA我们的标签是什么，提供了任何按特征之一对模型进行切片的规范，并规定了我们希望TFMA计算和显示的所有指标：
+- en: '`eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''consumer_disputed''``)],``slicing_specs``=``[``tfma``.``SlicingSpec``()],``metrics_specs``=``[``tfma``.``MetricsSpec``(``metrics``=``[``tfma``.``MetricConfig``(``class_name``=``''BinaryAccuracy''``),``tfma``.``MetricConfig``(``class_name``=``''ExampleCount''``),``tfma``.``MetricConfig``(``class_name``=``''FalsePositives''``),``tfma``.``MetricConfig``(``class_name``=``''TruePositives''``),``tfma``.``MetricConfig``(``class_name``=``''FalseNegatives''``),``tfma``.``MetricConfig``(``class_name``=``''TrueNegatives''``)``])``]``)`'
+  id: totrans-65
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''consumer_disputed''``)],``slicing_specs``=``[``tfma``.``SlicingSpec``()],``metrics_specs``=``[``tfma``.``MetricsSpec``(``metrics``=``[``tfma``.``MetricConfig``(``class_name``=``''BinaryAccuracy''``),``tfma``.``MetricConfig``(``class_name``=``''ExampleCount''``),``tfma``.``MetricConfig``(``class_name``=``''FalsePositives''``),``tfma``.``MetricConfig``(``class_name``=``''TruePositives''``),``tfma``.``MetricConfig``(``class_name``=``''FalseNegatives''``),``tfma``.``MetricConfig``(``class_name``=``''TrueNegatives''``)``])``]``)`'
+- en: ANALYZING TFLITE MODELS
+  id: totrans-66
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 分析TFLite模型
+- en: 'We can also analyze TFLite models in TFMA. In this case, the model type must
+    be passed to the `ModelSpec`:'
+  id: totrans-67
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们还可以在TFMA中分析TFLite模型。在这种情况下，必须将模型类型传递给`ModelSpec`：
+- en: '`eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''my_label''``,``model_type``=``tfma``.``TF_LITE``)],``...``)`'
+  id: totrans-68
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''my_label''``,``model_type``=``tfma``.``TF_LITE``)],``...``)`'
+- en: We discuss TFLite in more detail in [“TFLite”](index_split_016.html#filepos1025140).
+  id: totrans-69
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们将在[“TFLite”](index_split_016.html#filepos1025140)中更详细地讨论TFLite。
+- en: 'Then, run the model analysis step:'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，运行模型分析步骤：
+- en: '`eval_result``=``tfma``.``run_model_analysis``(``eval_shared_model``=``eval_shared_model``,``eval_config``=``eval_config``,``data_location``=``_EVAL_DATA_FILE``,``output_path``=``_EVAL_RESULT_LOCATION``,``file_format``=``''tfrecords''``)`'
+  id: totrans-71
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_result``=``tfma``.``run_model_analysis``(``eval_shared_model``=``eval_shared_model``,``eval_config``=``eval_config``,``data_location``=``_EVAL_DATA_FILE``,``output_path``=``_EVAL_RESULT_LOCATION``,``file_format``=``''tfrecords''``)`'
+- en: 'And view the results in a Jupyter Notebook:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并在Jupyter Notebook中查看结果：
+- en: '`tfma``.``view``.``render_slicing_metrics``(``eval_result``)`'
+  id: totrans-73
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`tfma``.``view``.``render_slicing_metrics``(``eval_result``)`'
+- en: Even though we want to view the overall metrics, we still call `render_slicing_metrics`.
+    The slice in this context is the overall slice, which is the entire dataset. The
+    result is shown in [Figure 7-4](#filepos654236).
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使我们希望查看总体指标，我们仍然调用`render_slicing_metrics`。在这种情况下，切片是整体切片，即整个数据集。结果显示在[图 7-4](#filepos654236)中。
+- en: '![](images/00034.jpg)'
+  id: totrans-75
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00034.jpg)'
+- en: Figure 7-4\. TFMA notebook visualization for overall metrics
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7-4\. TFMA笔记本中总体指标的可视化
+- en: USING TFMA IN A JUPYTER NOTEBOOK
+  id: totrans-77
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在Jupyter Notebook中使用TFMA
+- en: 'TFMA works as previously described in a Google Colab notebook. But a few extra
+    steps are required to view the visualizations in a standalone Jupyter Notebook.
+    Install and enable the TFMA notebook extension with:'
+  id: totrans-78
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: TFMA的工作方式如Google Colab笔记本中所述。但是在独立的Jupyter Notebook中查看可视化需要一些额外的步骤。使用以下命令安装并启用TFMA笔记本扩展：
+- en: '`$` `jupyter nbextension` `enable` `--py widgetsnbextension` `$` `jupyter nbextension
+    install --py` `\` `--symlink tensorflow_model_analysis` `$` `jupyter nbextension`
+    `enable` `--py tensorflow_model_analysis`'
+  id: totrans-79
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `jupyter nbextension` `enable` `--py widgetsnbextension` `$` `jupyter nbextension
+    install --py` `\` `--symlink tensorflow_model_analysis` `$` `jupyter nbextension`
+    `enable` `--py tensorflow_model_analysis`'
+- en: Append the flag `--sys_prefix` to each of these commands if you are running
+    them in a Python virtual environment. The `widgetsnbextension`, `ipywidgets`,
+    and `jupyter_nbextensions_configurator` packages may also require installation
+    or upgrading.
+  id: totrans-80
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果您在Python虚拟环境中运行这些命令，请为每个命令附加`--sys_prefix`标志。`widgetsnbextension`、`ipywidgets`和`jupyter_nbextensions_configurator`包可能需要安装或升级。
+- en: At the time of writing, TFMA visualizations are not available in Jupyter Lab,
+    only in Jupyter Notebook.
+  id: totrans-81
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们编写时，TFMA可视化仅在Jupyter Notebook中可用，而不在Jupyter Lab中。
+- en: 'All the metrics we described in [“How to Analyze Your Model”](#filepos628048)
+    can be displayed in TFMA by providing them in the `metrics_specs` argument to
+    the `EvalConfig`:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在TFMA中描述的所有指标都可以通过在`metrics_specs`参数中提供它们来显示。到`EvalConfig`：
+- en: '`metrics_specs``=``[``tfma``.``MetricsSpec``(``metrics``=``[``tfma``.``MetricConfig``(``class_name``=``''BinaryAccuracy''``),``tfma``.``MetricConfig``(``class_name``=``''AUC''``),``tfma``.``MetricConfig``(``class_name``=``''ExampleCount''``),``tfma``.``MetricConfig``(``class_name``=``''Precision''``),``tfma``.``MetricConfig``(``class_name``=``''Recall''``)``])``]`'
+  id: totrans-83
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`metrics_specs``=``[``tfma``.``MetricsSpec``(``metrics``=``[``tfma``.``MetricConfig``(``class_name``=``''BinaryAccuracy''``),``tfma``.``MetricConfig``(``class_name``=``''AUC''``),``tfma``.``MetricConfig``(``class_name``=``''ExampleCount''``),``tfma``.``MetricConfig``(``class_name``=``''Precision''``),``tfma``.``MetricConfig``(``class_name``=``''Recall''``)``])``]`'
+- en: The results are shown in [Figure 7-5](#filepos660801).
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果显示在[图 7-5](#filepos660801)中。
+- en: '![](images/00045.jpg)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00045.jpg)'
+- en: Figure 7-5\. TFMA notebook visualization for other metrics
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7-5\. TFMA笔记本中其他指标的可视化
+- en: Analyzing Multiple Models in TFMA
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TFMA中分析多个模型
+- en: We can also use TFMA to compare our metrics across multiple models. For example,
+    these may be the same model trained on different datasets, or two models with
+    different hyperparameters trained on the same dataset.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以使用TFMA比较多个模型的指标。例如，这些可能是在不同数据集上训练的同一模型，或者在相同数据集上训练的具有不同超参数的两个模型。
+- en: 'For the models we compare, we first need to generate an `eval_result` similar
+    to the preceding code examples. We need to ensure we specify an `output_path`
+    location to save the models. We use the same `EvalConfig` for both models so that
+    we can calculate the same metrics:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们比较的模型，我们首先需要生成类似于前面代码示例的`eval_result`。我们需要确保指定一个`output_path`位置来保存模型。我们为两个模型使用相同的`EvalConfig`以便能够计算相同的指标：
+- en: '`eval_shared_model_2``=``tfma``.``default_eval_shared_model``(``eval_saved_model_path``=``_EVAL_MODEL_DIR``,``tags``=``[``tf``.``saved_model``.``SERVING``])``eval_result_2``=``tfma``.``run_model_analysis``(``eval_shared_model``=``eval_shared_model_2``,``eval_config``=``eval_config``,``data_location``=``_EVAL_DATA_FILE``,``output_path``=``_EVAL_RESULT_LOCATION_2``,``file_format``=``''tfrecords''``)`'
+  id: totrans-90
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_shared_model_2``=``tfma``.``default_eval_shared_model``(``eval_saved_model_path``=``_EVAL_MODEL_DIR``,``tags``=``[``tf``.``saved_model``.``SERVING``])``eval_result_2``=``tfma``.``run_model_analysis``(``eval_shared_model``=``eval_shared_model_2``,``eval_config``=``eval_config``,``data_location``=``_EVAL_DATA_FILE``,``output_path``=``_EVAL_RESULT_LOCATION_2``,``file_format``=``''tfrecords''``)`'
+- en: 'Then, we load them using the following code:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们使用以下代码将它们加载：
+- en: '`eval_results_from_disk``=``tfma``.``load_eval_results``(``[``_EVAL_RESULT_LOCATION``,``_EVAL_RESULT_LOCATION_2``],``tfma``.``constants``.``MODEL_CENTRIC_MODE``)`'
+  id: totrans-92
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_results_from_disk``=``tfma``.``load_eval_results``(``[``_EVAL_RESULT_LOCATION``,``_EVAL_RESULT_LOCATION_2``],``tfma``.``constants``.``MODEL_CENTRIC_MODE``)`'
+- en: 'And we can visualize them using:'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并且我们可以使用以下方式进行可视化：
+- en: '`tfma``.``view``.``render_time_series``(``eval_results_from_disk``,``slices``[``0``])`'
+  id: totrans-94
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`tfma``.``view``.``render_time_series``(``eval_results_from_disk``,``slices``[``0``])`'
+- en: The result is shown in [Figure 7-6](#filepos667948).
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果显示在[图7-6](#filepos667948)中。
+- en: '![](images/00056.jpg)'
+  id: totrans-96
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00056.jpg)'
+- en: Figure 7-6\. TFMA visualization comparing two models
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7-6\. TFMA可视化比较两个模型
+- en: The key thing to note here is that for both classification and regression models
+    in TFMA it is possible to view many metrics at once, rather than being restricted
+    to one or two during training. This helps to prevent surprising behavior once
+    the model is deployed.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里需要注意的关键是，在TFMA中，无论是分类模型还是回归模型，都可以同时查看许多指标，而不是在训练过程中仅限于一两个。这有助于在模型部署后避免出现意外行为。
+- en: We can also slice the evaluation data based on features of the dataset, for
+    example, to get the accuracy by product in our demo project. We’ll describe how
+    to do this in the following section.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以根据数据集的特征对评估数据进行切片，例如，在我们的演示项目中，通过产品获取准确性。我们将在下一节中描述如何做到这一点。
+- en: Model Analysis for Fairness
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 公平性的模型分析
+- en: 'All the data that we use to train a model is biased in some way: the real world
+    is an incredibly complex place, and it’s impossible to take a sample of data that
+    adequately captures all this complexity. In [Chapter 4](index_split_009.html#filepos295199),
+    we looked at bias in data on the way into our pipeline, and in this chapter we’ll
+    look at whether the model’s predictions are fair.'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们用来训练模型的所有数据在某种程度上都存在偏见：现实世界非常复杂，无法从数据样本中充分捕捉到所有这些复杂性。在[第4章](index_split_009.html#filepos295199)中，我们探讨了数据偏见问题，本章我们将研究模型预测的公平性。
+- en: FAIRNESS AND BIAS
+  id: totrans-102
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 公平性和偏见
+- en: The terms “fairness” and “bias” are often used interchangeably to refer to whether
+    different groups of people experience different performance from a machine learning
+    model. Here, we’ll use the term “fairness” to avoid confusion with data bias,
+    which we discussed in [Chapter 4](index_split_009.html#filepos295199).
+  id: totrans-103
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: “公平性”和“偏见”这两个术语通常可以互换使用，用来指代不同群体是否从机器学习模型中获得不同的表现。在这里，我们将使用“公平性”一词来避免与数据偏见混淆，我们在[第4章](index_split_009.html#filepos295199)中讨论过这个问题。
+- en: To analyze whether our model is fair, we need to identify when some groups of
+    people get a different experience than others in a problematic way. For example,
+    a group of people could be people who don’t pay back loans. If our model is trying
+    to predict who should be extended credit, this group of people should have a different
+    experience than others. An example of the type of problem we want to avoid is
+    when the only people who are incorrectly turned down for loans are of a certain
+    race.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要分析我们的模型是否公平，我们需要确定某些群体的体验是否以一种问题方式不同于其他群体。例如，一个群体可能是不偿还贷款的人。如果我们的模型试图预测谁应该获得信贷，这个群体的体验应该与其他人不同。我们要避免的问题类型的例子是，仅有某一种族的人因某些原因被错误地拒绝贷款。
+- en: A high-profile example of groups getting different experiences from a model
+    is the COMPAS algorithm that predicts recidivism risk. As reported by [Propublica](https://oreil.ly/mIw7t),
+    the algorithm’s error rate was roughly the same for black and white defendants.
+    However, it was especially likely to incorrectly predict that black defendants
+    would be future criminals, at roughly twice the rate of the same incorrect prediction
+    for white defendants.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个群体从模型中获得不同经历的知名例子是预测累犯风险的COMPAS算法。根据[Propublica](https://oreil.ly/mIw7t)报道，该算法对黑人和白人被告的错误率大致相同。然而，它特别容易错误预测黑人被告将来会成为罪犯的概率，大致是错误预测白人被告的两倍。
+- en: 'We should try to recognize such problems before our models are deployed to
+    production. To start with, it’s useful to define numerically what we mean by fairness.
+    Here are several example methods for classification problems:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应该在将模型部署到生产环境之前尝试识别这类问题。首先，定义公平性的数值化含义是很有用的。以下是几种分类问题的示例方法：
+- en: Demographic parity
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 人口统计学平衡
+- en: Decisions are made by the model at the same rate for all groups. For example,
+    men and women would be approved for a loan at the same rate.
+  id: totrans-108
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 决策在模型中对所有群体的速率相同。例如，男性和女性的贷款批准率相同。
+- en: Equal opportunity
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 平等机会
+- en: The error rate in the opportunity-giving class is the same for all groups. Depending
+    on how the problem is set up, this can be the positive class or the negative class.
+    For example, of the people who can pay back a loan, men and women would be approved
+    for a loan at the same rate.
+  id: totrans-110
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在提供机会的班级中，所有群体的错误率都相同。根据问题设置的方式不同，这可以是正类或负类。例如，能够偿还贷款的人中，男性和女性的贷款批准率相同。
+- en: Equal accuracy
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相等的准确率
+- en: Some metrics such as accuracy, precision, or AUC are equal for all groups. For
+    example, a facial recognition system should be as accurate for dark-skinned women
+    as it is for light-skinned men.
+  id: totrans-112
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 某些度量指标如准确率、精确度或AUC在所有群体中都相等。例如，面部识别系统对深肤色女性和浅肤色男性的准确性应该一样。
+- en: Equal accuracy can sometimes be misleading, as in the preceding COMPAS example.
+    In that example, the accuracy was equal for both groups, but the consequences
+    were much higher for one group. It’s important to consider the directions of errors
+    that have the highest consequences for your model.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相等的准确率有时可能会产生误导，就像前面的COMPAS例子一样。在那个例子中，两组的准确率是相等的，但对一个组的后果却要严重得多。重要的是考虑错误的方向，这些错误对你的模型造成最严重的后果。
+- en: DEFINITIONS OF FAIRNESS
+  id: totrans-114
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 公平性的定义
+- en: There is no one definition of fairness that is appropriate for all machine learning
+    projects. You will need to explore what is best for your specific business problem,
+    taking into account potential harms and benefits to the users of your model. More
+    guidance is provided in the book [Fairness in Machine Learning](https://fairmlbook.org)
+    by Solon Barocas et al., [this article](https://oreil.ly/GlgnV) by Martin Wattenberg
+    et al. from Google, and [the Fairness Indicators documentation](https://oreil.ly/O237L)
+    by Ben Hutchinson et al.
+  id: totrans-115
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 没有一个适用于所有机器学习项目的公平定义。你需要探索对你具体业务问题最佳的解决方案，考虑到模型对用户可能造成的潜在危害和好处。更多指导请参阅Solon
+    Barocas等人的书籍[《机器学习中的公平性》](https://fairmlbook.org)，Google的Martin Wattenberg等人的[这篇文章](https://oreil.ly/GlgnV)，以及Ben
+    Hutchinson等人的[公平性指标文档](https://oreil.ly/O237L)。
+- en: 'The groups we’re referring to can be different types of customers, product
+    users from different countries, or people of different gender and ethnicity. In
+    US law, there is the concept of protected groups, where individuals are protected
+    from discrimination based on the groups of gender, race, age, disability, color,
+    creed, national origin, religion, and genetic information. And these groups intersect:
+    you may need to check that your model does not discriminate against multiple combinations
+    of groups.'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们所指的群体可以是不同类型的客户、来自不同国家的产品使用者，或者不同性别和种族的人。在美国法律中，有受保护群体的概念，这些群体的个体受到基于性别、种族、年龄、残疾、肤色、信仰、国籍、宗教和基因信息的歧视保护。这些群体是交叉的：你可能需要检查你的模型是否不歧视多种组合的群体。
+- en: GROUPS ARE A SIMPLIFICATION
+  id: totrans-117
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 群体是一种简化
+- en: 'Groups of people are never clean-cut in the real world. Everyone has their
+    own complex story: someone may have changed their religion or their gender during
+    their lifetime. Someone may belong to multiple races or multiple nationalities.
+    Look for these edge cases and give people ways to tell you if they have a poor
+    experience with your model.'
+  id: totrans-118
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在现实世界中，人群从未是清晰的。每个人都有自己复杂的故事：有些人可能在一生中改变了宗教或性别。有些人可能属于多个种族或多个国籍。寻找这些边缘案例，并为人们提供告诉您如果他们对您的模型有不良体验的方法。
+- en: Even if you are not using these groups as features in your model, this does
+    not mean that your model is fair. Many other features, such as location, might
+    be strongly correlated with one of these protected groups. For example, if you
+    use a US zip code as a feature, this is highly correlated with race. You can check
+    for these problems by slicing your data for one of the protected groups, as we
+    describe in the following section, even if it is not a feature that you have used
+    to train your model.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使您在模型中未使用这些组作为特征，这并不意味着您的模型是公平的。许多其他特征，例如地点，可能与这些受保护的群体之一强相关。例如，如果您使用美国邮政编码作为特征，这与种族高度相关。您可以通过为其中一个受保护群体切片数据来检查这些问题，就像我们在接下来的章节中描述的那样，即使这不是您用来训练模型的特征。
+- en: Fairness is not an easy topic to deal with, and it leads us into many ethical
+    questions that may be complex or controversial. However, there are several projects
+    that can help us analyze our models from a fairness perspective, and we’ll describe
+    how you can use them in the next few sections. This kind of analysis can give
+    you an ethical and a commercial advantage by giving everyone a consistent experience.
+    It may even be a chance to correct underlying unfairness in the system that you
+    are modeling—for example, [analyzing a recruiting tool](https://oreil.ly/0ihec)
+    at Amazon revealed an underlying disadvantage experienced by female candidates.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 公平性并非易于处理的话题，会引发许多可能复杂或有争议的伦理问题。然而，有几个项目可以帮助我们从公平的角度分析我们的模型，接下来的几节我们将描述如何使用它们。这种分析可以通过为每个人提供一致的体验，为您带来伦理和商业优势。它甚至可能是纠正您正在建模的系统中潜在不公平的机会，例如在亚马逊的[招聘工具分析](https://oreil.ly/0ihec)中发现了女性候选人面临的潜在劣势。
+- en: 'In the next sections, we will describe how to use three projects for evaluating
+    fairness in TensorFlow: TFMA, Fairness Indicators, and the What-If Tool.'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的几节中，我们将描述如何使用三个项目来评估TensorFlow中的公平性：TFMA、Fairness Indicators和What-If Tool。
+- en: Slicing Model Predictions in TFMA
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TFMA中切片模型预测
+- en: The first step in evaluating your machine learning model for fairness is slicing
+    your model’s predictions by the groups you are interested in—for example, gender,
+    race, or country. These slices can be generated by TFMA or the Fairness Indicators
+    tools.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 评估机器学习模型公平性的第一步是按照您感兴趣的组切片您的模型预测，例如性别、种族或国家。这些切片可以由TFMA或Fairness Indicators工具生成。
+- en: 'To slice data in TFMA, a slicing column must be provided as a `SliceSpec`.
+    In this example, we’ll slice on the Product feature:'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TFMA中切片数据，必须提供一个`slicing column`作为`SliceSpec`。在这个例子中，我们将根据产品特征进行切片：
+- en: '`slices``=``[``tfma``.``slicer``.``SingleSliceSpec``(),``tfma``.``slicer``.``SingleSliceSpec``(``columns``=``[``''Product''``])]`'
+  id: totrans-125
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`slices`=`[``tfma``.``slicer``.``SingleSliceSpec``(),``tfma``.``slicer``.``SingleSliceSpec``(``columns``=`[`''Product''`])]`'
+- en: '`SingleSliceSpec` with no specified arguments returns the entire dataset.'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有指定参数的`SingleSliceSpec`返回整个数据集。
+- en: 'Next, run the model analysis step with the slices specified:'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，运行指定了切片的模型分析步骤：
+- en: '`eval_result``=``tfma``.``run_model_analysis``(``eval_shared_model``=``eval_shared_model``,``eval_config``=``eval_config_viz``,``data_location``=``_EVAL_DATA_FILE``,``output_path``=``_EVAL_RESULT_LOCATION``,``file_format``=``''tfrecords''``,``slice_spec``=``slices``)`'
+  id: totrans-128
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_result`=`tfma``.``run_model_analysis``(``eval_shared_model``=`eval_shared_model``,``eval_config``=`eval_config_viz``,``data_location``=`_EVAL_DATA_FILE``,``output_path``=`_EVAL_RESULT_LOCATION``,``file_format``=`''tfrecords''``,``slice_spec``=`slices``)`'
+- en: 'And view the results, as shown in [Figure 7-7](#filepos682606):'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并查看结果，如[图7-7](#filepos682606)所示：
+- en: '`tfma``.``view``.``render_slicing_metrics``(``eval_result``,``slicing_spec``=``slices``[``1``])`'
+  id: totrans-130
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`tfma``.``view``.``render_slicing_metrics``(``eval_result``,``slicing_spec``=`slices``[``1``])`'
+- en: If we want to consider Demographic parity, as defined previously, then we need
+    to check whether the same proportion of people in each group are in the positive
+    class. We can check this by looking at the TPR and the TNR for each group.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们要考虑人口统计学平等，如前所定义，那么我们需要检查每个组中正类的比例是否相同。我们可以通过查看每个组的TPR和TNR来进行检查。
+- en: '![](images/00065.jpg)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00065.jpg)'
+- en: Figure 7-7\. TFMA slicing visualization
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7-7\. TFMA分片可视化
+- en: CONSIDER WHICH CLASS IS BENEFICIAL
+  id: totrans-134
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 考虑哪一类是有益的
+- en: We’re assuming that there is some choice made by the model that is beneficial
+    to a person, and we’re assuming that this is the positive class. If the positive
+    class is not beneficial and the negative class is harmful to a person, we should
+    consider the true negative rate and the false positive rate instead.
+  id: totrans-135
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们假设模型做了对个人有益的某种选择，并假设这是正类。如果正类对个人无益，负类对个人有害，那么我们应该考虑真阴性率和假阳性率。
+- en: For equal opportunity, we can check the FPR for each group. For more details
+    on this, the Fairness Indicators project has [useful advice](https://oreil.ly/s8Do7).
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于平等机会，我们可以检查每个群体的FPR。关于此更多细节，请参考[有用建议](https://oreil.ly/s8Do7)中的公平性指标项目。
+- en: Checking Decision Thresholds with Fairness Indicators
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用公平性指标检查决策阈值
+- en: Fairness Indicators is another extremely useful tool for model analysis. It
+    has some overlapping capabilities with TFMA, but one particularly useful feature
+    of it is the ability to view metrics sliced on features at a variety of decision
+    thresholds. As we discussed previously, the decision threshold is the probability
+    score at which we draw the boundary between classes for a classification model.
+    This lets us check if our model is fair to groups at different decision thresholds.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 公平性指标是模型分析的另一个极其有用的工具。它与TFMA有一些重叠的功能，但其特别有用的功能之一是能够在各种决策阈值上查看分特征的度量指标。正如我们之前讨论的，决策阈值是分类模型中确定类别边界的概率分数。这让我们可以检查我们的模型在不同决策阈值下是否对各个群体公平。
+- en: 'There are several ways to access the Fairness Indicators tool, but the simplest
+    way to use it as a standalone library is via TensorBoard. We also mention how
+    to load it as part of a TFX pipeline in [“Evaluator Component”](#filepos732699).
+    We install the TensorBoard Fairness Indicators plug-in via:'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几种访问公平性指标工具的方法，但将其作为独立库使用的最简单方法是通过TensorBoard。我们还提到如何在TFX管道的一部分加载它，详见[“评估组件”](#filepos732699)。我们通过以下方式安装TensorBoard公平性指标插件：
+- en: '`$` `pip install tensorboard_plugin_fairness_indicators`'
+  id: totrans-140
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `pip install tensorboard_plugin_fairness_indicators`'
+- en: 'Next, we use TFMA to evaluate the model and ask it to calculate metrics for
+    a set of decision thresholds we supply. This is supplied to TFMA in the `metrics_spec`
+    argument for the `EvalConfig`, along with any other metrics we wish to calculate:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们使用TFMA评估模型，并要求它计算我们提供的一组决策阈值的度量指标。这在`metrics_spec`参数中提供给TFMA，同时还包括我们希望计算的任何其他度量：
+- en: '`eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''consumer_disputed''``)],``slicing_specs``=``[``tfma``.``SlicingSpec``(),``tfma``.``SlicingSpec``(``feature_keys``=``[``''product''``])],``metrics_specs``=``[``tfma``.``MetricsSpec``(``metrics``=``[``tfma``.``MetricConfig``(``class_name``=``''FairnessIndicators''``,``config``=``''{"thresholds":[0.25,
+    0.5, 0.75]}''``)``])``]``)`'
+  id: totrans-142
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''consumer_disputed''``)],``slicing_specs``=``[``tfma``.``SlicingSpec``(),``tfma``.``SlicingSpec``(``feature_keys``=``[``''product''``])],``metrics_specs``=``[``tfma``.``MetricsSpec``(``metrics``=``[``tfma``.``MetricConfig``(``class_name``=``''FairnessIndicators''``,``config``=``''{"thresholds":[0.25,
+    0.5, 0.75]}''``)``])``]``)`'
+- en: Then run the model analysis step as before via `tfma.run_model_analysis`.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后通过`tfma.run_model_analysis`运行模型分析步骤。
+- en: 'Next, write the TFMA evaluation result to a log directory so that it can be
+    picked up by TensorBoard:'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，将TFMA评估结果写入日志目录，以便TensorBoard可以读取：
+- en: '`from``tensorboard_plugin_fairness_indicators``import``summary_v2``writer``=``tf``.``summary``.``create_file_writer``(``''./fairness_indicator_logs''``)``with``writer``.``as_default``():``summary_v2``.``FairnessIndicators``(``''./eval_result_fairness''``,``step``=``1``)``writer``.``close``()`'
+  id: totrans-145
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tensorboard_plugin_fairness_indicators``import``summary_v2``writer``=``tf``.``summary``.``create_file_writer``(``''./fairness_indicator_logs''``)``with``writer``.``as_default``():``summary_v2``.``FairnessIndicators``(``''./eval_result_fairness''``,``step``=``1``)``writer``.``close``()`'
+- en: 'And load the result in TensorBoard to a Jupyter Notebook:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并将结果加载到Jupyter笔记本的TensorBoard中：
+- en: '`%``load_ext``tensorboard``%``tensorboard``--``logdir``=./``fairness_indicator_logs`'
+  id: totrans-147
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`%``load_ext``tensorboard``%``tensorboard``--``logdir``=./``fairness_indicator_logs`'
+- en: The Fairness Indicators tool highlights variations from the overall metric value,
+    as shown in [Figure 7-8](#filepos693700).
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 公平性指标工具突出显示与整体度量值的差异，如图7-8所示（详见[filepos693700](#filepos693700)）。
+- en: '![](images/00077.jpg)'
+  id: totrans-149
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00077.jpg)'
+- en: Figure 7-8\. Fairness Indicators slicing visualization
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7-8\. 公平性指标分片可视化
+- en: And for our example project, [Figure 7-9](#filepos694219) shows more extreme
+    differences between groups when the decision threshold is reduced to 0.25.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的示例项目，[图 7-9](#filepos694219) 显示在将决策阈值降低到 0.25 时，各组之间的差异更加明显。
+- en: '![](images/00087.jpg)'
+  id: totrans-152
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00087.jpg)'
+- en: Figure 7-9\. Fairness Indicators threshold visualization
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7-9\. 公平性指标阈值可视化
+- en: 'In addition to exploring fairness considerations in the overall model, we might
+    want to look at individual data points to see how individual users are affected
+    by our model. Fortunately, there is another tool in the TensorFlow ecosystem to
+    help us with this: the What-If Tool.'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了探索整体模型中的公平性考虑外，我们可能还想查看个别数据点，了解个别用户受我们模型影响的情况。幸运的是，在 TensorFlow 生态系统中还有另一个工具可帮助我们做到这一点：What-If
+    Tool。
+- en: Going Deeper with the What-If Tool
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 深入了解 What-If Tool
+- en: 'After looking at slices of our dataset with TFMA and Fairness Indicators, we
+    can go into greater detail using another project from Google: the [What-If Tool](https://oreil.ly/NJThO)
+    (WIT). This lets us generate some very useful visualizations and also investigate
+    individual data points.'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用 TFMA 和公平性指标查看数据集切片之后，我们可以通过 Google 的另一个项目深入研究：[What-If Tool](https://oreil.ly/NJThO)
+    (WIT)。这使我们能够生成一些非常有用的可视化，并调查个别数据点。
+- en: There are a number of ways to use the WIT with your model and data. It can be
+    used to analyze a model that has already been deployed with TensorFlow Serving
+    [via TensorBoard](https://oreil.ly/sZP5l), or a model that is running on GCP.
+    It can also be used directly with an Estimator model. But for our example project,
+    the most straightforward way to use it is to write a custom prediction function
+    that takes in a list of training examples and returns the model’s predictions
+    for these examples. This way, we can load the visualizations in a standalone Jupyter
+    Notebook.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有多种方法可以使用 WIT 分析已部署的 TensorFlow Serving 模型 [通过 TensorBoard](https://oreil.ly/sZP5l)，或在
+    GCP 上运行的模型。也可以直接与 Estimator 模型一起使用。但对于我们的示例项目，最直接的使用方法是编写一个自定义预测函数，该函数接受一组训练示例，并返回这些示例的模型预测。这样，我们可以在独立的
+    Jupyter Notebook 中加载可视化。
+- en: 'We can install the WIT with:'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用以下命令安装 WIT：
+- en: '`$` `pip install witwidget`'
+  id: totrans-159
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `pip install witwidget`'
+- en: 'Next, we create a `TFRecordDataset` to load the data file. We sample 1,000
+    training examples and convert it to a list of `TFExamples`. The visualizations
+    in the What-If Tool work well with this number of training examples, but they
+    get harder to understand with a larger sample:'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们创建一个 `TFRecordDataset` 来加载数据文件。我们抽样了 1,000 个训练示例，并将其转换为 `TFExamples` 的列表。What-If
+    Tool 的可视化效果对这些训练示例数量很好，但如果样本更大，则变得难以理解：
+- en: '`eval_data``=``tf``.``data``.``TFRecordDataset``(``_EVAL_DATA_FILE``)``subset``=``eval_data``.``take``(``1000``)``eval_examples``=``[``tf``.``train``.``Example``.``FromString``(``d``.``numpy``())``for``d``in``subset``]`'
+  id: totrans-161
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_data``=``tf``.``data``.``TFRecordDataset``(``_EVAL_DATA_FILE``)``subset``=``eval_data``.``take``(``1000``)``eval_examples``=``[``tf``.``train``.``Example``.``FromString``(``d``.``numpy``()``)``for``d``in``subset``]`'
+- en: 'Next, we load the model and define a prediction function that takes in the
+    list of `TFExamples` and returns the model’s predictions:'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们加载模型并定义一个预测函数，该函数接受 `TFExamples` 列表并返回模型对这些示例的预测：
+- en: '`model``=``tf``.``saved_model``.``load``(``export_dir``=``_MODEL_DIR``)``predict_fn``=``model``.``signatures``[``''serving_default''``]``def``predict``(``test_examples``):``test_examples``=``tf``.``constant``([``example``.``SerializeToString``()``for``example``in``examples``])``preds``=``predict_fn``(``examples``=``test_examples``)``return``preds``[``''outputs''``]``.``numpy``()`'
+  id: totrans-163
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`model``=``tf``.``saved_model``.``load``(``export_dir``=``_MODEL_DIR``)``predict_fn``=``model``.``signatures``[``''serving_default''``]``def``predict``(``test_examples``):``test_examples``=``tf``.``constant``([``example``.``SerializeToString``()``for``example``in``examples``])``preds``=``predict_fn``(``examples``=``test_examples``)``return``preds``[``''outputs''``]``.``numpy``()`  '
+- en: 'Then we configure the WIT using:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们使用以下配置 WIT：
+- en: '`from``witwidget.notebook.visualization``import``WitConfigBuilder``config_builder``=``WitConfigBuilder``(``eval_examples``)``.``set_custom_predict_fn``(``predict``)`'
+  id: totrans-165
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``witwidget.notebook.visualization``import``WitConfigBuilder``config_builder``=``WitConfigBuilder``(``eval_examples``)``.``set_custom_predict_fn``(``predict``)`'
+- en: 'And we can view it in a notebook using:'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以在笔记本中查看它：
+- en: '`from``witwidget.notebook.visualization``import``WitWidget``WitWidget``(``config_builder``)`'
+  id: totrans-167
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``witwidget.notebook.visualization``import``WitWidget``WitWidget``(``config_builder``)`'
+- en: This will give us the visualization in [Figure 7-10](#filepos706475).
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将在 [图 7-10](#filepos706475) 中为我们提供可视化。
+- en: '![](images/00096.jpg)'
+  id: totrans-169
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00096.jpg)'
+- en: Figure 7-10\. WIT front page
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7-10\. WIT 主页
+- en: USING THE WIT IN A JUPYTER NOTEBOOK
+  id: totrans-171
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在 JUPYTER NOTEBOOK 中使用 WIT
+- en: 'As with TFMA, a few extra steps are required to run the WIT in a standalone
+    notebook. Install and enable the WIT notebook extension with:'
+  id: totrans-172
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 与 TFMA 类似，在独立笔记本中运行 WIT 需要额外的几个步骤。使用以下命令安装并启用 WIT 笔记本扩展：
+- en: '`$` `jupyter nbextension install --py --symlink` `\` `--sys-prefix witwidget`
+    `$` `jupyter nbextension` `enable` `witwidget --py --sys-prefix`'
+  id: totrans-173
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `jupyter nbextension install --py --symlink` `\` `--sys-prefix witwidget`
+    `$` `jupyter nbextension` `enable` `witwidget --py --sys-prefix`'
+- en: Append the flag `--sys_prefix` to each of these commands if you are running
+    them in a Python virtual environment.
+  id: totrans-174
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果在 Python 虚拟环境中运行这些命令，请在每个命令中追加标志 `--sys_prefix`。
+- en: There are many functions included in the WIT, and we will describe some of the
+    most useful here. Full documentation is provided at [the WIT project home page](https://oreil.ly/cyTDR).
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 WIT 中包含许多功能，我们将在这里描述其中一些最有用的。完整文档请参见[WIT 项目主页](https://oreil.ly/cyTDR)。
+- en: The WIT provides counterfactuals, which for any individual training example
+    show its nearest neighbor from a different classification. All the features are
+    as similar as possible, but the model’s prediction for the counterfactual is the
+    other class. This helps us see how each feature impacts the model’s prediction
+    for the particular training example. If we see that changing a demographic feature
+    (race, gender, etc.) changes the model’s prediction to the other class, this is
+    a warning sign that the model may not be fair to different groups.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: WIT 提供反事实，对于任何单个训练样本，显示其来自不同分类的最近邻居。所有特征尽可能相似，但反事实的模型预测为另一类别。这帮助我们了解每个特征如何影响模型对特定训练示例的预测。如果我们发现改变人口统计特征（种族、性别等）会将模型的预测变为另一类别，这是模型可能对不同群体不公平的警告信号。
+- en: We can explore this feature further by editing a selected example in the browser.
+    Then we can rerun the inference and see what effect this has on the predictions
+    made for the specific example. This can be used to explore demographic features
+    for fairness or any other features to see what happens if they are changed.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过在浏览器中编辑所选示例来进一步探索这个功能。然后，我们可以重新运行推断，看看这对特定示例的预测有什么影响。这可以用来探索公平性的人口统计特征或其他特征，看看如果它们被改变会发生什么。
+- en: Counterfactuals can also be used as explanations for the model’s behavior. But
+    note that there may be many possible counterfactuals for each data point that
+    are close to being the nearest neighbor and also that there are likely to be complex
+    interactions between features. So counterfactuals themselves should not be presented
+    as if they completely explain the model’s behavior.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反事实可以作为解释模型行为的依据。但请注意，每个数据点可能存在许多可能的反事实，这些反事实接近于最近的邻居，并且特征之间可能存在复杂的相互作用。因此，反事实本身不应被呈现为完全解释模型行为的因素。
+- en: 'Another particularly useful feature of the WIT is partial dependence plots
+    (PDPs). These show us how each feature impacts the predictions of the model, for
+    example, whether an increase in a numeric feature changes the class prediction
+    probability. The PDP shows us the shape of this dependence: whether it is linear,
+    monotonic, or more complex. PDPs can also be generated for categorical features,
+    as shown in [Figure 7-11](#filepos710309). Again, if the model’s predictions show
+    a dependence on a demographic feature, this may be a warning that your model’s
+    predictions are unfair.'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: WIT 的另一个特别有用的功能是部分依赖图（PDP）。这些图展示了每个特征如何影响模型的预测，例如，数值特征的增加是否改变了类别预测的概率。PDP 显示了这种依赖的形状：它是否是线性的、单调的或者更复杂的。PDP
+    也可以为分类特征生成，如[图 7-11](#filepos710309)所示。同样，如果模型的预测显示对人口统计特征的依赖性，这可能是您的模型预测不公平的警告信号。
+- en: '![](images/00106.jpg)'
+  id: totrans-180
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00106.jpg)'
+- en: Figure 7-11\. WIT PDPs
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7-11\. WIT PDPs
+- en: A more advanced feature, for which we won’t dive into detail here, is to optimize
+    decision thresholds for fairness strategies. This is provided as a page in the
+    WIT, and it’s possible to automatically set decision thresholds based on a chosen
+    strategy, as shown in [Figure 7-12](#filepos710936).
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更高级的功能是针对公平策略优化决策阈值，这作为 WIT 的一页提供。可以根据选择的策略自动设置决策阈值，如[图 7-12](#filepos710936)所示。
+- en: '![](images/00004.jpg)'
+  id: totrans-183
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00004.jpg)'
+- en: Figure 7-12\. WIT decision thresholds
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7-12\. WIT 决策阈值
+- en: All of the tools we describe in this section on model fairness can also be used
+    to interrogate any model even if it does not have the potential to harm users.
+    They can be used to get a much better understanding of a model’s behavior before
+    it is deployed and can help avoid surprises when it reaches the real world. This
+    is an area of active research, and new tools are released frequently. One interesting
+    development is constrained optimization for model fairness, in which instead of
+    just optimizing for one metric, models can be optimized by taking into consideration
+    other constraints, such as equal accuracy. An [experimental library](https://oreil.ly/WkYyi)
+    exists for this in TensorFlow.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在模型公平性这一节描述的所有工具也可以用来审查任何模型，即使它没有伤害用户的潜力。它们可以帮助更好地理解模型在部署前的行为，并且有助于避免它在现实世界中出现意外情况。这是一个活跃研究的领域，新的工具经常发布。一个有趣的发展是为模型公平性存在的约束优化，其中模型不仅仅优化一个指标，还可以考虑其他约束，比如平等的准确率。在TensorFlow中已经存在一个[实验性库](https://oreil.ly/WkYyi)用于此目的。
+- en: Model Explainability
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型可解释性
+- en: Discussing fairness and using the WIT naturally leads us to discussing how we
+    can not only describe the performance of our model but also explain what is going
+    on inside it. We mentioned this briefly in the previous section on fairness, but
+    we’ll expand on it a little more here.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 讨论公平性并使用WIT自然而然地引导我们讨论如何不仅描述我们模型的表现，还要解释其内部运行情况。我们在公平性的前一节简要提到过这一点，但在这里我们将进一步扩展。
+- en: Model explainability seeks to explain why the predictions made by a model turn
+    out that way. This is in contrast to analysis, which describes the model’s performance
+    with respect to various metrics. Explainability for machine learning is a big
+    topic, with a lot of active research on the subject happening right now. It isn’t
+    something we can automate as part of our pipeline because, by definition, the
+    explanations need to be shown to people. We will just give you a brief overview,
+    and for more details we recommend the ebook [Interpretable Machine Learning by
+    Christoph Molnar](https://oreil.ly/fGtve) and [this whitepaper](https://oreil.ly/3CLTk)
+    from Google Cloud.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型可解释性旨在解释模型所作出预测的原因。与分析相反，分析描述了模型在各种指标下的表现。机器学习中的可解释性是一个重要的主题，目前有大量关于该主题的活跃研究。它不是我们流程的一部分，因为根据定义，解释需要向人们展示。我们将简要概述一下，更多细节建议阅读[ebook《可解释机器学习》Christoph
+    Molnar](https://oreil.ly/fGtve)和谷歌云的[这篇白皮书](https://oreil.ly/3CLTk)。
+- en: 'There are a few possible reasons for seeking to explain your model’s predictions:'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几个可能的原因驱使你解释模型的预测：
+- en: Helping a data scientist debug problems with their model
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 帮助数据科学家调试他们模型中的问题
+- en: Building trust in the model
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 建立对模型的信任
+- en: Auditing models
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 审计模型
+- en: Explaining model predictions to users
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 向用户解释模型的预测
+- en: The techniques we discuss further on are helpful in all these use cases.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们后面讨论的技术在所有这些用例中都是有帮助的。
+- en: Predictions from simpler models are much easier to explain than predictions
+    from complex models. Linear regression, logistic regression, and single decision
+    trees are relatively easy to interpret. We can view the weights for each feature
+    and know the exact contribution of the feature. For these models, looking at the
+    entire model provides an explanation because their architecture makes them interpretable
+    by design, so that a human can understand the entire thing. For example, the coefficients
+    from a linear regression model give an explanation that is understandable with
+    no further processing required.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简单模型的预测比复杂模型的预测容易解释得多。线性回归、逻辑回归和单一决策树相对容易解释。我们可以查看每个特征的权重并知道该特征的确切贡献。对于这些模型来说，查看整个模型提供了一个解释，因为它们的结构设计使它们可以被人类理解。例如，线性回归模型的系数提供了一个解释，无需进一步处理即可理解。
+- en: It is more difficult to explain random forests and other ensemble models, and
+    deep neural networks are the hardest of all to explain. This is due to the enormous
+    number of parameters and connections in a neural network, which results in extremely
+    complex interactions between features. If your model’s predictions have high consequences
+    and you require explanations, we recommend you choose models that are easier to
+    explain. You can find more details on how and when to use explanations in the
+    paper [“Explainable Machine Learning in Deployment”](https://arxiv.org/pdf/1909.06342.pdf)
+    by Umang Bhatt et al.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解释随机森林和其他集成模型，以及深度神经网络是最困难的。这是因为神经网络中的参数和连接数量巨大，导致特征之间的相互作用极其复杂。如果您的模型预测具有较高的后果并且您需要解释，请选择更容易解释的模型。关于如何以及何时使用解释的更多细节，请参阅
+    Umang Bhatt 等人的论文 [“Explainable Machine Learning in Deployment”](https://arxiv.org/pdf/1909.06342.pdf)。
+- en: LOCAL AND GLOBAL EXPLANATIONS
+  id: totrans-197
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 局部和全局解释
+- en: 'We can divide ML explainability methods into two broad groups: local and global
+    explanations. Local explanations seek to explain why a model made a particular
+    prediction for one single data point. Global explanations seek to explain how
+    a model works overall, measured using a large set of data points. We will introduce
+    techniques for both of these in the next section.'
+  id: totrans-198
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们可以将机器学习的可解释性方法分为两大类：局部解释和全局解释。局部解释旨在解释模型为单个数据点做出特定预测的原因。全局解释则旨在解释模型整体运作的方式，通过大量数据点来衡量。在下一节中，我们将介绍这两种技术。
+- en: In the next section, we will introduce some techniques for generating explanations
+    from your model.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一节中，我们将介绍一些从您的模型生成解释的技术。
+- en: Generating Explanations with the WIT
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用WIT生成解释
+- en: In [“Going Deeper with the What-If Tool”](#filepos694777), we described how
+    we could use the WIT to help with our model fairness questions. But the WIT is
+    also useful for explaining our models—in particular, using counterfactuals and
+    PDPs, as we noted. Counterfactuals provide us with local explanations, but PDPs
+    can provide either local or global explanations. We showed an example of global
+    PDPs previously in [Figure 7-11](#filepos710309), and now we’ll consider local
+    PDPs, as shown in [Figure 7-13](#filepos717530).
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [“使用What-If工具进行更深入的分析”](#filepos694777) 中，我们描述了如何使用WIT来帮助解决模型公平性问题。但是WIT也可以用于解释我们的模型，特别是使用反事实和PDP，正如我们注意到的那样。反事实提供给我们局部解释，而PDP可以提供局部或全局解释。我们之前展示过全局PDP的例子，如
+    [图7-11](#filepos710309)，现在我们将考虑局部PDP，如 [图7-13](#filepos717530) 所示。
+- en: '![](images/00013.jpg)'
+  id: totrans-202
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00013.jpg)'
+- en: Figure 7-13\. WIT local PDPs
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7-13\. WIT局部PDP
+- en: PDPs show the change in prediction results (the inference score) for different
+    valid values of a feature. There is no change in the inference score across the
+    `company` feature, showing that the predictions for this data point don’t depend
+    on the value of this feature. But for the `company_response` feature, there is
+    a change in the inference score, which shows that the model prediction has some
+    dependence on the value of the feature.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PDP显示了不同特征有效值的预测结果（推断分数）的变化。在 `company` 特征上推断分数没有变化，表明这个数据点的预测不依赖于该特征的值。但是在
+    `company_response` 特征上，推断分数有变化，显示模型预测对该特征的值具有一定依赖性。
+- en: ASSUMPTIONS WITH PDPS
+  id: totrans-205
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: PDP的假设
+- en: 'PDPs contain an important assumption: all features are independent of each
+    other. For most datasets, especially those that are complex enough to need a neural
+    network model to make accurate predictions, this is not a good assumption. These
+    plots should be approached with caution: they can give you an indication of what
+    your model is doing, but they do not give you a complete explanation.'
+  id: totrans-206
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: PDP包含一个重要的假设：所有特征彼此独立。对于大多数数据集，尤其是那些需要神经网络模型进行准确预测的复杂数据集来说，这不是一个好的假设。在处理这些图表时应谨慎：它们可以给出您的模型正在做什么的指示，但并不提供完整的解释。
+- en: If your model is deployed using Google Cloud’s AI Platform, you can see [feature
+    attributions](https://oreil.ly/ePiEi) in the WIT. For a single data example, feature
+    attributions provide positive or negative scores for each feature for each feature,
+    which indicate the effect and magnitude of the feature’s contributions to a model’s
+    prediction. They can also be aggregated to provide global explanations of the
+    feature’s importance in your model. The feature attributions are based on Shapley
+    values, which are described in the following section. Shapley values do not assume
+    that your features are independent, so unlike PDPs, they are useful if your features
+    are correlated with each other. At the time of writing, feature attributions were
+    only available for models trained using TensorFlow 1.x.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的模型是使用Google Cloud的AI平台部署的，您可以在WIT中看到[特征归因](https://oreil.ly/ePiEi)。对于单个数据示例，特征归因为每个特征提供正负分数，表明特征对模型预测的影响和大小。它们也可以聚合以提供特征在模型中重要性的全局解释。特征归因基于Shapley值，这些值在下一节中描述。Shapley值不假设您的特征是独立的，因此与PDP不同，如果您的特征彼此相关，它们是有用的。在撰写本文时，特征归因仅适用于使用TensorFlow
+    1.x训练的模型。
+- en: Other Explainability Techniques
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他可解释性技术
+- en: '[LIME](https://oreil.ly/SrlWc), or local interpretable model-agnostic explanations,
+    is another method for producing local explanations. It treats a model as a black
+    box and generates new data points around the point that we would like to get an
+    explanation for. LIME then obtains predictions from the model for these new data
+    points and trains a simple model using these points. The weights for this simple
+    model give us the explanations.'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[LIME](https://oreil.ly/SrlWc)，即本地可解释的模型无关解释，是另一种生成局部解释的方法。它将模型视为黑盒，并在我们希望获得解释的点周围生成新数据点。然后，LIME获取这些新数据点的模型预测，并使用这些点训练一个简单模型。这个简单模型的权重给出了我们的解释。'
+- en: The [SHAP](https://oreil.ly/3S01U), or Shapley Additive Explanations, library
+    provides both global and local explanations using Shapley values. These are computationally
+    expensive to calculate, so the SHAP library contains implementations that speed
+    up calculations or calculate approximations for boosted trees and deep neural
+    networks. This library is a great way to show a feature’s importance for your
+    models.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[SHAP](https://oreil.ly/3S01U)，即Shapley加法解释，库使用Shapley值提供全局和局部解释。这些计算起来计算成本很高，因此SHAP库包含了加速计算或为提升树和深度神经网络计算近似值的实现。这个库是展示您模型中特征重要性的一个很好的方式。'
+- en: SHAPLEY VALUES
+  id: totrans-211
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: SHAPLEY VALUES
+- en: 'Shapley values are useful for both local and global explanations. This concept
+    is an algorithm borrowed from game theory that distributes gains and losses across
+    each player in a cooperative game for some outcome of the game. In a machine learning
+    context, each feature is a “player,” and the Shapley values can be obtained as
+    follows:'
+  id: totrans-212
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Shapley值对于局部和全局解释都很有用。这个概念是从博弈论借来的算法，用于在合作博弈中为每个玩家分配增益和损失。在机器学习的背景下，每个特征都是一个“玩家”，Shapley值可以通过以下方式获得：
+- en: Get all the possible subsets of features that don’t contain feature F.
+  id: totrans-213
+  prefs:
+  - PREF_OL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 获取不包含特征 F 的所有可能子集。
+- en: Compute the effect on the model’s predictions of adding F to all the subsets.
+  id: totrans-214
+  prefs:
+  - PREF_OL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 计算将F添加到所有子集中对模型预测的影响。
+- en: Combine these effects to get the importance of feature F.
+  id: totrans-215
+  prefs:
+  - PREF_OL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 结合这些效果以获取特征F的重要性。
+- en: These are all relative to some baseline. For our example project, we could pose
+    this as “how much was a prediction driven by the fact that the `company_response`
+    was `Closed with explanation` instead of `Closed with monetary relief`.” The value
+    `Closed with monetary relief` is our baseline.
+  id: totrans-216
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 所有这些都是相对于某个基线的。对于我们的示例项目，我们可以将其表述为“预测受到公司响应为‘解决方案为说明关闭’而不是‘解决方案为货币补偿关闭’的驱动程度”。值“解决方案为货币补偿关闭”是我们的基线。
+- en: 'We would also like to mention [model cards](https://oreil.ly/VWcwS), a framework
+    for reporting on machine learning models. These are a formal way of sharing facts
+    and limitations about machine learning models. We include these here because even
+    though they don’t explain why the model makes its predictions, they are extremely
+    valuable for building trust in a model. A model card should include the following
+    pieces of information:'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还想提到[model cards](https://oreil.ly/VWcwS)，这是一个报告机器学习模型的框架。这些是共享有关机器学习模型事实和限制的正式方式。我们在这里包括这些是因为即使它们不解释模型为何做出其预测，它们对建立对模型的信任非常有价值。模型卡应包括以下信息：
+- en: Benchmarked performance of the model on public datasets, including performance
+    sliced across demographic features
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在公共数据集上对模型的基准性能进行了评估，包括在人口统计特征中划分的性能
+- en: Limitations of the model, for example, disclosing if a decrease in image quality
+    would produce a less accurate result from an image classification model
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 例如，模型的限制，比如揭示如果图像质量降低是否会导致图像分类模型的结果不够精确
+- en: Any trade-offs made by the model, for example, explaining if a larger image
+    would require longer processing time
+  id: totrans-220
+  prefs:
+  - PREF_UL
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 模型做出的任何权衡，例如，说明更大的图像是否会导致更长的处理时间
+- en: Model cards are extremely useful for communicating about models in high-stakes
+    situations, and they encourage data scientists and machine learning engineers
+    to document the use cases and limitations of the models they build.
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**模型卡片**在高风险情境中沟通模型非常有用，它鼓励数据科学家和机器学习工程师记录他们构建的模型的使用案例和限制。'
+- en: LIMITATIONS OF EXPLANATIONS
+  id: totrans-222
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '**解释的限制**'
+- en: We recommend that you proceed with caution when tackling model explainability.
+    These techniques may give you a warm and happy feeling that you understand what
+    your model is doing, but it may actually be doing something very complex that
+    is impossible to explain. This is especially the case with deep learning models.
+  id: totrans-223
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们建议在处理模型可解释性时要小心谨慎。这些技术可能会让你感觉你理解了模型的操作，但实际上它可能在做一些无法解释的非常复杂的事情。这在深度学习模型中尤其如此。
+- en: It just isn’t feasible to represent all the complexity of the millions of weights
+    that make up a deep neural network in a way that is human readable. In situations
+    where model decisions have high real-world consequences, we recommend building
+    the simplest models possible with features that are easy to explain.
+  id: totrans-224
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 人类不可能以可读的方式表达组成深度神经网络的数百万权重的所有复杂性。在模型决策对现实世界有重大影响的情况下，我们建议构建尽可能简单的模型，并使用易于解释的特征。
+- en: Analysis and Validation in TFX
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**TFX 中的分析和验证**'
+- en: 'Up to this point in this chapter, we’ve focused on model analysis with a human
+    in the loop. These tools are extremely useful for monitoring our models and checking
+    that they are behaving in the way we want. But in an automated machine learning
+    pipeline, we want the pipeline to run smoothly and alert us to problems. There
+    are several components in TFX that handle this part of the pipeline: the `Resolver`,
+    the `Evaluator`, and the `Pusher`. Together, these components check the model’s
+    performance on an evaluation dataset and send it to a serving location if it improves
+    the previous model.'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，在本章中，我们集中讨论了人类参与的模型分析。这些工具非常有用，可以监控我们的模型，确保它们按照我们期望的方式运行。但在自动化机器学习流水线中，我们希望流水线能够顺利运行并警报我们问题。在TFX中，有几个组件处理流水线的这部分内容：`Resolver`、`Evaluator`和`Pusher`。这些组件共同检查模型在评估数据集上的性能，并将其发送到服务位置，如果它改进了先前的模型。
+- en: TFX uses the concept of blessing to describe the gating process for deciding
+    whether or not to deploy a model for serving. If a model improves the previous
+    model, based on a threshold we define, it is blessed and can move forward to the
+    next step.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**TFX**使用认可的概念来描述决定是否将模型部署到服务中的门控过程。如果模型改善了先前的模型，根据我们定义的阈值，它将被认可，并可以继续下一步骤。'
+- en: ResolverNode
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**ResolverNode**'
+- en: A `Resolver` component is required if we want to compare a new model against
+    a previous model. `ResolverNodes` are generic components that query the metadata
+    store. In this case, we use the `latest_blessed_model_resolver`. It checks for
+    the last blessed model and returns it as a baseline so it can be passed on to
+    the `Evaluator` component with the new candidate model. The `Resolver` is not
+    needed if we don’t want to validate our model against a threshold of some metric,
+    but we highly recommend this step. If you don’t validate the new model, it will
+    automatically get pushed to the serving directory, even if its performance is
+    worse than that of the previous model. On the first run of the `Evaluator` when
+    there is no blessed model, the `Evaluator` automatically blesses the model.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们想将新模型与先前模型进行比较，则需要一个`Resolver`组件。`ResolverNodes`是查询元数据存储的通用组件。在这种情况下，我们使用`latest_blessed_model_resolver`。它检查最后一个被认可的模型并将其作为基线传递给`Evaluator`组件，与新候选模型一起使用。如果我们不想根据某些指标的阈值验证我们的模型，则不需要`Resolver`。但我们强烈建议这一步骤。如果您不验证新模型，即使其性能比先前模型差，它也会自动推送到服务目录。在`Evaluator`的第一次运行中，如果没有被认可的模型，`Evaluator`会自动认可该模型。
+- en: 'In an interactive context, we can run the `Resolver` component as follows:'
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在交互式环境中，我们可以这样运行 `Resolver` 组件：
+- en: '`from``tfx.components``import``ResolverNode``from``tfx.dsl.experimental``import``latest_blessed_model_resolver``from``tfx.types``import``Channel``from``tfx.types.standard_artifacts``import``Model``from``tfx.types.standard_artifacts``import``ModelBlessing``model_resolver``=``ResolverNode``(``instance_name``=``''latest_blessed_model_resolver''``,``resolver_class``=``latest_blessed_model_resolver``.``LatestBlessedModelResolver``,``model``=``Channel``(``type``=``Model``),``model_blessing``=``Channel``(``type``=``ModelBlessing``)``)``context``.``run``(``model_resolver``)`'
+  id: totrans-231
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.components``import``ResolverNode``from``tfx.dsl.experimental``import``latest_blessed_model_resolver``from``tfx.types``import``Channel``from``tfx.types.standard_artifacts``import``Model``from``tfx.types.standard_artifacts``import``ModelBlessing``model_resolver``=``ResolverNode``(``instance_name``=``''latest_blessed_model_resolver''``,``resolver_class``=``latest_blessed_model_resolver``.``LatestBlessedModelResolver``,``model``=``Channel``(``type``=``Model``),``model_blessing``=``Channel``(``type``=``ModelBlessing``)``)``context``.``run``(``model_resolver``)`'
+- en: Evaluator Component
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 评估器组件
+- en: The `Evaluator` component uses the TFMA library to evaluate a model’s predictions
+    on a validation dataset. It takes as input data from the ExampleGen component,
+    the trained model from the `Trainer` component, and an `EvalConfig` for TFMA (the
+    same as when using TFMA as a standalone library).
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 评估器组件使用 TFMA 库在验证数据集上评估模型的预测。它的输入包括来自 ExampleGen 组件的数据、来自 Trainer 组件的训练模型，以及用于
+    TFMA 的 EvalConfig（与独立使用 TFMA 库时相同）。
+- en: 'First, we define the `EvalConfig`:'
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们定义 `EvalConfig`：
+- en: '`import``tensorflow_model_analysis``as``tfma``eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''consumer_disputed''``)],``slicing_specs``=``[``tfma``.``SlicingSpec``(),``tfma``.``SlicingSpec``(``feature_keys``=``[``''product''``])],``metrics_specs``=``[``tfma``.``MetricsSpec``(``metrics``=``[``tfma``.``MetricConfig``(``class_name``=``''BinaryAccuracy''``),``tfma``.``MetricConfig``(``class_name``=``''ExampleCount''``),``tfma``.``MetricConfig``(``class_name``=``''AUC''``)``])``]``)`'
+  id: totrans-235
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`import``tensorflow_model_analysis``as``tfma``eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''consumer_disputed''``)],``slicing_specs``=``[``tfma``.``SlicingSpec``(),``tfma``.``SlicingSpec``(``feature_keys``=``[``''product''``])],``metrics_specs``=``[``tfma``.``MetricsSpec``(``metrics``=``[``tfma``.``MetricConfig``(``class_name``=``''BinaryAccuracy''``),``tfma``.``MetricConfig``(``class_name``=``''ExampleCount''``),``tfma``.``MetricConfig``(``class_name``=``''AUC''``)``])``]``)`'
+- en: 'Then we run the `Evaluator` component:'
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后运行评估器组件：
+- en: '`from``tfx.components``import``Evaluator``evaluator``=``Evaluator``(``examples``=``example_gen``.``outputs``[``''examples''``],``model``=``trainer``.``outputs``[``''model''``],``baseline_model``=``model_resolver``.``outputs``[``''model''``],``eval_config``=``eval_config``)``context``.``run``(``evaluator``)`'
+  id: totrans-237
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.components``import``Evaluator``evaluator``=``Evaluator``(``examples``=``example_gen``.``outputs``[``''examples''``],``model``=``trainer``.``outputs``[``''model''``],``baseline_model``=``model_resolver``.``outputs``[``''model''``],``eval_config``=``eval_config``)``context``.``run``(``evaluator``)'
+- en: 'We can also show the TFMA visualization with:'
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们也可以展示 TFMA 的可视化：
+- en: '`eval_result``=``evaluator``.``outputs``[``''evaluation''``]``.``get``()[``0``]``.``uri``tfma_result``=``tfma``.``load_eval_result``(``eval_result``)`'
+  id: totrans-239
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_result``=``evaluator``.``outputs``[``''evaluation''``]``.``get``()[``0``]``.``uri``tfma_result``=``tfma``.``load_eval_result``(``eval_result``)`'
+- en: 'And we can load Fairness Indicators with:'
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以加载公平性指标：
+- en: '`tfma``.``addons``.``fairness``.``view``.``widget_view``.``render_fairness_indicator``(``tfma_result``)`'
+  id: totrans-241
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`tfma``.``addons``.``fairness``.``view``.``widget_view``.``render_fairness_indicator``(``tfma_result``)`'
+- en: Validation in the Evaluator Component
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在评估器组件中进行验证
+- en: The `Evaluator` component also carries out validation, in which it checks whether
+    the candidate model we have just trained is an improvement on a baseline model
+    (such as the model that is currently in production). It obtains predictions from
+    both models on an evaluation dataset and compares a performance metric (e.g.,
+    model accuracy) from both models. If the new model is an improvement on the previous
+    model, the new model receives a “blessing” artifact. Currently it is only possible
+    to calculate the metric on the whole evaluation set, not on slices.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 评估器组件还进行验证，检查我们刚刚训练的候选模型是否优于基线模型（例如当前正在生产中的模型）。它从评估数据集中获取两个模型的预测，并比较性能指标（例如模型准确性）。如果新模型优于先前的模型，则新模型会收到“blessing”（祝福）工件。目前只能在整个评估集上计算度量，不能对切片进行计算。
+- en: 'To carry out validation, we need to set a threshold in the `EvalConfig`:'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要进行验证，我们需要在 `EvalConfig` 中设置一个阈值：
+- en: '`eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''consumer_disputed''``)],``slicing_specs``=``[``tfma``.``SlicingSpec``(),``tfma``.``SlicingSpec``(``feature_keys``=``[``''product''``])],``metrics_specs``=``[``tfma``.``MetricsSpec``(``metrics``=``[``tfma``.``MetricConfig``(``class_name``=``''BinaryAccuracy''``),``tfma``.``MetricConfig``(``class_name``=``''ExampleCount''``),``tfma``.``MetricConfig``(``class_name``=``''AUC''``)``],``thresholds``=``{``''AUC''``:``tfma``.``config``.``MetricThreshold``(``value_threshold``=``tfma``.``GenericValueThreshold``(``lower_bound``=``{``''value''``:``0.65``}),``change_threshold``=``tfma``.``GenericChangeThreshold``(``direction``=``tfma``.``MetricDirection``.``HIGHER_IS_BETTER``,``absolute``=``{``''value''``:``0.01``}``)``)``}``)``]``)`'
+  id: totrans-245
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_config``=``tfma``.``EvalConfig``(``model_specs``=``[``tfma``.``ModelSpec``(``label_key``=``''consumer_disputed''``)],``slicing_specs``=``[``tfma``.``SlicingSpec``(),``tfma``.``SlicingSpec``(``feature_keys``=``[``''product''``])],``metrics_specs``=``[``tfma``.``MetricsSpec``(``metrics``=``[``tfma``.``MetricConfig``(``class_name``=``''BinaryAccuracy''``),``tfma``.``MetricConfig``(``class_name``=``''ExampleCount''``),``tfma``.``MetricConfig``(``class_name``=``''AUC''``)``],``thresholds``=``{``''AUC''``:``tfma``.``config``.``MetricThreshold``(``value_threshold``=``tfma``.``GenericValueThreshold``(``lower_bound``=``{``''value''``:``0.65``}),``change_threshold``=``tfma``.``GenericChangeThreshold``(``direction``=``tfma``.``MetricDirection``.``HIGHER_IS_BETTER``,``absolute``=``{``''value''``:``0.01``}``)``)``}``)``]``)`'
+- en: In this example, we state that the AUC must be over 0.65, and we want the model
+    to be validated if its AUC is at least 0.01 higher than that of the baseline model.
+    Any other metric can be added in place of AUC, but note that the metric you add
+    must also be included in the list of `metrics` in the `MetricsSpec`.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本例中，我们指定 AUC 必须超过 0.65，并且希望模型的 AUC 至少比基线模型高出 0.01。任何其他指标可以替代 AUC，但请注意，您添加的指标也必须包含在
+    `MetricsSpec` 的列表中。
+- en: 'We can check the results with:'
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过以下方式检查结果：
+- en: '`eval_result``=``evaluator``.``outputs``[``''evaluation''``]``.``get``()[``0``]``.``uri``print``(``tfma``.``load_validation_result``(``eval_result``))`'
+  id: totrans-248
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`eval_result``=``evaluator``.``outputs``[``''evaluation''``]``.``get``()[``0``]``.``uri``print``(``tfma``.``load_validation_result``(``eval_result``))`'
+- en: 'If the validation check passes, it will return the following result:'
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果验证通过，将返回以下结果：
+- en: '`validation_ok``:``true`'
+  id: totrans-250
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`validation_ok``:``true`'
+- en: TFX Pusher Component
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX 推送组件
+- en: The `Pusher` component is a small but important part of our pipeline. It takes
+    as input a saved model, the output of the `Evaluator` component, and a file path
+    for the location our models will be stored for serving. It then checks whether
+    the `Evaluator` has blessed the model (i.e., the model is an improvement on the
+    previous version, and it is above any thresholds we have set). If it has been
+    blessed, the `Pusher` pushes the model to the serving file path.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Pusher` 组件是我们流水线中的一个重要组成部分。它接收一个已保存的模型、`Evaluator` 组件的输出以及存储模型的文件路径，然后检查 `Evaluator`
+    是否已经批准了模型（即该模型是否改进了之前的版本，并且高于我们设置的任何阈值）。如果模型已被批准，`Pusher` 将其推送到服务文件路径中。'
+- en: 'The `Pusher` component is provided with the model `Evaluator` outputs and the
+    serving destination:'
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Pusher` 组件接收 `Evaluator` 的输出模型及服务目的地：'
+- en: '`from``tfx.components``import``Pusher``from``tfx.proto``import``pusher_pb2``_serving_model_dir``=``"serving_model_dir"``pusher``=``Pusher``(``model``=``trainer``.``outputs``[``''model''``],``model_blessing``=``evaluator``.``outputs``[``''blessing''``],``push_destination``=``pusher_pb2``.``PushDestination``(``filesystem``=``pusher_pb2``.``PushDestination``.``Filesystem``(``base_directory``=``_serving_model_dir``)))``context``.``run``(``pusher``)`'
+  id: totrans-254
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.components``import``Pusher``from``tfx.proto``import``pusher_pb2``_serving_model_dir``=``"serving_model_dir"``pusher``=``Pusher``(``model``=``trainer``.``outputs``[``''model''``],``model_blessing``=``evaluator``.``outputs``[``''blessing''``],``push_destination``=``pusher_pb2``.``PushDestination``(``filesystem``=``pusher_pb2``.``PushDestination``.``Filesystem``(``base_directory``=``_serving_model_dir``)))``context``.``run``(``pusher``)`'
+- en: Once the new model has been pushed to the serving directory, it can then be
+    picked up by TensorFlow Serving—see the next chapter for more details on this.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦新模型被推送到服务目录，TensorFlow Serving 就可以接收并处理它，详细内容请参见下一章节。
+- en: Summary
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 概要
+- en: In this chapter, we saw how to analyze a model’s performance in much greater
+    detail than during model training, and we started thinking about how to make a
+    model’s performance fair. We also discussed the process for checking that a model’s
+    performance is an improvement on the previously deployed model. We also introduced
+    explainability for machine learning and gave a brief overview of some of the techniques
+    in this area.
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们详细介绍了如何比在模型训练期间更深入地分析模型的性能，并开始考虑如何使模型的性能更公平。我们还讨论了检查模型性能是否优于先前部署模型的过程。此外，我们还介绍了机器学习的可解释性，并简要概述了该领域的一些技术。
+- en: 'We must advise caution here, though: just because you’ve analyzed your model’s
+    performance in detail with Fairness Indicators, this doesn’t guarantee that your
+    model is fair or ethically sound. It’s important to keep monitoring your model
+    once it is in production and provide ways for your users to let you know if they
+    feel that the model’s predictions are unjust. This is especially important when
+    the stakes are high and the model’s decisions have the potential to cause large
+    real-world impacts to users.'
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不过在这里，我们必须提出警告：仅仅因为你已经通过公平性指标详细分析了你的模型的性能，这并不能保证你的模型是公平或符合伦理的。一旦模型投入使用，继续监控模型并为用户提供反馈的途径非常重要，让他们知道如果他们觉得模型的预测是不公正的。特别是在利益重大且模型的决策可能对用户造成重大实际影响时，这点尤为重要。
+- en: 'Now that our model has been analyzed and validated, it’s time to move on to
+    the crucial next step in the pipeline: serving the model! The next two chapters
+    will tell you all you need to know about this important step.'
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经分析和验证了我们的模型，是时候进入管道中至关重要的下一步了：为模型提供服务！接下来的两章将告诉你关于这一重要步骤的所有必要信息。

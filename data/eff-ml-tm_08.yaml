@@ -1,0 +1,2256 @@
+- en: 'Chapter 6\. Automated Testing: ML Model Tests'
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第六章。自动化测试：机器学习模型测试
+- en: 'In the previous chapter, we saw the price we pay for not having automated tests
+    in ML solutions, and the benefits that tests bring to teams in terms of quality,
+    flow, cognitive load, and satisfaction. We outlined the building blocks of a comprehensive
+    test strategy and dived into details for the first category of tests: software
+    tests.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们看到了在机器学习解决方案中没有自动化测试所付出的代价，以及测试在质量、流程、认知负荷和满意度方面为团队带来的好处。我们概述了全面测试策略的构建块，并深入了解了第一类别测试的详细信息：软件测试。
+- en: 'In this chapter, we will explore the next category of tests: ML model tests
+    (or model tests, for short). As large language models (LLMs) have taken the world
+    by storm, we’ll also cover techniques for testing LLMs and LLM applications.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将探讨下一个测试类别：机器学习模型测试（或简称为模型测试）。随着大型语言模型（LLMs）的风靡，我们还将介绍测试LLMs和LLM应用程序的技术。
+- en: In addition, we’ll explore practices that complement ML model tests, such as
+    visualization and error analysis, closing the data collection loop, and open-closed
+    test design. We’ll also discuss data tests briefly before concluding with concrete
+    next steps that can help you implement these tests in your ML systems.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，我们还将探讨补充机器学习模型测试的实践方法，例如可视化和错误分析，闭环数据收集，以及开-闭测试设计。我们还将简要讨论数据测试，最后总结出具体的下一步，帮助您在机器学习系统中实施这些测试。
+- en: In this chapter, we will focus on offline testing at scale, and we won’t cover
+    online testing techniques (e.g., A/B testing, bandits, interleaving experiments)
+    as they are well covered in Chip Huyen’s great book [*Designing Machine Learning
+    Systems*](https://oreil.ly/1vGtQ) (O’Reilly).
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将专注于大规模离线测试，并不涵盖在线测试技术（例如A/B测试、贝叶斯测试、交错实验），因为这些内容在Chip Huyen的著作[*设计机器学习系统*](https://oreil.ly/1vGtQ)（O'Reilly）中已有详细介绍。
+- en: Model Tests
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型测试
+- en: ML practitioners are no strangers to manual model evaluation procedures, and
+    while the exploratory nature of such tests is useful in early phases of developing
+    a model, this manual work easily becomes overly time-consuming and tedious. As
+    we identify measures and heuristics that tell us if a model is “good enough” or
+    “better than before,” we can use model tests to help us automate these manual
+    heuristics and checks. This frees up our time and energy to solve other more interesting
+    problems.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习从业者对手动模型评估程序并不陌生，尽管这些测试的探索性质在模型开发的早期阶段很有用，但这种手动工作很容易变得耗时且乏味。当我们确定衡量标准和启发式规则告诉我们一个模型是否“足够好”或“比以前更好”时，我们可以使用模型测试来帮助自动化这些手动的启发式规则和检查。这样一来，我们就可以节省时间和精力去解决其他更有趣的问题。
+- en: 'In this section, we’ll flesh out the why, what, and how of testing our trained
+    models—the subject under test in this chapter. We’ll go through:'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将详细讨论测试我们训练模型的原因、内容和方式——本章节的主题。我们将会：
+- en: Why it’s necessary to have automated tests for ML models
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为什么需要为机器学习模型设置自动化测试
+- en: The challenges of testing ML models
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 测试机器学习模型的挑战
+- en: How the concept of fitness functions can help us overcome these challenges
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何通过适应性函数的概念帮助我们克服这些挑战
+- en: 'How to implement two common types of model tests: metrics tests and behavioral
+    tests'
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何实施两种常见类型的模型测试：度量测试和行为测试。
+- en: How to test LLMs and LLM applications
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何测试LLM和LLM应用程序
+- en: With that, let’s dive in!
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了这个理解，让我们深入探讨吧！
+- en: The Necessity of Model Tests
+  id: totrans-14
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型测试的必要性
+- en: Imagine our ML delivery cycle as a factory producing boxes of shoes. Data scientists
+    create the shoes and test the quality of the shoes, typically on a partially automated
+    and ad hoc basis, and ML engineers establish the production line to produce well-formed
+    boxes to contain whatever shoes the data scientists produce. The latter group
+    (ML engineers) seeks to speed up the production line through automation, while
+    the former (data scientists) unwittingly becomes—to the extent that model quality
+    checks are manual—a bottleneck.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象我们的机器学习交付周期如同一个制造鞋盒的工厂。数据科学家们制造鞋子并测试鞋子的质量，通常是部分自动化和临时性的方式，而机器学习工程师则建立生产线来生产符合规范的鞋盒，以装载数据科学家们生产的任何鞋子。后者（机器学习工程师）寻求通过自动化加快生产线的速度，而前者（数据科学家们）则在不知不觉中——到了模型质量检查仍然是手动的程度——成为了瓶颈。
+- en: Over time, as we try to meet new and various product requirements and experiment
+    with different techniques, we have to either slow down the production line so
+    that every box—containing a new shoe (model) created by our MLOps pipeline—is
+    tested for its quality or forgo quality checks of what is in each box in order
+    to keep up with the speed of production.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着时间的推移，当我们努力满足新的和各种产品需求，并尝试不同的技术时，我们不得不要么放慢生产线，以便每个包含我们MLOps管道创建的新鞋（模型）的箱子都进行质量测试，要么放弃对每个箱子中内容的质量检查，以跟上生产速度。
+- en: It’s common to see teams choose speed over quality, especially when they’re
+    under “delivery pressure.” Instead of checking every box (e.g., every code commit),
+    they start checking every 10–15 boxes (e.g., every pull request). Teams sometimes
+    even skip complete quality checks or regression tests for a pull request and just
+    sporadically check aspects of the product in the box. The natural consequence
+    is that they may discover a defect too late—many boxes after it’s been introduced—and
+    then have to stop the production line to inspect many suspect boxes and figure
+    out and resolve the root cause of the defect.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 团队常常在“交付压力”下选择速度而非质量。他们不再检查每一个方面（例如，每次代码提交），而是开始每10至15个方面检查一次（例如，每个拉取请求）。有时，团队甚至会跳过完整的质量检查或回归测试，并仅偶尔检查产品的某些方面。自然的结果是，他们可能会发现缺陷太晚——在引入缺陷后的许多方面之后——然后不得不停止生产线，检查许多可疑的方面，并找出和解决缺陷的根本原因。
+- en: In our experience, “speed versus quality” is a false choice. In reality, low-quality,
+    untested products inevitably slow teams down because teams end up wasting time
+    on fixing issues and on manual testing. In contrast, teams that invest in quality
+    (e.g., through automated tests) end up with less manual testing effort and product
+    defects. Quality begets speed.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据我们的经验，“速度与质量”的选择是错误的。实际上，低质量、未经测试的产品最终会减慢团队的速度，因为团队最终会浪费时间修复问题和进行手动测试。相比之下，那些投资于质量（例如通过自动化测试）的团队最终需要较少的手动测试工作量和产品缺陷。质量带来速度。
+- en: 'Model tests help us achieve both quality and speed. They help us continuously
+    uncover or check for undesirable behavior in an automated (or a soon-to-be automated)
+    fashion before we release ML models to our users. Model tests are especially important
+    because ML models can be prone to silent failures: The model may be producing
+    predictions with the right schema, but the predictions can be totally wrong. And
+    we won’t detect these errors unless we test the model.'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型测试帮助我们在发布ML模型给用户之前以自动化（或即将自动化的方式）持续发现或检查不良行为。模型测试尤为重要，因为ML模型可能容易发生静默失败：模型可能以正确的模式生成预测，但预测可能完全错误。除非我们测试模型，否则我们不会发现这些错误。
+- en: The more comprehensive our model tests are, the more confident we can be that
+    we are releasing models that are good enough for users in production. As an added
+    benefit, automated model tests free up ML practitioners to do more ML and solve
+    higher-level problems rather than tedious manual testing in every pull request
+    or release or, worse, fixing defects in production that are impacting customers
+    and the business.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的模型测试越全面，我们就越有信心发布对用户而言足够好的模型。作为额外的好处，自动化模型测试使ML从业者可以做更多的ML工作并解决更高级的问题，而不是在每个拉取请求或发布中繁琐的手动测试，更糟糕的是，在影响客户和业务的生产环境中修复缺陷。
+- en: Now that we’ve established the importance and value of model tests, let’s look
+    at the challenges of testing ML models and how fitness functions can help us overcome
+    these challenges.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们已经明确了模型测试的重要性和价值，让我们看看测试ML模型的挑战以及适应函数如何帮助我们克服这些挑战。
+- en: Challenges of Testing ML Models
+  id: totrans-22
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 测试ML模型的挑战
+- en: Automated testing of an ML model can be more challenging than software tests
+    for four main reasons. First, while software tests generally tend to be fast-running
+    and deterministic, ML model training tends to be slow-running and nondeterministic
+    (two characteristics that we try to avoid in automated tests!).
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与软件测试相比，ML模型的自动化测试可能更具挑战性，主要有四个原因。首先，软件测试通常倾向于快速运行和确定性，而ML模型训练往往是缓慢运行和非确定性的（这两个特征我们尽量避免在自动化测试中！）。
+- en: Second, while software tests tend to involve data that is example-based with
+    just a handful of dimensions that we can even inline in our tests (e.g., `add(1,
+    1) == 2`), model tests typically require data that is sample-based, multidimensional,
+    and nonstationary. The volume of data needed for comprehensive testing can be
+    too substantial (e.g., thousands or millions of rows of tabular data, textual
+    data, or images) to include alongside our tests.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，虽然软件测试往往涉及基于示例的数据，只有少数维度可以内联到我们的测试中（例如，`add(1, 1) == 2`），但模型测试通常需要样本为基础、多维且非静态的数据。用于全面测试的数据量可能过于庞大（例如，成千上万行的表格数据、文本数据或图像），无法与我们的测试一同包含。
+- en: Third, as articulated in Jeremy Jordan’s article on [effective testing for ML
+    systems](https://oreil.ly/NItt3), model evaluation tends to require a level of
+    exploration and visualization (e.g., inspecting plots for segments of the data)
+    that is hard, if not impossible, to do through the interface of automated tests.
+    Finally, in the early and exploratory stage of an ML product, it may not be clear
+    what a good model looks like, and what exactly we should test.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三，正如Jeremy Jordan在[有效的ML系统测试](https://oreil.ly/NItt3)一文中所述，模型评估通常需要一定程度的探索和可视化（例如，检查数据段的图形），而这些是通过自动化测试接口难以做到的，如果不是不可能的话。最后，在ML产品的早期和探索阶段，可能不清楚一个好的模型是什么样子，以及我们应该测试什么。
+- en: In our experience, these four challenges—slow tests, high-volume and high-dimensional
+    data, the need for visual exploration, and unclear definitions of “good enough”—are
+    challenges that ML practitioners tend to work through and live with. ML practitioners
+    often devise manual model evaluation procedures to test if a model is “good enough”
+    or “better than before” by using techniques such as metric-based evaluation, k-folds
+    cross validation, and visualization-based evaluation. As illustrated in [Figure 6-1](#each_team_needs_to_work_toward_their_qu),
+    these manual testing techniques move teams away from the “danger” zone (right
+    column) of releasing untested models and toward the “toil” zone of having tedious
+    manual testing procedures.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据我们的经验，这四个挑战——慢测试、大容量和高维度数据、需要视觉探索以及“足够好”的定义不清晰——是ML从业者通常需要应对并克服的挑战。ML从业者经常设计手动模型评估程序，通过度量基于评估的技术、k折交叉验证和基于可视化的评估等技术来测试模型是否“足够好”或“比以前更好”。正如在[图6-1](#each_team_needs_to_work_toward_their_qu)中所示，这些手动测试技术将团队从发布未经测试的模型的“危险”区（右列）移向拥有繁琐手动测试程序的“苦力”区。
+- en: '![](assets/emlt_0601.png)'
+  id: totrans-27
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0601.png)'
+- en: Figure 6-1\. Each team needs to work toward their “Goldilocks” zone for defining
+    ML model tests—not too early and not too late
+  id: totrans-28
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-1\. 每个团队都需要朝着定义ML模型测试的“金发女孩”区努力——不早也不晚。
+- en: Effective teams take the next step of codifying and automating these manual
+    evaluation procedures as far as possible, shifting them from the “toil” zone to
+    the “flow” (or “Goldilocks”) zone. As no single test can test all aspects of the
+    model, effective teams are able to expand the collection of model tests breadth-wise
+    (with more model tests) and depth-wise (with more representative and better data).
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有效的团队接下来会将这些手动评估程序尽可能地编码和自动化，将它们从“苦力”区转移到“流畅”（或“金发女孩”）区。由于没有单一的测试能够测试模型的所有方面，有效的团队能够广泛（通过更多的模型测试）和深入（使用更具代表性和更好的数据）地扩展模型测试的集合。
+- en: Whether intentional or not, these manual evaluation procedures in the “toil”
+    zone are early forms of a fitness function, which is a concept that helps us define
+    model tests. In the next section, we will explain what a fitness function is,
+    how it can help us, and how we can grow our breadth of fitness functions to test
+    our models more comprehensively.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论是有意还是无意，这些“苦力”区的手动评估程序都是健康函数的早期形式，这是一个帮助我们定义模型测试的概念。在接下来的部分，我们将解释什么是健康函数，它如何帮助我们，以及如何通过扩展健康函数的广度来更全面地测试我们的模型。
+- en: Fitness Functions for ML Models
+  id: totrans-31
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: ML模型的健康函数
+- en: '[*Fitness functions*](https://oreil.ly/iq1S1) are objective, executable functions
+    that can be used to summarize, as a single figure of merit, how close a given
+    design solution is to achieving its set aims. Fitness functions bridge the gap
+    between automated tests (precise) and ML models (fuzzy).'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[*健康函数*](https://oreil.ly/iq1S1)是客观的、可执行的函数，用于总结给定设计解决方案距离其设定目标有多接近的单一评价指标。健康函数弥合了自动化测试（精确）和ML模型（模糊）之间的差距。'
+- en: In software engineering, we use fitness functions to measure how close an architectural
+    design is to achieving an objective aim. It informs us if our applications and
+    architecture are objectively moving away from their desired characteristics. We
+    can define fitness functions for a certain architectural characteristic of our
+    software and run them as tests locally and on a CI/CD pipeline.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在软件工程中，我们使用适应性函数来衡量架构设计距离实现目标目标的接近程度。它告诉我们我们的应用程序和架构是否客观地远离其期望的特征。我们可以为软件的某一架构特征定义适应性函数，并在本地和
+    CI/CD 管道上运行它们作为测试。
+- en: For example, we can define fitness functions that measure the quality or toxicity
+    of our code. If the code gets too convoluted or violates certain code quality
+    rules, the “code quality” fitness function fails and gives us feedback that a
+    code change has degraded our system beyond our specified tolerance level. Likewise
+    for software security, performance, observability, and so on (see [Figure 6-2](#fitness_functions_test_important_charac)).
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，我们可以定义衡量代码质量或毒性的适应性函数。如果代码变得过于复杂或违反某些代码质量规则，则“代码质量”适应性函数失败，并向我们提供反馈，表明代码变更已超出我们指定的容忍水平。同样适用于软件安全性、性能、可观察性等（参见[图 6-2](#fitness_functions_test_important_charac)）。
+- en: '![](assets/emlt_0602.png)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0602.png)'
+- en: 'Figure 6-2\. Fitness functions test important characteristics of our solution
+    (source: adapted from an image in [“Fitness Function-Driven Development” by Thoughtworks](https://oreil.ly/iq1S1))'
+  id: totrans-36
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-2. 我们解决方案的适应性函数测试重要特征（来源：改编自 Thoughtworks 的 [“适应性函数驱动开发”](https://oreil.ly/iq1S1)
+    图像）
+- en: Coming back to ML, regardless of the domain in which you are using ML (e.g.,
+    churn prediction, product recommendations), there are explicit or latent measures
+    of goodness or badness, better or worse. ML is premised on the ability to improve
+    models by adjusting their internals to minimize an objective measure of loss!
+    Even in more subjective ML use cases (e.g., an LLM-based cover letter generator),
+    the user at the other end will likely have some opinions on the quality or correctness
+    of a model’s prediction. (Later in this chapter, we’ll demonstrate how we can
+    finesse these measures of goodness to define fitness functions for our models.)
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回到 ML，不论您在使用 ML 的领域（例如，流失预测、产品推荐），都有明确或潜在的衡量好坏、优劣的措施。ML 基于通过调整其内部来最小化损失的客观衡量能力来改进模型！即使在更主观的
+    ML 使用情况下（例如基于 LLM 的求职信生成器），另一端的用户可能对模型预测的质量或正确性有一些看法。（本章后面我们将展示如何精确定义这些优良性能衡量标准以定义适合我们模型的适应性函数。）
+- en: 'For example, here are some fitness functions for an ML model:'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，这里有一些用于 ML 模型的适应性函数：
+- en: Metrics tests
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Metrics tests
+- en: The model is fit for production if a given evaluation metric measured using
+    a holdout set is above a specified threshold.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果使用保留集测量的给定评估指标高于指定的阈值，则模型适合生产。
+- en: Model fairness tests
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型公平性测试
+- en: The model is fit for production if a given evaluation metric for each key segment—e.g.,
+    country—is within X% of each other.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果每个关键段（例如国家）的给定评估指标在 X% 范围内，则模型适合生产。
+- en: Model API latency tests
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型 API 延迟测试
+- en: The model is fit for production if it can handle N amount of concurrent requests
+    within t seconds.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果模型能够在 t 秒内处理 N 量并发请求，则模型适合生产。
+- en: Model size tests
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型大小测试
+- en: The model artifact must be below a certain size (e.g., so that we can deploy
+    it easily to embedded devices or mobile devices).
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型工件必须在某一特定大小以下（例如，以便轻松部署到嵌入式设备或移动设备）。
+- en: Training duration tests
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练持续时间测试
+- en: The model training pipeline must complete within a specified duration. This
+    can help teams [detect and prevent](https://oreil.ly/O_fJD) the gradual lengthening
+    of model training cycles from, say, two hours to three or four hours. This test
+    helps teams detect performance degradations as soon as they are introduced—e.g.,
+    as part of a pull request—which makes it easier to debug and identify the change
+    that caused the performance degradation.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型训练管道必须在指定的持续时间内完成。这可以帮助团队[检测和预防](https://oreil.ly/O_fJD)模型训练周期逐渐从两个小时延长到三到四小时。这个测试帮助团队在引入性能退化时尽早检测到，例如，作为拉取请求的一部分，这使得调试和识别导致性能退化的更改更加容易。
+- en: The list can go on, depending on what constitutes “fit for purpose” or “fit
+    for production” in your domain. This is not a prescribed list of tests for all
+    ML projects. Rather, it is a framework of thinking that you can take to your teams,
+    domain specialists, and end users to discover and define the aspects of “good
+    enough” for your product.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表可以继续，取决于在您的领域中构成“适合用途”或“适合生产”的内容。这不是所有机器学习项目的预设测试列表。相反，这是一个思考框架，您可以将其带给您的团队、领域专家和最终用户，以发现和定义您产品的“足够好”的方面。
+- en: And that is why the concept of fitness functions is useful for testing ML systems.
+    The heterogeneous breadth and variety of problems, algorithms, and data formats
+    in ML can make it hard for the ML community to articulate a unified testing approach.
+    The concept and technical implementation of fitness functions allows us to discover
+    and define objective measures of good enough for the problem that you are solving,
+    and automate it to reap the benefits of automated testing. When you have gone
+    through that process and defined fitness functions for your ML model, you can
+    confidently release the model to production when these tests pass on the CI/CD
+    pipeline.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是为什么适应度函数的概念对于测试机器学习系统很有用。机器学习中的问题、算法和数据格式的异构广度和多样性使得机器学习社区难以表述统一的测试方法。适应度函数的概念和技术实现允许我们发现和定义解决问题的足够好的客观度量，并自动化以获得自动化测试的好处。当您经历了这个过程，并为您的机器学习模型定义了适应度函数后，当这些测试在CI/CD管道上通过时，您可以自信地将模型发布到生产环境。
+- en: In the following sections, we’ll elaborate on two types of ML fitness functions
+    that can help us formulate tests to check if a model is fit for production—model
+    metrics tests (global and stratified) and model behavioral tests.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的几节中，我们将详细阐述两种类型的机器学习适应度函数，这些函数可以帮助我们制定测试，以检查模型是否适合生产——模型评估指标测试（全局和分层）和模型行为测试。
+- en: Model Metrics Tests (Global and Stratified)
+  id: totrans-52
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型评估指标测试（全局和分层）
+- en: ML practitioners are generally familiar with calculating model evaluation metrics
+    (e.g., precision, recall, [ROC AUC score](https://oreil.ly/f1btr)) and this fitness
+    function simply takes it a step further, writing it as an automated test that
+    we can run locally and on our CI pipeline. Without these tests, we have to either
+    spend time manually eyeballing the model’s quality metrics with every commit,
+    pull request or release, or we live with the risk that we may be unknowingly degrading
+    the model over time.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习从业者通常熟悉计算模型评估指标（例如精度、召回率、[ROC AUC得分](https://oreil.ly/f1btr)），而这个适应度函数只是将其作为一个自动化测试写得更详细一步，我们可以在本地和我们的CI管道上运行。如果没有这些测试，我们就必须花时间手动查看每次提交、拉取请求或发布时模型的质量指标，或者我们会冒着可能在时间推移中未经意地降低模型质量的风险。
+- en: In these tests, we calculate model evaluation metrics that measure the aggregate
+    correctness of the model on an extensible validation dataset and test if they
+    meet our expected threshold of what is considered good enough for the model to
+    be released to production. We compute these metrics at the global level and also
+    at the level of important segments of our data (i.e., stratified level).
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这些测试中，我们计算模型评估指标，这些指标衡量模型在可扩展的验证数据集上的整体正确性，并测试它们是否达到我们预期的阈值，即模型是否足够好可以发布到生产环境。我们在全局级别和重要数据段（即分层级别）计算这些指标。
+- en: Since ML practitioners are generally familiar with the topic of [metric selection](https://oreil.ly/Re3W7),
+    we won’t discuss that here, except to mention that there may also be domain-specific
+    or industry-defined metrics for measuring the quality of a model. In this example,
+    we’re using recall as the metric, just to keep the example simple. In a real project,
+    ML engineers will likely pair with data scientists and domain specialists to understand
+    tradeoffs and identify which metrics are most important in determining if the
+    model is fit for purpose. If multiple metrics are important, you can apply the
+    same approach to write multiple tests for each metric.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于机器学习从业者通常熟悉[指标选择](https://oreil.ly/Re3W7)的主题，我们这里不会讨论这一点，除了提到可能也有特定领域或行业定义的度量标准来衡量模型的质量。在这个例子中，我们使用召回率作为度量标准，仅仅是为了保持例子简单。在实际项目中，机器学习工程师通常会与数据科学家和领域专家合作，理解权衡，并确定哪些指标对确定模型是否合适最为重要。如果多个指标都很重要，您可以应用相同的方法为每个指标编写多个测试。
+- en: 'Global metrics tests are a good starting point in quantifying and automating
+    model quality checks, especially if we’re starting without any automated tests
+    to check the correctness of our model. However, these tests are only a start,
+    and in most cases they are not granular enough. For example, a model might report
+    a high overall performance, but consistently underperform in certain segments
+    of the data. The authors of the seminal [“ML Test Score” paper](https://oreil.ly/hGTTh)
+    illustrate the usefulness of these tests with an example: The global accuracy
+    of a model may improve by 1%, but accuracy for one country could drop by 50%.
+    This is known as the [hidden stratification problem](https://oreil.ly/lP0Ld).'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 全局度量测试是量化和自动化模型质量检查的良好起点，特别是如果我们在没有任何自动化测试来检查模型正确性的情况下开始。然而，这些测试只是一个开始，在大多数情况下不够细粒度。例如，模型可能报告了高整体性能，但在数据的某些段上始终表现不佳。在开创性的[“ML测试分数”论文](https://oreil.ly/hGTTh)中，作者们通过一个例子展示了这些测试的有用性：一个模型的全局准确率可能提高了1%，但某个国家的准确率可能下降了50%。这就是所谓的[隐藏分层问题](https://oreil.ly/lP0Ld)。
+- en: That’s the problem that *stratified metrics tests* help to solve. The approach
+    is similar to global metrics tests, except that we slice the validation dataset
+    by one or more dimensions of interest (e.g., the target variable, gender, race^([1](ch06.html#ch01fn28)))
+    and calculate metrics for each segment, rather than a single global metric.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是*分层度量测试*帮助解决的问题。该方法与全局度量测试类似，但我们通过一个或多个感兴趣的维度（例如目标变量、性别、种族^([1](ch06.html#ch01fn28))）切片验证数据集，并为每个段计算度量，而不是单一的全局度量。
+- en: How do I write these tests?
+  id: totrans-58
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 如何编写这些测试？
+- en: 'Let’s start with an example of a global metric test. This test will pass if
+    a metric (recall, in this example) is above a threshold that we specify:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从一个全局度量测试的例子开始。如果指定的度量（例如在本例中是召回率）高于我们指定的阈值，则此测试将通过：
+- en: '[PRE0]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: '[![](assets/1.png)](#code_id_6_1)'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_6_1)'
+- en: Load the validation or holdout dataset. In this simple example, we re-create
+    the validation dataset by loading the full dataset and because we invoke `train_test_fit()`
+    with the same random state as was specified during model training, we will get
+    the same training/validation dataset split. In a real-world scenario, we will
+    more likely load the data from a feature store and find a way to persistently
+    mark samples that were used in training (e.g., we could persist the indices of
+    the samples in the training set in our artifact store), so that we avoid the risk
+    of data leakage during tests.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加载验证集或留存数据集。在这个简单的示例中，我们通过加载完整数据集重新创建验证数据集，并且因为我们在模型训练期间使用了相同的随机状态来调用`train_test_fit()`，所以我们会得到相同的训练/验证数据集拆分。在实际情况下，我们更可能从特征存储加载数据，并找到一种方法来持久地标记用于训练的样本（例如，我们可以在工件存储中持久化训练集中样本的索引），以避免在测试期间数据泄露的风险。
+- en: '[![](assets/2.png)](#code_id_6_2)'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/2.png)](#code_id_6_2)'
+- en: In model tests, it’s not enough for tests to pass or fail. We also want useful
+    visual feedback (e.g., actual metrics, confusion matrices) in our test logs.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在模型测试中，仅仅通过或失败是不够的。我们还希望在我们的测试日志中得到有用的视觉反馈（例如，实际指标、混淆矩阵）。
+- en: 'You can run this test in the repo by running the following command:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过运行以下命令在仓库中运行此测试：
+- en: '[PRE1]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: The test passes if the model’s recall score is above the specified threshold.
+    For a refresher on what batect is and how to set it up, have a look at [Chapter 4](ch04.html#effective_dependency_management_in_prac).
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果模型的召回率高于指定的阈值，则测试通过。关于batect的刷新内容以及如何设置，请参阅[第4章](ch04.html#effective_dependency_management_in_prac)。
+- en: 'Now, let’s look at an example of a stratified metrics test:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们来看一个分层度量测试的例子：
+- en: '[PRE2]'
+  id: totrans-69
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: '[![](assets/1.png)](#code_id_6_3)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_6_3)'
+- en: In this example, we use the `OCCUPATION_TYPE` column as the dimension for slicing
+    the validation dataset.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个示例中，我们使用`OCCUPATION_TYPE`列作为切片验证数据集的维度。
+- en: '[![](assets/2.png)](#code_id_6_4)'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/2.png)](#code_id_6_4)'
+- en: For each segment of the data, we create a validation dataset and calculate its
+    corresponding metric.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于数据的每个分段，我们创建一个验证数据集并计算其相应的度量。
+- en: '[![](assets/3.png)](#code_id_6_5)'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/3.png)](#code_id_6_5)'
+- en: This test will pass if the recall score for each occupation segment is above
+    the specified threshold. If it fails, it prompts us that our model is more biased
+    for certain segments of users and prompts us to find ways to improve the model
+    before releasing it to users.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果每个职业段的召回率都高于指定的阈值，则该测试将通过。如果测试失败，它会提示我们的模型在某些用户段上更具偏见，并促使我们在发布给用户之前改进模型的方法。
+- en: 'In this particular example, this test fails and the test logs tell us why.
+    The recall score for most occupation types (~0.75) was above our threshold, but
+    for Laborers, it was much lower (0.49) and is below our definition of good enough.
+    Thanks to the stratified metric test, we’ve uncovered a quality issue in our model—50%
+    of the time, the model’s predictions about the loan default likelihood of Laborers
+    are wrong:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个特定的例子中，这个测试失败了，并且测试日志告诉了我们原因。大多数职业类型的召回分数（约为0.75）都超过了我们的阈值，但对于劳工来说，它要低得多（0.49），低于我们定义的足够好的标准。由于分层指标测试，我们发现了我们模型的一个质量问题——50%的情况下，模型对劳工贷款违约可能性的预测是错误的：
+- en: '[PRE3]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Stratified metrics tests can also be used for [ethical bias testing](https://oreil.ly/BDj1c),
+    to test if any model is inadvertently disadvantageous or systematically erroneous
+    for certain segments of the population. For example, we could enumerate dimensions
+    of potential sociodemographic bias and harm (e.g., race, gender, class, etc.)
+    and test for any potential issues in each data segment. While we often can’t use
+    these sociodemographic features to train our models, we can use them to uncover
+    any potential issues with our model.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分层指标测试也可用于[道德偏见测试](https://oreil.ly/BDj1c)，测试任何模型是否无意中对某些人群段造成了不利影响或系统性错误。例如，我们可以列举潜在的社会人口统计学偏见和伤害维度（例如种族、性别、阶级等），并测试每个数据段中是否存在潜在问题。虽然我们通常不能使用这些社会人口统计特征来训练我们的模型，但我们可以利用它们来发现我们模型可能存在的问题。
+- en: There are libraries (such as [Giskard](https://oreil.ly/L9zOT) and [PyCaret](https://oreil.ly/f1-Di))
+    that provide functions to measure stratified metrics and other types of model
+    tests with fewer lines of code. We didn’t use these libraries in this example
+    because we wanted to demonstrate the essential idea behind stratified metrics
+    tests, and how it can be implemented in a simple way. However, we strongly encourage
+    you to check out how these libraries can assist you in testing your models.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一些库（例如[Giskard](https://oreil.ly/L9zOT)和[PyCaret](https://oreil.ly/f1-Di)）提供了功能，可以用更少的代码来测量分层指标和其他类型的模型测试。在这个例子中，我们没有使用这些库，因为我们想要展示分层指标测试背后的基本思想，以及如何以简单的方式实现它。但是，我们强烈建议您了解这些库如何帮助您测试您的模型。
+- en: In situations where you are not working with tabular data (e.g., images, text,
+    audio), as long as you can associate the segment with the data (e.g., images with
+    corresponding metadata columns that you can use for segmenting your test datasets),
+    you can apply the same technique and get more granular measures of correctness
+    for your models.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你不使用表格数据的情况下（例如图像、文本、音频），只要你能将片段与数据关联起来（例如，图像与相应的元数据列，可以用于分割测试数据集），你可以应用相同的技术，为你的模型获得更精细的正确性度量。
+- en: Advantages and limitations of metrics tests
+  id: totrans-81
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 指标测试的优点和局限性
+- en: Metrics tests (global and stratified) are a simple and quick way to relieve
+    ML practitioners of the time-consuming manual verifications for every commit or
+    pull request. In addition, because these tests are regularly exercised on CI,
+    they can help us catch performance degradations as soon as they happen and save
+    us from digging through days and weeks of commits and logs to triangulate performance
+    degradations that were introduced a few weeks ago.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 指标测试（全局和分层）是一种简单快速的方法，可以减轻机器学习从业者因每个提交或拉取请求而进行耗时的手动验证。此外，由于这些测试经常在持续集成上执行，它们可以帮助我们在性能下降发生时立即捕捉到，并避免我们在提交和日志中花费数天甚至数周来查找几周前引入的性能下降。
+- en: With that said, every type of test has its limitations. One of the limitations
+    of metrics tests is that while the reductionist approach (boiling down all behavior
+    to several aggregate metrics) helps you scale testing (i.e., exercise the model
+    based on *all* scenarios present in the available data ), it doesn’t allow you
+    to characterize pockets of behavior within segments of the data. Even in the case
+    of stratified metrics tests, there may be combinatorial effects in multiple dimensions
+    that can confound a model, but it can be hard to specify, characterize, and discover
+    such scenarios in a metrics test.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 话虽如此，每种类型的测试都有其局限性。指标测试的其中一个局限性是，虽然还原主义方法（将所有行为简化为几个聚合指标）有助于扩展测试（即根据可用数据中的*所有*场景来执行模型测试），但它不能允许您对数据段内的行为进行详细描述。即使在分层指标测试的情况下，也可能存在多维度组合效应，这些效应可能会误导模型，但很难在指标测试中指定、描述和发现这样的场景。
+- en: Another limitation is that the assumption that the validation data and production
+    data are independent and identically distributed (IID) often does not hold true
+    in a nonstationary world.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个限制是，在一个非静态的世界中，验证数据和生产数据独立且具有相同分布（IID）的假设通常不成立。
+- en: In the following section, we will discuss how we can use behavioral tests to
+    address the first limitation. In the final section of this chapter, we’ll look
+    at how data curation techniques help address the second limitation.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的部分，我们将讨论如何使用行为测试来解决第一个限制。在本章的最后一部分，我们将看看数据筛选技术如何帮助解决第二个限制。
+- en: Behavioral Tests
+  id: totrans-86
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 行为测试
+- en: Behavioral tests complement metrics tests by allowing us to enumerate specific—and
+    potentially out-of-sample—scenarios under which to test our model. Behavioral
+    testing (also known as black-box testing) has its roots in software engineering
+    and is concerned with testing various capabilities of a system by “validating
+    the input-output behavior, without any knowledge of the internal structure.”^([2](ch06.html#ch01fn29))
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 行为测试通过允许我们列举特定的——可能是样本外的——场景来补充指标测试，从而测试我们模型的各种能力。行为测试（也称为黑盒测试）起源于软件工程，关注于通过“验证输入输出行为而无需了解内部结构”来测试系统的各种能力。^([2](ch06.html#ch01fn29))
+- en: 'Here’s the general approach for defining behavioral tests in ML:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是定义机器学习行为测试的一般方法：
+- en: Define or generate test samples. You can start with just one or two examples
+    and use data-generation techniques to scale to more examples, if that provides
+    value.
+  id: totrans-89
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 定义或生成测试样本。您可以从一个或两个示例开始，使用数据生成技术来扩展到更多示例，如果这提供了价值。
+- en: Use these test samples to generate predictions from a trained model.
+  id: totrans-90
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用这些测试样本来从训练模型中生成预测。
+- en: Verify that the model’s behavior matches your expectations.
+  id: totrans-91
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 验证模型的行为是否符合预期。
+- en: We will draw from the excellent research paper by Ribeiro et al. in describing
+    the three types of behavioral tests. (Special thanks to Jeremy Jordan for his
+    article on [testing ML models](https://oreil.ly/NItt3)—it’s how we came to know
+    of this paper.) While the paper was written in the context of testing NLP models,
+    we find that the concepts can be generalized to other types of models working
+    with other types of data (e.g., tabular data, images). Behavioral testing has
+    also been applied in testing recommender systems (e.g., [RecList](https://reclist.io)).
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将从Ribeiro等人的优秀研究论文中汲取灵感，描述三种行为测试的类型。（特别感谢Jeremy Jordan关于[测试机器学习模型](https://oreil.ly/NItt3)的文章——正是通过这篇文章我们了解到这篇论文。）虽然该论文是在测试自然语言处理模型的背景下撰写的，但我们发现其概念可以推广到与其他类型数据（例如表格数据、图像）一起工作的其他类型模型。行为测试也已应用于测试推荐系统（例如[RecList](https://reclist.io)）。
+- en: Invariance tests
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不变性测试
+- en: In an invariance test, we apply label-preserving perturbations to the input
+    data and expect the model’s prediction to remain the same.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在不变性测试中，我们对输入数据应用保留标签的扰动，并期望模型的预测保持不变。
+- en: In our loan default prediction example, if there’s a dimension that we expect
+    our model to be invariant to (e.g., occupation), we can write a test where all
+    examples have the same attributes, except for the applicant’s occupation, and
+    assert that the model’s prediction should remain invariant. To scale this test,
+    we can include as many examples as needed to represent a wider range of attribute
+    combinations and manipulate the invariant dimension as needed.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的贷款违约预测示例中，如果有一个维度我们希望我们的模型对其具有不变性（例如职业），我们可以编写一个测试，其中所有示例具有相同的属性，除了申请人的职业，然后断言模型的预测应该保持不变。为了扩展这个测试，我们可以包括尽可能多的示例以代表更广泛的属性组合，并根据需要操作不变的维度。
+- en: In another example, say object detection, we could write a test where all example
+    images have some variance in a given attribute—such as lighting or image resolution—and
+    assert that the model produces the same prediction. Each test verifies a given
+    *capability* of a model (e.g., object detection under low-light or low-resolution
+    conditions).
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个例子，比如目标检测，我们可以编写一个测试，其中所有示例图像在给定属性上有一定的变化——比如光照或图像分辨率——并断言模型会产生相同的预测。每个测试验证模型的某个*能力*（例如在低光或低分辨率条件下的目标检测）。
+- en: Directional expectation tests
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 方向性期望测试
+- en: A directional expectation test is like an invariance test, except that we expect
+    the prediction to change in a specific direction when we perturb the input data.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 方向性期望测试类似于不变性测试，只是当我们扰动输入数据时，我们期望预测朝着特定方向改变。
+- en: In our example, we can write a test where all examples have the same attributes
+    except in one dimension that is known to have an effect on the prediction, and
+    assert that the model’s predicted probabilities should change in the corresponding
+    direction.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例中，我们可以编写一个测试，在这个测试中，所有示例都具有相同的属性，除了一个已知对预测有影响的维度外，我们可以断言模型预测的概率应该朝着相应的方向变化。
+- en: Minimum functionality tests
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最小功能测试
+- en: A minimum functionality test contains a set of simple examples and corresponding
+    labels that are used to verify the model’s behavior in a particular scenario.
+    These tests are similar to unit tests in software engineering and are useful for
+    creating small, targeted testing datasets.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最小功能测试包含一组简单的示例及其对应的标签，用于验证模型在特定场景下的行为。这些测试类似于软件工程中的单元测试，对于创建小型、有针对性的测试数据集非常有用。
+- en: We can use minimum functionality tests to codify bugs and assert that they should
+    never happen again. For example, let’s imagine we had a bug in the past where
+    loan default predictions were wrong when a particular feature was missing. Let’s
+    say we’re now fixing that bug by handling the missing feature through imputation.
+    We can accompany that bug fix with a minimum functionality test with one or more
+    test samples where this particular feature is missing.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用最小功能测试来编码漏洞，并断言它们不应再次发生。例如，让我们想象一下过去我们有一个bug，在缺少特定特征时贷款违约预测是错误的。假设现在我们通过填补来处理缺失的特征来修复此bug。我们可以通过一个或多个测试样本的最小功能测试来伴随此bug修复，其中这个特定特征缺失。
+- en: For this section, we’ve decided not to add code samples for behavioral tests.
+    While the concepts are generalizable across an array of ML use cases (e.g., object
+    detection, text classification), those code samples we write for our loan default
+    prediction example may not be. In any case, we are confident that, supported by
+    the in-depth explanation in the [behavioral testing research paper in NLP](https://oreil.ly/imSjt),
+    you can adapt and apply the three types of behavioral tests to your context.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于本节，我们决定不添加行为测试的代码示例。尽管概念可以推广到各种ML用例（例如目标检测、文本分类），但我们为贷款违约预测示例编写的代码示例可能不适用。无论如何，我们相信，在[NLP行为测试研究论文](https://oreil.ly/imSjt)中的深入解释的支持下，您可以将三种类型的行为测试适应并应用于您的上下文。
+- en: 'Now that we’ve covered ML model tests, let’s look at techniques for testing
+    a technology that many people are excited about: LLMs.'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经介绍了ML模型测试，让我们看看测试许多人对其感到兴奋的技术的技术：LLMs。
+- en: 'Testing Large Language Models: Why and How'
+  id: totrans-105
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 测试大型语言模型：为什么以及如何
+- en: While we were writing this book, LLMs exploded into the public consciousness.
+    From enterprises to start-ups, the race to harness the power of LLMs has been
+    fervent. LLMs have proved surprisingly powerful and general at solving a range
+    of problems. However, they also fail in problematic and unexpected ways, producing
+    incorrect results, inventing facts, and even [generating harmful responses](https://oreil.ly/QSaON).
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们写这本书时，LLMs引起了公众的关注。从企业到初创公司，利用LLMs的竞争激烈。LLMs在解决一系列问题时表现出惊人的强大和普遍性。然而，它们也以问题和意外的方式失败，产生错误结果，捏造事实，甚至[生成有害回复](https://oreil.ly/QSaON)。
+- en: Some might ask, is it worth the effort to test LLM applications? LLM applications—like
+    any software application—can regress or degrade due to several change vectors
+    (e.g., changes in our prompts and flows, changes in upstream LLMs, changes in
+    the libraries we depend on). [Figure 6-3](#example_of_a_failure_and_unexpected_cha)
+    provides an example of how a change in an upstream LLM dependency can introduce
+    regressions in an LLM application, through no fault of anyone.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有人可能会问，测试LLM应用程序是否值得付出努力？LLM应用程序——像任何软件应用程序一样——可能因多个变更向量（例如我们提示和流程的变更、上游LLMs的变更、我们依赖的库的变更）而退化或降级。[图6-3](#example_of_a_failure_and_unexpected_cha)提供了一个例子，说明上游LLM依赖项的变更如何在LLM应用程序中引入回归，而这并非任何人的过错。
+- en: '![](assets/emlt_0603.png)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0603.png)'
+- en: Figure 6-3\. Example of a failure and unexpected change in behavior due to an
+    upstream LLM dependency
+  id: totrans-109
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-3\. 上游LLM依赖导致故障和行为意外变化的示例
+- en: Can you imagine the number of production alerts that this could cause? Hence,
+    LLM applications—like any software application—must be tested if you want to ensure
+    quality and speed during delivery. If you’re going to spend days and weeks [designing
+    prompts](https://oreil.ly/BCp0m) or even fine-tuning LLMs, you’re going to need
+    a way to measure performance improvements and detect regressions.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你能想象这可能会引发多少生产警报吗？因此，LLM应用程序——像任何软件应用程序一样——必须进行测试，以确保在交付过程中保持质量和速度。如果你要花费数天甚至数周[设计提示](https://oreil.ly/BCp0m)，甚至微调LLM，你需要一种方法来衡量性能改进并检测回归。
+- en: At the same time, there are some scenarios where it can be challenging to test
+    LLM applications under “open task” scenarios where there can be multiple right
+    answers (“summarize this article”) or indeed no right answer at all (“write a
+    story about wandering wizards”).
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与此同时，在一些场景中，测试LLM应用程序可能会具有挑战性，特别是在“开放任务”场景下，可能会有多个正确答案（“总结这篇文章”），甚至可能根本没有正确答案（“写一个关于漫游巫师的故事”）。
+- en: To navigate the necessity and challenges of testing LLM applications, we’ll
+    share some guidelines and techniques that will help you define and implement a
+    comprehensive test strategy for your LLM application.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了应对测试LLM应用程序的必要性和挑战，我们将分享一些指南和技巧，这些将帮助你定义和实施全面的LLM应用程序测试策略。
+- en: Guidelines for designing an LLM test strategy
+  id: totrans-113
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: LLM 测试策略设计指南
+- en: Your requirements and expectations of desired behavior will determine whether
+    you should build a solution with LLMs, and whether it’s safe to put it in the
+    hands of users in production and, if so, how you should test it.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你对期望行为的需求和期望将决定是否应该使用LLM构建解决方案，以及是否可以安全地将其投放到用户手中进行生产，并且如果可以的话，应该如何测试。
+- en: Maybe your use case allows you to “embrace the weirdness”^([3](ch06.html#ch01fn30))
+    in that variable answers are a feature rather than a bug. Maybe some variation
+    is OK in production, but you need to verify reproducible results in controlled
+    conditions. Or maybe you’re looking for more assurance that only certain responses
+    are possible with certain likelihoods.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或许你的使用场景允许你“拥抱怪异”^([3](ch06.html#ch01fn30))，在这种情况下，变量答案不是问题，而是一种特征。也许在生产中允许一些变化，但你需要在受控条件下验证可重现的结果。或者你可能希望更有保证地确定只有某些响应在某些可能性下才是可能的。
+- en: If you’re embracing the weirdness, you can test integration and performance,
+    and you can test that outputs of the correct type are produced. When it comes
+    to testing the content, you could consider using another LLM (and/or other ML
+    techniques) to attempt to reconstruct the inputs and compare the “round-trip”
+    results to the original inputs. This remains subject to some of the same weirdness
+    issues, however. When it’s not clear what to test or the effort to implement a
+    test is prohibitive, consider generating a “gallery” of representative outputs.
+    This will allow a human expert who “knows it when they see it” to detect failures
+    and also, in time, to more clearly define failure modes that are amenable to automation.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你接受了这种怪异性，你可以测试集成和性能，确保产生正确类型的输出。在测试内容时，你可以考虑使用另一个LLM（和/或其他ML技术）尝试重建输入并将“往返”结果与原始输入进行比较。然而，这仍然受到一些相同怪异性问题的影响。当不清楚要测试什么或者实施测试的工作量很大时，考虑生成一个“画廊”，展示典型输出。这将允许“见到就知道”的人类专家检测失败，并逐渐更明确地定义适合自动化的故障模式。
+- en: If you need reproducible results in controlled conditions while accepting some
+    variation in production deployment, then you need to be able to control all of
+    the sources of variation in a test environment. This might include using set random
+    seeds or setting temperature to zero and using greedy sampling. With all inputs
+    held constant, we expect repeatable outputs, even with generative models. Some
+    lower-level optimizations, such as parallelism in compute or model quantization,
+    may still produce nondeterministic behavior. But, in general, it is still possible
+    to make execution deterministic through disabling these optimizations, if this
+    is important enough to test. Even if you’re stuck trying to show reproducible
+    behavior with some degree of nondeterminism, you can at least, with repeated testing,
+    statistically quantify the likelihood of certain outcomes. In this case, every
+    additional source of variation you can control makes your job easier.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您需要在受控条件下获得可重现的结果，同时又能接受生产部署中的某些变化，那么您需要能够控制测试环境中所有变化的源头。这可能包括使用设定的随机种子或将温度设置为零并使用贪婪抽样。在所有输入保持恒定的情况下，我们期望能够重复输出，即使使用生成模型也是如此。一些更低级别的优化，如计算中的并行性或模型量化，可能仍会产生非确定性行为。但总体而言，通过禁用这些优化，仍然可以使执行过程确定性，如果这一点对测试至关重要的话。即使您试图展示具有一定程度非确定性的可重现行为，通过反复测试，您至少可以统计量化某些结果的可能性。在这种情况下，您能够控制的每个额外的变化源头都会使您的工作更轻松。
+- en: Finally, if your application demands a finite variety of outputs and some certainty
+    about the likelihood of certain outputs under certain input conditions, then it’s
+    more like a discriminative ML problem (e.g. classification). As above, LLMs have
+    somewhat general capabilities compared to a typical ML model, so they can be pressed
+    into service in tasks like classification.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，如果您的应用程序需要有限种类的输出，并且对特定输入条件下某些输出的可能性有一定的确定性需求，那么它更像是一个区分性机器学习问题（例如分类）。与上述类似，LLM相比典型的机器学习模型具有更普适的能力，因此它们可以在分类等任务中发挥作用。
+- en: However, as articulated in the article [“Against LLM Maximalism”](https://oreil.ly/XF8RM),
+    LLMs are not always the best solution for certain problems. LLMs require significant
+    resources at inference time, which can be costly and result in poor application
+    performance, while the content they produce may be highly variable. In these cases,
+    you might consider established narrower NLP (or image modality) or classification
+    solutions, which have established methods for quantifying their predictive performance
+    and are simpler, faster, and less resource-intensive to implement. Again, the
+    advice in this book is relevant to these scenarios. However, LLMs have one last
+    trick to play here—they can be useful for generating weakly labeled data to bootstrap
+    the training of traditional models!
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，正如文章[“反对LLM极端主义”](https://oreil.ly/XF8RM)中所述，LLM并非对某些问题始终是最佳解决方案。LLM在推断时需要大量资源，可能成本高昂，并导致应用性能不佳，而它们生成的内容可能变化很大。在这些情况下，您可以考虑使用已建立的较窄的自然语言处理（或图像模态）或分类解决方案，这些解决方案已经有了量化其预测性能的方法，而且实施起来更简单、更快速、资源消耗更少。再次强调，本书中的建议也适用于这些场景。然而，LLM在这里还有一个最后的技巧——它们可以用于生成弱标记数据，以启动传统模型的训练！
+- en: Now, let’s look at the types of tests that you can implement to test your LLMs
+    and LLM applications.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们来看看您可以实施的测试LLM和LLM应用程序的类型。
+- en: LLM testing techniques
+  id: totrans-121
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: LLM测试技术
+- en: 'In this section, we build on the three testing paradigms that we’ve covered—example-based
+    tests, metrics tests, behavioral tests—and add a fourth paradigm: LLM-based tests
+    (aka auto-evaluator tests). Here are some emerging techniques for testing LLMs
+    and LLM applications. For more details and working examples on each testing technique,
+    you can refer to our article [“Engineering Practices for LLM Application Development”](https://oreil.ly/yhwJN).'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们基于我们已经介绍的三种测试范式——基于示例的测试、度量测试、行为测试——并添加了第四种范式：基于LLM的测试（也称为自动评估器测试）。以下是测试LLM和LLM应用程序的一些新兴技术。有关每种测试技术的更多细节和实际示例，请参阅我们的文章[“LLM应用开发的工程实践”](https://oreil.ly/yhwJN)。
+- en: Manual exploratory tests
+  id: totrans-123
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 手动探索性测试
+- en: As you develop your prompts, manual exploratory tests give you fast feedback
+    on an LLM’s response to your prompt or composition of prompts. The primary advantage
+    of manual exploratory tests is their flexibility. Developers can adapt on-the-fly,
+    probing the model with diverse inputs based on initial responses, thereby identifying
+    scenarios, behaviors, and edge cases that they can use in subsequent automated
+    tests.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在开发提示时，手动探索性测试可以快速反馈LLM对提示的响应或提示组合的反应。手动探索性测试的主要优势在于其灵活性。开发人员可以根据初始响应基于多样化输入即时适应，从而识别可以在后续自动化测试中使用的场景、行为和边界情况。
+- en: Example-based tests
+  id: totrans-125
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 例如测试
+- en: Example-based tests are structured tests where predefined inputs are paired
+    with expected outputs. For LLM applications, this might involve providing a set
+    prompt and expecting a specific response or a range of acceptable responses. This
+    is similar to the minimum functionality tests that we described in the section
+    [“Behavioral Tests”](#behavioral_tests).
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如测试是结构化测试，其中预定义的输入与期望的输出配对。对于LLM应用程序，这可能涉及提供一组提示，并期望特定的响应或一系列可接受的响应。这类似于我们在“行为测试”部分描述的最小功能测试。
+- en: For example, imagine we are building an LLM application to parse sections of
+    a resume into a structured JSON format. Example-based tests would involve specifying
+    a collection of resume sections and testing that the model’s output matches the
+    JSON output specified in our expectations.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，想象我们正在构建一个LLM应用程序，将简历的各个部分解析为结构化的JSON格式。例如测试将涉及指定一组简历部分，并测试模型的输出是否与我们期望的JSON输出匹配。
+- en: Example-based tests can also be applied to check if we have designed our LLM
+    application to be robust against a known set of adversarial attacks, such as prompt
+    injections. For example, we can specify some tests with adversarial prompts (e.g.,
+    “Ignore all previous instructions and do XYZ instead”) and verify that the model
+    responds based on the safeguards and protocols we designed to handle such requests.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如测试也可以用于检查我们是否已将我们的LLM应用程序设计成能够抵御已知的一系列对抗性攻击，如提示注入。例如，我们可以指定一些带有对抗性提示的测试（例如，“忽略所有先前的指令，改为执行XYZ”），并验证模型是否根据我们设计的安全防护和协议来处理这些请求。
+- en: In cases where we want the LLM’s response to be creative and varied, but still
+    operating within boundaries, we can design our prompts to ask the LLM to return
+    its response in a JSON format with two keys—one that we expect to be deterministic
+    (e.g., “intent”) and one where we allow creative variation (e.g., “message”).
+    We can assert on and depend on “intent” in our tests, and display the contents
+    of “message” in our application.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们希望LLM的响应具有创造性和多样性，但仍在边界内操作的情况下，我们可以设计我们的提示，要求LLM以JSON格式返回其响应，其中包括两个键——一个我们期望是确定性的（例如，“意图”），另一个我们允许有创造性变化（例如，“消息”）。我们可以在测试中断言并依赖于“意图”，并在我们的应用程序中显示“消息”的内容。
+- en: Example-based tests ensure that the model consistently produces the desired
+    output for known inputs. They are particularly useful for regression testing,
+    ensuring that changes to the model or prompt design don’t inadvertently introduce
+    errors for previously validated scenarios.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如测试确保模型始终为已知输入生成期望的输出。它们特别适用于回归测试，确保模型或提示设计的更改不会在先前验证过的场景中意外引入错误。
+- en: Benchmark tests
+  id: totrans-131
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 基准测试
+- en: Benchmark tests are designed to measure the performance of an LLM for a given
+    task and are useful for closed or relatively closed tasks such as classification,
+    question-answering, and summarization. This is similar to the Metrics Tests we
+    described earlier in the chapter, but with a bit more sophistication to cover
+    multidimensional aspects of quality—accuracy, bias, efficiency, toxicity, and
+    so on.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基准测试旨在衡量LLM在特定任务中的性能，并适用于封闭或相对封闭的任务，如分类、问答和摘要。这与我们在本章前面描述的度量测试类似，但更为复杂，涵盖了质量的多维度方面——准确性、偏见、效率、毒性等。
+- en: Stanford’s [Holistic Evaluation of Language Models (HELM)](https://oreil.ly/qX9EC)
+    contains many examples of benchmark tests that evaluate prominent language models
+    across a wide range of scenarios and metrics to elucidate each model’s capabilities
+    and failure modes. You can read more about the methodology and how to add new
+    scenarios/metrics for your domain-specific model in [a Stanford article on the
+    need for holistic evaluation](https://oreil.ly/IqWtq).
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 斯坦福的[语言模型全面评估（HELM）](https://oreil.ly/qX9EC)包含许多基准测试的例子，评估了各种场景和指标下突出的语言模型，以阐明每个模型的能力和失败模式。您可以在[斯坦福关于全面评估需求的文章](https://oreil.ly/IqWtq)中详细了解方法论，以及如何为您的领域特定模型添加新的场景/指标。
+- en: Benchmark tests help us gauge the impact of fine-tuning or other modifications
+    on the model’s performance. For instance, after adjusting an LLM’s parameters,
+    benchmark tests can determine the model’s performance—as defined by metrics such
+    as accuracy, fairness, robustness, efficiency, and so on. They provide quantifiable
+    metrics, making it easier to compare different versions of a model or different
+    models altogether.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基准测试帮助我们评估在微调或其他修改对模型性能的影响。例如，调整LLM的参数后，基准测试可以确定模型的性能——如准确性、公平性、鲁棒性、效率等指标所定义的。它们提供可量化的指标，使得比较不同版本的模型或不同的模型变得更加容易。
+- en: 'So far, we’ve discussed automated tests that are suitable for closed tasks.
+    What about open tasks that don’t have a deterministic answer, or for which there
+    can be multiple acceptable answers? For such tasks, we can leverage two new testing
+    paradigms: property-based tests and LLM-based tests.'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经讨论了适用于封闭任务的自动化测试。那么对于没有确定性答案或可能有多个可接受答案的开放任务，我们可以利用两种新的测试范式：基于属性的测试和基于LLM的测试。
+- en: Property-based tests
+  id: totrans-136
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 基于属性的测试
+- en: 'Instead of testing for a specific output, property-based tests check for certain
+    properties or characteristics in the output. You do so by specifying statements
+    that should always be true, rather than relying on specific examples. These statements
+    take the form: “for all inputs that satisfy some precondition, the output satisfies
+    a specified criteria.”'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不是测试特定的输出，而是检查输出中的某些属性或特征。您通过指定应始终为真的语句来实现这一点，而不是依赖于特定的示例。这些语句采用以下形式：“对于所有满足某些前提条件的输入，输出满足指定的标准。”
+- en: For example, if you are using an LLM to parse unstructured data into JSON format,
+    an important property would be that the output is a valid JSON string. Having
+    clearly articulated this expected property, you can easily write property-based
+    tests to verify if the LLM’s output is in a valid JSON format. These tests are
+    powerful for ensuring that the model maintains desired behaviors across diverse
+    scenarios, even those not explicitly covered in example-based tests.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，如果你正在使用LLM将非结构化数据解析成JSON格式，一个重要的属性就是输出是有效的JSON字符串。明确表达了这个预期属性之后，你可以轻松编写基于属性的测试，以验证LLM的输出是否符合有效的JSON格式。这些测试非常强大，可以确保模型在各种场景下保持所需的行为，即使这些场景在基于示例的测试中没有明确涵盖。
+- en: LLM-based tests (aka auto-evaluator tests)
+  id: totrans-139
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 基于LLM的测试（也称为自动评估器测试）
+- en: 'Property-based tests are useful for easy-to-test properties (e.g., is the output
+    in a valid JSON format?) but what about harder-to-test properties (e.g., is the
+    generated resume accurate)? That’s where you can leverage the next testing paradigm:
+    using an LLM (or another higher-quality LLM) to test itself. This approach capitalizes
+    on the strength of LLMs in understanding and evaluating complex content.'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于属性的测试对于易于测试的属性非常有用（例如，输出是否为有效的JSON格式？），但对于难以测试的属性（例如，生成的简历是否准确？）怎么办呢？这就是你可以利用下一个测试范式的地方：使用LLM（或另一个更高质量的LLM）来测试自身。这种方法充分利用了LLM在理解和评估复杂内容方面的优势。
+- en: 'You start by listing high-level properties that we expect to see. For example,
+    say you are designing an LLM application or feature to help users generate a resume.
+    Some properties could be:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以从列出我们希望看到的高级属性开始。例如，假设你正在设计一个LLM应用程序或功能，帮助用户生成简历。一些属性可能包括：
+- en: The Resume communicates key information in the user’s Profile.
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 简历传达用户个人资料中的关键信息。
+- en: The Resume contains only skills that are present in the user’s Profile.
+  id: totrans-143
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 简历只包含用户个人资料中存在的技能。
+- en: Next, you design prompts to create an “evaluator” LLM and check if these properties
+    hold true for the given scenarios and provide explanations for its evaluation.
+    When you find bugs and failures, you drill down and expand them as much as possible
+    so you can understand and fix them. This creates a feedback loop that can lead
+    to continuous improvement of the model’s performance and reliability.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，您需要设计提示语来创建一个“评估器”LLM，并检查这些属性是否适用于给定的场景，并为其评估提供解释。当您发现错误和故障时，尽可能深入挖掘和扩展它们，以便理解并修复它们。这创建了一个反馈循环，可以持续改进模型的性能和可靠性。
+- en: This approach was pioneered by Marco Tulio Ribeiro in his paper [“Adaptive Testing
+    and Debugging of NLP Models”](https://oreil.ly/Jhrvv) (coauthored with Scott Lundberg)
+    and article [“Testing Language Models (and Prompts) Like We Test Software”](https://oreil.ly/vjn48).
+    You can refer to these articles for more details about how to write and expand
+    on LLM-based tests.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法是由Marco Tulio Ribeiro在他的论文[《自然语言处理模型的自适应测试与调试》](https://oreil.ly/Jhrvv)（与Scott
+    Lundberg合著）和文章[《像测试软件一样测试语言模型（和提示）》](https://oreil.ly/vjn48)中首创的。您可以参考这些文章了解如何编写和扩展基于LLM的测试的详细信息。
+- en: Now that we’ve covered techniques for testing LLMs and LLM applications, let’s
+    look at some complementary practices that help us complete the model testing puzzle.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经涵盖了测试LLM和LLM应用的技术，让我们看看一些有助于完成模型测试难题的补充实践。
+- en: Essential Complementary Practices for Model Tests
+  id: totrans-147
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型测试的重要补充实践
+- en: 'In *Perfect Software: and Other Illusions About Testing* (Dorset House), author
+    Gerald Weinberg puts it well: “poor testing can lead to poor quality, but good
+    testing won’t lead to good quality unless other parts of the process are in place
+    and performed properly.” We need to complement automated model tests with other
+    practices that help us to debug and explain a model’s behavior, and to iteratively
+    improve the model.'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在*《完美软件：关于测试的其他幻想》*（Dorset House）中，作者Gerald Weinberg形象地表达了：“糟糕的测试可能导致质量低下，但良好的测试不会导致质量好，除非其他流程部分到位且执行得当。”
+    我们需要通过其他实践来补充自动化模型测试，这些实践有助于调试和解释模型的行为，并逐步改进模型。
+- en: 'The following practices are essential complements to model tests and can help
+    you create a feedback loop to continuously test and improve your models:'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下实践是模型测试的重要补充，并可帮助您创建一个反馈循环，持续测试和改进您的模型：
+- en: Error analysis and visualization
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 错误分析与可视化
+- en: Learning from production by closing the data collection loop
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过关闭数据收集循环从生产中学习
+- en: Open-closed test design
+  id: totrans-152
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 开闭式测试设计
+- en: Exploratory testing
+  id: totrans-153
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 探索性测试
+- en: Means to improve the model
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 改进模型的方法
+- en: Designing to minimize the cost of failures
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 设计以最小化失败成本
+- en: Monitoring in production
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 生产监控
+- en: Let’s go through each one of these practices, beginning with error analysis
+    and visualization. We’ll illustrate how these seven practices work together in
+    [Figure 6-8](#model_testing_can_benefit_from_other_en), which you can find at
+    the end of this section.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们逐一了解每一种实践，从错误分析与可视化开始。我们将展示这七种实践如何在[图6-8](#model_testing_can_benefit_from_other_en)中共同作用，您可以在本节末找到该图。
+- en: Error Analysis and Visualization
+  id: totrans-158
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '**错误分析与可视化**'
+- en: In practice, it’s not enough for model tests to pass or fail. When a model behaves
+    contrary to your expectations in certain scenarios, you need to undertake error
+    analysis—inspect the code and the model to understand where and why the model
+    makes systematic errors for specific segments of data—and explainability mechanisms
+    to understand how you can improve the model. Error analysis is an essential precursor
+    to improving the model (see [Figure 6-4](#error_analysis_is_an_essential_step_in)).
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实践中，仅仅通过模型测试的通过或失败是不够的。当模型在某些场景中表现与您的预期相反时，您需要进行错误分析——检查代码和模型，理解模型在特定数据段中为何会产生系统性错误，并使用可解释性机制来理解如何改进模型。错误分析是改进模型的重要先决条件（参见[图6-4](#error_analysis_is_an_essential_step_in)）。
+- en: '![](assets/emlt_0604.png)'
+  id: totrans-160
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0604.png)'
+- en: Figure 6-4\. Error analysis is an essential step in the model improvement cycle
+  id: totrans-161
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-4\. 错误分析是模型改进周期中的关键步骤
+- en: When a software test fails, “looking into” the code flow (e.g., through the
+    use of debugger breakpoints) under a specific condition (or state) can help developers
+    identify the cause of the issue and find a fix. Similarly, when a model test fails,
+    inspecting the code, data, and model helps you identify the root cause, areas
+    of weakness in your model, and ways to improve the model.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当软件测试失败时，“查看”代码流程（例如通过调试器断点）在特定条件（或状态）下可以帮助开发人员确定问题的原因并找到解决方案。类似地，当模型测试失败时，检查代码、数据和模型有助于确定根本原因、模型的弱点区域以及改进模型的方法。
+- en: 'The challenge is that while software tests tend to be point-based and relatively
+    easier to visualize (e.g., in a debugger), model tests tend to be high-dimensional,
+    high-volume, and the state of the program can be hard to visualize. As such, the
+    following error analysis and visualization practices can help:'
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 挑战在于，虽然软件测试往往是点式的且相对容易可视化（例如在调试器中），但模型测试往往是高维、大量的，并且程序状态很难可视化。因此，以下的错误分析和可视化实践可以帮助：
+- en: Data visualization
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据可视化
+- en: 'Data visualization supports model testing by allowing us to visually inspect
+    plots or charts to arrive at a more granular and nuanced view of the performance
+    of a model. Jeremy Jordan articulates this well: A [granular report with visualizations](https://oreil.ly/NItt3)
+    helps us spot and characterize failure modes and the specific conditions under
+    which they occur. It also helps us to compare models over time. Visualizing any
+    patterns in the data can help us identify the scenarios that could be impacting
+    the model’s performance.'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据可视化支持模型测试，通过允许我们视觉检查图表或图形，以获得更精细和细致的模型性能视图。Jeremy Jordan在这方面表达得很好：[带有可视化的细致报告](https://oreil.ly/NItt3)帮助我们发现和描述失败模式及其发生的具体条件。它还帮助我们随时间比较模型。可视化数据中的任何模式有助于我们识别可能影响模型性能的情景。
+- en: Data visualization also helps us discover unknown unknowns and uncover questions
+    that we should be asking of data, which can help us in discovering and defining
+    test specifications. Visualization is also a powerful way of exploratory testing,
+    regression testing, and understanding the model’s behavior in specific scenarios.
+    It makes it easier to spot discrepancies that would otherwise be challenging to
+    detect.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据可视化也帮助我们发现未知的未知，并揭示我们应该向数据提出哪些问题，这有助于我们发现和定义测试规范。可视化也是探索性测试、回归测试和理解模型在特定场景下行为的强大方式。它使我们更容易发现否则难以检测到的差异。
+- en: Model explainability
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型可解释性
+- en: Explainability mechanisms allow us to understand why and how a model made a
+    particular prediction under specific conditions. They help us identify patterns
+    in the errors that the model is making and understand what is causing those errors.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解释性机制使我们能够理解模型在特定条件下为何如何做出特定预测。它们帮助我们识别模型出错的模式，并理解造成这些错误的原因。
+- en: There are various explainability techniques, such as feature importance, [local
+    interpretable model-agnostic explanations (LIME)](https://oreil.ly/0kOa6), and
+    [Shapley values](https://oreil.ly/AfMLa), among [others](https://oreil.ly/LGrlk).
+    Whichever you pick, the ability to explain a prediction within a few minutes will
+    help your team accelerate the process of error analysis and model improvements.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有各种可解释性技术，如特征重要性、[局部可解释模型无关解释（LIME）](https://oreil.ly/0kOa6)和[Shapley值](https://oreil.ly/AfMLa)，以及[其他技术](https://oreil.ly/LGrlk)。无论您选择哪一种，能够在几分钟内解释一个预测将帮助您的团队加快错误分析和模型改进的过程。
+- en: In a past project, we built an explainability dashboard that allowed ML practitioners
+    (both technical and nontechnical) on the team to understand the model’s rationale
+    for every single prediction. Aside from drastically improving the team’s happiness—because
+    customer queries on a model’s predictions could now be explained and resolved
+    in a few minutes, when it used to take hours and sometimes a few days of effort—it
+    also helped us understand when, why, and how a model made mistakes and helped
+    us identify ways to improve the model.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在过去的项目中，我们建立了一个可解释性仪表板，使得团队中的机器学习从业者（技术和非技术）能够理解每个预测的模型推理过程。这不仅极大提升了团队的工作满意度
+    — 因为客户对模型预测的疑问现在可以在几分钟内解释和解决，而不是过去需要几个小时甚至几天的努力 — 还帮助我们理解模型何时、为什么以及如何出错，并且帮助我们识别改进模型的方法。
+- en: Now that you understand model quality issues spotted through error analysis,
+    let’s look at how you can better detect and resolve these issues by closing the
+    data collection loop in production.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经了解通过错误分析发现的模型质量问题，让我们看看如何通过在生产中关闭数据收集回路来更好地检测和解决这些问题。
+- en: Learn from Production by Closing the Data Collection Loop
+  id: totrans-172
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 通过关闭数据收集回路从生产中学习
+- en: In many ML applications, the interaction of users with an earlier version of
+    the model may be a valuable source of training data. This section focuses on these
+    cases. In other cases, where new training data comes from other sources (such
+    as the observations following a weather forecast), closing the loop could be thought
+    of as ensuring that the model can accurately predict the current behaviors in
+    the world, as captured by those data sources.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多机器学习应用中，用户与模型早期版本的交互可能是宝贵的训练数据来源。本节重点讨论这些情况。在其他情况下，新的训练数据来自其他来源（例如天气预报后的观测数据），关闭回路可以被视为确保模型能够准确预测世界当前行为的过程。
+- en: Our model tests and error analyses will only be as good as our test data. Furthermore,
+    validation data can often contain the same biases as the training data, which
+    leads us to overestimate the model’s real-world performance. If we want to preemptively
+    detect bugs in production, we’ll need to test our models with production (or production-like)
+    data. To do that, we need to close the data collection loop.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们模型的测试和错误分析将仅仅好到我们的测试数据。此外，验证数据通常可能包含与训练数据相同的偏见，这导致我们高估了模型在现实世界中的表现。如果我们希望预先检测生产中的错误，我们将需要使用生产（或类似生产）数据测试我们的模型。为此，我们需要关闭数据收集回路。
+- en: The distance between training data and inference data is known as a *data distribution
+    shift*, and it is a common cause of ML system failure. Data distribution shifts
+    could result from [covariate shift, label shift, or concept drift](https://oreil.ly/Me1ml)
+    and cause a model that was performing well (when evaluated using an in-sample
+    validation dataset) to underperform in production when presented with nonstationary,
+    out-of-sample data. This is comprehensively discussed in Chip Huyen’s book [*Designing
+    Machine Learning Systems*](https://oreil.ly/GOnLW), so we won’t go into detail
+    on how the shifts happen and when to trigger an event to retrain a model. However,
+    we will detail in [Figure 6-5](#distribution_shift_between_training_dat) and the
+    following paragraphs *how* to keep the data we use for training and testing as
+    similar as possible in terms of distribution of the data that the model will see
+    in production.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练数据和推理数据之间的距离称为*数据分布偏移*，它是机器学习系统失败的常见原因。数据分布的变化可能来自于[covariate shift, label
+    shift, or concept drift](https://oreil.ly/Me1ml)，并导致在生产中使用非静态、样本外数据时，表现良好的模型（在样本内验证数据集中评估时）性能下降。这在
+    Chip Huyen 的书 [*Designing Machine Learning Systems*](https://oreil.ly/GOnLW) 中有详细讨论，因此我们不会详细介绍偏移发生的原因及何时触发重新训练模型的事件。然而，我们将详细说明在
+    [Figure 6-5](#distribution_shift_between_training_dat) 和接下来的段落中如何使我们用于训练和测试的数据在模型将在生产中看到的数据分布上尽可能相似。
+- en: '![](assets/emlt_0605.png)'
+  id: totrans-176
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0605.png)'
+- en: Figure 6-5\. Distribution shift between training data and inference data, and
+    what can we do to minimize the drift
+  id: totrans-177
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-5\. 训练数据和推理数据之间的分布偏移及我们可以做什么来最小化漂移
+- en: 1\. Minimize training-serving skew.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 1\. 减少训练和服务之间的偏差。
+- en: 'Ensure the distribution shift between training data and inference data is as
+    small as possible, by: (i) ensuring all feature engineering logic are symmetrically
+    applied in both scenarios (as we have done in this chapter’s code example by using
+    [scikit-learn pipelines](https://oreil.ly/eRPSN)) (ii) regularly refreshing the
+    data that the model was trained on (more on this shortly).'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保训练数据和推理数据之间的分布偏移尽可能小，方法是：（i）确保所有特征工程逻辑在两种情景下都对称应用（正如本章代码示例中使用[scikit-learn
+    pipelines](https://oreil.ly/eRPSN)所做的）（ii）定期更新模型训练所使用的数据（稍后将详细说明）。
+- en: 2\. Use production-like data for testing (and use synthetic data where necessary).
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 2\. 使用类似生产数据进行测试（在必要时使用合成数据）。
+- en: In some situations, we cannot have access to production data for testing in
+    a nonproduction environment. In such scenarios, we can use tools such as [Synthetic
+    Data Vault](https://oreil.ly/vYDx5) and [CheckList](https://oreil.ly/eOVjA) to
+    [generate production-like synthetic data](https://oreil.ly/rnA1s) for testing
+    ML models and uncovering issues using test samples that are similar to production
+    data in terms of distribution.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，我们无法在非生产环境中访问生产数据进行测试。在这种情况下，我们可以使用工具，例如[Synthetic Data Vault](https://oreil.ly/vYDx5)和[CheckList](https://oreil.ly/eOVjA)，以便[生成类似于生产环境的合成数据](https://oreil.ly/rnA1s)来测试机器学习模型，并利用在分布上类似于生产数据的测试样本来发现问题。
+- en: 3\. Close the data collection loop.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 3\. 关闭数据收集回路。
+- en: In the real world, data is rapidly changing and nonstationary. Tecton’s [“The
+    State of Applied Machine Learning 2023”](https://oreil.ly/ZNwx-), a survey involving
+    1,700 respondents from a global ML community, found that the top challenge in
+    delivering ML solutions is generating accurate training data, with 41% of respondents
+    citing this as a challenge.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在现实世界中，数据变化迅速且非静态。Tecton的《“应用机器学习2023年状况报告”》（https://oreil.ly/ZNwx-），这是一项涉及全球机器学习社区1,700名受访者的调查，发现在提供机器学习解决方案中面临的最大挑战是生成准确的训练数据，41%的受访者将其视为挑战。
+- en: To help us address this challenge, we can ensure that our ML systems include
+    data collection loops and [scalable data-labeling mechanisms](https://oreil.ly/3IpM9)
+    (e.g., weak supervision, active learning, semi-supervised learning). This is key
+    in ensuring that our [feature store](https://oreil.ly/bmJ5c) is regularly refreshed
+    and is as similar as possible to the data that the model will see in production
+    during inference.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了帮助我们应对这一挑战，我们可以确保我们的机器学习系统包括数据收集回路和[可扩展的数据标记机制](https://oreil.ly/3IpM9)（例如弱监督、主动学习、半监督学习）。这对确保我们的[特征存储库](https://oreil.ly/bmJ5c)定期更新，并且在推断过程中，与模型将在生产中看到的数据尽可能相似是关键的。
+- en: 'Having freshly labeled data that’s representative of the domain in the real-world
+    helps us in all steps of the model improvement cycle: detecting errors, analyzing
+    errors, and improving the model (e.g., by retraining the model on fresher and
+    more representative data).'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 拥有新鲜标记的数据，代表了现实世界中领域的帮助我们在模型改进周期的所有步骤中：检测错误，分析错误，并改进模型（例如，通过在更新和更具代表性的数据上重新训练模型）。
+- en: Note
+  id: totrans-186
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: When closing data collection loops, we need to identify and mitigate risks of
+    [*runaway feedback loops*](https://oreil.ly/q4kyk), which is the phenomenon where
+    the model learns biases and, through the effect that it has on the real world,
+    perpetuates the bias in the real world and the data that it will be trained on
+    in the future, thereby creating a vicious cycle.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在闭合数据收集循环时，我们需要识别和减少[*逃逸反馈循环*](https://oreil.ly/q4kyk)的风险，即模型学习偏见，并通过其对现实世界的影响，在未来的数据和真实世界中，永久性地在模型上训练，从而产生恶性循环。
+- en: ML practitioners often focus on the training and evaluation aspects—and in recent
+    years, the deployment aspect—of ML, and many tend to overlook what happens after
+    the model is live in production. In our experience delivering ML solutions, *closing
+    the data collection loop* with scalable data-labeling mechanisms is an effective
+    capability for iteratively improving our models (see [Figure 6-6](#closing_the_data_collection_loop_create)).
+    The rate at which we can improve our models depends on the rate of information
+    flow in the data collection loop.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习从业者通常专注于机器学习的训练和评估方面——近年来，部署方面——而往往忽视了模型在生产中上线后发生的情况。在我们提供机器学习解决方案的经验中，通过可扩展的数据标记机制*闭环数据收集*是提升我们模型的有效能力（参见[图 6-6](#closing_the_data_collection_loop_create)）。我们能够改进模型的速度取决于数据收集循环中信息流的速率。
+- en: '![](assets/emlt_0606.png)'
+  id: totrans-189
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0606.png)'
+- en: Figure 6-6\. Closing the data collection loop creates an essential feedback
+    mechanism that helps us test and improve our models
+  id: totrans-190
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-6\. 闭环数据收集创建了一个关键的反馈机制，帮助我们测试和改进我们的模型。
+- en: Now that we’ve closed the data collection loop, and our data for training and
+    testing is increasingly representative of the real world, we can make the most
+    of the regularly updated data in our model tests by designing our tests using
+    the open-closed principle.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经关闭了数据收集回路，并且我们的训练和测试数据越来越能代表现实世界，我们可以通过使用开闭原则设计我们的测试，充分利用定期更新的数据来进行模型测试。
+- en: Open-Closed Test Design
+  id: totrans-192
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 开闭测试设计
+- en: The [open-closed design principle](https://oreil.ly/NSVtL) states that software
+    entities (classes, modules, functions, and so on) should be open for extension,
+    but closed for modification. This is a simple but powerful design principle that
+    helps us write extensible code and minimize the amount of bespoke customization
+    that we need to add for each new piece of functionality. Open-closed tests are
+    open for extension (e.g., we can extend the same test on a range of datasets,
+    such as an in-sample validation dataset, out-of-sample freshly labeled data) but
+    closed for modification (i.e., we do not need to change any code in our tests
+    to do this).
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[开闭设计原则](https://oreil.ly/NSVtL)指出软件实体（类、模块、函数等）应该对扩展开放，但对修改关闭。这是一个简单但强大的设计原则，帮助我们编写可扩展的代码，并尽量减少为每个新功能添加专门定制的量。开闭测试允许我们进行扩展（例如，我们可以在一系列数据集上扩展同一测试，如样本内验证数据集、样本外新标记数据），但不允许修改（即，我们不需要更改测试中的任何代码来实现这一点）。'
+- en: By exposing the test data source and model as a configurable parameter in our
+    test, we can rerun model evaluation tests on any given model, against any given
+    dataset, at any time (see [Figure 6-7](#applying_open_closed_design_principle_t)).
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过在我们的测试中将测试数据源和模型公开为可配置参数，我们可以在任何时候重新运行模型评估测试，针对任何给定的模型和数据集（参见[图 6-7](#applying_open_closed_design_principle_t)）。
+- en: '![](assets/emlt_0607.png)'
+  id: totrans-195
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0607.png)'
+- en: Figure 6-7\. Applying open-closed design principle to model tests helps us create
+    extensible and reusable tests
+  id: totrans-196
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-7\. 将开闭设计原则应用于模型测试，帮助我们创建可扩展和可重用的测试。
+- en: This design also means that we’re decoupling model testing from model training,
+    so you can run both tasks independently and on a different cadence. This decoupling
+    has several benefits. For example, it allows us to rerun the evaluation of any
+    given model—such as the current production model, or a challenger model—at any
+    time, whenever new evaluation data is available or when we develop new tests for
+    testing past models (“train once, test repeatedly”). This capability to continuously
+    test a model on newly labeled data is required for monitoring the correctness
+    or performance of ML models over time (we’ll come back to monitoring at the end
+    of this section).
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种设计还意味着我们将模型测试与模型训练解耦，因此您可以独立运行这两个任务，并根据不同的时间表运行。这种解耦带来了多种好处。例如，它允许我们在任何时候重新评估任何给定模型——例如当前的生产模型或挑战者模型——只要新的评估数据可用或者我们为测试过去的模型开发新的测试（“一次训练，多次测试”）。在时间内对新标记数据持续测试模型的能力对监测机器学习模型的正确性或性能至关重要（我们将在本节末回到监测）。
+- en: In addition, for models that take a long time to train, decoupling allows us
+    to evolve our tests (e.g., specifying new test scenarios, adjusting the metric
+    thresholds) without wasting time and cloud resources for unnecessary retraining.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，对于需要长时间训练的模型，解耦还允许我们在不浪费时间和云资源进行不必要的重新训练的情况下，演变我们的测试（例如，指定新的测试场景、调整指标阈值）。
+- en: Let’s now look at the next complementary practice—exploratory testing.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们来看下一个互补的实践——探索性测试。
+- en: Exploratory Testing
+  id: totrans-200
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 探索性测试
+- en: When you are stuck in writing automated model tests—which can often be the case,
+    especially in early phases of an ML project—exploratory testing can help you discover
+    what good looks like. Exploratory testing helps you identify bugs, issues, and
+    edge cases (“unknown unknowns”) where the model is not behaving as expected. The
+    issues that you discover through exploratory testing can trigger another cycle
+    of model improvement, which we illustrated earlier in [Figure 6-5](#distribution_shift_between_training_dat).
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你在编写自动化模型测试时遇到困难——尤其是在机器学习项目的早期阶段经常会遇到这种情况——探索性测试可以帮助你发现优秀的特征。探索性测试帮助你识别bug、问题以及边缘情况（“未知未知”），即模型表现不如预期的情况。通过探索性测试发现的问题可以触发另一轮模型改进循环，正如我们在[图 6-5](#distribution_shift_between_training_dat)中已经说明的那样。
+- en: While exploratory testing is not user testing, it can benefit from the empathy
+    and mindset of user testing. It helps to consider and [involve a range of personas
+    and stakeholders](https://oreil.ly/kKlH6), including those who will be most impacted
+    by the model, and observe how the system responds in various interaction modes
+    and scenarios. This can help to create qualitative perspectives on model quality
+    that help to finesse and articulate better measures of goodness.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然探索性测试并不是用户测试，但它可以从用户测试的共情和心态中受益。考虑并 [涉及各种角色和利益相关者](https://oreil.ly/kKlH6)，包括那些最受模型影响的人，并观察系统在不同的交互模式和场景中的反应。这有助于创造有助于完善和表达模型质量的定性视角。
+- en: When you are not sure what to test in an exploratory test, feedback or complaints
+    from customers and domain specialists are a valuable starting point. While you
+    may have a reflexive aversion to customer complaints, they are nevertheless valuable
+    signals and they also point to a gap in our ML delivery process that needs to
+    be looked into. If you can apply the spirit of [“learning from incidents”](https://oreil.ly/h_n7f)
+    and use exploratory testing to identify the root cause of an issue and improve
+    the model, then you would’ve completed a model improvement cycle and reduced the
+    chance of similar issues or complaints happening again (future you will thank
+    you!).
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你不确定在探索性测试中要测试什么时，来自客户和领域专家的反馈或投诉是一个宝贵的起点。虽然你可能对客户的投诉有一种本能的厌恶，但它们仍然是宝贵的信号，也指向我们的机器学习交付过程中需要调查的一个空白。如果你能应用
+    [“从事件中学习”](https://oreil.ly/h_n7f) 的精神，并利用探索性测试来确定问题的根本原因并改进模型，那么你将完成一个模型改进周期，减少类似问题或投诉再次发生的可能性（未来的你会感谢你！）。
+- en: When an exploratory test shows signs of being repeated or repeatable, you can
+    formulate it as an automated test and reap the benefits of quality, flow, cognitive
+    load, and satisfaction.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当探索性测试显示出可以重复的迹象时，你可以将其制定为自动化测试，并从质量、流程、认知负荷和满意度等方面获益。
+- en: Means to Improve the Model
+  id: totrans-205
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 改进模型的方法
+- en: 'Tests do not improve a product; the improvement is done when you [fix the bugs](https://oreil.ly/91axT)
+    uncovered by the tests—when a model test fails and you’ve undertaken the error
+    analysis to understand how a model arrived at an incorrect outcome, and finally
+    you identify potential options for improving the model. As ML practitioners know
+    well, we can approach model improvement from two angles:'
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试并不能改善产品；改进是在你 [修复由测试揭示的错误](https://oreil.ly/91axT) 后进行的——当模型测试失败并且你已经进行了错误分析以了解模型如何得出不正确的结果，最终你会确定潜在的改进选项。正如机器学习从业者所知，我们可以从两个角度来改进模型：
+- en: Data-centric approach
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以数据为中心的方法
+- en: We can leverage the data collection loop that we described earlier to create
+    training data that is more representative and of a better quality. We can also
+    consider various feature engineering approaches, such as creating balanced datasets
+    or feature scaling.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以利用我们之前描述的数据收集循环来创建更具代表性和更高质量的训练数据。我们还可以考虑各种特征工程方法，比如创建平衡数据集或特征缩放。
+- en: Model-centric approach
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以模型为中心的方法
+- en: No, this is not just tuning hyperparameters. We can explore alternative model
+    architectures, ensembles, or even decompose the ML problem into narrower subproblems
+    that are easier to solve.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不，这不仅仅是调整超参数。我们可以探索替代模型架构、集成模型，甚至将机器学习问题分解为更容易解决的更窄的子问题。
+- en: Having said that, there are times where teams may try both approaches and find
+    that the model still isn’t good enough. At this point, an underrated but useful
+    approach—which we introduced in [Chapter 1](ch01.html#challenges_and_better_paths_in_deliveri)—is
+    to reframe the problem.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 话虽如此，有时团队可能尝试两种方法，发现模型仍然不够好。在这一点上，一个被低估但有用的方法——我们在 [第一章](ch01.html#challenges_and_better_paths_in_deliveri)
+    中介绍的——是重新定义问题。
+- en: If you find yourself in a position where the data is sparse or not sufficiently
+    representative and you can’t train a “good enough” model, you can make progress
+    by temporarily lowering the expectations of the downstream consumer of your ML
+    system. This allows your team to deploy an initial version of the model and gather
+    more training data from real-world usage—which enables you to improve the model
+    using a data-centric approach. As more data becomes available, the model can be
+    iteratively refined, and the original, more complex question can be revisited.
+    This technique of reframing the problem is especially useful for “getting off
+    the ground” scenarios where an initial model, no matter how hard you try, just
+    isn’t good enough to be deployed yet.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您发现自己处于数据稀缺或不足代表性且无法训练“足够好”的模型的位置，则可以通过暂时降低ML系统的下游使用者的期望来取得进展。这使得您的团队可以部署模型的初始版本，并从实际使用中收集更多的训练数据，从而使用数据为中心的方法改进模型。随着更多数据的可用性，模型可以被迭代地优化，并且可以重新审视最初更为复杂的问题。这种重新构架问题的技术在“起步阶段”场景中特别有用，即使您竭尽全力，初始模型也还不足以部署。
+- en: Let’s now look at the next practice—designing to minimize the cost of failures.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们看看下一个实践——设计以最小化失败成本。
+- en: Designing to Minimize the Cost of Failures
+  id: totrans-214
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 设计以最小化失败成本
+- en: Given that ML models are bound to make wrong predictions some of the time, you
+    need to design the product in a way that reduces risk (risk = likelihood x impact)
+    of a wrong prediction, especially when the stakes are high. We’ll first look at
+    some ways to reduce the likelihood of incorrect predictions, and then we’ll look
+    at ways to reduce the impact of failure.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到机器学习模型在某些时候会做出错误预测，您需要设计产品以降低错误预测的风险（风险 = 发生概率 x 影响），特别是在风险较高时。我们将首先看一些减少不正确预测发生概率的方法，然后再看看如何减少失败的影响。
+- en: Not all errors are created equal, and some mistakes are more costly than others.
+    You can leverage cost-sensitive learning techniques to train or condition your
+    models to be more cautious in high-stakes scenarios and be less so where the consequences
+    of errors are minimal. You also need to collaborate with the downstream consumers
+    of your ML system to understand the cost of different types of failures.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并非所有的错误都是平等的，某些错误比其他错误更昂贵。您可以利用成本敏感学习技术来训练或调整您的模型，在高风险场景中更加谨慎，在错误后果较小的情况下则可以放松。您还需要与ML系统的下游使用者合作，了解不同类型失败的成本。
+- en: 'Once you know the costs of various failure modes, you can then incorporate
+    cost-sensitive learning techniques in your model training or deployment. Some
+    key techniques include:'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您了解了各种失败模式的成本，您就可以在模型训练或部署中引入成本敏感学习技术。一些关键技术包括：
+- en: Addressing data imbalances
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决数据不平衡问题
+- en: Techniques like oversampling or undersampling can balance datasets, which helps
+    to reduce errors from underrepresented classes.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 像过采样或欠采样这样的技术可以平衡数据集，有助于减少来自代表性不足类别的错误。
+- en: Highlighting costly mistakes
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 突显昂贵的错误
+- en: Use metrics like weighted F1 score (or other custom metrics for regression)
+    to ensure problematic errors are visible.
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用加权F1分数（或其他用于回归的自定义指标）等指标，确保问题错误是可见的。
+- en: Evaluating and training against cost-penalization metrics
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 评估和训练针对成本惩罚指标进行操作
+- en: Incorporate real-world error costs in model evaluation suites as a start, and
+    eventually include it as a loss function during model training to condition models
+    to minimize costly mistakes.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从模型评估套件开始，将真实世界的错误成本纳入考虑，并最终在模型训练过程中将其作为损失函数，以调整模型以最小化昂贵的错误。
+- en: Inference-time cost consideration
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 推理时考虑成本
+- en: In high-stakes scenarios like large financial transactions, models should lean
+    toward caution and flag potential issues, even with moderate fraud confidence
+    or probability.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在像大型金融交易这样的高风险场景中，模型应该向谨慎方向倾斜，并标记潜在问题，即使只有中等欺诈置信度或概率。
+- en: It’s important to note that these techniques—though they help to improve the
+    robustness of an ML system—are still fallible and ML systems will still make mistakes
+    or exhibit biases. This reinforces the need for *defense in depth*, where we build
+    multiple layers of safeguards to minimize the likelihood and impact of mistakes.
+    Let’s look at some ways to reduce the impact of failures.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要注意的是，尽管这些技术有助于提高机器学习系统的鲁棒性，但它们仍然是有缺陷的，机器学习系统仍会出错或展现出偏见。这强调了**深度防御**的必要性，我们需要建立多层保障措施，以最小化错误发生的可能性和影响。让我们来看看一些减少失败影响的方法。
+- en: First, we can be transparent about a model’s confidence for each prediction.
+    Instead of providing a single prediction, the model can provide a probability
+    distribution over the possible outputs and be clear when it is not confident about
+    a particular prediction. This can help the downstream consumer or user to assess
+    the level of confidence the model has in its prediction and make more informed
+    decisions.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们可以透明地展示每个预测的模型置信度。模型不仅可以提供单一预测，还可以提供可能输出的概率分布，并清楚地表明对特定预测不自信的情况。这可以帮助下游的消费者或用户评估模型对其预测的置信水平，并做出更明智的决策。
+- en: Second, our solution design can involve a human-in-the-loop to review and override
+    model predictions when necessary. This can help to reduce the cost of a wrong
+    prediction by allowing a human to intervene and make a more informed judgment.
+    This could also include creating [a channel for redress](https://oreil.ly/MFoZj)
+    to allow consumers to dispute and provide feedback on a model’s decisions.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，我们的解决方案设计可以涉及人在其中，以审查和覆盖模型预测在必要时。这可以通过允许人类介入并做出更明智的判断来减少错误预测的成本。这也可以包括创建[一个申诉渠道](https://oreil.ly/MFoZj)，让消费者对模型决策提出异议并提供反馈。
+- en: Finally, we can implement guardrails, like defining policies or constraints
+    on the output of the model in certain critical scenarios. For example, if we were
+    developing a chatbot, any references to inflammatory rhetoric (e.g., racial hatred)
+    or self-harm (e.g., suicide) should be handled by our software accordingly (e.g.,
+    gracefully decline the request, or trigger an alert).
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们可以实施防护措施，如在某些关键场景下对模型输出定义策略或约束。例如，如果我们正在开发聊天机器人，对于任何涉及煽动性言论（例如种族仇恨）或自我伤害（例如自杀）的引用，我们的软件应适当处理（例如优雅地拒绝请求或触发警报）。
+- en: Let’s now look at the final complementary practice—monitoring in production.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们看看最后的补充实践——生产监控。
+- en: Monitoring in Production
+  id: totrans-231
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在生产环境中的监控
+- en: Production monitoring is an established practice in software engineering. If
+    done well, monitoring (metrics, logs, and alerts) gives us useful feedback on
+    how our product is behaving in the wild, and alerts us when there are any unexpected
+    errors, performance degradation, or unusual activity.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产监控是软件工程中已经建立的实践。如果做得好，监控（指标、日志和警报）可以为我们提供产品在野外运行时的有用反馈，并在出现任何意外错误、性能降级或异常活动时发出警报。
+- en: This gives us insight into scenarios that we haven’t considered before in our
+    tests. As Edsger W. Dijkstra once said, “testing may convincingly demonstrate
+    the presence of bugs, but can never demonstrate their absence.” That’s why monitoring
+    in production is an essential complementary practice to testing.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这使我们能够洞察以前在测试中未考虑到的场景。正如艾兹格·W·迪科斯特拉曾经说过的：“测试可能能够令人信服地证明错误的存在，但永远不能证明它们的不存在。”这就是为什么在生产环境中监控是测试的一项必不可少的补充实践。
+- en: 'There are three aspects to monitoring ML models:'
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在监控 ML 模型时有三个方面：
+- en: Application monitoring
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用监控
+- en: Metrics such as throughput, latency, and error rates give you feedback on how
+    your application is behaving in production. Is everything going well? Is it crawling
+    to a near-stop? Is everything in flames?
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 吞吐量、延迟和错误率等指标可以为您提供有关应用程序在生产环境中行为的反馈。一切都进行得如何？是不是接近停滞状态？一切都在火焰中吗？
+- en: Any errors you observe, complemented with useful application logs, provide you
+    with the prompt and the information needed to reproduce the error and roll out
+    bug fixes. Application monitoring and alerting allows teams to release products
+    with data-informed confidence and respond more quickly in the event of any issues.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您观察到的任何错误，结合有用的应用程序日志，为您提供了重现错误和推出错误修复所需的提示和信息。应用监控和警报使团队能够以数据驱动的信心发布产品，并在出现问题时更快地做出响应。
+- en: Data monitoring
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据监控
+- en: By observing and collecting every data point that your model sees in production,
+    you can detect any data distribution shifts over time. Not only can you visualize
+    the distribution of data over time, you can also run skew tests on the data to
+    [detect outliers and drifts](https://oreil.ly/_f9-C).
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过观察和收集模型在生产环境中看到的每一个数据点，您可以随时间检测到任何数据分布的变化。不仅可以可视化数据随时间的分布，还可以对数据运行偏斜测试，以[检测异常值和漂移](https://oreil.ly/_f9-C)。
+- en: The changes in data distribution over time can signal a need for retraining
+    or fine-tuning the model. This can help ensure that the model remains accurate
+    and reliable for the current domain of the data in production.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着时间数据分布的变化可以提示需要重新训练或微调模型。这有助于确保模型在生产数据当前领域保持准确和可靠。
+- en: Model metrics monitoring
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型指标监控
+- en: Finally, you typically want to know the correctness or quality of the model’s
+    predictions. For this, you can depend on newly labeled data that can be used for
+    evaluation. When you have closed the data collection loop (practice 2) and designed
+    open-closed tests (practice 3), rerunning the model tests using regularly updated
+    evaluation data enables you to continuously measure and visualize the correctness
+    of your model over time.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，您通常希望知道模型预测的正确性或质量。为此，您可以依赖于可用于评估的新标记数据。当您关闭数据收集循环（实践2）并设计开闭测试（实践3）后，使用定期更新的评估数据重新运行模型测试使您能够持续测量和可视化模型随时间的正确性。
+- en: You can also design model tests to run against not just the model in production,
+    but also candidate or challenger models and observe which model is most suitable
+    for the data that you currently see in production.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以设计模型测试，不仅针对生产中的模型，还针对候选或挑战者模型，并观察哪个模型最适合当前在生产中看到的数据。
+- en: While application monitoring and data monitoring aspects can be real-time, the
+    cadence of model monitoring will depend on the rate at which you have freshly
+    labeled data. In many cases, this will be batch due to the time needed for labeling,
+    even in semi-supervised labeling scenarios as we have discussed earlier. All three
+    aspects of monitoring are essential for giving you feedback on the quality of
+    your models in the wild.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用监控和数据监控方面可以实时进行，但模型监控的频率取决于您获取新标记数据的速度。在许多情况下，由于标记所需的时间，这将是批处理，即使在我们之前讨论过的半监督标记场景中也是如此。这三个监控方面对于向您反馈模型在实际应用中质量的信息至关重要。
+- en: Bringing It All Together
+  id: totrans-245
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 将一切整合在一起
+- en: From a systems thinking perspective, we can see that model testing is not a
+    standalone capability and requires complementary capabilities. Let’s put the pieces
+    of the puzzle together by going through [Figure 6-8](#model_testing_can_benefit_from_other_en).
+    Each numbered item is a complementary practice described, in order of presentation,
+    in this section.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从系统思维的角度来看，我们可以看到模型测试并非独立的能力，而是需要互补的能力。让我们通过浏览[图6-8](#model_testing_can_benefit_from_other_en)来将这些拼图片段放在一起。本节按照呈现顺序描述了每个编号项目作为补充实践。
+- en: '![](assets/emlt_0608.png)'
+  id: totrans-247
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0608.png)'
+- en: Figure 6-8\. Model testing can benefit from other enabling capabilities, such
+    as error analysis, data collection loops, open-closed test design, and more
+  id: totrans-248
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图6-8。模型测试可以受益于其他使能能力，如错误分析、数据收集循环、开闭测试设计等。
+- en: In the case of a performance degradation or model test failure, we trigger another
+    model improvement cycle by first undertaking *error analysis* (practice 1). We
+    can see the true performance of our model in the wild only when we *close the
+    data collection loop* (practice 2) with regularly updated labels and rerun *open-closed
+    model tests* as regularly as we have updated evaluation data (practice 3).
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在性能下降或模型测试失败的情况下，我们通过首先进行*错误分析*（实践1）来触发另一个模型改进周期。只有当我们通过定期更新的标签*关闭数据收集循环*（实践2）并定期重新运行*开闭模型测试*（实践3），我们才能真正看到模型在实际应用中的真实表现。
+- en: When we find ourselves stuck in articulating automated tests and spending time
+    on manual testing and troubleshooting of our models, it is an indication that
+    a piece of the feedback mechanism is missing. We can use *exploratory tests* (practice
+    4) to discover the shape of this missing piece, and eventually automate it to
+    maintain the feedback while reducing the cost and information loss in getting
+    this feedback.
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们在表达自动化测试方面陷入困境，并花时间在模型的手动测试和故障排除上时，这表明缺少反馈机制的一部分。我们可以使用*探索性测试*（实践4）来发现这个缺失部分的形状，并最终自动化以维持反馈同时减少获取此反馈的成本和信息损失。
+- en: It’s not enough for tests to fail, and we need to identify data-centric, model-centric,
+    or UX-centric *means of improving the model* (practice 5).
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试失败并不足够，我们需要识别数据中心、模型中心或用户体验中心的*改进模型的手段*（实践5）。
+- en: At the end of the day, we acknowledge that ML is probabilistic and will never
+    be right 100% of the time, especially under conditions of nonstationary data,
+    and we *design to reduce the cost of failures* (practice 6) in way that mitigates
+    the risk (i.e., impact x likelihood) of failures to downstream consumers and users
+    who depend on our ML product.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 归根结底，我们承认ML具有概率性，永远不会在所有情况下100%正确，特别是在非平稳数据条件下，我们设计以降低故障成本（实践6），以减轻故障对下游消费者和依赖我们ML产品的用户的风险（即，影响乘以可能性）。
+- en: 'When we have released a model of a satisfactory quality to production, we *monitor
+    it in production* (practice 7) at three levels: application monitoring, data distribution
+    monitoring, and model metrics monitoring. Monitoring gives us feedback about whether
+    our product is operating smoothly in production, lets us observe our model’s true
+    performance in the wild, and provides valuable information on when and how to
+    improve the model.'
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们将一个质量令人满意的模型发布到生产环境时，我们在三个级别上对其进行监控：应用程序监控，数据分布监控以及模型指标监控（实践7）。监控可以为我们提供关于产品在生产中是否运行顺畅的反馈，让我们观察模型在实际环境中的真实表现，并提供宝贵信息，指导我们何时以及如何改进模型。
+- en: Well done! At this point of the chapter, we’ve covered several testing techniques
+    and complementary capabilities that will help you test, understand and improve
+    the quality of your models. And we’ve talked about how to write these verifications
+    as automated tests so that you can reduce the toil and improve the flow of your
+    team.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 干得好！在本章的这一阶段，我们涵盖了几种测试技术和互补能力，这些将帮助您测试、理解和提高模型质量。我们还讨论了如何将这些验证写成自动化测试，以便您减少繁重工作，改进团队的工作流程。
+- en: With this map in your hand, let’s wrap up and discuss how you can embark on—or
+    continue—this journey incrementally and reap the benefits as you go.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了这张地图，让我们总结并讨论如何逐步开始或继续这个旅程，并在前进的过程中收获利益。
+- en: 'Next Steps: Applying What You’ve Learned'
+  id: totrans-256
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 下一步：应用你所学到的内容
+- en: If you always do what you’ve always done, you always get what you’ve always
+    gotten.
+  id: totrans-257
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果你总是做你一直做过的事，你总是会得到你一直得到的东西。
+- en: ''
+  id: totrans-258
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: Jessie Potter, Director of the National Institute for Human Relationships in
+    Oak Lawn, Illinois
+  id: totrans-259
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 杰西·波特，伊利诺伊州奥克劳恩的国家人际关系研究所主任
+- en: Whether you’re a testing expert who wants to encourage your team to do more
+    testing, or you’re new to testing and are not sure where to start, here are some
+    practical steps that you can take to apply these testing practices.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论您是一个希望鼓励团队进行更多测试的测试专家，还是一个新手不确定从何处开始测试，这里有一些实用的步骤，可以帮助您应用这些测试实践。
+- en: Make Incremental Improvements
+  id: totrans-261
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 逐步改进
+- en: If you find yourself in a codebase with little to no tests, it’s never too late
+    to start improving and enjoying the benefits of test automation. If you or your
+    teammates need a little motivation, just think about the hours you’ll save from
+    manual testing in each user story. While it might be daunting, the techniques
+    covered in this chapter can guide you in taking incremental steps toward improvement.
+    Instead of attempting a massive overhaul, focus on making small, incremental changes
+    that can gradually enhance the robustness and clarity of your ML codebase.
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您发现自己在一个几乎没有测试的代码库中，现在开始改善并享受测试自动化带来的好处也不算太晚。如果您或您的团队需要一点动力，想象一下在每个用户故事中从手动测试中节省的时间。虽然可能有些令人生畏，但本章介绍的技术可以指导您逐步迈向改善。与其试图进行大规模改革，不如专注于进行小而渐进的变化，逐步增强您的ML代码库的健壮性和清晰度。
+- en: At the microlevel, an incremental improvement could be to write one automated
+    test as part of your next commit. You’ll be surprised at the mileage you might
+    get even with just basic practices, such as writing unit tests for data transformations,
+    or encoding model quality as stratified metrics tests that you run in your pipeline,
+    rather than manual checks that every ML practitioner on the team has to do with
+    every change set! You can use this chapter’s [code-along repository](https://oreil.ly/8UO2v)
+    as a reference for how to set up the plumbing—how to define and invoke tests locally
+    and on your CI pipeline.
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在微观层面，逐步改进可以是在下次提交时编写一个自动化测试。即使只是使用基本的实践，例如为数据转换编写单元测试，或者将模型质量编码为分层度量测试，您可以在管道中运行它们，而不是每次更改集合中的每个ML从业者都必须手动检查！您可以使用本章的[代码仓库](https://oreil.ly/8UO2v)作为设置管道的参考，定义并在本地及CI管道上调用测试。
+- en: At a higher level, an incremental improvement could be to outline a test strategy
+    for your ML product with a view toward taking incremental steps every sprint.
+    You can assess the current state of your team with the help of [Table 6-1](#test_checklist_for_ml_systems).
+    If you’re an engineering leader, this checklist can help your teams to measure
+    current gaps and improvements over time, and it can help to incentivize your teams
+    to improve the reliability of the ML systems they’re creating.
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在更高层次上，逐步改进的一个方向是为您的ML产品制定测试策略，每个迭代都采取增量步骤。您可以通过[表6-1](#test_checklist_for_ml_systems)来评估您团队当前的状态。如果您是工程领导者，此检查表可以帮助您的团队在时间推移中衡量当前的差距和改进，并有助于激励团队改善他们正在创建的ML系统的可靠性。
+- en: Draw from this chapter as you would a recipe book. When you buy a recipe book,
+    you don’t feel pressured to cook everything that’s in the book—tempting as that
+    may be! Pick a recipe that will meet a need or deliver the most value or happiness
+    in your context and keep on iterating.
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从这章中汲取经验，就像您从食谱书中学习一样。当您购买食谱书时，并不感到有必要做书中的每一道菜——尽管那可能非常诱人！选择一道能满足需求或在您的背景中提供最大价值或快乐的菜谱，并继续迭代。
+- en: Table 6-1\. Test checklist for ML systems
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表6-1\. ML系统测试检查表
+- en: '| Tests | No tests | Tests are manual | Automated tests exist, but coverage
+    is low or patchy | Automated tests are comprehensive, cover majority of lines
+    of code and data scenarios |'
+  id: totrans-267
+  prefs: []
+  type: TYPE_TB
+  zh: '| 测试 | 无测试 | 测试是手动的 | 自动化测试存在，但覆盖面低或不均匀 | 自动化测试全面，覆盖了大部分代码和数据场景 |'
+- en: '| --- | --- | --- | --- | --- |'
+  id: totrans-268
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- |'
+- en: '| *Software tests* |'
+  id: totrans-269
+  prefs: []
+  type: TYPE_TB
+  zh: '| *软件测试* |'
+- en: '| Unit tests |   | *Example: ✔️* |   |   |'
+  id: totrans-270
+  prefs: []
+  type: TYPE_TB
+  zh: '| 单元测试 |   | *示例： ✔️* |   |   |'
+- en: '| Training smoke tests | *Example: ✔️* |   |   |   |'
+  id: totrans-271
+  prefs: []
+  type: TYPE_TB
+  zh: '| 训练冒烟测试 | *示例： ✔️* |   |   |   |'
+- en: '| API tests |   |   |   |   |'
+  id: totrans-272
+  prefs: []
+  type: TYPE_TB
+  zh: '| API测试 |   |   |   |   |'
+- en: '| Post-deployment tests |   |   |   |   |'
+  id: totrans-273
+  prefs: []
+  type: TYPE_TB
+  zh: '| 部署后测试 |   |   |   |   |'
+- en: '| *Model tests* |'
+  id: totrans-274
+  prefs: []
+  type: TYPE_TB
+  zh: '| *模型测试* |'
+- en: '| Metric tests (global and stratified) |   |   |   |   |'
+  id: totrans-275
+  prefs: []
+  type: TYPE_TB
+  zh: '| 度量测试（全局和分层） |   |   |   |   |'
+- en: '| Behavioral tests |   |   |   |   |'
+  id: totrans-276
+  prefs: []
+  type: TYPE_TB
+  zh: '| 行为测试 |   |   |   |   |'
+- en: '| *LLM tests (for LLM applications)* |'
+  id: totrans-277
+  prefs: []
+  type: TYPE_TB
+  zh: '| *LLM测试（用于LLM应用）* |'
+- en: '| Example-based tests |   |   |   |   |'
+  id: totrans-278
+  prefs: []
+  type: TYPE_TB
+  zh: '| 基于示例的测试 |   |   |   |   |'
+- en: '| Benchmark tests |   |   |   |   |'
+  id: totrans-279
+  prefs: []
+  type: TYPE_TB
+  zh: '| 基准测试 |   |   |   |   |'
+- en: '| Property-based tests |   |   |   |   |'
+  id: totrans-280
+  prefs: []
+  type: TYPE_TB
+  zh: '| 基于属性的测试 |   |   |   |   |'
+- en: '| LLM-based tests |   |   |   |   |'
+  id: totrans-281
+  prefs: []
+  type: TYPE_TB
+  zh: '| 基于LLM的测试 |   |   |   |   |'
+- en: Demonstrate Value
+  id: totrans-282
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 展示价值
+- en: If your team is regularly encountering defects, or slow feedback points in your
+    development cycle, consider how the tests outlined in this chapter can help. When
+    you add tests, demonstrate the time saved from manual testing and resolving defects.
+    Count how many hours you saved on manual testing in a story. Celebrate the number
+    of times that the tests caught an error on the CI/CD pipeline, thereby preventing
+    an error in production.
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的团队经常遇到缺陷或开发周期中的反馈缓慢，请考虑本章中概述的测试如何帮助。当您添加测试时，演示从手动测试和解决缺陷中节省的时间。计算在一个故事中手动测试中节省的小时数。庆祝测试在CI/CD流水线中捕获错误的次数，从而避免在生产中出现错误。
+- en: Over time, as your test coverage gets increasingly comprehensive, you will see
+    less tedious manual testing, fewer red builds on CI, fewer production incidents,
+    and happier team members.
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着您的测试覆盖率逐渐变得更加全面，您将看到较少繁琐的手动测试，CI中较少的红色构建，较少的生产事故，以及更快乐的团队成员。
+- en: In some cases, it may be easier to do than to convince. Write some tests, demonstrate
+    the difference that good, readable tests make in terms of the speed of feedback,
+    testing effort, cognitive load, and so on.
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，实施可能比说服更容易。编写一些测试，演示好的、可读的测试在反馈速度、测试工作量、认知负荷等方面带来的差异。
+- en: Conclusion
+  id: totrans-286
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: It’s only through safety that experimentation can happen.
+  id: totrans-287
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 只有通过安全性，实验才能发生。
+- en: ''
+  id: totrans-288
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: '[Gene Kim](https://oreil.ly/9e3Yz), coauthor of *Accelerate*'
+  id: totrans-289
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[Gene Kim](https://oreil.ly/9e3Yz)，《Accelerate》的合著者'
+- en: A colleague of ours once quipped that a litmus test of continuous delivery (CD)
+    is the ability to deploy changes to production when you’re on a beach, sipping
+    a choice beverage. When you have a test strategy—and CI/CD pipeline—that comprehensively
+    and automatically validates all changes to the software, data, and model components
+    of your ML system, you can confidently deploy green builds to production at any
+    time. You can do so without anxiety and fear, but only if you have comprehensive
+    tests and production monitoring.
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的一位同事曾开玩笑说，连续交付（CD）的一个试金石是在海滩上啜饮美酒时部署更改到生产环境的能力。当您拥有全面验证软件、数据和模型组件所有更改的测试策略和
+    CI/CD 流水线时，您可以自信地在任何时候将绿色构建部署到生产环境中。只有当您拥有全面的测试和生产监控时，才能做到毫无焦虑和恐惧地进行部署。
+- en: As we have mentioned a few times in the book, comprehensive automated tests
+    lead to shortened feedback cycles, reduced burden, reduced cognitive load, and
+    reduced defect rates, and these further improve your team’s experimentation cycles,
+    delivery flow, and satisfaction.
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在书中多次提到的那样，全面的自动化测试可以缩短反馈周期，减轻负担、认知负荷和缺陷率，并进一步提高团队的实验循环、交付流程和满意度。
+- en: This is not just anecdotal. The book [*Accelerate*](https://oreil.ly/AKkDo)
+    details a scientific study on performance and effectiveness of technical businesses
+    involving more than 2,800 organizations—the authors found that organizations that
+    adopt continuous delivery practices (of which test automation is a key pillar)
+    and other Lean delivery processes exhibit higher levels of performance, such as
+    faster delivery of features, lower failure rates, and higher levels of employee
+    satisfaction. Our experience in various ML projects corroborate this finding as
+    well.
+  id: totrans-292
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这不仅仅是个案例。书籍[*Accelerate*](https://oreil.ly/AKkDo)详细描述了涉及2800多家组织的技术企业的表现和有效性科学研究——作者发现采用持续交付实践（其中测试自动化是关键支柱）和其他精益交付流程的组织表现出更高水平的性能，例如更快的功能交付、更低的失败率和更高的员工满意度。我们在各种
+    ML 项目中的经验也证实了这一发现。
+- en: 'That concludes our chapters on automated testing. See you next in [Chapter 7](ch07.html#supercharging_your_code_editor_with_sim),
+    where we will harvest a low-hanging fruit that can help ML practitioners write
+    code better: effective code editor practices. The shortcuts that we cover in the
+    next chapter will help us refactor at speed in [Chapter 8](ch08.html#refactoring_and_technical_debt_manageme).'
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的自动化测试章节到此结束。我们下次将在[第7章](ch07.html#supercharging_your_code_editor_with_sim)中见面，在那里我们将收获可以帮助
+    ML 从业者更好编写代码的低 hanging fruit：有效的代码编辑实践。我们在下一章中介绍的快捷方式将帮助我们在[第8章](ch08.html#refactoring_and_technical_debt_manageme)中以高速重构。
+- en: ^([1](ch06.html#ch01fn28-marker)) In some cases, it may be necessary to exclude
+    sociodemographic features, such as gender and race, from model training to [reduce
+    the risk of sociodemographic discrimination](https://oreil.ly/peL-8). This may
+    even be a regulatory or legal requirement in some situations. In such cases, teams
+    should still consider whether they can make such features available for testing
+    purposes or for segmenting our test datasets, which can be valuable for detecting
+    any hidden biases. This is a lesson that we can learn from the [Apple Card controversy](https://oreil.ly/cp8d3),
+    where an ML model gave women lower credit limits, not because the model knew their
+    gender, but because of their credit history and income.
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch06.html#ch01fn28-marker)) 在某些情况下，有必要在模型训练中排除社会人口特征，如性别和种族，以减少[社会人口歧视风险](https://oreil.ly/peL-8)。在某些情况下，这甚至可能是法规或法律的要求。在这种情况下，团队仍应考虑是否可以将这些特征用于测试目的或分割我们的测试数据集，这对于检测任何潜在偏见可能非常有价值。这是我们可以从[苹果卡片争议](https://oreil.ly/cp8d3)中学到的教训，那里的
+    ML 模型给女性较低的信用额度，不是因为模型知道他们的性别，而是因为他们的信用历史和收入情况。
+- en: '^([2](ch06.html#ch01fn29-marker)) Marco Tulio Ribeiro et al., [“Beyond Accuracy:
+    Behavioral Testing of NLP Models with CheckList”](https://oreil.ly/jv2H0), Association
+    for Computational Linguistics (ACL), 2020.'
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch06.html#ch01fn29-marker)) Marco Tulio Ribeiro 等人，[“超越准确性：用 CheckList
+    对 NLP 模型进行行为测试”](https://oreil.ly/jv2H0)，计算语言学协会（ACL），2020年。
+- en: '^([3](ch06.html#ch01fn30-marker)) Ethan Mollick, [“Embracing Weirdness: What
+    It Means to Use AI as a (Writing) Tool”](https://oreil.ly/iyqCy), *One Useful
+    Thing* (blog), posted September 5, 2023.'
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch06.html#ch01fn30-marker)) Ethan Mollick，[“拥抱怪异：AI 作为（写作）工具的意义”](https://oreil.ly/iyqCy)，*One
+    Useful Thing*（博客），发布于2023年9月5日。

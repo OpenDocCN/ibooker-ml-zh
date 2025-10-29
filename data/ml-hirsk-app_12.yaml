@@ -1,0 +1,1748 @@
+- en: Chapter 9\. Debugging a PyTorch Image Classifier
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 9 章。调试 PyTorch 图像分类器
+- en: 'Even in the hype-fueled 2010s, deep learning (DL) researchers started to notice
+    some [“intriguing properties”](https://oreil.ly/CkAkR) of their new deep networks.
+    The fact that a good model with high in silico generalization performance could
+    also be easily fooled by adversarial examples is both confusing and counterintuitive.
+    Similar questions were raised by authors in the seminal paper [“Deep Neural Networks
+    Are Easily Fooled: High Confidence Predictions for Unrecognizable Images”](https://oreil.ly/AP-ZH)
+    when they questioned how it was possible for a deep neural network to classify
+    images as familiar objects even though they were totally unrecognizable to human
+    eyes? If it wasn’t understood already, it’s become clear that like all other machine
+    learning systems, DL models must be debugged and remediated, especially for use
+    in high-risk scenarios. In [Chapter 7](ch07.html#unique_chapter_id_7), we trained
+    a pneumonia image classifier and used various post hoc explanation techniques
+    to summarize the results. We also touched upon the connection between DL explainability
+    techniques and debugging. In this chapter, we will pick up where we left off in
+    [Chapter 7](ch07.html#unique_chapter_id_7) and use various debugging techniques
+    on the trained model to ensure that it is robust and reliable enough to be deployed.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使在被炒作的 2010 年代，深度学习（DL）研究人员也开始注意到他们的新深度网络具有一些 [“有趣的属性”](https://oreil.ly/CkAkR)
+    。一个好的模型在硅仿真通用性能高的情况下，也很容易被对抗样本欺骗，这既令人困惑又违反直觉。在经典论文 [“深度神经网络很容易被愚弄：对不可识别图像的高置信度预测”](https://oreil.ly/AP-ZH)
+    中，作者质疑了深度神经网络如何可能将图像分类为熟悉的对象，尽管它们对人类眼睛完全不可识别。如果之前没有理解，那么现在变得清楚了，就像所有其他机器学习系统一样，DL
+    模型必须进行调试和修复，特别是在高风险场景中使用时。在 [第 7 章](ch07.html#unique_chapter_id_7) 中，我们训练了一个肺炎图像分类器，并使用了各种事后解释技术来总结结果。我们还涉及了
+    DL 可解释性技术与调试之间的联系。在本章中，我们将继续从 [第 7 章](ch07.html#unique_chapter_id_7) 结束的地方开始，并使用各种调试技术对训练好的模型进行检验，以确保其足够强大和可靠，可以进行部署。
+- en: DL represents the state of the art in much of the ML research space today. However,
+    its exceptional complexity also makes it harder to test and debug, which increases
+    risk in real-world deployments. All software, even DL, has bugs, and they need
+    to be squashed before deployment. This chapter starts with a concept refresher
+    then focuses on model debugging techniques for DL models using our example pneumonia
+    classifier. We’ll start by discussing data quality and leakage issues in DL systems
+    and why it is important to address them in the very beginning of a project. We’ll
+    then explore some software testing methods and why software quality assurance
+    (QA) is an essential component of debugging DL pipelines. We’ll also perform DL
+    sensitivity analysis approaches, including testing the model on different distributions
+    of pneumonia images and applying adversarial attacks. We’ll close the chapter
+    by addressing our own data quality and leakage issues, discussing interesting
+    new debugging tools for DL, and addressing the results of our own adversarial
+    testing. Code examples for the chapter are available on [online](https://oreil.ly/machine-learning-high-risk-apps-code)
+    as usual, and remember that [Chapter 3](ch03.html#unique_chapter_id_3) outlines
+    model debugging with language models (LMs).
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DL 代表了当今 ML 研究领域中的最新技术。然而，其异常复杂性也使得测试和调试变得更加困难，这增加了在实际部署中的风险。所有软件，即使是 DL，都会有
+    bug，在部署之前必须解决这些问题。本章首先进行概念复习，然后专注于使用我们的示例肺炎分类器调试 DL 模型的技术。我们将从讨论 DL 系统中的数据质量和泄漏问题开始，并说明为什么在项目初期解决这些问题非常重要。然后，我们将探讨一些软件测试方法，以及为什么软件质量保证（QA）是调试
+    DL 流程中必不可少的组成部分。我们还将进行 DL 敏感性分析方法的讨论，包括在不同肺炎图像分布上测试模型和应用对抗性攻击。最后，我们将讨论我们自己的数据质量和泄漏问题，探讨
+    DL 的新调试工具以及我们自己对抗性测试的结果。本章的代码示例可以像往常一样在 [在线](https://oreil.ly/machine-learning-high-risk-apps-code)
+    上找到，并记住 [第 3 章](ch03.html#unique_chapter_id_3) 概述了语言模型（LM）的模型调试。
+- en: 'Concept Refresher: Debugging Deep Learning'
+  id: totrans-3
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概念复习：调试深度学习
+- en: In [Chapter 8](ch08.html#unique_chapter_id_8), we highlighted the importance
+    of model debugging beyond traditional model assessment to increase trust in model
+    performance. The core idea in this chapter remains the same, albeit for DL models.
+    Recalling our image classifier from [Chapter 7](ch07.html#unique_chapter_id_7),
+    trained to diagnose pneumonia in chest X-ray images, we concluded that we could
+    not entirely rely on the post hoc explanation techniques we applied, especially
+    in high-risk applications. However, those explanation techniques did seem to show
+    some promise in helping us debug our model. In this chapter, we’ll begin where
+    we left off in [Chapter 7](ch07.html#unique_chapter_id_7). Remember we used PyTorch
+    for training and evaluating the model, and we’ll debug that very model in this
+    chapter to demonstrate debugging for DL models. To get us started, the following
+    list dives into reproducibility, data quality, data leaks, traditional assessment,
+    and software testing methods, then we turn to adapting the broad concepts of residual
+    analysis, sensitivity analysis, and distribution shifts to DL. Just like in more
+    traditional ML approaches, any bug we find with those techniques should be fixed,
+    and the concept refresher will touch on the basics of remediation. It is also
+    important to note that while the techniques introduced in this chapter apply most
+    directly to computer vision models, the ideas can often be used in domains outside
+    of computer vision.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第8章](ch08.html#unique_chapter_id_8)中，我们强调了除了传统的模型评估之外进行模型调试的重要性，以增加对模型性能的信任。本章的核心思想保持不变，尽管是针对深度学习模型。回想一下我们在[第7章](ch07.html#unique_chapter_id_7)中的图像分类器，用于诊断胸部X光图像中的肺炎，我们得出结论，我们不能完全依赖我们应用的事后解释技术，特别是在高风险应用中。然而，这些解释技术似乎在帮助我们调试模型时显示出了一些潜力。在本章中，我们将从[第7章](ch07.html#unique_chapter_id_7)结束的地方开始。记住我们在训练和评估模型时使用了PyTorch，并且在本章中我们将调试这个模型以展示深度学习模型的调试方法。为了让我们开始，以下列表深入探讨了可复现性、数据质量、数据泄漏、传统评估和软件测试方法，然后我们转向适应残差分析、敏感性分析和分布变化到深度学习中的广泛概念。就像在更传统的机器学习方法中一样，我们发现使用这些技术的任何错误都应该被修复，而概念的复习将涉及到补救的基础知识。还要注意，尽管本章介绍的技术最直接适用于计算机视觉模型，但这些想法通常可以在计算机视觉之外的领域中使用。
+- en: Reproducibility
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可复现性
+- en: Keeping results reproducible is very difficult in ML. Luckily, tools like random
+    seeds, private or public benchmarks, metadata trackers (like TensorFlow ML Metadata),
+    code and data version control (using Git or tools like DVC), and environment managers
+    (e.g., gigantum) can all be brought to bear to increase reproducibility. Seeds
+    help us guarantee reproducibility at the lowest levels in our code. Metadata data
+    trackers, code and version control systems, and environment managers help us keep
+    track of all the data, code, and other information we need to preserve reproducibility
+    and roll back to established checkpoints if we lose reproducibility. Benchmarks
+    enable us to prove to ourselves and others that our results are reproducible.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保持机器学习结果的可复现性非常困难。幸运的是，像随机种子、私有或公共基准、元数据跟踪器（如TensorFlow ML Metadata）、代码和数据版本控制（使用Git或类似的工具如DVC）、以及环境管理器（例如gigantum）等工具都可以提高可复现性。种子帮助我们在代码的最低层面上保证可复现性。元数据跟踪器、代码和版本控制系统以及环境管理器帮助我们跟踪所有数据、代码和其他信息，以保持可复现性，并在失去可复现性时回滚到已建立的检查点。基准测试使我们能够向自己和他人证明我们的结果是可复现的。
+- en: Data quality
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据质量
+- en: Image data can have any number of data quality issues. [Pervasive erroneous
+    labels](https://oreil.ly/qC2Zh) in many of the datasets used to pretrain large
+    computer vision models is one known issue. DL systems still require large amounts
+    of labeled data, and are mostly reliant on fallible human judgment and low-paid
+    labor to create those labels. Alignment, or making sure all the images in a training
+    set have consistent perspectives, boundaries, and contents, is another. Think
+    about how difficult it is to align a set of chest X-rays from different X-ray
+    machines on differently sized people so that each of the training images focuses
+    on the same content—human lungs—without distracting, noisy information around
+    the edges. Because the contents of the images we’re trying to learn about can
+    themselves move up and down or side to side (translate), rotate, or be pictured
+    at different sizes (or scales), we have to have otherwise aligned images in training
+    data for a high-quality model. Images also have naturally occurring issues, like
+    blur, obstruction, low brightness or contrast, and more. The recent paper [“Assessing
+    Image Quality Issues for Real-World Problems”](https://oreil.ly/3j3Ky) does a
+    good job at summarizing many of these common image quality problems and presents
+    some methodologies for addressing them.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像数据可能存在任意数量的数据质量问题。[普遍存在错误标签](https://oreil.ly/qC2Zh)，这是许多用于预训练大型计算机视觉模型的数据集中已知的问题。DL系统仍然需要大量带标签的数据，并且主要依赖于不可靠的人类判断和低薪劳动力来创建这些标签。对齐，或者确保训练集中所有图像具有一致的视角、边界和内容，是另一个问题。想象一下，如何将来自不同X光机的胸部X光片集对齐，以便每个训练图像都集中在相同内容——人类肺部，而不会在边缘周围分散、嘈杂的信息。因为我们试图了解的图像内容本身可以上下移动或左右移动（翻译）、旋转或以不同大小（或尺度）呈现，所以我们必须在训练数据中有对齐的图像，以获取高质量的模型。图像还会出现自然问题，如模糊、遮挡、低亮度或对比度等等。最近的论文[“评估实际问题的图像质量问题”](https://oreil.ly/3j3Ky)对许多这些常见的图像质量问题进行了总结，并提出了一些解决方法。
+- en: Data leaks
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据泄漏
+- en: Another serious issue is leaks between training, validation, and test datasets.
+    Without careful tracking of metadata, it’s all too easy to have the same individuals
+    or examples across these partitions. Worse, we have can have the same individual
+    or example from training data in the validation or test data at an earlier point
+    in time. These scenarios tend to result in overly optimistic assessments of performance
+    and error, which is one of the last things we want in a high-risk ML deployment.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个严重的问题是训练、验证和测试数据集之间的泄漏。如果不仔细跟踪元数据，很容易在这些分区之间有相同的个体或示例。更糟糕的是，我们可能在验证或测试数据中有相同的个体或来自训练数据的示例，而这些个体或示例可能在较早的时间点出现。这些情况往往会导致对性能和误差的过度乐观评估，这是高风险ML部署中我们最不希望看到的情况之一。
+- en: Software testing
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 软件测试
+- en: DL tends to result in complex and opaque software artifacts. For example, a
+    [100-trillion-parameter](https://oreil.ly/cYhW8) model. Generally, ML systems
+    are also notorious for failing silently. Unlike a traditional software system
+    that crashes and explicitly lets the user know about a potential error or bug
+    through well-tested exception mechanisms, a DL system could appear to train normally
+    and generate numeric predictions for new data, all while suffering from implementation
+    bugs. On top of that, DL systems tend to be resource intensive, and debugging
+    them is time consuming, as retraining the system or scoring batches of data can
+    take hours. DL systems also tend to rely on any number of third-party hardware
+    or software components. None of this excuses us from testing. It’s all the more
+    reason to test DL properly—software QA is a must for any high-risk DL system.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DL往往会导致复杂和不透明的软件工件。例如，一个[100万亿参数](https://oreil.ly/cYhW8)的模型。一般来说，ML系统也因悄无声息地失败而臭名昭著。与传统软件系统不同，后者通过经过充分测试的异常机制崩溃并明确通知用户可能的错误或漏洞，DL系统可能会表现出正常训练并为新数据生成数值预测，而同时受到实现错误的影响。此外，DL系统往往依赖于任意数量的第三方硬件或软件组件。但这并不能成为我们不进行测试的借口。这更加需要为任何高风险的DL系统进行适当的测试——软件质量保证对于任何高风险的DL系统都是必须的。
+- en: Traditional model assessment
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 传统模型评估
+- en: Measuring logloss, accuracy, F1, recall, and precision and analyzing confusion
+    matrices, all across different data partitions, is always an important part of
+    model debugging. These steps help us understand if we’re violating the implicit
+    assumptions of our analysis, reaching adequate performance levels, or suffering
+    from obvious overfitting or underfitting issues. Just remember good in silico
+    performance does not guarantee good in vivo performance. We’ll need to take steps
+    beyond traditional model assessment to ensure good real-world results.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测量logloss、准确率、F1、召回率和精确率，并分析混淆矩阵，跨不同数据分区进行这些操作，始终是模型调试的重要部分。这些步骤帮助我们了解我们是否违反了分析的隐含假设，是否达到了足够的性能水平，或者是否存在明显的过拟合或欠拟合问题。只记住，良好的体外表现并不保证良好的体内表现。我们需要采取超越传统模型评估的步骤，以确保良好的现实世界结果。
+- en: Note
+  id: totrans-15
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Another important type of debugging that we would normally attempt is segmented
+    error analysis, to understand how our model performs in terms of quality, stability,
+    and overfitting and underfitting across important segments in our data. Our X-ray
+    images are not labeled with much additional information that would allow for segmentation,
+    but understanding how a model performs across segments in data is crucial. Average
+    or overall performance measures can hide underspecification and bias issues. If
+    possible, we should always break our data down by segments and check for any potential
+    issues on a segment-by-segment basis.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们通常会尝试的另一种重要调试类型是分段错误分析，以了解我们的模型在数据的重要部分中在质量、稳定性、过拟合和欠拟合方面的表现如何。我们的X光图像没有太多额外信息标记，可以用于分段，但了解模型在数据的各个段上的表现至关重要。平均或总体性能指标可能隐藏了不充分和偏差问题。如果可能的话，我们应该始终按段分解我们的数据，并逐段检查潜在问题。
+- en: Sensitivity analysis
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 敏感性分析
+- en: Sensitivity analysis in DL always boils down to changing data and seeing how
+    a model responds. Unfortunately, there are any number of ways images, and sets
+    of images, can change when applying sensitivity analysis to DL. Interesting changes
+    to images from a debugging standpoint can be visible or invisible to humans, and
+    they can be natural or made by adversarial methods. One classic sensitivity analysis
+    approach is to perturb the labels of training data. If our model performs just
+    as well on randomly shuffled labels, or the same features appear important for
+    shuffled labels, that’s not a good sign. We can also perturb our model to test
+    for [underspecification](https://oreil.ly/ODWJY)—or when models work well in test
+    data but not the real world. If perturbing structurally meaningless hyperparameters,
+    like random seeds and number of GPUs used to train the system, has a meaningful
+    effect on model performance, our model is still too focused on our particular
+    training, validation, and tests sets. Finally, we can purposefully craft adversarial
+    examples to understand how our model performs in worst-case or attack scenarios.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 深度学习中的敏感性分析归结为改变数据并观察模型如何响应。不幸的是，当应用敏感性分析到深度学习中时，图像及其集合可以以多种方式改变。从调试的角度来看，图像的有趣变化可能对人类可见，也可能不可见，可以是自然生成或对抗性生成的。一个经典的敏感性分析方法是扰动训练数据的标签。如果我们的模型在随机打乱标签上表现同样出色，或者相同的特征对于打乱标签同样重要，那这并不是一个好迹象。我们还可以扰动我们的模型来测试[不充分](https://oreil.ly/ODWJY)的情况，即模型在测试数据中表现良好但在实际世界中表现不佳。如果扰动结构上无意义的超参数（例如随机种子和用于训练系统的GPU数量）对模型性能有显著影响，那么我们的模型仍然过于关注特定的训练、验证和测试集。最后，我们可以故意制造对抗性示例，以了解我们的模型在最坏情况或攻击场景下的表现。
+- en: Distribution shifts
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布变化
+- en: Distribution shifts are serious bugs in DL, and also one of the main reasons
+    we perform sensitivity analysis. Just like in ML, a lack of robustness to shifts
+    in new data can lead to decreased in vivo performance. For example, the populations
+    within a set of images can change over time. Known as *subpopulation shift*, the
+    characteristics of similar objects or individuals in images can change over time,
+    and new subpopulations can be encountered in new data. The entire distribution
+    of a set of images can change once a system is deployed too. Hardening model performance
+    for subpopulation and overall population drift, to the extent feasible, is a crucial
+    DL debugging step.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布转移是DL中严重的错误之一，也是我们进行敏感性分析的主要原因之一。就像在ML中一样，对新数据中的转移缺乏鲁棒性可能会导致体内性能下降。例如，图像集中的人群可能随时间变化。被称为*子群体转移*，图像中类似对象或个体的特征随时间变化，新数据中可能会遇到新的子群体。一旦系统部署后，一组图像的整个分布也可能会发生变化。为了尽可能地增强模型对子群体和整体人群漂移的性能，这是关键的DL调试步骤。
+- en: Remediation
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 修复措施
+- en: As with all ML, more and better data is the primary remediation method for DL.
+    Automated approaches that augment data with distorted images, like [albumentations](https://oreil.ly/MWbSL),
+    may be a workable solution in many settings for generating more training and test
+    data. Once we feel confident about our data, basic QA approaches, like unit and
+    integration testing and exception handling can help to catch many bugs before
+    they result in suboptimal real-world performance. Special tools like the Weights
+    & Biases [experiment tracker](https://oreil.ly/VgFEj) can enable better insight
+    into our model training, helping to identify any hidden software bugs. We can
+    also make our models more reliable and robust by applying regularization, constraints
+    based on human domain knowledge, or [robust ML](https://oreil.ly/nNlRs) approaches
+    designed to defend against adversarial manipulation.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与所有ML一样，更多更好的数据是DL的主要修复方法。自动化方法，如[albumentations](https://oreil.ly/MWbSL)，可以在许多情况下生成更多的训练和测试数据，例如通过扭曲图像。一旦我们对数据感到满意，基本的质量保证方法，如单元测试、集成测试和异常处理，可以帮助在结果不理想的实际应用中捕捉许多错误。特殊工具，如Weights
+    & Biases的[实验跟踪器](https://oreil.ly/VgFEj)，可以更好地洞察我们的模型训练，帮助发现任何隐藏的软件错误。我们还可以通过应用正则化、基于人类领域知识的约束或[鲁棒ML](https://oreil.ly/nNlRs)方法来使我们的模型更可靠和更健壮，以防御对抗性操纵。
+- en: Debugging DL can be particularly difficult for all the reasons discussed in
+    the concept refresher, and for other reasons. However, we hope this chapter provides
+    practical ideas for finding and fixing bugs. Let’s dive into this chapter’s case.
+    We’ll be on the lookout for data quality issues, data leaks, software bugs, and
+    undue sensitivity in our model in the following sections. We’ll find plenty of
+    issues, and try to fix them.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于所有ML，DL的调试可能会特别困难，原因如概念复习中所讨论的那样，以及其他原因。然而，我们希望本章提供实用的想法来发现和修复错误。让我们深入探讨本章的案例。在接下来的章节中，我们将密切关注数据质量问题、数据泄露、软件漏洞以及我们模型的过度敏感性。我们将发现许多问题，并尝试修复它们。
+- en: Debugging a PyTorch Image Classifier
+  id: totrans-24
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 调试PyTorch图像分类器
+- en: As we’ll discuss, we ended up manually cropping our chest X-rays to address
+    serious alignment problems. We found a data leak in our validation scheme, and
+    we’ll cover how we found and fixed that. We’ll go over how to apply an experiment
+    tracker and the results we saw. We’ll try some standard adversarial attacks, and
+    discuss what we can do with those results to make a more robust model. We’ll also
+    apply our model to an entirely new test set and analyze performance on new populations.
+    In the next sections, we’ll address how we found our bugs, and some general techniques
+    we might all find helpful for identifying issues in DL pipelines. We’ll then discuss
+    how we fixed our bugs, and some general bug remediation approaches for DL.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如我们将讨论的那样，我们最终手动裁剪我们的胸部X光片以解决严重的对准问题。我们在验证方案中发现了数据泄露，并将解释我们是如何发现并修复它的。我们将讨论如何应用实验跟踪器以及我们观察到的结果。我们将尝试一些标准对抗攻击，并讨论我们可以如何利用这些结果来构建更强大的模型。我们还将把我们的模型应用到全新的测试集上，并分析在新人群上的性能。在接下来的章节中，我们将讨论如何发现我们的漏洞，以及一些可能对DL管道中问题识别有帮助的一般技术。然后，我们将讨论如何修复我们的漏洞，以及DL的一些一般错误修复方法。
+- en: Data Quality and Leaks
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据质量和泄露
+- en: As also highlighted in [Chapter 7](ch07.html#unique_chapter_id_7), the [pneumonia
+    X-ray dataset](https://oreil.ly/uPoZX) used in this case study comes with its
+    own set of challenges. It has a skewed target class distribution. (This means
+    there are more images belonging to the pneumonia class than the normal class.)
+    The validation set is too small to draw meaningful conclusions. Additionally,
+    there are markings on the images in the form of inlaid text or tokens. Typically,
+    every hospital or department has specific style preferences for the X-rays generated
+    by their machines. When carefully examining the images, we observe a lot of unwanted
+    markings, probes, and other noise, as shown in [Figure 9-1](#images_with_annotations).
+    In a process known as *shortcut learning*, these markers can become the focus
+    of the DL learning process if we’re not extremely diligent.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如在[第 7 章](ch07.html#unique_chapter_id_7)中也强调的那样，本案例研究中使用的[肺炎X光数据集](https://oreil.ly/uPoZX)也存在一些挑战。其目标类别分布倾斜。
+    (这意味着属于肺炎类的图像比正常类图像多。) 验证集过小，无法得出有意义的结论。此外，图像上有嵌入式文本或令牌的标记。通常，每家医院或部门都对其机器生成的X光图像具有特定的风格偏好。仔细检查图像时，我们发现有许多不需要的标记、探针和其他噪声，如图9-1所示。如果我们不极其谨慎，这些标记可以成为DL学习过程的焦点，即所谓的*捷径学习*。
+- en: '![mlha 0901](assets/mlha_0901.png)'
+  id: totrans-28
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0901](assets/mlha_0901.png)'
+- en: Figure 9-1\. Images with unwanted inlaid text and markings
+  id: totrans-29
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-1\. 带有不必要的镶嵌文本和标记的图像
+- en: 'When looking into cropping and aligning our images, we also uncovered a data
+    leak. Simply put, a data leak occurs when information from validation or test
+    data is available to the model during training time. A model trained on such data
+    will exhibit optimistic performance on the test set, but it may perform poorly
+    in the real world. Data leakage in DL can occur for many reasons, including the
+    following:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在研究裁剪和对齐图像时，我们还发现了数据泄露问题。简单来说，数据泄露发生在验证或测试数据在训练时向模型提供信息的情况下。在这种数据上训练的模型可能会在测试集上表现乐观，但在实际世界中可能表现不佳。DL中的数据泄露可能由以下原因引起：
+- en: Random splitting of data partitions
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据分区的随机分割
+- en: This is the most common cause of leakage and occurs when samples representing
+    the same individual are found in the validation or test datasets, and also appear
+    in the training set. In this case, because of multiple images from the same individual
+    in training data, a simple random split between training data partitions can result
+    in images from the same patient occurring in the training and validation or test
+    sets.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是泄漏的最常见原因，当代表同一人的样本出现在验证或测试数据集中，并且还出现在训练集中时，就会发生这种情况。在这种情况下，由于训练数据中来自同一患者的多个图像，在训练数据分区之间进行简单随机分割可能导致来自同一患者的图像同时出现在训练集和验证或测试集中。
+- en: Leakage due to data augmentation
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据增强导致的泄露
+- en: Data augmentation is often an integral part of DL pipelines, used to enhance
+    both the representativeness and quantity of training data. However, if done improperly,
+    augmentation can be a significant cause of data leaks. If we’re not careful with
+    data augmentation, new synthetic images generated from the same real image can
+    end up in multiple datasets.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据增强通常是DL管道的一个重要部分，用于增强训练数据的代表性和数量。然而，如果操作不当，增强可能成为数据泄露的重要原因。如果在数据增强过程中不小心，从同一真实图像生成的新合成图像可能出现在多个数据集中。
+- en: Leakage during transfer learning
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在转移学习过程中的泄露
+- en: Transfer learning can sometimes be a source of leakage when the source and target
+    datasets belong to the same domain. In one [study](https://oreil.ly/zY-86), ImageNet
+    training examples that are highly influential on CIFAR-10 test examples are examined.
+    The authors find that these images are often identical copies of images from the
+    target task, just with a higher resolution. When these pretrained models are used
+    with the wrong datasets, the pretraining itself results in a very sneaky kind
+    of data leakage.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一项[研究](https://oreil.ly/zY-86)中，转移学习有时也可能成为泄露的来源，当源数据集和目标数据集属于相同领域时。作者们发现，这些预训练模型对CIFAR-10测试示例有很高的影响力的ImageNet训练示例，往往是目标任务的图像的完全相同副本，只是具有更高的分辨率。当这些预训练模型与错误的数据集一起使用时，预训练本身会导致一种非常隐蔽的数据泄露。
+- en: In our use case, we discovered that the training set contains multiple images
+    from the same patient. Even though all the images have unique names, we observed
+    instances where a patient has more than one X-ray, as shown in [Figure 9-2](#duplicate_images).
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的使用案例中，我们发现训练集包含同一患者的多个图像。尽管所有图像都有唯一的名称，但我们观察到某些情况下一个患者有多个X射线，正如[图9-2](#duplicate_images)所示。
+- en: When images similar to [Figure 9-2](#duplicate_images), from a single patient,
+    are sampled as part of the training set and as part of the validation or test
+    set, it leads to artificially high performance on the test set. In the real world,
+    the model can’t depend on seeing the same people that are in its training data,
+    and it may perform much worse than expected when faced with new individuals. Another
+    data concern to keep an eye on is mislabeled samples. Since we are not radiologists,
+    we cannot possibly pick a correctly labeled image from an incorrectly labeled
+    image. Without a domain expert, we’d need to rely on mathematical approaches for
+    identifying mislabeled data, such as [area under the margin ranking (AUM ranking)](https://oreil.ly/mZvNI).
+    In AUM ranking, intentionally mislabeled training instances are introduced to
+    learn the error profile of, and then locate, naturally occurring mislabeled images.
+    We’d still prefer to work with a domain expert, and this is a crucial place in
+    the beginning of a DL workflow to involve domain experts—to verify the ground
+    truth in our development datasets.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当类似于[图9-2](#duplicate_images)中来自同一患者的图像作为训练集的一部分以及验证或测试集的一部分进行采样时，会导致测试集上的人工高性能。在现实世界中，模型不能依赖于看到其训练数据中的相同人员，在面对新个体时，其表现可能远不如预期。另一个需要关注的数据问题是错误标记的样本。由于我们不是放射科医生，因此无法从正确标记的图像中选择正确的标记图像。在没有领域专家的情况下，我们需要依赖数学方法来识别错误标记的数据，如[边缘排名下的面积（AUM
+    ranking）](https://oreil.ly/mZvNI)。在AUM排名中，故意错误标记的训练实例被引入，以学习和定位自然发生的错误标记图像的错误配置文件。我们仍然更喜欢与领域专家合作，这是在深度学习工作流程的开始阶段涉及领域专家的关键位置——以验证我们开发数据集中的真实性。
+- en: '![mlha 0902](assets/mlha_0902.png)'
+  id: totrans-39
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0902](assets/mlha_0902.png)'
+- en: Figure 9-2\. Multiple chest X-ray images from a single patient in the training
+    set
+  id: totrans-40
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-2\. 训练集中来自同一患者的多个胸部X射线图像。
+- en: Software Testing for Deep Learning
+  id: totrans-41
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 深度学习软件测试
+- en: The tests specified in [Chapter 3](ch03.html#unique_chapter_id_3), namely unit,
+    integration, functional, and chaos tests, can all be applied to DL systems, hopefully
+    increasing our confidence that our pipeline code will run as expected in production.
+    While software QA increases the chances our code mechanisms operate as intended,
+    ML and math problems can still occur. DL systems are complex entities involving
+    massive data and parameter sets. As such, they also need to undergo additional
+    ML-specific tests. Random attacks are a good starting point. Exposing the models
+    to a large amount of random data can help catch a variety of software and ML problems.
+    Benchmarking is another helpful practice discussed in numerous instances in [Chapter 3](ch03.html#unique_chapter_id_3).
+    By comparing a model to benchmarks, we can conduct a check on the model’s performance.
+    Benchmarks can help us track system improvements over time in a systematic way.
+    If our model doesn’t perform better than a simple benchmark model, or its performance
+    is decreasing relative to recent benchmarks, that’s a sign to revisit our model
+    pipeline.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第3章](ch03.html#unique_chapter_id_3)中指定的测试，即单元测试、集成测试、功能测试和混沌测试，都可以应用于深度学习系统，希望增强我们对生产环境中管道代码运行预期的信心。尽管软件质量保证可以增加我们的代码机制按预期运行的可能性，但机器学习和数学问题仍可能发生。深度学习系统是涉及大量数据和参数集的复杂实体。因此，它们还需要进行额外的机器学习特定测试。随机攻击是一个很好的起点。将模型暴露于大量随机数据可以帮助捕捉各种软件和机器学习问题。基准测试是另一个有帮助的实践，在[第3章](ch03.html#unique_chapter_id_3)的多个实例中进行了讨论。通过将模型与基准进行比较，我们可以检查模型的性能。基准可以帮助我们以系统化的方式跟踪系统改进。如果我们的模型表现不如简单基准模型，或者其性能相对于最近的基准在下降，那就是重新审视我们的模型管道的信号。
+- en: The paper [“A Comprehensive Study on Deep Learning Bug Characteristics”](https://oreil.ly/YpvV-)
+    does an excellent job of compiling the most common software bugs in DL. The authors
+    performed a detailed study of posts from Stack Overflow and bug fix commits from
+    GitHub about the most popular DL libraries, including PyTorch. They concluded
+    that data and logic bugs are the most severe bug types in DL software. QA software
+    for DL is also becoming available to aid in detecting and rectifying bugs in DL
+    systems. For instance, [DEBAR](https://oreil.ly/vGNxa) is a technique that can
+    detect numerical bugs in neural networks at the architecture level before training.
+    Another technique named [GRIST](https://oreil.ly/eaddx) piggybacks on the built-in
+    gradient computation functionalities of DL infrastructures to expose numerical
+    bugs. For testing NLP models specifically, [checklist](https://oreil.ly/2IAyJ)
+    generates test cases, inspired by principles of functional testing in software
+    engineering.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[“深度学习 Bug 特性的综合研究”](https://oreil.ly/YpvV-)一文出色地汇编了DL中最常见的软件 bug。作者对来自Stack
+    Overflow的帖子和GitHub上关于最流行的DL库（包括PyTorch）的bug修复提交进行了详细研究。他们得出结论，数据和逻辑 bug 是DL软件中最严重的
+    bug 类型。DL的QA软件也越来越多，以帮助检测和纠正DL系统中的bug。例如，[DEBAR](https://oreil.ly/vGNxa)是一种技术，可以在训练前在神经网络的架构级别上检测数值
+    bug。另一种名为[GRIST](https://oreil.ly/eaddx)的技术则利用DL基础设施的内置梯度计算功能来暴露数值 bug。专门用于测试NLP模型的[checklist](https://oreil.ly/2IAyJ)生成测试用例，灵感来自软件工程中的功能测试原理。'
+- en: In our use case, we have to admit to not applying unit tests or random attacks
+    as much as we should have. Our testing processes ended up being much more manual.
+    In addition to wrestling with data leaks and alignment issues—a major cause of
+    bugs in DL—we used informal benchmarks over the course of several months to observe
+    and verify progress in our model’s performance. We also checked our pipeline against
+    the prominent bugs discussed in [“A Comprehensive Study on Deep Learning Bug Characteristics”](https://oreil.ly/MmBuR).
+    We applied experiment tracking software too, which helped us visualize many complex
+    aspects of our pipeline and feel more confident that it was performing as expected.
+    We’ll discuss the experiment tracker and other data and software fixes in more
+    detail in [“Remediation”](#ch09_remediation).
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的使用案例中，我们必须承认，我们并没有像应该那样频繁应用单元测试或随机攻击。我们的测试过程最终更多是手动完成的。除了应对数据泄漏和对齐问题——这是DL中错误的主要原因之一——我们在几个月的时间里使用非正式的基准来观察和验证我们模型性能的进展。我们还针对[“深度学习
+    Bug 特性的综合研究”](https://oreil.ly/MmBuR)中讨论的主要错误对我们的流水线进行了检查。我们还应用了实验追踪软件，这有助于我们可视化我们流水线的许多复杂方面，并且更有信心它表现如预期。我们将在[“修复措施”](#ch09_remediation)中更详细地讨论实验追踪器和其他数据与软件修复方法。
+- en: Sensitivity Analysis for Deep Learning
+  id: totrans-45
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 深度学习的敏感性分析
+- en: We’ll use sensitivity analysis again to assess the effects of various perturbations
+    on our model’s predictions. A common problem with ML systems is that while they
+    perform exceptionally well in favorable circumstances, things get messy when they
+    are subject to even minor changes in input data. Studies have repeatedly shown
+    that minor changes to input data distributions can affect [the robustness of state-of-the-art
+    models](https://oreil.ly/Easl_) like DL systems. In this section, we’ll use sensitivity
+    analysis as a means to evaluate our model’s robustness. Our best model will undergo
+    a series of sensitivity tests involving distribution shifts and adversarial attacks
+    to ascertain if it can perform well in conditions different from which it was
+    trained. We’ll also briefly cover a few other perturbation debugging tricks throughout
+    the chapter.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将再次使用敏感性分析来评估各种扰动对我们模型预测效果的影响。ML系统的一个常见问题是，在有利条件下它们表现异常出色，但在输入数据发生即使轻微变化时情况会变得混乱。研究已经反复显示，对输入数据分布的轻微变化会影响像DL系统这样的最新模型的[鲁棒性](https://oreil.ly/Easl_)。在本节中，我们将使用敏感性分析来评估我们模型的鲁棒性。我们最佳的模型将经历一系列敏感性测试，包括分布转移和对抗性攻击，以确定它在训练时的不同条件下是否能表现良好。我们还将简要介绍本章中的其他一些扰动调试技巧。
+- en: Domain and subpopulation shift testing
+  id: totrans-47
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 领域和子群体转移测试
+- en: Distribution shifts are a scenario wherein the training distribution differs
+    substantially from the test distribution, or the distributions of data encountered
+    once the system is deployed. These shifts can occur for various reasons and affect
+    models that may have been trained and tested properly before deployment. Sometimes
+    there is natural variation in data beyond our control. For instance, a pneumonia
+    classifier created before the COVID-19 pandemic may show different results when
+    tested on data after the pandemic. Since distribution shift is so likely in our
+    dynamic world, it is essential to detect it, measure it, and take corrective actions
+    in a timely manner.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布转移是一种情况，即训练分布与测试分布或系统部署后遇到的数据分布显著不同。这些转移可能由于各种原因而发生，并影响可能已在部署前进行了适当训练和测试的模型。有时，数据的自然变异超出了我们的控制范围。例如，在COVID-19大流行之前创建的肺炎分类器，在大流行后的数据测试时可能会显示不同的结果。由于在我们这个动态世界中分布转移如此普遍，及时检测、测量和采取纠正措施是至关重要的。
+- en: Changes in data distributions are probably inevitable, and there may be multiple
+    reasons why those changes occur. In this section, we’ll first focus on domain
+    (or population) shifts, i.e., when new data is from a different domain, which
+    in this case would be another hospital. Then we’ll highlight less dramatic—but
+    still problematic—subpopulation shifts. We trained our pneumonia classifier on
+    a dataset of pediatric patients from [Guangzhou Women and Children’s Medical Center](https://oreil.ly/KIGvP)
+    within one to five years of age. To check the robustness of the model to the dataset
+    from a different distribution, we evaluate its performance on a dataset from another
+    hospital and age group. Naturally, our classifier hasn’t seen the new data, and
+    its performance would indicate if it is fit for broader use. Doing well in this
+    kind of test is difficult, and that is referred to as *out-of-distribution generalization*.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据分布的变化可能是不可避免的，并且可能有多种原因导致这些变化发生。在本节中，我们首先关注领域（或群体）转移，即当新数据来自不同领域时，例如另一家医院。然后我们将重点放在较不引人注目但仍有问题的子群体转移上。我们在[广州市妇女儿童医疗中心](https://oreil.ly/KIGvP)，年龄在一到五岁之间的小儿患者数据集上训练了我们的肺炎分类器。为了检验模型对来自不同分布的数据集的稳健性，我们评估了它在另一家医院和年龄组的数据集上的表现。显然，我们的分类器没有见过新数据，它的表现将表明它是否适合更广泛的使用。在这种测试中表现良好是困难的，这被称为*out-of-distribution
+    generalization*。
+- en: The new dataset comes from the [NIH Clinical Center](https://oreil.ly/WucL6)
+    and is available through the [NIH download site](https://oreil.ly/utfwr). The
+    images in the dataset belong to 15 different classes—14 for common thoracic diseases,
+    including pneumonia, and 1 for “No findings,” where “No findings” means the 14
+    listed disease patterns are not found in the image. Each image in the dataset
+    can have multiple labels. The dataset has been [extracted from the clinical PACS
+    database](https://oreil.ly/n44Zn) at the National Institutes of Health Clinical
+    Center and consists of ~60% of all frontal chest X-rays in the hospital.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 新数据集来自[美国国立卫生研究院临床中心](https://oreil.ly/WucL6)，可以通过[NIH下载站点](https://oreil.ly/utfwr)获取。数据集中的图像属于15个不同的类别——包括14种常见胸部疾病，包括肺炎，以及一个“无发现”的类别，其中“无发现”表示图像中未发现这14种疾病模式之一。数据集中的每个图像可以有多个标签。数据集已经从国立卫生研究院临床中心的临床PACS数据库中[提取](https://oreil.ly/n44Zn)，包括医院内大约60%的前胸部X光片。
+- en: As mentioned, the new dataset differs from the training data in several ways.
+    First, unlike the training data, the new data has labels other than pneumonia.
+    To take care of this difference, we manually extracted only the “Pneumonia” and
+    “No Findings” images from the dataset and stored them as pneumonia and normal
+    images. We assume that an image that doesn’t report the 14 major thoracic diseases
+    can be reasonably put in the normal category. Our new dataset is a subsample of
+    the NIH dataset, and we have created it to contain almost balanced samples of
+    pneumonia and normal cases. Again, this implicit assumption that half of screened
+    patients have pneumonia may not hold, especially in real-world settings, but we
+    want to test our best model obtained in [Chapter 7](ch07.html#unique_chapter_id_7)
+    in distribution shift conditions, and this is the best reasonable data we found.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如前面提到的，新数据集在几个方面与训练数据不同。首先，与训练数据不同，新数据除了肺炎之外还有其他标签。为了处理这种差异，我们手动从数据集中仅提取了“肺炎”和“无所见”图像，并将它们分别存储为肺炎和正常图像。我们假设一个不报告14种主要胸部疾病的图像可以合理地放入正常类别。我们的新数据集是NIH数据集的子样本，我们创建它以包含几乎平衡的肺炎和正常病例样本。再次强调，尽管在实际环境中，半数被筛查患者有肺炎的隐含假设可能不成立，但我们希望在分布转移条件下测试我们在[第7章](ch07.html#unique_chapter_id_7)中得到的最佳模型，这是我们找到的最合理的数据。
+- en: In [Figure 9-3](#comparison_of_samples_from_different_distributions), we compare
+    the chest X-rays from the two test sets, visually representing the two different
+    distributions. The lower set of images in the figure is sampled from a completely
+    different distribution, and the images on the top are from the same distribution
+    as the training set. While we don’t expect a pneumonia classifier trained on images
+    of children to work well on adults, we do want to understand how poorly our system
+    might perform under full domain shift. We want to measure and document the limitations
+    of our system, and know when it can and cannot be used. This is a good idea for
+    all high-risk applications.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 9-3](#comparison_of_samples_from_different_distributions)中，我们比较了两个测试集的胸部X射线图像，直观地展示了这两个不同的分布。图中下方的图像集是从完全不同的分布中抽样得到的，而顶部的图像来自与训练集相同的分布。虽然我们不期望一个在儿童图像上训练的肺炎分类器在成人上表现良好，但我们确实希望了解我们的系统在完全领域转移条件下可能表现多么糟糕。我们希望衡量和记录系统的局限性，并知道何时可以使用以及何时不能使用。这对于所有高风险应用都是一个好主意。
+- en: In this application, understanding implicit data assumptions is more of a visual
+    exercise, because each training data example is an image. In structured data,
+    we might rely more on descriptive statistics to understand what data counts as
+    out-of-distribution.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种应用中，理解隐含的数据假设更多是一种视觉练习，因为每个训练数据示例都是一幅图像。在结构化数据中，我们可能更多依赖描述性统计来理解哪些数据被视为超出分布。
+- en: '![mlha 0903](assets/mlha_0903.png)'
+  id: totrans-54
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0903](assets/mlha_0903.png)'
+- en: Figure 9-3\. Comparison of X-ray samples from two different distributions of
+    data
+  id: totrans-55
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-3\. 两个不同数据分布的X射线样本比较
+- en: To our untrained eyes, both sets of images look similar. It is hard for us to
+    differentiate between pneumonia and normal patient X-ray scans. The only difference
+    we observed at first is that the images from the NIH dataset seem hazy and blurry
+    compared to the other sample. A radiologist can, however, point out significant
+    anatomical differences with ease. For instance, through reviewing literature,
+    we learned that pediatric X-rays exhibit unfused growth plates in the upper arm
+    that are not found in older patients ([Figure 9-4](#xray_comparison)). Since all
+    the patients in our training data are children less than five years of age, their
+    X-rays will likely exhibit this feature. If our model picks up on these types
+    of features, and somehow links them to the pneumonia label through shortcut learning
+    or some other erroneous learning process, these spurious correlations will cause
+    it to perform poorly on a new data where such a feature does not exist.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们这些不熟悉的眼睛来说，两组图像看起来相似。我们很难区分肺炎和正常患者的X射线扫描。我们最初观察到的唯一区别是，与其他样本相比，来自NIH数据集的图像似乎有点模糊和朦胧。然而，放射科医生可以轻松指出显著的解剖差异。例如，通过文献回顾，我们了解到儿科X射线显示出上臂未融合的生长板，在老年患者中找不到（[图 9-4](#xray_comparison)）。由于我们训练数据中的所有患者都是五岁以下的儿童，他们的X射线可能会展示这一特征。如果我们的模型捕捉到这些特征，并通过捷径学习或其他错误的学习过程将它们与肺炎标签联系起来，这些虚假的相关性将导致它在新数据上表现不佳，而在这些新数据中不存在这样的特征。
+- en: '![mlha 0904](assets/mlha_0904.png)'
+  id: totrans-57
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0904](assets/mlha_0904.png)'
+- en: Figure 9-4\. A pediatric X-ray (left) compared with that of an adult (right)
+  id: totrans-58
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-4\. 儿童X光片（左）与成人X光片（右）的比较
+- en: Now for the moment of truth. We tested our best model on the test data from
+    the new distribution, and the results are not encouraging. We had our apprehensions
+    going into this domain shift exercise, and they proved to be mostly true. Looking
+    at [Table 9-1](#confusion_matrix_test), we can come to some conclusions.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在是真相的时刻。我们在新分布的测试数据上测试了我们最佳模型，结果并不令人鼓舞。在进行这种领域转移的练习时，我们有些担忧，而这些担忧在很大程度上得到了验证。通过查看[表 9-1](#confusion_matrix_test)，我们可以得出一些结论。
+- en: Table 9-1\. A confusion matrix showing the pneumonia classifier model performance
+    on a test dataset from a different distribution
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 9-1\. 显示肺炎分类器模型在来自不同分布的测试数据集上的表现的混淆矩阵
+- en: '|  | Predicted normal | Predicted pneumonia |'
+  id: totrans-61
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | 预测为正常 | 预测为肺炎 |'
+- en: '| --- | --- | --- |'
+  id: totrans-62
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| **Actual normal** | 178 | 102 |'
+  id: totrans-63
+  prefs: []
+  type: TYPE_TB
+  zh: '| **实际正常** | 178 | 102 |'
+- en: '| **Actual pneumonia** | 130 | 159 |'
+  id: totrans-64
+  prefs: []
+  type: TYPE_TB
+  zh: '| **实际肺炎** | 130 | 159 |'
+- en: The classifier incorrectly predicts the normal class for patients who actually
+    had pneumonia fairly frequently. In the medical diagnostics context, false negatives—predicting
+    that patients with pneumonia are normal—are quite dangerous. If such a model were
+    deployed in hospitals, it would have damaging consequences, as sick patients may
+    not receive correct or timely treatments. [Table 9-2](#performance_metrics) shows
+    additional performance metrics for the classifier.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在医疗诊断背景下，分类器经常错误地预测实际上患有肺炎的患者为正常。假阴性——即预测肺炎患者为正常——在这种情况下是非常危险的。如果这样的模型部署在医院中，将会造成严重后果，因为病人可能得不到正确或及时的治疗。[表 9-2](#performance_metrics)
+    展示了分类器的额外性能指标。
+- en: Table 9-2\. Additional performance metrics on the test dataset from a different
+    distribution
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 9-2\. 新分布测试数据集上的额外性能指标
+- en: '| Class | Count | Precision | Recall | F1 score |'
+  id: totrans-67
+  prefs: []
+  type: TYPE_TB
+  zh: '| 类别 | 数量 | 精确率 | 召回率 | F1分数 |'
+- en: '| --- | --- | --- | --- | --- |'
+  id: totrans-68
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- |'
+- en: '| Normal | 280 | 0.58 | 0.64 | 0.61 |'
+  id: totrans-69
+  prefs: []
+  type: TYPE_TB
+  zh: '| 正常 | 280 | 0.58 | 0.64 | 0.61 |'
+- en: '| Pneumonia | 289 | 0.61 | 0.55 | 0.58 |'
+  id: totrans-70
+  prefs: []
+  type: TYPE_TB
+  zh: '| 肺炎 | 289 | 0.61 | 0.55 | 0.58 |'
+- en: Could we have trained a better model? Did we have enough data? Did we manage
+    the imbalance in the new dataset properly? Does our selection of samples in the
+    new dataset represent a realistic domain or population shift? While we’re not
+    100% sure of the answers to these questions, we did some gain some clarity regarding
+    our model’s generalization capabilities, and how willing we are to deploy such
+    models in high-risk scenarios. Any dreams we had that the generalist author team
+    could train a DL classifier for pneumonia that works well beyond the training
+    data have been dispensed with. We also think it’s fair to reiterate just how difficult
+    it is to train medical image classifiers.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们能训练出更好的模型吗？我们有足够的数据吗？我们是否正确处理了新数据集中的不平衡？我们在新数据集中样本选择是否代表了真实的领域或人群转移？虽然我们对这些问题的答案并不百分之百确定，但我们确实对我们模型的泛化能力有了一些了解，以及我们愿意在高风险场景中部署这类模型的意愿。我们曾经梦想过，通用的团队能够训练出在训练数据之外表现良好的肺炎深度学习分类器，但这些梦想已经破灭。我们也认为重申训练医学图像分类器的难度是多么大。
+- en: 'Along with domain shifts, we also need to consider a less drastic type of data
+    drift that can affect our classifier. Subpopulation shift occurs when we have
+    the same population in new data, but with a different distribution. For example,
+    we could encounter slightly older or younger children, a different proportion
+    of pediatric pneumonia cases, or a different demographic group of children with
+    slightly different physical characteristics. The approaches described in [“BREEDS:
+    Benchmarks for Subpopulation Shift”](https://oreil.ly/fDOkm) focus on the latter
+    case, where certain *breeds* of objects are left out of benchmark datasets, and
+    hence not observed during training. By removing certain subpopulations from popular
+    benchmark datasets, the authors were able to identify and mitigate to some extent
+    the effects of encountering new subpopulations. The same group of researchers
+    also develops tools to implement the findings of their research on [robustness](https://oreil.ly/1DsI_).
+    In addition to supporting tools for re-creating the breeds benchmarks, the robustness
+    package also supports various types of model training, adversarial training, and
+    input manipulation functionality.'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '除了领域转移之外，我们还需要考虑一种不那么激烈的数据漂移类型，它可能影响我们的分类器。当新数据中出现相同人群但分布不同的情况时，就会发生子群体漂移。例如，我们可能会遇到年龄稍大或稍小的孩子，不同比例的小儿肺炎病例，或者略有不同体征的不同人群儿童。在[“BREEDS:
+    Benchmarks for Subpopulation Shift”](https://oreil.ly/fDOkm)中描述的方法集中于后一种情况，即某些对象的*品种*在基准数据集中被遗漏，因此在训练期间未被观察到。通过从流行基准数据集中移除某些子群体，作者能够在一定程度上识别和缓解遇到新子群体的影响。同一研究小组还开发了工具，以实施他们在[鲁棒性](https://oreil.ly/1DsI_)研究中的发现。除了支持重新创建品种基准的工具外，鲁棒性软件包还支持各种类型的模型训练、对抗训练和输入操作功能。'
+- en: It’s important to be clear-eyed about the challenges of ML and DL in high-risk
+    scenarios. Training an accurate and robust medical image classifier today still
+    requires large amounts of carefully labeled data, incorporation of specialized
+    human domain knowledge, cutting-edge ML, and rigorous testing. Moreover, as the
+    authors of [“Safe and Reliable Machine Learning”](https://oreil.ly/4QWNc) aptly
+    point out, it is basically impossible to know all the risks in deployment environments
+    during training time. Instead, we should strive to shift our workflows to proactive
+    approaches that emphasize the creation of models explicitly protected against
+    problematic shifts that are likely to occur.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在高风险场景中，对机器学习和深度学习的挑战保持清醒是很重要的。即使是今天，要训练一个准确且健壮的医学图像分类器，仍需要大量精心标记的数据、专业的人类领域知识的整合、尖端的机器学习技术以及严格的测试。此外，正如[“Safe
+    and Reliable Machine Learning”](https://oreil.ly/4QWNc)的作者所指出的，要在部署环境中了解所有风险基本上是不可能的。因此，我们应该努力将工作流程转向强调明确保护免受可能发生的问题性转移的预防性方法。
+- en: Next, we’ll explore adversarial example attacks, which help us understand both
+    instability and security vulnerabilities in our models. Once we find adversarial
+    examples, they can help us be proactive in training more robust DL systems.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将探讨对抗性示例攻击，这有助于我们了解模型中的不稳定性和安全漏洞。一旦发现对抗性示例，它们可以帮助我们在训练更健壮的深度学习系统时采取积极主动的措施。
+- en: Adversarial example attacks
+  id: totrans-75
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 对抗性示例攻击
+- en: We introduced adversarial examples in [Chapter 8](ch08.html#unique_chapter_id_8)
+    with respect to tabular datasets. Recall that adversarial examples are strange
+    instances of input data that cause surprising changes in model output. In this
+    section, we’ll discuss them in terms of our DL pneumonia classifier. More specifically,
+    we’ll attempt to determine if our classifier is capable of handling adversarial
+    example attacks. Adversarial inputs are created by adding a small but carefully
+    crafted amount of noise to existing data. This noise, though often imperceptible
+    to humans, can drastically change a model’s predictions. The idea of using adversarial
+    examples for better DL models rose to prominence in [“Explaining and Harnessing
+    Adversarial Examples”](https://oreil.ly/mAjD5), where the authors showed how easy
+    it is to fool contemporary DL systems for computer vision, and how adversarial
+    examples can be reincorporated into model training to create more robust systems.
+    Since then, several studies focusing on safety-critical applications, like [facial
+    recognition](https://oreil.ly/yIL9D) and [road sign classification](https://oreil.ly/jQIzR),
+    have been conducted to showcase the effectiveness of these attacks. A great deal
+    of subsequent [robust ML](https://oreil.ly/tlKJJ) research has concentrated on
+    countermeasures and robustness against adversarial examples.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在[第8章](ch08.html#unique_chapter_id_8)中介绍了对于表格数据集的对抗示例。回想一下，对抗示例是导致模型输出惊人变化的奇怪输入数据实例。在本节中，我们将从DL肺炎分类器的角度来讨论它们。更具体地说，我们将尝试确定我们的分类器是否能够处理对抗示例攻击。通过向现有数据添加一个小但精心设计的噪声来创建对抗性输入。这种噪声，虽然通常对人类来说几乎不可察觉，却可以显著改变模型的预测结果。利用对抗示例来改进DL模型的想法在[“解释和利用对抗示例”](https://oreil.ly/mAjD5)中备受关注，作者展示了现代计算机视觉DL系统易受骗的方式，以及如何重新将对抗示例纳入模型训练中以创建更加健壮的系统。自那时以来，已经进行了几项研究，专注于如[面部识别](https://oreil.ly/yIL9D)和[路标分类](https://oreil.ly/jQIzR)等安全关键应用，展示了这些攻击的有效性。大量后续的[鲁棒ML](https://oreil.ly/tlKJJ)研究集中于对抗示例的应对措施和鲁棒性。
+- en: One of the most popular ways to create adversarial examples for DL systems is
+    the fast gradient sign method (FGSM). Unlike the trees we work with in [Chapter 8](ch08.html#unique_chapter_id_8),
+    neural networks are often differentiable. This means we can use gradient information
+    to construct adversarial examples based on the network’s underlying error surface.
+    FGSM performs something akin to the converse of gradient descent. In gradient
+    descent, we use the gradient of the model’s error function with respect to the
+    model’s *weights* to learn how to change weights to *decrease* error. In FGSM,
+    we use the gradient of the of model’s error function with respect to the *inputs*
+    to learn how to change inputs to *increase* error.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对DL系统创建对抗示例最流行的方法之一是快速梯度符号法（FGSM）。与我们在[第8章](ch08.html#unique_chapter_id_8)中处理的树木不同，神经网络通常是可微的。这意味着我们可以利用梯度信息根据网络的错误曲面构建对抗示例。FGSM执行的操作类似于梯度下降的反向过程。在梯度下降中，我们使用模型对权重的误差函数的梯度来学习如何改变权重以*减少*误差。在FGSM中，我们利用模型对输入的误差函数的梯度来学习如何改变输入以*增加*误差。
+- en: FGSM provides us with an image, that often looks like static, where each pixel
+    in that image is designed to push the model’s error function higher. We use a
+    tuning parameter, *epsilon*, to control the magnitude of the pixel intensity in
+    the adversarial example. In general, the larger epsilon is, the worse error we
+    can expect from the adversarial example. We tend to keep epsilon small, because
+    the network usually just adds up all the small perturbations, affecting a large
+    change in the model’s outcome. As in linear models, small changes to each pixel
+    (input) can add up to large changes in system outputs. We have to point out the
+    irony, also highlighted by other authors, that the cheap and effective FGSM method
+    relies on DL systems mostly behaving like giant linear models.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: FGSM为我们提供了一张图像，通常看起来像静态，其中每个像素都设计成增加模型误差函数。我们使用一个调节参数，*epsilon*，来控制对抗示例中像素强度的大小。一般来说，epsilon越大，我们可以预期对抗示例的误差越严重。我们倾向于保持epsilon较小，因为网络通常只是累加所有小扰动，从而影响模型结果的大变化。就像在线性模型中一样，对每个像素（输入）的微小改变可以导致系统输出的巨大变化。我们必须指出这种讽刺，也被其他作者强调过，即廉价且有效的FGSM方法主要依赖于DL系统基本上像巨大线性模型一样的行为。
+- en: A well-known example of the FGSM attack from [“Explaining and Harnessing Adversarial
+    Examples”](https://oreil.ly/8Ghxu) shows a model that first recognizes an image
+    of a panda bear as a panda bear. Then FGSM is applied to create a perturbed, but
+    visually identical, image of a panda bear. The network then classifies that image
+    as a gibbon, or type of primate. While several packages like [cleverhans](https://oreil.ly/oVdSo),
+    [foolbox](https://oreil.ly/C9baT), and [adversarial-robustness-toolbox](https://oreil.ly/QKoKT)
+    are available for creating adversarial examples, we manually implemented the FGSM
+    attack on our fine-tuned pneumonia classifier based on the example given in the
+    official PyTorch documentation. We’ll then attack our existing fine-tuned model
+    and generate adversarial images by perturbing samples from the test set, as shown
+    in [Figure 9-5](#adversarial_sample). Of course, we’re not trying to turn pandas
+    into gibbons. We’re trying to understand how robust our pneumonia classifier is
+    to nearly imperceptible noise.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[“解释和利用对抗样本”](https://oreil.ly/8Ghxu)中的FGSM攻击的一个著名例子显示，模型首先将一张熊猫的图片识别为熊猫。然后应用FGSM创建了一张扰动的、但在视觉上相同的熊猫图片。网络随后将该图片分类为长臂猿或者某种灵长类动物。虽然有几个像[cleverhans](https://oreil.ly/oVdSo)，[foolbox](https://oreil.ly/C9baT)，和[adversarial-robustness-toolbox](https://oreil.ly/QKoKT)这样的包用于创建对抗样本，我们根据官方PyTorch文档中的例子手动实现了FGSM攻击于我们的精调肺炎分类器上。然后我们将攻击我们现有的精调模型，并通过扰动测试集中的样本生成对抗性图像，如图[9-5](#adversarial_sample)所示。当然，我们并不试图把熊猫变成长臂猿。我们试图了解我们的肺炎分类器对几乎不可察觉的噪声有多强韧。'
+- en: '![mlha 0905](assets/mlha_0905.png)'
+  id: totrans-80
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0905](assets/mlha_0905.png)'
+- en: Figure 9-5\. Invisible adversarial example attack shifts the prediction of a
+    pneumonia classifier from normal to pneumonia
+  id: totrans-81
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-5\. 隐形对抗样本攻击将肺炎分类器的预测从正常变为肺炎。
+- en: The classifier that predicted an image in the normal class with a confidence
+    of 99% misclassified the FGSM-perturbed image as a pneumonia image. Note that
+    the amount of noise is hardly perceptible.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以99%的置信度预测一个普通类别图像的分类器将FGSM扰动的图像误分类为肺炎图像。请注意噪声的量几乎不可察觉。
+- en: We also plot an accuracy versus epsilon plot to see how the model’s accuracy
+    changes as the size of the perturbation increases. The epsilon value is a measure
+    of the perturbation applied to an input image in order to create an adversarial
+    example. The accuracy of the model is typically measured as the percentage of
+    adversarial examples that are correctly classified by the model. A lower epsilon
+    value corresponds to a smaller perturbation, and a higher epsilon value corresponds
+    to a larger perturbation. In the given example, as the epsilon value increases,
+    the perturbation applied to the input image becomes larger and the model’s accuracy
+    typically decreases. The shape of the curve on the plot can vary depending on
+    the specific model and the dataset being used, but in general the curve will be
+    decreasing as the epsilon value increases. The accuracy versus epsilon plot ([Figure 9-6](#accuracy_vs_epsilon))
+    is a useful tool for evaluating the robustness of a machine learning model against
+    adversarial examples, as it allows researchers to see how the model’s accuracy
+    changes as the size of the perturbation increases.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '我们还绘制了一个准确率与 epsilon 的图来观察模型的准确率随着扰动大小的变化。Epsilon值是应用于输入图像以创建对抗性样本的扰动的度量。模型的准确率通常被测量为模型正确分类的对抗性样本的百分比。较低的epsilon值对应较小的扰动，较高的epsilon值对应较大的扰动。在给定的例子中，随着epsilon值的增加，应用于输入图像的扰动变得更大，模型的准确率通常会降低。曲线的形状在图中会根据具体的模型和数据集而变化，但通常随着epsilon值的增加而减小。准确率与
+    epsilon 的图（图[9-6](#accuracy_vs_epsilon)）是评估机器学习模型对抗性样本强韧性的有用工具，因为它允许研究人员看到随着扰动大小的增加模型准确率的变化。  '
+- en: '![mlha 0906](assets/mlha_0906.png)'
+  id: totrans-84
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0906](assets/mlha_0906.png)'
+- en: Figure 9-6\. Accuracy versus epsilon comparison for adversarial images ([digital,
+    color version](https://oreil.ly/Gy-Q9))
+  id: totrans-85
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-6\. 对抗图像的准确率与 epsilon 的比较（[数字，彩色版本](https://oreil.ly/Gy-Q9)）
+- en: Again, we’re not doctors or radiologists. But how can we trust a system where
+    invisible changes cause huge swings in predictions for such a high-stakes application?
+    We have to be absolutely sure no noise has entered into our diagnostic images,
+    either accidentally or placed there by a bad actor. We’d also like our model to
+    be more robust to noise, just like we’d like it to be more robust to data drift.
+    In [“Remediation”](#ch09_remediation), we’ll outline some options for using adversarial
+    examples in training to make DL systems more robust. For now, we’ll highlight
+    another perturbation and sensitivity analysis trick we can use to find other kinds
+    of instability in DL models.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次强调，我们不是医生或放射科医生。但是我们如何能够信任一个系统，其中不可见的变化导致了对如此高风险应用的预测有巨大的波动？我们必须绝对确保没有任何噪音进入我们的诊断图像，无论是意外的还是由不良行为者放置的。我们也希望我们的模型对噪音更加稳健，就像我们希望它对数据漂移更加稳健一样。在
+    [“修复”](#ch09_remediation) 中，我们将概述在训练中使用对抗样本来使 DL 系统更加健壮的一些选项。目前，我们将重点介绍另一种扰动和敏感性分析技巧，可以用来发现
+    DL 模型中其他类型的不稳定性。
+- en: Perturbing computational hyperparameters
+  id: totrans-87
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 扰动计算超参数
+- en: DL models require a large number of hyperparameters to be set correctly to find
+    the best model for a problem. As highlighted in [“Underspecification Presents
+    Challenges for Credibility in Modern Machine Learning”](https://oreil.ly/YWVF9),
+    using standard assessment techniques to select hyperparameters tends to result
+    in models that look great in test data, but that underperform in the real world.
+    This underspecification paper puts forward a number of tests we can use to detect
+    this problem.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DL 模型需要正确设置大量的超参数，以找到解决问题的最佳模型。正如 [“欠规范化对现代机器学习可信度的挑战”](https://oreil.ly/YWVF9)
+    中所强调的，使用标准评估技术来选择超参数通常会导致在测试数据中看起来很好的模型，在实际世界中表现不佳。这篇欠规范化论文提出了几种我们可以用来检测这个问题的测试方法。
+- en: We touched on segmented error analysis in this and several other chapters—and
+    it’s still an important test that should be conducted when possible to detect
+    underspecification and other issues. Another way to test for underspecification
+    is to perturb computational hyperparameters that have nothing to do with the structure
+    of the problem we are attempting to solve. The idea is that changing the random
+    seed or anything else that doesn’t relate to the structure of the data or problem,
+    say, the number of GPUs, number of machines, etc., should not change the model
+    in any meaningful way. If it does, this indicates underspecification. If possible,
+    try several different random seeds or distribution schemes (number of GPUs or
+    machines) during training and be sure to test whether performance varies strongly
+    due to these changes. The best mitigation for underspecification is to constrain
+    models with additional human domain expertise. We’ll discuss a few ways to do
+    this in the next section on remediation.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在本章及几个其他章节中提到了分段错误分析，这仍然是一个重要的测试，应在可能的情况下进行，以检测欠规范化和其他问题。另一种测试欠规范化的方法是扰动与我们试图解决的问题结构无关的计算超参数。其理念是改变随机种子或与数据或问题结构无关的其他内容，比如
+    GPU 数量、机器数量等，不应显著改变模型的性能。如果这样做，就表明存在欠规范化。如果可能，尝试在训练过程中使用几个不同的随机种子或分布方案（GPU 或机器数量），并确保测试性能是否因这些变化而显著变化。最有效的欠规范化缓解方法是通过额外的人类领域专业知识对模型进行约束。我们将在下一节中讨论几种方法来实现这一点。
+- en: Remediation
+  id: totrans-90
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 修复
+- en: Usually, when we find bugs, we try to fix them. This section will focus on fixing
+    our DL model’s bugs, and discuss some general approaches to remediating issues
+    in DL pipelines. As usual, most of our worst issues arose from data quality. We
+    spent a lot of time sorting out a data leak and manually cropping images to fix
+    alignment problems. From there, we analyzed our pipeline using a new profiling
+    tool to find and fix any obvious software bugs. We also applied L2 regularization
+    and some basic adversarial training techniques to increase the robustness of our
+    model. We’ll be providing some details on how all this was done in the following
+    sections, and we’ll also highlight a few other popular remediation tactics for
+    DL.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，当我们发现 bug 时，我们会尝试修复它们。本节将专注于修复我们的 DL 模型的 bug，并讨论一些通用的 DL 管道问题解决方法。和往常一样，我们最严重的问题大多源于数据质量。我们花了很多时间整理数据泄露问题，并手动裁剪图像以修复对齐问题。然后，我们使用新的分析工具分析了我们的管道，以找出并修复任何明显的软件
+    bug。我们还应用了 L2 正则化和一些基本的对抗训练技术，以增强我们模型的鲁棒性。我们将在接下来的章节中详细介绍所有这些操作的具体细节，并突出几种其他流行的
+    DL 修复策略。
+- en: Data fixes
+  id: totrans-92
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据修复
+- en: In terms of data fixes, first recall that in [Chapter 7](ch07.html#unique_chapter_id_7)
+    we addressed a data imbalance issue by carefully augmenting images. We then wondered
+    if some of our performance issues were arising from noisy and poorly aligned images.
+    When poring through the images one by one, cropping them with photo-editing software,
+    we found a data leak. So, we also had to fix the data leak we uncovered, then
+    go back and deal with problems in image alignment. After these time-consuming
+    manual steps, we were able to apply a double fine-tuning training approach that
+    did noticeably improve our model’s in silico performance.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于数据修复，首先要记住，在[第 7 章](ch07.html#unique_chapter_id_7)中，我们通过仔细增强图像来解决数据不平衡问题。然后我们怀疑我们的一些性能问题是否来自于嘈杂和对齐不良的图像。逐一浏览这些图像时，用照片编辑软件裁剪它们时，我们发现了一个数据泄漏。因此，我们还必须修复我们发现的数据泄漏，然后回头处理图像对齐的问题。经过这些耗时的手动步骤后，我们能够应用双微调训练方法，显著提高了我们模型的仿真性能。
+- en: Note
+  id: totrans-94
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Even in unstructured data problems, we should be getting as familiar with our
+    datasets as possible. To quote Google’s [responsible AI practices](https://oreil.ly/DwUNC),
+    “When possible, directly examine your raw data.”
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使在非结构化数据问题中，我们也应该尽可能熟悉我们的数据集。引用 Google 的[负责任的 AI 实践](https://oreil.ly/DwUNC)，“在可能的情况下，直接检查原始数据。”
+- en: To ensure there was no leakage between individuals in different datasets, we
+    manually extended the validation dataset by transferring unique images from the
+    training set to the validation set. We augmented the remaining training set images
+    using the transformations available in PyTorch, paying close attention to domain
+    constraints relating to asymmetrical images (lung images are not laterally symmetrical,
+    so we could not use augmentation approaches that flipped the images laterally).
+    This eliminated the data leak.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了确保不同数据集中个体之间没有泄漏，我们通过将训练集中的独特图像转移到验证集来手动扩展验证数据集。我们使用 PyTorch 中可用的转换来增强剩余的训练集图像，特别注意与非对称图像相关的域约束（肺部图像不是左右对称的，因此我们不能使用将图像水平翻转的增强方法）。这消除了数据泄漏。
+- en: Warning
+  id: totrans-97
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Partitioning data into training, validation, and test sets after augmentation
+    is a common source of data leaks in DL pipelines.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在增强后将数据分割为训练集、验证集和测试集是深度学习管道中常见的数据泄漏来源。
+- en: The next fix we tried was manually cropping some of the X-rays with image manipulation
+    software. While PyTorch has transformations that can help in center-cropping of
+    the X-ray images, they didn’t do a great job on our data. So we bit the bullet,
+    and cropped hundreds of images ourselves. In each case, we sought to preserve
+    the lungs’ portion of the X-ray images, get rid of the unwanted artifacts around
+    the edges, and preserve scale across all images as much as possible. [Figure 9-7](#cropped-dataset)
+    shows a random collection of images from the cropped dataset. (Compare these to
+    the images in [Figure 9-1](#images_with_annotations).) We were also vigilant about
+    not reintroducing data leaks while cropping, and made every effort to keep cropped
+    images in their correct data partition.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们尝试的下一个修复方法是使用图像处理软件手动裁剪一些 X 光图像。虽然 PyTorch 有一些转换可以帮助中心裁剪 X 光图像，但在我们的数据上效果并不理想。因此，我们迎难而上，自己裁剪了数百张图像。在每种情况下，我们试图尽可能保留
+    X 光图像的肺部部分，消除边缘周围的不必要的伪影，并尽可能保持所有图像的比例。[图 9-7](#cropped-dataset)展示了裁剪数据集中的一组随机图像。（将这些图像与[图
+    9-1](#images_with_annotations)中的图像进行比较。）我们还注意不在裁剪过程中重新引入数据泄漏，并尽力保持裁剪后的图像处于其正确的数据分区中。
+- en: '![mlha 0907](assets/mlha_0907.png)'
+  id: totrans-100
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0907](assets/mlha_0907.png)'
+- en: Figure 9-7\. Manually cropped X-ray images
+  id: totrans-101
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-7\. 手动裁剪的 X 光图像
+- en: The major advantage of going through the laborious process of manual image cropping
+    is to create another dataset that can be used for a two-stage transfer learning
+    process. As also explained in [Chapter 7](ch07.html#unique_chapter_id_7), we use
+    a pretrained DenseNet-121 for transfer learning. However, the source data on which
+    this architecture is trained varies significantly from our target domain. As such,
+    we follow a process where we first fine-tune the model on the augmented and leak-free
+    dataset and then perform another fine-tuning of the resultant model only on the
+    cropped dataset. [Table 9-3](#test_set_performance) shows the test set performance
+    after the second transfer learning stage.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 手动裁剪图像的主要优势在于创建另一个数据集，可以用于两阶段迁移学习过程。正如在[第 7 章](ch07.html#unique_chapter_id_7)中所解释的，我们使用预训练的
+    DenseNet-121 进行迁移学习。然而，这种架构所训练的源数据与我们的目标域显著不同。因此，我们首先在增强且无泄漏数据集上对模型进行微调，然后仅在裁剪数据集上对结果模型进行另一次微调。[表格
+    9-3](#test_set_performance)显示了第二个迁移学习阶段后的测试集性能。
+- en: Table 9-3\. Performance comparison on the test set for double fine-tuning
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格 9-3\. 双重微调测试集性能比较
+- en: '|  | Logloss | Accuracy |'
+  id: totrans-104
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | 对数损失 | 准确性 |'
+- en: '| --- | --- | --- |'
+  id: totrans-105
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Transfer learning stage 1 | 0.4695 | 0.9036 |'
+  id: totrans-106
+  prefs: []
+  type: TYPE_TB
+  zh: '| 迁移学习阶段 1 | 0.4695 | 0.9036 |'
+- en: '| Transfer learning stage 2 | 0.2626 | 0.9334 |'
+  id: totrans-107
+  prefs: []
+  type: TYPE_TB
+  zh: '| 迁移学习阶段 2 | 0.2626 | 0.9334 |'
+- en: Since the double fine-tuned model exhibits better performance on the holdout
+    test set, we choose it as our best model. It took a lot of manual effort to get
+    here, *which is likely the reality for many DL projects*.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于双重微调模型在留存测试集上表现更好，我们选择它作为我们的最佳模型。要达到这个目标，需要付出大量的手动工作，*这对于许多深度学习项目来说可能是现实*。
+- en: In our research into fixing our data problems, we ran into the [Albumentations
+    library](https://oreil.ly/GKkFG), which looks great for augmentations, and the
+    [label-errors project](https://oreil.ly/VpEkD), which provides tools for fixing
+    some common image problems. While we had to revert to manual fixes, these packages
+    do seem helpful in general. After the long fight for clean data, and finding a
+    fine-tuning process that worked well for that data, it’s time to double-check
+    our code.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在修复数据问题的研究中，我们遇到了[Albumentations 库](https://oreil.ly/GKkFG)，用于增强，以及[label-errors
+    项目](https://oreil.ly/VpEkD)，提供了修复一些常见图像问题的工具。尽管我们不得不回到手动修复，但这些包似乎总体上是有帮助的。在长时间的干净数据争取之后，并找到适合该数据的微调过程后，是时候再次检查我们的代码了。
+- en: Software fixes
+  id: totrans-110
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 软件修复
+- en: 'Since DL pipelines involve multiple stages, there are many components to debug,
+    and we have to consider their integration as well. If we change more than one
+    setting, stage, or integration point at a time, we won’t know which change improved
+    or impaired our work. If we’re not systematic about code changes, we may be left
+    wondering whether we selected the best model architecture? optimizer? batch size?
+    loss function? activation function? learning rate? and on and on. To have any
+    hope of answering these questions rigorously, we have to break down our software
+    debugging into small steps that attempt to isolate and fix issues one by one.
+    We ended up making a software testing checklist to stay sane and enable systematic
+    debugging of our pipeline:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于深度学习流水线涉及多个阶段，有许多组件需要调试，我们还必须考虑它们的集成。如果我们一次更改超过一个设置、阶段或集成点，我们将无法知道哪个变化改进或损害了我们的工作。如果我们在代码更改方面不系统化，我们可能会疑惑是否选择了最佳的模型架构？优化器？批处理大小？损失函数？激活函数？学习率？等等。为了有希望严格回答这些问题，我们必须将软件调试分解为一小步，试图逐一孤立和修复问题。我们最终制定了软件测试清单，以保持理智并实现对流水线的系统调试：
+- en: Check our training device.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查我们的训练设备。
+- en: 'Before proceeding with training, ensure the model and data are always on the
+    same device (CPU or GPU). It’s a common practice in PyTorch to initialize a variable
+    that holds the device on which we’re training the network (CPU or GPU):'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在进行训练之前，请确保模型和数据始终在同一设备上（CPU 或 GPU）。在 PyTorch 中，初始化一个变量来保存我们训练网络的设备（CPU 或 GPU）是一个常见的做法：
+- en: '[PRE0]'
+  id: totrans-114
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Summarize network architecture.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结网络架构。
+- en: Summarize the outputs from layers, gradients, and weights to ensure there is
+    no mismatch.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结层、梯度和权重的输出，确保没有不匹配。
+- en: Test network initialization.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试网络初始化。
+- en: Check the initial values of weights and hyperparameters. Consider whether they
+    make sense and whether any anomalous values are easily visible. Experiment with
+    different values if needed.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查权重和超参数的初始值。考虑它们是否合理，是否有任何异常值是很容易看到的。如有需要，尝试不同的值。
+- en: Confirm training settings on a mini-batch.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确认小批量训练设置。
+- en: 'Overfit a small batch of data to check training settings. If successful, we
+    can move on to a bigger training set. If not, we go back and debug our training
+    loop and hyperparameters. The following code demonstrates overfitting a single
+    batch in PyTorch:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 过度拟合少量数据以检查训练设置。如果成功，我们可以转向更大的训练集。如果不成功，我们回过头来调试我们的训练循环和超参数。以下代码演示了在PyTorch中过度拟合单个批次：
+- en: '[PRE1]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Tune the (initial) learning rate.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调整（初始）学习率。
+- en: A minimal learning rate will make the optimizer converge very slowly but traverse
+    the error surface more carefully. A high learning rate will do the opposite. The
+    optimizer will jump around the error surface more haphazardly. Choosing good learning
+    rates is important and difficult. There are some open source tools in PyTorch
+    like [PyTorch learning rate finder](https://oreil.ly/uICL1) that can help determine
+    an appropriate learning rate, as shown in the following code. The paper [“Cyclical
+    Learning Rates for Training Neural Networks”](https://oreil.ly/seww6) discusses
+    one way we found helpful to choose DL learning rates. These are just a few of
+    the available options. If we’re using a self-adjusting learning rate, we also
+    have to remember we can’t test that without training until we a hit a somewhat
+    realistic stopping criterion.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 极小的学习率会使优化器收敛得非常缓慢，但会更仔细地穿越误差曲面。较高的学习率则相反。优化器会更随意地跳跃误差曲面。选择好的学习率非常重要但也很困难。在PyTorch中有一些开源工具，比如[PyTorch学习率查找器](https://oreil.ly/uICL1)可以帮助确定适当的学习率，如下代码所示。论文["训练神经网络的循环学习率"](https://oreil.ly/seww6)讨论了一种我们发现有帮助选择深度学习学习率的方法。这些只是可用选项中的几个。如果我们使用自调节学习率，我们也必须记住，除非我们达到一个相对现实的停止标准，否则我们无法测试它。
+- en: '[PRE2]'
+  id: totrans-124
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Refine loss functions and optimizers.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优化损失函数和优化器。
+- en: 'Matching loss functions to the problem at hand is a must for usable ML results
+    in general. With DL, picking the best loss function is especially difficult, as
+    there are so many options and possible customizations for both loss functions
+    and optimizers. We also don’t have convergence guarantees as we might with some
+    much simpler models. For an example loss function bug, consider a common issue
+    in PyTorch: applying a softmax loss instead of the [cross-entropy loss](https://oreil.ly/foC4i).
+    For PyTorch, cross-entropy loss expects logit values, and passing probabilities
+    to it as inputs will not give correct outputs. To avoid these kinds of issues,
+    train loss and optimizer selections for a reasonable number of test iterations,
+    checking iteration plots and predictions to ensure the optimization process is
+    progressing as expected.'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将损失函数与手头问题匹配对于一般可用的机器学习结果至关重要。对于深度学习，选择最佳损失函数特别困难，因为有这么多选项和可能的自定义，无论是损失函数还是优化器。我们也没有像一些更简单的模型那样的收敛保证。例如损失函数的一个bug，考虑PyTorch中的一个常见问题：应用softmax损失而不是[交叉熵损失](https://oreil.ly/foC4i)。对于PyTorch，交叉熵损失期望logit值，将概率作为输入传递给它不会给出正确的输出。为了避免这类问题，为合理数量的测试迭代训练损失和优化器的选择，检查迭代图和预测，以确保优化过程按预期进行。
+- en: Adjust regularization.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调整正则化。
+- en: Contemporary DL systems usually require regularization to generalize well. However,
+    there are many options (L1, L2, dropout, input dropout, noise injection, etc.),
+    and it’s not impossible to go overboard. Too much regularization can prevent a
+    network from converging, and we don’t want that either. It takes a bit of experimentation
+    to pick the right amount and type of regularization.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当代深度学习系统通常需要正则化以良好泛化。然而，有许多选择（L1、L2、dropout、输入dropout、噪声注入等），也不是不可能过火。过多的正则化可能会阻止网络收敛，这也是我们不想要的。需要一些实验来选择正确的正则化量和类型。
+- en: Test-drive the network.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试驱动网络。
+- en: It’s no fun to start a big training job just to find out it diverged somewhere
+    along the way, or failed to yield good results after burning many chip cycles.
+    If at all possible, train the network fairly deep into its optimization process
+    and check that things are progressing nicely before performing the final long
+    training run. This test-drive serves as a bottom-line integration test too.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 发现开始一项大型训练任务，只是发现它在某个地方分歧，或者在烧掉很多芯片周期后未能产生良好的结果，这一点一点都不有趣。如果可能的话，训练网络深入其优化过程并检查事物是否顺利进行，然后再执行最终的长时间训练运行。这种测试驱动也作为底线集成测试。
+- en: Improve reproducibility.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提高可重现性。
+- en: While stochastic gradient descent (SGD) and other randomness is built into much
+    of contemporary DL, we have to have some baseline to work from. If for no other
+    reason, we need to make sure we don’t introduce new bugs into our pipelines. If
+    our results are bouncing around too much, we can check our data splits, feature
+    engineering, random seeds for different software libraries, and the placement
+    of those seeds. (Sometimes we need to have seeds inside training loops.) There
+    are also sometimes options for exact reproducibility that come at the expense
+    of training time. It might make sense to suffer through some very slow partial
+    training runs to isolate reproducibility issues in our pipelines. It’s difficult,
+    but once we establish a reproducible baseline, we’re really on our way to building
+    better models.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管随机梯度下降（SGD）和其他随机性已经内置到许多当代深度学习中，我们必须有一些基线来进行工作。如果没有其他原因，我们需要确保不会在我们的管道中引入新的错误。如果我们的结果波动太大，我们可以检查我们的数据拆分、特征工程、不同软件库的随机种子以及这些种子的放置位置。（有时我们需要在训练循环中使用种子。）有时候也有确保精确可再现性的选项，尽管这会牺牲训练时间。在我们的管道中，遭受一些非常慢的部分训练运行来隔离可再现性问题可能是有意义的。这很困难，但是一旦我们建立了可重现的基线，我们就真正在通向构建更好模型的道路上了。
+- en: We must have performed these steps, identified errors, and retested hundreds
+    of times—catching countless typos, errors, and logic issues along the way. Once
+    we fix up our code, we want to keep it clean and have the most reproducible results
+    possible. One way to do that efficiently is with newer experiment tracking tools
+    like [Weights & Biases](https://oreil.ly/erHGm). These tools can really help in
+    building better models faster by efficient dataset versioning and model management.
+    [Figure 9-8](#experiment_tracker) shows multiple DL modeling experiments being
+    tracked and visualized in a tidy dashboard, leading to fewer bugs and better reproducibility.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们必须执行这些步骤，识别错误，并重新测试数百次——在此过程中捕捉无数的错别字、错误和逻辑问题。一旦修复了我们的代码，我们希望保持其干净，并且尽可能具有可重现的结果。一种有效的方法是使用像[Weights
+    & Biases](https://oreil.ly/erHGm)这样的新实验跟踪工具。通过高效的数据集版本控制和模型管理，这些工具可以帮助更快地构建更好的模型。[图 9-8](#experiment_tracker)展示了在整洁的仪表板中跟踪和可视化多个深度学习建模实验，从而减少错误，并提高可重现性。
+- en: '![mlha 0908](assets/mlha_0908.png)'
+  id: totrans-134
+  prefs: []
+  type: TYPE_IMG
+  zh: '![mlha 0908](assets/mlha_0908.png)'
+- en: Figure 9-8\. Tracking multiple experiments with Weights & Biases ([digital,
+    color version](https://oreil.ly/xsUUk))
+  id: totrans-135
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-8\. 使用 Weights & Biases（[数字版，彩色版本](https://oreil.ly/xsUUk)）追踪多个实验
+- en: While we can use the aforementioned debugging steps, unit tests, integration
+    tests, and experiment trackers to identify and avoid commonly occurring bugs,
+    another option is to try to avoid complex training code altogether. For simpler
+    problems, an excellent alternative to writing hundreds or thousands of lines of
+    Python code is [PyTorch Lightning](https://oreil.ly/94enQ)—an open source Python
+    library that provides a high-level interface for PyTorch. It manages all the low-level
+    stuff, abstracting commonly repeated code, and enabling users to focus more on
+    the problem domain than on engineering.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然我们可以使用上述调试步骤、单元测试、集成测试和实验跟踪器来识别和避免常见的错误，但另一种选择是尝试避免复杂的训练代码。对于更简单的问题，一个极好的替代方法是使用[PyTorch
+    Lightning](https://oreil.ly/94enQ)——一个开源的Python库，为PyTorch提供高级接口。它管理所有低级细节，抽象出常见的重复代码，使用户能够更多地专注于问题领域，而不是工程化方面。
+- en: Now that we’re feeling confident that our code pipeline is performing as expected
+    and is not riddled with bugs, we’ll shift to trying to fix stability issues in
+    our network.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们对代码管道的表现感到自信，并且没有大量错误存在，我们将转而尝试修复网络中的稳定性问题。
+- en: Sensitivity Fixes
+  id: totrans-138
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 敏感性修复
+- en: Data has problems. Code has problems. We did our best to solve those in our
+    DL pipeline. Now it’s time to try to fix the math issues we found. The robustness
+    problems we’ve encountered in this chapter are not unique. They are some of the
+    most well-known issues in DL. In the following subsections, we’ll take inspiration
+    from major studies about common robustness problems. We’ll perform some actual
+    remediation, and discuss several other options we can try in the future.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据存在问题。代码也有问题。我们尽力在深度学习管道中解决这些问题。现在是时候尝试修复我们发现的数学问题了。本章中遇到的鲁棒性问题并不是独特的。它们是深度学习中最著名的问题之一。在接下来的子章节中，我们将从主要研究中汲取灵感，解决一些实际的修复问题，并讨论未来可以尝试的其他几个选项。
+- en: Noise injection
+  id: totrans-140
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 噪声注入
+- en: One of the most common causes of a network’s poor generalization capability
+    is overfitting. This is especially true for small datasets like we’re using. Noise
+    injection is an interesting option for customizing regularization and adding strong
+    regularization to our pipelines. We decided to try it, intentionally corrupting
+    our training data, as a way to add extra regularization into our training process.
+    Adding noise to training samples can help to make the network more robust to input
+    perturbations, and has effects similar to L2 regularization on model parameters.
+    Adding noise to images is also a kind of data augmentation, because it creates
+    artificial samples from the original dataset.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 网络泛化能力差的最常见原因之一是过拟合，特别是在我们使用的小型数据集中更为明显。噪声注入是一种有趣的选项，用于定制正则化并为我们的流水线添加强正则化。我们决定尝试这种方法，故意损坏我们的训练数据，作为在训练过程中添加额外正则化的一种方式。向训练样本添加噪声可以帮助使网络更能抵抗输入扰动，并且在模型参数上有类似于
+    L2 正则化的效果。向图像添加噪声也是一种数据增强方法，因为它从原始数据集中创建了人工样本。
+- en: Note
+  id: totrans-142
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Injecting random noise in images is also known as *jitter*—a word that dates
+    back decades and has its roots in signal processing. Injection of Gaussian noise
+    is equivalent to L2 regularization in many contexts.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图像中注入随机噪声也被称为*jitter*，这个词已有几十年历史，源于信号处理。注入高斯噪声在许多情况下等效于 L2 正则化。
+- en: We added a small amount of Gaussian noise to the training samples. We then retrained
+    the model on the noise-corrupted training data and now test the model on the new
+    unseen dataset. The hope is that this crude regularization improves the generalizability
+    of the model, both on in-distribution holdout data and potentially on the out-of-distribution
+    data.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在训练样本中添加了少量高斯噪声。然后，我们在这些噪声污染的训练数据上重新训练模型，并在全新的未见过的数据集上测试模型。我们希望这种粗糙的正则化方法能改善模型的泛化能力，无论是在分布内保留数据上还是可能的分布外数据上。
+- en: '[Table 9-4](#gaussian_noise_injection) shows the results of the noise-injected
+    retraining.'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 9-4](#gaussian_noise_injection) 展示了噪声注入重新训练的结果。'
+- en: Table 9-4\. Loss values for the two models on the in- and out-of-distribution
+    data
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 9-4\. 两个模型在分布内和分布外数据上的损失值
+- en: '|  | In-distribution | Out-of-distribution |'
+  id: totrans-147
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | 分布内 | 分布外 |'
+- en: '| --- | --- | --- |'
+  id: totrans-148
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Original model | 0.26 | 2.92 |'
+  id: totrans-149
+  prefs: []
+  type: TYPE_TB
+  zh: '| 原始模型 | 0.26 | 2.92 |'
+- en: '| Noise-injected model | 0.35 | 2.67 |'
+  id: totrans-150
+  prefs: []
+  type: TYPE_TB
+  zh: '| 噪声注入模型 | 0.35 | 2.67 |'
+- en: '[Table 9-4](#gaussian_noise_injection) shows us the loss values for the original
+    model and the model trained on noise-corrupted data. We can see that the L2-regularized
+    model performed slightly worse than the original model on data from the original
+    distribution. The loss values of 0.26 and 0.35 correspond to an average model
+    score for the pneumonia class of 0.77 and 0.70, respectively. On the other hand,
+    the noise-injected model performed marginally better than the original model on
+    the entirely new dataset. However, a loss value of 2.67 is still terrible, and
+    as [Table 9-5](#gaussian_noise_injection_confusion) shows, the model is still
+    performing barely better than randomly on the out-of-distribution data.'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 9-4](#gaussian_noise_injection) 展示了原始模型和在噪声污染数据上训练的模型的损失值。我们可以看到，L2 正则化模型在原始分布数据上表现略逊于原始模型。损失值
+    0.26 和 0.35 对应于肺炎类的平均模型评分分别为 0.77 和 0.70。另一方面，噪声注入模型在全新数据集上表现略优于原始模型。然而，2.67 的损失值仍然很糟糕，正如[表 9-5](#gaussian_noise_injection_confusion)所示，该模型在分布外数据上的表现仅比随机稍好。'
+- en: Table 9-5\. Confusion matrix for the noise-injected model on out-of-distribution
+    data
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 9-5\. 噪声注入模型在分布外数据上的混淆矩阵
+- en: '|  | Predicted normal | Predicted pneumonia |'
+  id: totrans-153
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | 预测正常 | 预测肺炎 |'
+- en: '| --- | --- | --- |'
+  id: totrans-154
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| **Actual normal** | 155 | 125 |'
+  id: totrans-155
+  prefs: []
+  type: TYPE_TB
+  zh: '| **实际普通** | 155 | 125 |'
+- en: '| **Actual pneumonia** | 118 | 171 |'
+  id: totrans-156
+  prefs: []
+  type: TYPE_TB
+  zh: '| **实际肺炎** | 118 | 171 |'
+- en: So, noise injection did not make our model perform miraculously on out-of-distribution
+    data. But, all things being equal, we’d like to deploy the more regularized model
+    that also performed adequately on test data, probably after turning down the level
+    of regularization by decreasing the standard deviation of the Gaussian noise.
+    While we added noise only to the training samples in this example, it can also
+    be added to the weights, gradients, and labels to increase robustness in some
+    cases.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以，噪声注入并没有让我们的模型在分布外数据上表现得奇迹般。但是，一切都相等的情况下，我们希望部署更加正则化的模型，该模型在测试数据上表现也相当不错，可能是在减少高斯噪声标准偏差的情况下，降低正则化水平后。虽然在这个例子中，我们仅向训练样本添加了噪声，但有时还可以将噪声添加到权重、梯度和标签中，以增强鲁棒性。
+- en: Additional stability fixes
+  id: totrans-158
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 稳定性修复
+- en: 'We toyed around with many other stability fixes, but saw similar results to
+    noise injection. Some helped a bit, but nothing “fixed” our out-of-distribution
+    performance. However, that doesn’t mean they didn’t make our model better for
+    some unseen data. Next, we’ll go over more data augmentation options, learning
+    with noisy labels, domain-based constraints, and robust ML approaches before closing
+    out the chapter:'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们试验了许多其他稳定性修复方法，但与噪声注入类似地看到了类似的结果。有些方法稍微有所帮助，但没有完全“修复”我们的分布外表现。然而，这并不意味着它们没有让我们的模型在某些未见数据上表现更好。接下来，我们将讨论更多数据增强选项、使用带噪标签的学习、基于领域的约束以及鲁棒的机器学习方法，然后结束本章：
+- en: Automated data augmentation
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自动化数据增强
+- en: Another option for boosting robustness is exposing the network to a wider variety
+    of data distributions during training. While it is not always possible to acquire
+    new data, effective data augmentation is becoming somewhat turnkey in DL pipelines.
+    [Albumentations](https://oreil.ly/okEDM) is a popular library for creating different
+    types of augmented images for computer vision tasks. Albumentations is easily
+    compatible with popular DL frameworks such as PyTorch and Keras. [AugLy](https://oreil.ly/q1NVA)
+    is another data augmentation library focused on creating more robust DL models
+    available for audio, video, and text, in addition to images. The unique idea behind
+    AugLy is that it derives inspiration from real images on the internet and provides
+    a suite of more than one hundred augmentation options.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提升鲁棒性的另一种选择是在训练过程中使网络暴露于更广泛的数据分布。虽然不总是可能获取新数据，但有效的数据增强在深度学习管道中变得相对简单。[Albumentations](https://oreil.ly/okEDM)
+    是一个流行的库，用于为计算机视觉任务创建不同类型的增强图像。Albumentations 可与流行的深度学习框架（如PyTorch和Keras）轻松兼容。[AugLy](https://oreil.ly/q1NVA)
+    是另一个数据增强库，专注于为音频、视频和文本（以及图像）创建更加鲁棒的深度学习模型。AugLy 的独特之处在于，它从互联网的真实图像中获得灵感，并提供了一套超过一百种增强选项。
+- en: Learning with noisy labels
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用带噪标签的学习
+- en: For many different reasons, labels on images can be noisy or wrong. This can
+    occur because the volume of images required to label and then train a contemporary
+    DL system is large, because of expenses associated with labels, because of the
+    technical difficulties of labeling complex images, or for other reasons. In reality,
+    this means we are often training on noisy labels. At the most basic level, we
+    can shuffle some small percentage of image labels in our training data and hope
+    that makes our model more robust to label noise. Of course, there’s always more
+    we can do, and learning on noisy labels is a busy area of DL research. The GitHub
+    repo [noisy_labels](https://oreil.ly/nPs_W) lists a large number of possible noisy
+    label learning approaches and tools. Also, recall that in [Chapter 7](ch07.html#unique_chapter_id_7),
+    we used label shuffling as a way to find robust features and check explanation
+    techniques. From our standpoint, using label-shuffling for explanation, feature
+    selection, and checking purposes may be its highest calling today.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于各种原因，图像的标签可能存在噪声或错误。这可能是因为标记和训练现代深度学习系统所需的图像数量庞大，标签费用昂贵，标记复杂图像的技术困难或其他原因。实际上，这意味着我们经常在带有噪声标签的训练数据上训练。在最基本的层面上，我们可以在训练数据中随机调整一小部分图像标签，希望这能使我们的模型对标签噪声更加鲁棒。当然，我们总是可以做更多的事情，学习带噪标签是深度学习研究的一个繁忙领域。GitHub
+    仓库 [noisy_labels](https://oreil.ly/nPs_W) 列出了大量可能的带噪标签学习方法和工具。此外，请回想一下，在[第7章](ch07.html#unique_chapter_id_7)中，我们使用标签洗牌作为发现鲁棒特征和检查解释技术的一种方式。从我们的观点来看，使用标签洗牌进行解释、特征选择和检查目的可能是其今天的最高呼声。
+- en: Domain-based constraints
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于领域的约束
+- en: To defeat underspecification, it’s essential to incorporate domain information
+    or prior knowledge into DL systems. One approach to integrating prior knowledge
+    into DL models is known as [physics-informed deep learning](https://oreil.ly/UotaL),
+    where analytical equations relevant to the problem at hand are added into the
+    network’s loss function and gradient calculations. Pretraining is another well-known
+    way to better constrain ML systems to their appropriate domain. Known as [domain-
+    or task-adaptive pretraining](https://oreil.ly/PBLaT), weights learned during
+    a domain- or task-specific pretraining run can then be used in supervised training
+    or fine-tuning of the network to bind training to the domain more concretely.
+    We can also employ monotonic or shape constraints, as is done with TensorFlow
+    [Lattice](https://oreil.ly/hwqeT), to ensure that modeled relationships between
+    inputs and targets follow causal realities. Don’t forget about the basics too.
+    We need to match our loss functions to known target and error distributions. If
+    domain knowledge injection is interesting to readers, check out [“Informed Machine
+    Learning”](https://oreil.ly/BVEvF) for a broad review that considers the sources
+    of knowledge, their representation, and their integration into ML pipelines.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要打败不充分的情况，将领域信息或先验知识纳入深度学习系统是至关重要的。将先验知识整合到深度学习模型中的一种方法称为[物理信息驱动深度学习](https://oreil.ly/UotaL)，其中与问题相关的分析方程被添加到网络的损失函数和梯度计算中。预训练是另一种更好地约束ML系统到适当领域的方式。被称为[领域或任务自适应预训练](https://oreil.ly/PBLaT)，在领域或任务特定预训练运行期间学习的权重可以被用于监督训练或网络微调，以更加具体地绑定训练到领域。我们还可以使用单调或形状约束，如TensorFlow的[Lattice](https://oreil.ly/hwqeT)，以确保模型输入和目标之间的建模关系遵循因果关系现实。别忘了基础知识。我们需要将我们的损失函数与已知的目标和误差分布匹配。如果领域知识注入对读者有趣，请查看[“信息机器学习”](https://oreil.ly/BVEvF)进行广泛的评估，考虑知识来源、它们的表示以及它们如何集成到ML流水线中。
+- en: Robust machine learning
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 强韧机器学习
+- en: 'While it’s a bit of a confusing name, *robust machine learning* is the common
+    phrase for the area of DL research that addresses adversarial manipulation of
+    models. [Robust ML](https://oreil.ly/Wu2zh) is a community-run website that consolidates
+    different defense strategies and provides various countermeasures and defenses,
+    primarily for adversarial example attacks and data poisoning. While robust ML
+    is a wide area of study, some common methods include retraining on adversarial
+    examples, gradient masking, and countermeasures for data poisoning:'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然名字有点混淆，*强大的机器学习* 是解决对抗模型操纵的深度学习研究领域的常见术语。[强韧机器学习](https://oreil.ly/Wu2zh)
+    是一个由社区运营的网站，汇总了不同的防御策略，并提供各种对抗例攻击和数据污染的防御措施。强韧机器学习是一个广泛的研究领域，一些常见的方法包括对抗性示例的重新训练，梯度遮蔽以及对抗数据污染的对策：
+- en: Retraining on adversarial examples
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对抗性示例的重新训练
+- en: Popular techniques include retraining on properly labeled adversarial examples,
+    where those examples are found by methods like FGSM. (We tried this, but the results
+    looked a lot like the noise injection results.) This technique involves retraining
+    the model with a combination of original data and adversarial examples, after
+    which the model should be more difficult to fool, as it has already seen many
+    adversarial examples. The paper [“Adversarial Examples Are Not Bugs, They Are
+    Features”](https://oreil.ly/D1nNl) by the [Madry Lab](https://oreil.ly/LfuvU)
+    offers more perspective into how we can understand adversarial examples in the
+    light of identifying robust input features.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流行的技术包括在正确标记的对抗性示例上重新训练，这些示例是通过FGSM等方法找到的。(我们尝试过这个，但结果看起来很像噪声注入结果。) 这种技术涉及使用原始数据和对抗性示例的组合对模型进行重新训练，之后模型应该更难欺骗，因为它已经看过许多对抗性示例。由[Madry实验室](https://oreil.ly/LfuvU)的论文[“对抗性示例不是错误，它们是特征”](https://oreil.ly/D1nNl)提供了更多关于如何理解对抗性示例的视角。
+- en: Gradient masking
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 梯度遮蔽
+- en: Gradient masking works by changing gradients so they aren’t useful to adversaries
+    when creating adversarial examples. It turns out gradient masking isn’t actually
+    a good defense and can be [circumvented easily](https://oreil.ly/vohUq) by motivated
+    attackers. However, gradient masking is important to understand for red-teaming
+    and testing purposes, as many other attacks have been inspired by weaknesses in
+    gradient masking. For example, the [foolbox library](https://oreil.ly/mAFEd) has
+    a good demonstration of *gradient substitution*, i.e., replacing the gradient
+    of the original model with a smooth counterpart and building effective adversarial
+    examples using that substituted gradient.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 梯度掩蔽的作用是改变梯度，使其在对抗性示例创建时对攻击者没有用处。事实证明，梯度掩蔽实际上并不是一个很好的防御方法，并且可以被有动机的攻击者轻松[绕过](https://oreil.ly/vohUq)。然而，梯度掩蔽对于红队测试和测试目的非常重要，因为许多其他攻击灵感来自梯度掩蔽的弱点。例如，[foolbox库](https://oreil.ly/mAFEd)很好地演示了*梯度替代*，即用平滑的替代梯度替换原始模型的梯度，并利用该替代梯度构建有效的对抗性示例。
+- en: Data poisoning countermeasures
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据污染对策
+- en: There are a number of defenses for detecting and mitigating data poisoning.
+    For example, the [Adversarial Robustness Toolbox (ART)](https://oreil.ly/bokv4)
+    toolkit contains detection methods based on hidden unit activations and data provenance,
+    and using spectral signatures. Respectively, the basic ideas are that triggering
+    backdoors created by data poisoning should cause hidden units to activate in anomalous
+    ways, as backdoors should only be used in rare scenarios; that data provenance
+    (developing a careful understanding and records about the handling of training
+    data) can ensure it is not poisoned; and the use of principal components analysis
+    to find tell-tale signs of adversarial examples. To see an example of how ART
+    works for detecting data poisoning, check out the [activation defense demo](https://oreil.ly/YaOvf).
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有许多防御措施用于检测和减轻数据污染。例如，[对抗性鲁棒性工具箱（ART）](https://oreil.ly/bokv4)包含基于隐藏单元激活和数据来源的检测方法，以及使用谱特征。基本思想分别是，由数据污染创建的后门应导致隐藏单元以异常方式激活，因为后门应只在罕见情况下使用；数据来源（开发对训练数据处理的仔细理解和记录）可以确保数据没有被污染；以及使用主成分分析来发现对抗性示例的显著特征。要了解ART如何检测数据污染的示例，请查看[激活防御演示](https://oreil.ly/YaOvf)。
+- en: As readers can see, there are a lot of options to increase robustness in DL.
+    If we’re most worried about robust performance on new data, noise injection, data
+    augmentation, and noisy label techniques may be most helpful. If we have the ability
+    to inject more human domain knowledge, we should always do that. And if we’re
+    worried about security and adversarial manipulation, we need to consider official
+    robust ML methodologies. While there are some rules of thumb and logical ideas
+    about when to apply which fix, we really have to try many techniques to find what
+    works best for our data, model, and application.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如读者所见，有很多选项可以增强深度学习的鲁棒性。如果我们最担心在新数据上的鲁棒性表现，噪声注入、数据增强和嘈杂标签技术可能是最有帮助的。如果我们有能力注入更多人类领域知识，我们应该始终这样做。而如果我们担心安全性和对抗性操纵，我们需要考虑官方的鲁棒机器学习方法。虽然有一些经验法则和逻辑上的想法来确定何时应用哪种修复方法，但我们真的必须尝试许多技术，找到适合我们数据、模型和应用的最佳方法。
+- en: Conclusion
+  id: totrans-175
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: Even after all of this testing and debugging, we’re fairly certain we should
+    not deploy this model. While none of the authors consider themselves DL experts,
+    we do wonder what this says about the level of hype around DL. If the author team
+    couldn’t get this model right after months of work, what does it take in reality
+    to make a high-stakes DL classifier work? We have access to nice GPUs and many
+    years of experience in ML between us. That’s not enough. Two obvious things missing
+    from our approach are massive training data and access to domain experts. Next
+    time we take on a high-risk application of DL, we’ll make sure to have access
+    to those kinds of resources. But that’s not a project that a handful of data scientists
+    can take on on their own. A repeated lesson from this book is it takes more than
+    a few data scientists to make high-risk projects work.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使经过所有这些测试和调试，我们相当肯定不应该部署这个模型。尽管作者中没有人认为自己是深度学习专家，但我们确实在思考这反映了深度学习周围炒作的水平。如果作者团队在数月的工作后仍然无法正确构建这个模型，那么在现实中，使高风险深度学习分类器工作需要什么呢？我们拥有不错的GPU和多年的机器学习经验。但这还不够。我们方法中明显缺少的两个要素是大量训练数据和领域专家的支持。下次我们承担高风险深度学习应用时，我们一定要确保能够获得这些资源。但这不是几个数据科学家能够单独完成的项目。这本书中反复强调的一个教训是，要使高风险项目成功，需要不止几个数据科学家。
+- en: At a minimum, we’ll need an entire supply chain to get properly labeled images
+    and access to expensive domain experts. Even with those improved resources, we’d
+    still need to perform the kind of testing described in this chapter. On the whole,
+    our experiences with DL have left us with more questions than answers. How many
+    DL systems are trained on smaller datasets and without human domain expertise?
+    How many DL systems are deployed without the level of testing described in this
+    chapter? In those cases, did the systems really not have bugs? Or maybe it was
+    assumed they did not have bugs? For low-risk games and apps, these issues probably
+    aren’t a big deal. But for DL systems being used in medical diagnosis, law enforcement,
+    security, immigration, and other high-risk problem domains, we hope the developers
+    of those systems had access to better resources than us and put in serious testing
+    effort.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 至少，我们将需要整个供应链来获得适当标记的图像和获取昂贵的领域专家支持。即使有了这些改进的资源，我们仍然需要执行本章描述的测试类型。总体来说，我们对深度学习的经验带给我们更多问题而不是答案。有多少深度学习系统是在较小的数据集上训练且没有人类领域专家的支持？有多少深度学习系统是在没有进行本章描述的测试级别部署的？在这些情况下，系统真的没有漏洞吗？或者可能是假定它们没有漏洞？对于低风险的游戏和应用程序，这些问题可能不是什么大问题。但对于应用在医学诊断、执法、安全、移民等高风险问题领域的深度学习系统，我们希望这些系统的开发者比我们拥有更好的资源，并且进行了严格的测试工作。
+- en: Resources
+  id: totrans-178
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 资源
+- en: Code Examples
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码示例
+- en: '[Machine-Learning-for-High-Risk-Applications-Book](https://oreil.ly/machine-learning-high-risk-apps-code)'
+  id: totrans-180
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[面向高风险应用的机器学习书籍](https://oreil.ly/machine-learning-high-risk-apps-code)'
+- en: Data Generation Tools
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据生成工具
+- en: '[AugLy](https://oreil.ly/C3sh1)'
+  id: totrans-182
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[AugLy](https://oreil.ly/C3sh1)'
+- en: '[faker](https://oreil.ly/9ZeuG)'
+  id: totrans-183
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[faker](https://oreil.ly/9ZeuG)'
+- en: Deep Learning Attacks and Debugging Tools
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 深度学习攻击和调试工具
+- en: '[adversarial-robustness-toolbox](https://oreil.ly/j4pmz)'
+  id: totrans-185
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[对抗鲁棒性工具包](https://oreil.ly/j4pmz)'
+- en: '[albumentations](https://oreil.ly/lIX8o)'
+  id: totrans-186
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[图像增强](https://oreil.ly/lIX8o)'
+- en: '[cleverhans](https://oreil.ly/LvNRO)'
+  id: totrans-187
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[cleverhans](https://oreil.ly/LvNRO)'
+- en: '[checklist](https://oreil.ly/lopis)'
+  id: totrans-188
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[检查表](https://oreil.ly/lopis)'
+- en: '[counterfit](https://oreil.ly/jxToW)'
+  id: totrans-189
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[counterfit](https://oreil.ly/jxToW)'
+- en: '[foolbox](https://oreil.ly/3ofR4)'
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[foolbox](https://oreil.ly/3ofR4)'
+- en: '[robustness](https://oreil.ly/Eq4yv)'
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[鲁棒性](https://oreil.ly/Eq4yv)'
+- en: '[tensorflow/model-analysis](https://oreil.ly/UDkel)'
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[tensorflow/model-analysis](https://oreil.ly/UDkel)'
+- en: '[TextAttack](https://oreil.ly/VraVt)'
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[TextAttack](https://oreil.ly/VraVt)'
+- en: '[TextFooler](https://oreil.ly/mvq2J)'
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[TextFooler](https://oreil.ly/mvq2J)'
+- en: '[torcheck](https://oreil.ly/kEczf)'
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[torcheck](https://oreil.ly/kEczf)'
+- en: '[TorchDrift](https://oreil.ly/njHPO)'
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[TorchDrift](https://oreil.ly/njHPO)'

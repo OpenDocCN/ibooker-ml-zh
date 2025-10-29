@@ -1,0 +1,1689 @@
+- en: Chapter 4\. Feature and Training Data
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 4 章 特征和训练数据
+- en: By Robbie Sedgewick and Todd Underwood
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作者：Robbie Sedgewick 和 Todd Underwood
+- en: 'It should be clear by this point that models come from data. This chapter is
+    about the data: how it is created, processed, annotated, stored, and ultimately
+    used to create the model. You will see that managing and handling the data creates
+    specific challenges for repeatability, manageability, and reliability, and we
+    will make some concrete recommendations about how to approach those challenges.
+    For background, make sure to see (if you haven’t already) Chapters [2](ch02.xhtml#data_management_principles)
+    and [3](ch03.xhtml#basic_introduction_to_models).'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到这一点应该很明确，模型来自数据。本章讨论的是数据：它是如何创建、处理、标注、存储以及最终用于创建模型的。您将看到，管理和处理数据为可重复性、可管理性和可靠性带来了特定的挑战，我们将就如何应对这些挑战提出一些具体建议。如需背景知识，请确保参阅（如果尚未阅读）第
+    [2](ch02.xhtml#data_management_principles) 章和第 [3](ch03.xhtml#basic_introduction_to_models)
+    章。
+- en: 'This chapter covers the infrastructure that accepts data from a source and
+    readies it for use by the training system. We will discuss three fundamental functional
+    subsystems involved in this task: a feature system, a system for human annotations,
+    and a metadata system. We discussed features a little in the previous chapter;
+    another way of thinking about them is that they are characteristics of the input
+    data, especially characteristics that we have determined are predictive of something
+    we care about. Labels are specific cases of the output that we want from the model
+    that we ultimately train. They are used as examples to train that model. Another
+    way to think about labels is that they are the target or “correct” values for
+    a specific data instance that the model will learn. Labels can be extracted from
+    logs by correlating the data with another independent event, or they can be generated
+    by humans. We’ll discuss the systems needed for generation of human labels at
+    scale, often called *annotations*. And finally, we’ll briefly cover metadata systems,
+    which keep track of the details about how the other systems work and are critical
+    to making them repeatable and reliable.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖了接收来自源头数据并为训练系统准备数据的基础设施。我们将讨论涉及此任务的三个基本功能子系统：特征系统、人类标注系统和元数据系统。我们在上一章节已经稍微讨论了特征；另一种思考方式是，它们是输入数据的特征，特别是我们确定与我们关心的某些事物有预测性的特征。标签是我们最终要训练的模型所需的特定输出案例。它们用作训练模型的示例。另一种思考标签的方式是，它们是模型将学习的特定数据实例的目标或“正确”值。标签可以通过将数据与另一个独立事件相关联的日志中提取，或者可以由人类生成。我们将讨论在规模上生成人类标签所需的系统，通常称为*标注*。最后，我们将简要介绍元数据系统，该系统跟踪其他系统的工作细节，并对使它们可重复和可靠至关重要。
+- en: Several aspects of these systems are usually shared between the feature and
+    data system—most notably the metadata system. Since *metadata* (data about the
+    data that we are collecting and annotating) is best understood after we know what
+    we’re doing with the data, we will discuss those systems after we have explored
+    the requirements and characteristics of the feature and labeling systems.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些系统的几个方面通常在特征和数据系统之间共享，尤其是元数据系统。由于*元数据*（关于我们正在收集和标注的数据的数据）在我们知道如何处理数据之后才能更好地理解，所以我们将在探讨了特征和标签系统的要求和特征之后讨论这些系统。
+- en: Features
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 特征
+- en: The data is just the data. Features are what make it useful for ML.^([1](ch04.xhtml#ch01fn32))
+    A *feature* is any aspect of the data that we determine is useful in accomplishing
+    the goals of the model. Here, “we” includes the humans building the model or many
+    times can now include automatic feature-engineering systems. In other words, a
+    feature is a specific, measurable aspect of the data, or a function of it.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据就是数据。特征是使其对机器学习有用的因素。^([1](ch04.xhtml#ch01fn32)) *特征*是我们确定在实现模型目标中有用的数据的任何方面。这里，“我们”包括构建模型的人类，或者很多时候现在可以包括自动特征工程系统。换句话说，特征是数据的具体可测量的方面，或者是其功能。
+- en: Features are used to build models. They are the structure that connects the
+    model back to the data used to assemble the model. Previously, we have said that
+    a model is a set of rules that takes data and uses it to generate predictions
+    about the world. This is true of a model architecture and a configured model.
+    But a trained model is very much a formula for combining a collection of features
+    (essentially, feature definitions used to extract feature values from real data—we
+    cover this definition more completely later in this chapter). Features frequently
+    are more than just pieces of the raw data, but rather involve some kind of preprocessing.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征用于构建模型。它们是将模型与用于组装模型的数据连接起来的结构。此前我们曾说过，模型是一组规则，它接受数据并用它来生成关于世界的预测。这对于模型架构和配置过的模型都是正确的。但是训练过的模型在很大程度上是一个组合特征的公式（基本上是用于从真实数据中提取特征值的特征定义——我们稍后在本章中更全面地讨论这个定义）。特征通常不仅仅是原始数据的片段，而是涉及某种预处理过程。
+- en: 'These concrete examples of features should provide some intuition about what
+    they are:'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些具体的特征示例应该能提供一些关于它们的直觉：
+- en: From a web log, information about the customer (say, browser type).
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从网络日志中获取有关客户的信息（例如，浏览器类型）。
+- en: Individual words or combinations of words from text a human enters into an application.
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 人类输入到应用程序中的文本中的单个词或词组。
+- en: The set of all the pixels in an image, or a structured subset thereof.
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 图像中的所有像素集合，或其结构化子集。
+- en: Current weather at the customer’s location when they loaded the page.
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 加载页面时客户位置的当前天气情况。
+- en: Any combination or transformation of features can itself be a feature.
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 任何特征的组合或变换本身也可以成为一种特征。
+- en: Typically, features contain smaller portions of structured data extracted from
+    the underlying training data. As modeling techniques continue to develop, it seems
+    likely that more features will start to resemble raw data rather than these extracted
+    elements. For example, a model training on text currently might train on words
+    or combinations of words, but we expect to see more training on paragraphs or
+    even whole documents in the future. This has significant implications for modeling,
+    of course, but people building production ML systems should also be aware of the
+    impact on systems of having the training data grow larger and less structured.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，特征包含从底层训练数据中提取的较小结构化数据部分。随着建模技术的不断发展，更多的特征可能开始类似于原始数据，而不是这些提取的元素。例如，当前在文本上进行训练的模型可能会训练单词或单词的组合，但我们预期未来会看到更多对段落甚至整篇文档的训练。当然，这对建模有重要影响，但是构建生产型
+    ML 系统的人员也应该意识到训练数据增加和结构变得更少对系统的影响。
+- en: At YarnIt we have several models, and one of them is to make recommendations
+    for different or additional products while a customer is shopping on the site.
+    This recommendations model is called by the web application during a shopping
+    session from both the main product page where a customer is viewing an individual
+    product and from the shopping cart confirmation page, when a customer has just
+    added a product to their shopping cart. The web server calls the model to ask
+    which additional products it should show to this customer under these circumstances,
+    in hopes of showing the customer something else they might need or want and increasing
+    our sales to that customer.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 YarnIt，我们有几个模型，其中一个模型是在客户在网站上购物时为不同或额外的产品提供建议。这个推荐模型在购物会话期间由网页应用程序调用，无论是客户正在查看单个产品的主产品页面，还是在购物车确认页面上，当客户刚刚将产品添加到购物车中时。Web
+    服务器调用模型询问在这些情况下应向该客户显示哪些附加产品，希望能够向客户展示他们可能需要或想要的其他东西，并增加我们对该客户的销售。
+- en: 'In this context, we might consider some of the following useful features that
+    we would want available to the model as it is queried for additional products:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，我们可能会考虑以下一些有用的特征，我们希望模型在查询附加产品时能够使用这些特征：
+- en: Product page or shopping cart confirmation page. Is the user browsing or buying?
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 产品页面或购物车确认页面。用户是在浏览还是购买？
+- en: The current product the user is looking at, including information from the name
+    of the current product, possibly information from the picture of the current product,
+    the product category, manufacturer, and price.
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户当前查看的产品，包括来自当前产品名称、可能来自当前产品图片的信息，产品类别、制造商和价格的信息。
+- en: Customer average purchase size or total purchases per year, if we know it. This
+    might be an indication of just how spendy a customer is.
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果我们知道顾客的平均购买金额或每年的总购买量，这可能是顾客支出程度的指标。
+- en: Knitter or crocheter? Some customers never crochet, and others only crochet.
+    Knowing this might plausibly help us recommend the right yarns, needles, and patterns.
+    We might have customers self-identify this characteristic or might infer from
+    previous purchases or browsing behavior.
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 编织者还是钩针者？有些顾客从不钩针，而其他人则只钩针。了解这一点可能有助于我们推荐正确的纱线、针和图案。我们可以让顾客自我确认这一特征，也可以根据之前的购买或浏览行为进行推断。
+- en: Customer country. Some products may be popular in only some places. Also some
+    countries are colder than others, and that might be a signal.
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 顾客的国家。某些产品可能只在某些地方流行。而且有些国家比其他国家更冷，这可能是一个信号。
+- en: These are just a few ideas to give a flavor of what a feature might be. It is
+    important to note that, absent any actual data, we have no idea whether any of
+    these features is useful. They certainly seem like they might be helpful, but
+    many features that seem like they might work simply do not. Most commonly, such
+    features are only slightly predictive, and the things they predict might be predicted
+    better by another feature we already have. In those cases, the new feature adds
+    cost and complexity but no value at all. Remember that features add maintenance
+    costs in many parts of the system, and those costs exist until the feature is
+    removed. We should be cautious in adding new features, especially those that depend
+    on new data sources or feeds that, themselves, will now have to be monitored and
+    maintained.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些只是一些想法，以体现特征可能的范围。重要的是要注意，在没有实际数据的情况下，我们不知道这些特征是否有用。它们看起来确实可能有帮助，但许多看似有效的特征实际上并不奏效。大多数情况下，这些特征只能稍微预测，并且它们预测的东西可能被我们已有的另一个特征更好地预测。在这些情况下，新特征只增加了成本和复杂性，但并没有增加任何价值。请记住，特征会在系统的许多部分增加维护成本，而这些成本会一直存在，直到特征被移除。我们应该谨慎添加新特征，特别是那些依赖于新数据源或数据源，现在必须被监控和维护的特征。
+- en: 'Before we go too much further, we need to clarify two completely distinct uses
+    of the term *feature* and how we differentiate them:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们进一步讨论之前，我们需要澄清“特征”这个术语的两个完全不同的用法及其区别：
+- en: Feature definition
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征定义
+- en: This is code (or an algorithm or other written description) that describes the
+    information we are extracting from the underlying data. But it is not any specific
+    instance of that data being extracted. For example, “Source country of the current
+    customer obtained by taking the customer’s source IP address and looking it up
+    in the geolocation data service” is a feature definition. Any particular country—for
+    example, the “Dominican Republic” or “Russia”—would not be a feature definition.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是描述我们从底层数据中提取信息的代码（或算法或其他书面描述）。但它不是该数据被提取的任何特定实例。例如，“当前顾客的源国家由取得顾客的源IP地址并在地理位置数据服务中查找而获得”是一个特征定义。例如，“多米尼加共和国”或“俄罗斯”都不是特征定义。
+- en: Feature value
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征值
+- en: This is a specific output of a feature definition applied to incoming data.
+    In the preceding example, the “Dominican Republic” is a feature value that might
+    be obtained by determining that the current customer’s source IP address is believed
+    to be most commonly used in that country.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是应用于传入数据的特征定义的具体输出。在上述示例中，“多米尼加共和国”是一个特征值，可能是通过确定当前顾客的源IP地址最常用于该国而获得的。
+- en: This is not (yet) standard industry terminology, but we adopt it in this section
+    to distinguish between figuring out how we’re trying to extract information from
+    the data and figuring out what we have extracted so far.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这在目前还不是行业标准术语，但在本节中我们采纳它，以区分我们正在尝试从数据中提取信息的方法和我们到目前为止提取了什么。
+- en: Feature Selection and Engineering
+  id: totrans-29
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征选择和工程
+- en: '*Feature selection* is the process by which we identify the features in the
+    data that we will use in our model. *Feature engineering* is the process by which
+    we extract those features and transform them into a usable state. In other words,
+    through these activities, we figure out what matters (for the ML task we are trying
+    to accomplish) and what doesn’t. Building and managing features has changed over
+    the years and will continue to evolve, as it moves from an entirely manual process
+    to a mostly automated one, and in some cases a completely automated one. In this
+    chapter, we refer to the processes of selecting and transforming features jointly
+    as *feature engineering*.'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*特征选择* 是我们确定将在模型中使用的数据特征的过程。*特征工程* 是我们从数据中提取这些特征并将其转换为可用状态的过程。换句话说，通过这些活动，我们找出了对我们尝试完成的机器学习任务重要的内容，以及不重要的内容。特征的构建和管理多年来发生了变化，并将继续发展，从完全手动的过程转变为大部分自动化的过程，甚至在某些情况下完全自动化。在本章中，我们将选择和转换特征的过程统称为*特征工程*。'
+- en: In human-driven feature engineering, the process normally starts with human
+    intuition based on an understanding or the domain of the problem, or at least
+    detailed consultation with experts. Imagine trying to build a predictive model
+    of what customers would buy from *yarnit.ai* without knowing what yarn, or needles,
+    or knitting are, or worse, the very idea of how online retail works at all. Understanding
+    the underlying problem area is key, and more specificity is better. After that,
+    an ML engineer spends time with a dataset and a problem and uses a set of statistical
+    tools to evaluate the likelihood that a particular feature, or several features
+    in combination with one another, will be useful in the task. Next, ML engineers
+    typically brainstorm to generate a list of possible features. The range is pretty
+    large. Time of day could be a feature predicting which yarns customers will buy.
+    Local humidity could be a feature. Price could be a feature. Of these three features,
+    one of them is much more likely to be useful than the others. It is up to humans
+    to generate and evaluate those ideas by using the ML platform and model metrics.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在人驱动的特征工程中，该过程通常从基于对问题领域的理解或人类直觉出发，或至少与专家进行详细咨询开始。想象一下，试图构建一个关于* yarnit.ai *客户可能购买什么的预测模型，却不知道什么是纱线，或针，或编织，甚至更糟糕的是，根本不了解在线零售如何运作。理解潜在问题领域至关重要，而更具体的理解则更佳。之后，机器学习工程师会花时间与数据集和问题一起，并使用一套统计工具来评估特定特征，或多个特征组合在任务中是否有用。接下来，机器学习工程师通常进行头脑风暴，生成可能特征列表。范围非常广泛。一天中的时间可能是预测客户将购买哪些纱线的特征。当地的湿度可能是一个特征。价格可能是一个特征。在这三个特征中，有一个比其他的更有可能有用。人类利用机器学习平台和模型指标来生成和评估这些想法。
+- en: For algorithmic feature engineering, sometimes included as part of AutoML, the
+    process is considerably more automatic and data bound. AutoML, outlined in [Chapter 3](ch03.xhtml#basic_introduction_to_models),
+    is capable of not only selecting from identified features but also being able
+    to programmatically apply common transforms (like log scaling or thresholding)
+    to existing features. There are other ways that we can algorithmically learn something
+    (an embedding) about the data without explicitly specifying it. Still, algorithms
+    are generally able to identify only features that exist in the data, whereas humans
+    can imagine new data that could be collected that might be relevant. Subtly, but
+    perhaps even more importantly, humans understand the process of data collection,
+    including any likely systemic bias. This might have a material impact on the value
+    of the data. Nonetheless, especially when constrained to particular types of problems,
+    algorithmic feature engineering and evaluation can be as effective or more effective
+    than human feature engineering. This is an evolving set of technologies, and we
+    should expect the balance between humans and computers here to continue to develop.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于算法特征工程来说，有时作为自动机器学习的一部分，该过程相对自动化且与数据绑定紧密。自动机器学习在[第三章](ch03.xhtml#basic_introduction_to_models)中详细描述，不仅能够从已识别的特征中进行选择，还能够以编程方式应用常见的转换（如对数缩放或阈值处理）到现有特征上。还有其他方式可以通过算法学习数据的某些内容（如嵌入），而无需明确指定。然而，算法通常只能识别数据中存在的特征，而人类可以想象可能相关的新数据。微妙之处在于，但也许更重要的是，人类理解数据收集过程，包括任何可能的系统偏见。这可能会对数据的价值产生实质性影响。尽管如此，特别是在限定特定类型问题时，算法特征工程和评估可能比人工特征工程更为有效。这是一组不断发展的技术，我们应该预期人类与计算机之间的平衡在这方面会继续发展。
+- en: Lifecycle of a Feature
+  id: totrans-33
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征的生命周期
+- en: 'The distinction between feature definitions and feature values becomes especially
+    important when considering the lifecycle of a feature. Feature definitions are
+    created to fill a need, evaluated against that need, and eventually discarded
+    as either the model is discarded or better features are found to accomplish the
+    same goal. Here is a simplified version of the lifecycle of a feature (both the
+    definition and the representative values):'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在考虑特征的生命周期时，特征定义与特征值之间的区别变得尤为重要。特征定义被创建来满足需求，根据该需求进行评估，并在模型被丢弃或找到更好的特征来实现相同目标时最终被丢弃。这里是特征生命周期的简化版本（包括定义和代表值）：
+- en: 1\. Data collection/creation
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 1\. 数据收集/创建
+- en: Without data, we have no features. We need to collect or create data in order
+    to create features.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有数据，我们就没有特征。我们需要收集或创建数据才能创建特征。
+- en: 2\. Data cleaning/normalization/preprocessing
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 2\. 数据清洗/归一化/预处理
+- en: 'Although even the process of feature creation could be considered some kind
+    of data normalization, here we’re referring to coarser preprocessing: eliminating
+    obviously malformed examples, scaling input samples to a common set of values,
+    and possibly even deleting specific data that we should not train on for policy
+    reasons. This might seem outside the feature engineering process, but no features
+    can exist until the data exists and is in a usable form. The topic of data normalization
+    and preprocessing is huge and beyond the scope of this book, but building the
+    infrastructure to consistently perform that preprocessing and monitor it is an
+    important area of responsibility.'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使特征创建过程本身可以被视为某种数据归一化过程，这里我们指的是更粗粒度的预处理：消除明显格式错误的示例，将输入样本缩放到一组共同的值，并可能删除出于政策原因不应训练的特定数据。这可能看起来超出了特征工程的范畴，但在数据存在且处于可用形式之前，特征无法存在。数据归一化和预处理的话题非常广泛，超出了本书的范围，但建立基础设施以保持一致地进行该预处理并监控其执行是一个重要的责任领域。
+- en: 3\. Candidate feature definition creation
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 3\. 候选特征定义创建
+- en: Using either subject-matter expertise plus human imagination, or automated tools,
+    develop a hypothesis for which elements or combinations of the data are likely
+    to accomplish our model’s goals.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用专业主题知识加上人类想象力或自动化工具，开发假设，确定哪些数据元素或其组合可能实现我们模型的目标。
+- en: 4\. Feature value extraction
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 4\. 特征值提取
+- en: We need to write code that reads the input data and extracts the features that
+    we need from the data. In some simple situations, we might want to do this inline
+    as part of the training process. But if we expect to train on the same data more
+    than a few times, it’s probably sensible to extract the feature from the raw data
+    and store it for later efficient and consistent reading. It is important to remember
+    that if our application involves online serving, we need a version of this code
+    to extract the same features from the values that we have available at serving
+    in order to use them to perform inference in our model. Under ideal circumstances,
+    the same code can extract features for training and for serving, but we may have
+    additional constraints in serving that are not present in training.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要编写代码来读取输入数据并从中提取我们需要的特征。在某些简单情况下，我们可能希望在训练过程中内联执行此操作。但是，如果我们预计会多次在相同数据上进行训练，最好是从原始数据中提取特征并将其存储以便后续高效且一致地读取。重要的是要记住，如果我们的应用涉及在线服务，我们需要这样一段代码的版本，以从提供的值中提取相同的特征，以便在我们的模型中执行推断。在理想情况下，相同的代码可以为训练和服务提取特征，但在服务中可能会有额外的约束条件，而这些约束条件在训练中是不存在的。
+- en: 5\. Storage of feature values in a feature store
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 5\. 在特征存储中存储特征值
+- en: And this is where we save the features. A feature store is just a place to write
+    extracted feature values so that they can be quickly and consistently read during
+    training a model. This is covered in detail in [“Feature store”](#feature_store-id0000011).
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是我们保存特征的地方。特征存储只是一个地方，用于写入提取的特征值，以便在训练模型期间可以快速且一致地读取。这在 [“特征存储”](#feature_store-id0000011)
+    中有详细介绍。
+- en: 6\. Feature definition evaluation
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6\. 特征定义评估
+- en: Once we have extracted a few features, we will most likely build a model using
+    them or add new features to an existing model in order to evaluate how well they
+    work. In particular, we will be looking for evidence that the features provide
+    the value that we were hoping they would. Note that this evaluation of feature
+    definitions comes in two distinct phases that are connected. First, we need to
+    determine whether the feature is useful at all. This is a coarse-grained evaluation;
+    we are simply trying to decide whether to continue working on integrating the
+    feature into our model. The next phase occurs if we decide to keep that feature.
+    At that point, we need a process to continuously evaluate the quality and value
+    (compared to cost) of the feature. This will be necessary so that we can determine
+    that it is still working the way we expect and providing the value we expect even
+    several years from now.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们提取了一些特征，我们很可能会使用它们构建模型，或者将新特征添加到现有模型中，以评估它们的工作效果。特别是，我们将寻找证据表明这些特征是否提供了我们希望的价值。请注意，对特征定义的评估分为两个明确的阶段，二者相互关联。首先，我们需要确定该特征是否有用。这是一个粗粒度的评估；我们只是试图决定是否继续在模型集成该特征上工作。下一个阶段发生在我们决定保留该特征时。此时，我们需要一个过程来持续评估特征的质量和价值（与成本相比）。这将是必要的，以便我们能够确定它是否仍然按照预期工作，并在未来数年内提供我们预期的价值。
+- en: 7\. Model training and serving using feature values
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 7\. 使用特征值进行模型训练和服务
+- en: Perhaps this is obvious, but the entire point of having features is to use them
+    to train models, and use the resulting models for a particular purpose.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这似乎是显而易见的，但拥有特征的整个目的是将它们用于训练模型，并使用生成的模型达到特定目的。
+- en: 8\. (Usually) Update of feature definitions
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8\. （通常）更新特征定义
+- en: We frequently have to update the definition of a feature, either to fix a bug
+    or simply to improve it in some way. If we add and keep track of versions for
+    feature definitions, this will be much easier. We can update the version and then,
+    optionally, reprocess older data to create a new set of feature values for the
+    new version.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们经常需要更新特征的定义，无论是修复错误还是简单地改进它们的某些方面。如果我们添加并跟踪特征定义的版本，这将更加容易。我们可以更新版本，然后选择性地重新处理旧数据，以为新版本创建新的特征值集。
+- en: 9\. (Sometimes) Deletion of feature values
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 9\. （有时）删除特征值
+- en: 'Sometimes we need to be able to delete feature values from our feature store.
+    This can be for policy/governance reasons; for example, we may no longer be allowed
+    to store these feature values because a person or government has revoked that
+    permission. It can also be for quality/efficiency reasons: we may decide those
+    values are bad in some way (corrupted, sampled in a biased way, for example) or
+    just too old to be useful.'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时我们需要能够从特征存储中删除特征值。这可能是出于政策/治理原因；例如，我们可能不再被允许存储这些特征值，因为某人或政府已经撤销了该权限。这也可能是出于质量/效率原因：我们可能会认为这些值在某些方面有问题（损坏的、以偏见方式采样的，例如），或者仅仅是因为太旧而无用。
+- en: 10\. (Eventually) Discontinuation of a feature definition
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 10\. （最终）终止特征定义
+- en: Everything comes to an end, including useful features. At some point in the
+    lifecycle of the model, we will either find a better way to provide the value
+    that this feature definition provides or find that the world has changed enough
+    that this feature no longer provides any value. Eventually, we will decide to
+    retire the feature definition (and values) entirely. We will need to remove any
+    serving code that refers to the feature, remove the feature values in the feature
+    store, cancel the code that extracts the feature from the data, and proceed to
+    delete the feature code.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一切都有尽头，包括有用的特征。在模型生命周期的某个时刻，我们将找到更好的方式来提供这个特征定义提供的价值，或者发现世界已经发生足够的变化，以至于这个特征不再提供任何价值。最终，我们将决定彻底废弃特征定义（及其值）。我们需要删除任何引用该特征的服务代码，删除特征存储中的特征值，取消从数据中提取特征的代码，并继续删除特征代码。
+- en: Feature Systems
+  id: totrans-55
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征系统
+- en: To successfully manage the flow of data through our systems, and to turn data
+    into features that are usable by our training system and manageable by our modelers,
+    we need to decompose the work into several subsystems.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要成功管理数据流经我们系统的过程，并将数据转化为能被我们的训练系统使用和我们的建模人员管理的特征，我们需要将工作分解为几个子系统。
+- en: As was mentioned in the introduction to this chapter, one of these systems will
+    be a metadata system that tracks information about the data, datasets, feature
+    generation, and labels. Since in most cases this system will be shared with any
+    labeling systems, we will discuss it at the end of this chapter. For now, let’s
+    walk through the feature systems starting with raw data and ending up with features
+    stored in a format ready to be read by a training system.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如在本章节引言中提到的，其中一个系统将是一个元数据系统，用于跟踪有关数据、数据集、特征生成和标签的信息。由于在大多数情况下，这个系统将与任何标记系统共享，我们将在本章末尾讨论它。现在，让我们从原始数据开始，逐步讲解特征系统，最终以一种可供训练系统读取的格式存储特征。
+- en: Data ingestion system
+  id: totrans-58
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 数据摄取系统
+- en: We will have to write software that reads raw data, applies our feature extraction
+    code to that data, and stores the resulting feature values in the feature store.
+    In the case of one-time extraction, even for a very large amount of data, this
+    may be a relatively ad hoc process with code designed to be run once. But in many
+    cases, the process of extracting data is a separate production system all its
+    own.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将不得不编写软件，从原始数据中读取数据，将我们的特征提取代码应用于该数据，并将生成的特征值存储在特征存储中。在一次性提取的情况下，即使对于大量数据，这可能是一个相对临时的过程，设计的代码只需运行一次。但在许多情况下，提取数据的过程是一个独立的生产系统。
+- en: When we have many users or repeated use of the data ingestion system, it should
+    be structured as an on-demand, repeatable, monitored data processing pipeline.
+    As is the case for most pipelines, the biggest variable is user code. We will
+    need a system whereby feature authors write code that identifies features and
+    extracts them to store in the feature store. We can either let feature authors
+    run their code themselves, which imposes a substantial operational burden on them,
+    or we can accept the challenge and provide them a development engineering environment.
+    This helps them write reliable feature-extraction code so that we can run that
+    code reliably in our data ingestion system.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们有许多用户或数据摄取系统的重复使用时，它应该被构建为一个按需、可重复、监控的数据处理管道。就大多数管道而言，最大的变量是用户代码。我们需要一个系统，使特征作者能够编写代码来识别特征并将其提取存储到特征存储中。我们可以让特征作者自行运行其代码，这会给他们带来很大的运营负担，或者我们可以接受这一挑战并为他们提供开发工程环境。这有助于他们编写可靠的特征提取代码，以便我们可以在数据摄取系统中可靠地运行该代码。
+- en: We need to build a few systems to facilitate feature authors writing reliable
+    and correct features. To begin with, we should note that features should be versioned.
+    We’ll likely want to substantially change a feature over time, perhaps because
+    of changes in data that it merges with or other factors related to the data we
+    are collecting. In these cases, a feature version helps keep the transition clear
+    and avoids unintended consequences of the change.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要构建一些系统来帮助特征作者编写可靠且正确的特征。首先，我们应该注意到特征应该是有版本的。随着时间的推移，我们可能会显著改变一个特征，也许是因为它与合并的数据或其他与我们正在收集的数据相关的因素的变化。在这些情况下，特征版本有助于保持过渡的清晰，并避免改变的意外后果。
+- en: Next, we’ll need a test system that checks feature-extraction code for basic
+    correctness. Then, we’ll need a staging environment for running proposed feature
+    extraction on a certain number of examples and provide those to the feature authors
+    along with basic analysis tools to ensure that the feature is extracting what
+    it is expected to extract. At this point, we may want to allow the feature to
+    be run or may want additional human review for reliability concerns (dependence
+    on external data, for example). The more work we do here, the more productive
+    feature authors will be.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们需要一个测试系统，检查特征提取代码的基本正确性。然后，我们需要一个分段环境来运行提议的特征提取在一定数量的示例上，并将其提供给特征作者，以及基本的分析工具，以确保特征提取的内容符合预期。在这一点上，我们可能希望允许特征运行，或者可能希望进行额外的人工审查以解决可靠性问题（例如对外部数据的依赖）。我们在这里做的工作越多，特征作者的生产力就越高。
+- en: Finally, it is important to note that some labels can be effectively calculated
+    or generated from the very data we have at data ingestion time. A good example
+    of this at YarnIt is suggested products and sales. We suggest products in order
+    to sell more of them. The features are the characteristics of the product or characteristics
+    about the customer, and the label is whether the customer bought it or not. As
+    long as we can join the suggestion logs against the orders, we will have this
+    label when we construct the features. In cases like this, the data ingestion system
+    will also generate labels for those features as well as the features themselves,
+    and both can be stored together in a common datastore. We will talk much more
+    about labeling systems in [“Labels”](ch03.xhtml#labels-id0000013).
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，重要的是要注意，一些标签可以在数据摄入时从我们已有的数据中有效计算或生成。在YarnIt中的一个很好的例子是建议产品和销售。我们建议产品以便销售更多。特征是产品的特性或关于客户的特征，而标签是客户是否购买它。只要我们能将建议日志与订单对接，我们在构建特征时就会有这个标签。在这种情况下，数据摄入系统还将为这些特征生成标签以及特征本身，并且两者可以一起存储在一个共同的数据存储中。我们将在《标签》章节中更详细地讨论标签系统。
+- en: Feature store
+  id: totrans-64
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 特征存储
+- en: A *feature store* is a storage system designed to store extracted feature (and
+    label) values so that they can be quickly and consistently read during training
+    a model and even during inference. Most ML training and serving systems have some
+    kind of a feature store even if it is not called that.^([2](ch04.xhtml#ch01fn33))
+    They are most useful, however, in larger, centrally managed services, especially
+    when the features (definitions and values both) are shared among multiple models.
+    Recognizing the importance of putting our feature and label data in a single,
+    well-managed place has significantly improved the production readiness of ML in
+    the industry. But feature stores do not solve every problem, and many people come
+    to expect more of them than they can deliver. Let’s review the problems that a
+    feature store solves and the benefits it does provide for your training system.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征存储是一种设计用于存储提取的特征（和标签）值的存储系统，以便在训练模型期间甚至推断期间快速且一致地读取它们。大多数机器学习训练和服务系统都有某种特征存储，即使它不被称为特征存储^([2](ch04.xhtml#ch01fn33))。然而，在更大、集中管理的服务中，特别是当特征（定义和值都是）被多个模型共享时，它们尤其有用。认识到将我们的特征和标签数据放在一个单一、良好管理的位置的重要性显著提高了工业中机器学习的生产就绪性。但特征存储并不能解决所有问题，很多人对它们的期望超过了它们能提供的。让我们回顾一下特征存储解决的问题以及它为您的训练系统提供的好处。
+- en: 'The most important characteristic of a feature store is its API. Different
+    commercial and open source feature stores have different APIs, but all of them
+    should provide a few basic capabilities:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征存储的最重要特性是其API。不同的商业和开源特征存储具有不同的API，但它们都应该提供一些基本功能能力：
+- en: Store feature definitions
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储特征定义
+- en: Usually these are stored as code that extracts the feature in a raw data format
+    and outputs the feature data in the desired format.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常这些被存储为代码，该代码从原始数据格式中提取特征并以所需格式输出特征数据。
+- en: Store feature values themselves
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储特征值本身
+- en: Ultimately, we need to write features in a format that is easy to write, easy
+    to read, and easy to use. This will be largely determined by our proposed use
+    cases and most commonly is divided into ordered and unordered data, but we cover
+    nuances in [“Lifecycle Access Patterns”](#lifecycle_access_patterns).
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，我们需要以易于写入、易于阅读和易于使用的格式编写特征。这将在很大程度上由我们提议的用例决定，通常分为有序和无序数据，但我们在[“生命周期访问模式”](#lifecycle_access_patterns)中涵盖了细微差别。
+- en: Serve feature data
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务特征数据
+- en: Provide access to feature data quickly and efficiently at a performance level
+    suitable to the task. We absolutely do not want expensive CPUs or accelerators
+    stalled, waiting on the I/O of reading from our feature store. This is a pointless
+    way to waste an expensive resource.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在适合任务的性能水平上，快速高效地提供对特征数据的访问是必要的。我们绝对不希望昂贵的 CPU 或加速器因等待从特征存储中读取而停滞不前。这是浪费昂贵资源的无意义方式。
+- en: Coordinate metadata writes with the metadata system
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与元数据系统协调元数据写入
+- en: To get the most out of our feature store, we should keep information about the
+    data we store in it in the metadata system. This helps model builders. Note that
+    metadata about *features* is somewhat different from metadata about *runs of the
+    pipeline*, although both are useful in troubleshooting and reproducing problems.
+    Feature metadata is most useful for model developers, while pipeline metadata
+    is most useful for ML reliability or production engineers.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了充分利用我们的特征存储，我们应该在元数据系统中保留有关存储数据的信息。这有助于模型构建者。注意，关于*特征*的元数据与管道运行的元数据略有不同，尽管两者在故障排除和问题再现中都很有用。特征元数据对于模型开发者最有用，而管道元数据对于
+    ML 可靠性或生产工程师最有用。
+- en: Many feature stores also provide basic normalization of data in ingestion as
+    well as more sophisticated transformations on data in the store. The most common
+    transformations are standardized in-store bucketing and built-in transforming
+    features.^([3](ch04.xhtml#ch01fn34))
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多特征存储还提供数据摄取时的基本归一化，以及存储中数据的更复杂的转换。最常见的转换包括存储中的标准化分桶和内置特征转换[^3]。
+- en: 'The feature store API needs to be carefully calibrated for the use case. We
+    should consider asking the following questions as we think about what we need
+    in a feature store:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征存储 API 需要根据使用情况进行精心校准。在思考我们在特征存储中需要什么时，我们应考虑以下问题：
+- en: Are we reading data in a particular order (log lines that are timestamped) or
+    in no order that matters (a large collection of images in a cloud storage system)?
+  id: totrans-77
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们是否按特定顺序读取数据（时间戳的日志行）或者读取顺序无关紧要（云存储系统中的大量图像集合）？
+- en: Will we read the features frequently or only when training a new model? In particular,
+    what is the ratio of bytes/records read to bytes/records written?
+  id: totrans-78
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们是否经常读取特征，或者只在训练新模型时读取？特别是，读取的字节/记录与写入的字节/记录的比率是多少？
+- en: Is the feature data ingested once, never appended to, and seldom updated? Or
+    is the data frequently appended to while older data is continuously deleted?
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 特征数据是摄取一次，不追加且很少更新？还是数据经常追加，而旧数据不断删除？
+- en: Can feature values be updated, or is the store append-only?
+  id: totrans-80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 特征值是否可以更新，还是仅追加存储？
+- en: Are there special privacy or security requirements for the data we are storing?
+    In most cases, the extracted features of a dataset with privacy and use restrictions
+    will also have privacy and use restrictions.
+  id: totrans-81
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们存储的数据是否有特殊的隐私或安全要求？在大多数情况下，带有隐私和使用限制的数据集的提取特征也会有隐私和使用限制。
+- en: After thinking about these questions, we should be able to determine our needs
+    for a feature storage system. If we’re lucky, we will be able to use one of the
+    existing commercial or open source feature stores on the market. If not, we’ll
+    have to implement this functionality ourselves, whether we do it in an uncoordinated
+    fashion or as part of a more coherent system.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在考虑了这些问题之后，我们应该能够确定我们对特征存储系统的需求。如果幸运的话，我们可以使用市场上现有的商业或开源特征存储之一。如果没有，我们将不得不自己实现这些功能，无论是以不协调的方式还是作为更一致系统的一部分实现。
+- en: Once we are clear on the requirements for an API and have a clearer understanding
+    of our data access needs, in general we will find that our feature store falls
+    into one of two buckets:^([4](ch04.xhtml#ch01fn35))
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们明确了 API 的要求，并对我们的数据访问需求有了更清晰的理解，一般来说我们会发现我们的特征存储落入两个桶中之一：^([4](ch04.xhtml#ch01fn35))
+- en: Columns
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列
+- en: The data is structured and decomposable into columns, not all of which will
+    be used in all models. Typically, the data is also ordered in some way, often
+    by time. In this case, column-oriented storage is the most flexible and efficient.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据是结构化的，并可分解为列，其中并非所有列都会在所有模型中使用。通常，数据也按某种方式排序，通常是按时间排序。在这种情况下，面向列的存储方式是最灵活和高效的。
+- en: Blobs
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 二进制大对象（Blobs）
+- en: This is an acronym for *binary large objects*, although the common English word
+    is also descriptive. In this case, the data is fundamentally unordered, mostly
+    unstructured, and is best stored in a manner that’s more efficient at storing
+    a bunch of bytes.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是*二进制大对象*的缩写，尽管常见的英文单词也有描述性的含义。在这种情况下，数据基本上是无序的，大部分是非结构化的，最好以更高效存储一堆字节的方式进行存储。
+- en: Many feature stores will need to be replicated, partially or completely, in
+    order to store data near the training and serving stacks. Since ML computation
+    requirements are generally considerable for training, we often prefer to replicate
+    data to the place or places where we can get the best value for our training dollar.
+    Having the feature store implemented as a service facilitates the management of
+    this replication.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多特征存储需要部分或完全复制，以便在训练和服务堆栈附近存储数据。由于 ML 计算需求通常相当大，我们通常喜欢将数据复制到能够以最佳性价比获取训练所需价值的地方或地方。将特征存储实现为服务有助于管理这种复制。
+- en: Feature quality evaluation system
+  id: totrans-89
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 特征质量评估系统
+- en: As we develop new features, we need to evaluate what, if anything, those features
+    add to the quality of the overall model, in combination with existing features.
+    This topic is covered extensively in [Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality).
+    The general idea to know at this point is that we can combine the approaches of
+    using slightly different models, A/B testing, and a model quality evaluation system
+    in order to effectively evaluate the benefit of each new feature under development.
+    We can do this quickly and at relatively low cost.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着我们开发新特征，我们需要评估这些特征与现有特征组合在一起对整体模型质量的贡献。这个话题在[第 5 章](ch05.xhtml#evaluating_model_validity_and_quality)中有详细介绍。此时需要了解的一般概念是，我们可以结合使用略有不同的模型、A/B
+    测试和模型质量评估系统的方法，有效评估正在开发中的每个新特征的益处。我们可以快速且成本相对较低地做到这一点。
+- en: One common approach is to take an existing model and retrain it by using a single
+    additional feature. In the case of a web application like at YarnIt, we can then
+    direct a fraction of our user requests to the new model and evaluate its performance
+    on a task. For example, if we add a feature for `Country the User Is In` to a
+    model suggesting new products for a user to try, we can direct 1% of the user
+    requests (either by request or by user) to the new model. We can evaluate whether
+    the new model has a higher likelihood of recommending products that users actually
+    buy, and doing so can inform the choice of whether to keep the new feature or
+    to eliminate it and try other ideas.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种常见的方法是通过使用单个附加特征重新训练现有模型。对于像 YarnIt 这样的 Web 应用程序，我们可以将一部分用户请求定向到新模型，并评估其在任务中的性能。例如，如果我们为模型添加了一个`用户所在国家`的特征，我们可以将
+    1% 的用户请求（无论是通过请求还是通过用户）定向到新模型。我们可以评估新模型是否更有可能推荐用户实际购买的产品，这样做可以决定是否保留新特征或取消它并尝试其他想法。
+- en: Keep in mind that even a feature that adds value may not be worth the cost to
+    collect, process, store, and maintain it. For all but the most trivially obvious
+    features, it is a good habit to calculate a rough return on investment (ROI) for
+    every new feature added to the system. This will help us avoid useful features
+    that are still more expensive than the value that they add.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，即使一个特征增加了价值，但其收集、处理、存储和维护成本可能并不值得。对于除了最微不足道的明显特征外的所有特征，计算每个新特征添加到系统中的大致投资回报率（ROI）是个好习惯。这将帮助我们避免有用的特征仍然比其添加的价值更昂贵的情况。
+- en: Labels
+  id: totrans-93
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 标签
+- en: 'Although features seem like the most important aspects of the data, one thing
+    is more important: labels. By this point, you should have a solid understanding
+    of what features are for and what systems considerations should be taken into
+    account when managing large numbers of features. But supervised learning models,
+    in particular, require labels.'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然特征看起来是数据中最重要的部分，但有一件事更为重要：标签。到此为止，您应该对特征的作用以及在管理大量特征时应考虑的系统因素有了坚实的理解。但特别是在监督学习模型中，需要标签。
+- en: Labels are the other main category of data used in training an ML model. While
+    features serve as the input to the model, labels are examples of the correct model
+    output. They are used in the training process to set the (many!) internal parameters
+    of the model, to tune the model so that it will produce the desired outputs on
+    the features it gets at inference time. Held-out examples and labels (labels not
+    used in training) are also used in model evaluation to understand model quality.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标签是用于训练机器学习模型的另一类主要数据。虽然特征用作模型的输入，标签则是正确模型输出的示例。它们在训练过程中用于设置（许多！）模型的内部参数，调整模型以便在推断时对其输入的特征产生期望的输出。保留样本和标签（未用于训练的标签）也用于模型评估，以理解模型质量。
+- en: As we discussed earlier, for some classes of problems, like our recommendation
+    system, the labels can be generated algorithmically from the system’s log data.
+    These features are almost always more consistent and more accurate than human-labeled
+    features. Since this data is generated from the system’s log data often with the
+    feature data, these labels are most commonly stored in the feature system for
+    model training and evaluation. In fact, all labels can be stored in the feature
+    store, although labels generated by humans need additional systems to generate,
+    validate, and correct these labels before storing them for model training and
+    evaluation. We discuss these systems in the next section.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前讨论的那样，对于某些问题类别，例如我们的推荐系统，标签可以从系统日志数据中通过算法生成。这些特征几乎总是比人工标记的特征更一致和更准确。由于这些数据通常是从系统日志数据中生成的，并且通常与特征数据一起使用，这些标签通常存储在特征系统中用于模型的训练和评估。事实上，所有的标签都可以存储在特征存储中，尽管由人类生成的标签需要额外的系统来生成、验证和校正这些标签，然后再存储用于模型的训练和评估。我们将在下一节讨论这些系统。
+- en: Human-Generated Labels
+  id: totrans-97
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 人工生成的标签
+- en: So let’s turn our attention to the large classes of problems requiring human
+    annotations to provide the model training data. For example, building a system
+    to analyze and interpret human voice needs human annotation to ensure that the
+    transcription is accurate and to understand what the speaker meant. Image analysis
+    and understanding often needs example annotated images for image classification
+    or detection problems. Getting these human annotations at the scale needed to
+    train an ML model is challenging from both implementation and cost perspectives.
+    Effort must be dedicated to designing efficient systems to produce these annotations.
+    We will now focus on the primary components of these human annotation systems.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，让我们把注意力转向需要人类注释以提供模型训练数据的大类问题。例如，构建一个分析和解释人类语音的系统需要人类注释来确保转录准确，并理解说话者的意图。图像分析和理解通常需要示例标注图像来解决图像分类或检测问题。在训练机器学习模型所需的规模上获得这些人类注释，从实施和成本的角度来看都是具有挑战性的。必须致力于设计高效的系统来生成这些注释。我们现在将专注于这些人类注释系统的主要组成部分。
+- en: For a concrete example involving our fictional yarn shop, YarnIt, consider the
+    case of an advanced new feature that, given an image of crocheted fabric, can
+    predict the crochet stitch that was used to produce that fabric. Such a model
+    requires someone to design the set of crochet stitches for the model to predict,
+    providing the set of classes that model can output. Then large quantities of images
+    of crocheted fabric, covering all of these stitches, must be labeled by crochet
+    experts as to what stitch produced this fabric. Using these expert labels, a model
+    can be trained to classify new images of crocheted fabric and determine the stitch
+    used.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 举一个涉及我们虚构的毛线店YarnIt的具体例子，考虑一个先进新功能的情况，该功能可以根据毛线图像预测用于制作该图像的钩针钩法。这样的模型需要有人设计一组钩针钩法供模型预测，并由钩针专家标记大量的毛线图像，标记出用于制作这些图像的钩针钩法。利用这些专家标签，模型可以训练以对新的毛线图像进行分类并确定使用的钩针钩法。
+- en: 'This is not cheap. Humans need to be trained on the task, and each image may
+    need to be labeled multiple times to ensure that we have trustworthy results.
+    Because of the large cost associated with acquiring human-generated labels, training
+    systems should be designed to get as much mileage from them as possible. One technique
+    commonly used is data augmentation: the feature data is “fuzzed” in a way that
+    changes the features but doesn’t change the correctness of the label.^([5](ch04.xhtml#ch01fn36))
+    For example, consider our stitch classification problem. Common image operations
+    like scaling, cropping, adding image noise, and changing the color balance don’t
+    change the classification of the stitch in the image but can greatly increase
+    the number of images available for the model to train on. Similar techniques can
+    be used in other classes of problems. Care must be taken, however, not to train
+    and test on two images fuzzed from the same source image, and for this reason
+    any data augmentation of this sort should be done by the training system and not
+    in the labeling system (or not, and be careful if you have a good reason to do
+    otherwise, like a very expensive fuzzing algorithm).'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这不是便宜的。人类需要在任务上接受培训，并且每张图片可能需要多次标注，以确保我们获得可信赖的结果。由于获取人工生成标签的成本巨大，训练系统应设计为尽可能充分利用它们。一种常用的技术是数据增强：对特征数据进行“模糊化”，改变特征但不改变标签的正确性。^([5](ch04.xhtml#ch01fn36))
+    例如，考虑我们的缝合分类问题。常见的图像操作如缩放、裁剪、添加图像噪声和改变色彩平衡不会改变图像中缝合的分类，但可以大幅增加模型训练所需的图像数量。类似的技术可以用于其他类别的问题中。然而，必须小心，不要在两个从同一源图像模糊化生成的图像上进行训练和测试，因此任何这种类型的数据增强都应由训练系统完成，而不是在标注系统中进行（或者不这样做，如果有充分的理由，比如非常昂贵的模糊算法）。
+- en: 'One important note: while some kinds of tremendously complex data can best
+    be labeled by humans, other types of data definitely cannot be labeled by humans
+    at all. Typically, this is abstract data with high dimensionality that makes it
+    difficult for a human to determine the correct answer quickly. Sometimes humans
+    can be provided with augmentation software to assist in these tasks, but other
+    times they are just the wrong option for performing the labeling.'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个重要的注意事项是：尽管某些极为复杂的数据最好由人类进行标注，但另一些类型的数据绝对不能由人类来标注。通常这些是抽象数据，具有高维度，使得人类难以迅速确定正确答案。有时候，人类可以借助增强软件来辅助完成这些任务，但有时候他们只是进行标注的错误选择。
+- en: Annotation Workforces
+  id: totrans-102
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 注释工作队
+- en: The first question that often comes up with human annotation problems is who
+    will do the labeling. This is a question of scale and equity.^([6](ch04.xhtml#ch01fn37))
+    For simpler models, for which a small amount of data is sufficient to train the
+    model, typically the engineer building the model will do their own labeling, often
+    with hacky, homebuilt tools (and a significant chance of biased labels). For more
+    complex models, dedicated annotation teams are used to provide human annotations
+    at a scale not otherwise possible.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 人工标注问题经常遇到的第一个问题是谁来进行标注。这是一个规模和公平性的问题。^([6](ch04.xhtml#ch01fn37)) 对于简单模型，通常只需要少量数据来训练模型，通常是模型构建者自己进行标注，经常使用简陋的自制工具（并且有显著的偏见标签的可能性）。对于更复杂的模型，专门的注释团队则用来提供在其他情况下不可能的规模的人工标注。
+- en: These dedicated annotation teams can be colocated with the model builder or
+    remotely provided by third-party annotation providers. They range in size from
+    a single person to hundreds of people, all generating annotated data for a single
+    model. The Amazon Mechanical Turk service was the original platform used for this,
+    but since then a proliferation of crowdsourcing platforms and services have developed.
+    Some of these services use paid volunteers, and others use teams of employees
+    to label the data.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些专门的注释团队可以与模型构建者共同工作，也可以由第三方注释提供者远程提供。团队规模从一人到数百人不等，他们为单一模型生成注释数据。亚马逊的机械土耳其服务曾经是最初用于这一目的的平台，但自那以后，众包平台和服务数量激增。一些服务采用有薪志愿者，而另一些则使用员工团队来标注数据。
+- en: Cost, quality, and consistency trade-offs arise in the choice of labeling. Crowdsourced
+    labeling often requires additional effort to verify quality and consistency, but
+    paid labeling staff can be expensive. The costs for these annotation teams can
+    easily exceed the computational costs of training the models. We discuss some
+    organizational challenges of managing a large annotation team in [Chapter 13](ch13.xhtml#integrating_ml_into_your_organization).
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在选择标注时会产生成本、质量和一致性的权衡。众包标注通常需要额外的工作来验证质量和一致性，但支付的标注工作人员可能成本高昂。这些注释团队的成本往往可以轻易超过训练模型的计算成本。我们在[第13章](ch13.xhtml#integrating_ml_into_your_organization)中讨论了管理大型注释团队的一些组织挑战。
+- en: Measuring Human Annotation Quality
+  id: totrans-106
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 测量人类注释质量
+- en: 'As the quality of any model is only as good as the data used to train the model,
+    quality must be designed into the system from the start. This becomes increasingly
+    true as the size of the annotation team grows. Quality can be achieved in multiple
+    ways depending on the task, but the most frequent techniques used include the
+    following:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于任何模型的质量仅取决于用于训练模型的数据，因此必须从一开始就设计系统质量。随着注释团队规模的增长，这一点变得越来越重要。可以通过多种方式实现质量，具体取决于任务，但最常用的技术包括以下几种：
+- en: Multiple labeling (also called *consensus labeling*)
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 多次标注（也称为*共识标注*）
+- en: The same data is given to multiple labelers to check for agreement among them.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同一数据分配给多个标注者以检查他们之间的一致性。
+- en: Golden set test questions
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 黄金测试集问题
+- en: Trusted labelers (or the model builder) produce a set of test questions that
+    are randomly included in the unlabeled data to evaluate the quality of the produced
+    labels.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可信的标注者（或者模型构建者）生成一组测试问题，随机包含在未标注数据中，以评估生成标签的质量。
+- en: A separate QA step
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单独的质量保证步骤
+- en: A fraction of the labeler data is reviewed by a more trusted QA team. (Who QAs
+    the QA team? Perhaps the model builder, but depending on context, this could be
+    a separate QA team, policy expert, or someone else with domain expertise.)
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一小部分标注数据由更可信的质量保证团队审查。（谁质量保证质量保证团队？也许是模型构建者，但根据情况，这可能是一个独立的质量保证团队、政策专家或其他具有领域专业知识的人。）
+- en: 'Once they’re measured, quality metrics can be improved. Quality issues are
+    best addressed by managing the annotation team with humility and by understanding
+    that they will produce higher-quality results when they have the following:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦进行测量，质量指标可以得到改进。管理注释团队时，最好怀着谦卑的态度，并理解到他们在拥有以下条件时将产生更高质量的结果：
+- en: More training and documentation
+  id: totrans-115
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更多的培训和文档
+- en: Recognition for quality and not just throughput
+  id: totrans-116
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 认可质量而不仅仅是吞吐量
+- en: A variety of tasks over the workday
+  id: totrans-117
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 工作日内的各种任务
+- en: Easy-to-use tools
+  id: totrans-118
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 易于使用的工具
+- en: Tasks with a balanced set of answers (no needle-in-a-haystack tasks)
+  id: totrans-119
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 具有平衡答案集的任务（没有大海捞针的任务）
+- en: An opportunity to provide feedback on the tools and instructions
+  id: totrans-120
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提供工具和指导反馈的机会
+- en: Annotation teams managed in this way can provide high-quality results. However,
+    even the best, most conscientious labeler will miss things occasionally, so processes
+    should be designed to detect or accept these occasional errors.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这种方式管理的注释团队可以提供高质量的结果。然而，即使是最好的、最认真的标注者偶尔也会漏掉一些东西，因此应设计流程来检测或接受这些偶尔的错误。
+- en: An Annotation Platform
+  id: totrans-122
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 注释平台
+- en: A labeling platform organizes the flow of data to be annotated and the results
+    of the annotations while providing quality and throughput metrics of the overall
+    process. At their heart, these systems are primarily work-queuing systems to divide
+    the annotation work among the annotators. The actual labeling tool that allows
+    the labelers to view the data and provide their annotations should be flexible
+    to support any arbitrary annotation task.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标注平台组织数据流以进行注释，并提供注释结果的质量和吞吐量指标。在其核心，这些系统主要是工作排队系统，用于在标注者之间分配注释工作。允许标注者查看数据并提供注释的实际标注工具应具有灵活性，以支持任何任意的注释任务。
+- en: With a team or organization that is working on multiple models simultaneously,
+    the same annotation team may be shared among multiple annotation projects. Furthermore,
+    each annotator might have different sets of skills (e.g., language skills or knowledge
+    of crochet stitches), and the queuing systems can be relatively complex and require
+    careful design to avoid problems such as scalability issues or queue starvation.
+    Pipelines enabling the output of one annotation task to serve as the input to
+    another can be useful for complex workflows. Quality measurement using the techniques
+    discussed previously should be designed into the system from the start, so project
+    owners can understand the labeling throughput and quality of all their annotation
+    tasks.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于同时处理多个模型的团队或组织，同一标注团队可以在多个标注项目之间共享。此外，每个标注员可能具有不同的技能集（例如语言能力或对钩织知识的了解），排队系统可能相对复杂，并需要仔细设计，以避免问题，如可伸缩性问题或队列饥饿。允许一个标注任务的输出作为另一个任务的输入的流水线对于复杂的工作流程非常有用。使用前面讨论过的技术进行质量测量应该从一开始就设计到系统中，这样项目所有者就可以了解他们所有标注任务的标注吞吐量和质量。
+- en: Although historically many companies have implemented their own labeling platforms
+    with their own set of these features, many options exist for prebuilt labeling
+    platforms. The major cloud providers and many smaller startups offer labeling
+    platform services that can be used with arbitrary annotation workforces, and many
+    annotation workforce providers have their own platform options that can be used.
+    This is a rapidly changing area with new features being added to existing platforms
+    all the time. Publicly available tools are moving beyond simple queuing systems
+    and are starting to provide dedicated tools for common tasks, including advanced
+    features like AI-assisted labeling (see the following section). When deciding
+    on any new technology platform, data security and integration costs must be considered
+    along with the platform capabilities.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管历史上许多公司已经实现了他们自己的标注平台，并具备一整套这些功能，但现在有许多预构建的标注平台选项可供选择。主要的云服务提供商和许多较小的初创公司提供标注平台服务，可与任意注释工作队合作，并且许多注释工作队提供其自己的平台选项。这是一个变化迅速的领域，现有平台不断增加新功能。公开可用的工具已经超越了简单的排队系统，并开始提供用于常见任务的专用工具，包括AI辅助标注（请参阅下一节）。在决定任何新技术平台时，必须考虑数据安全性和集成成本，以及平台的能力。
+- en: As mentioned in [“Feature store”](#feature_store-id0000011), in many cases the
+    most sensible place to store completed labels is in the feature store. By treating
+    human annotations as their own columns, we can take advantage of all the other
+    functionality provided by the feature store.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[“特征存储”](#feature_store-id0000011)中所述，在许多情况下，将完成的标签存储在特征存储中是最明智的选择。通过将人工注释视为它们自己的列，我们可以利用特征存储提供的所有其他功能。
+- en: Active Learning and AI-Assisted Labeling
+  id: totrans-127
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 主动学习和AI辅助标注
+- en: Active learning techniques can focus the annotation effort on the cases in which
+    the model and the human annotators disagree or the model is most uncertain, and
+    thereby improve overall label quality. For example, consider an image detection
+    problem where the labeler must annotate all the occurrences of a particular object
+    in an image. An active-learning labeling tool might use an existing model to pre-label
+    the image with proposed detections of the object in question. The labeler would
+    then approve correct proposed detections, reject bad ones, and add any missing
+    ones. While this can greatly increase labeler throughput, it must be done with
+    care to not introduce bias to the models. Such active learning techniques can
+    actually increase overall label quality since the model and humans will often
+    have their best performance on different kinds of input data.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 主动学习技术可以将注释工作集中在模型和人工注释者意见不一致或模型最不确定的情况下，从而提高整体标签质量。例如，考虑一个图像检测问题，标注员必须在图像中注释特定对象的所有出现。主动学习标注工具可以使用现有模型预标注图像，并提出该对象的检测建议。标注员随后会批准正确的检测建议，拒绝错误的建议，并添加任何遗漏的检测。虽然这可以极大地提高标注员的吞吐量，但必须小心操作，以免为模型引入偏见。这种主动学习技术实际上可以提高整体标签质量，因为模型和人类往往在不同类型的输入数据上表现最佳。
+- en: A semi-supervised system allows the modeler to bootstrap the system with *weak
+    heuristic functions* that imperfectly predict the labels of some data, and then
+    use humans to train a model that takes these imperfect heuristics to high-quality
+    training data. Systems like this can be particularly valuable for problems with
+    complex, frequently changing category definitions requiring models to be retrained
+    quickly and frequently.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 半监督系统允许模型构建者使用不完美地预测某些数据标签的弱启发式函数来引导系统，然后利用人类训练模型，使这些不完美的启发式函数转变为高质量的训练数据。对于需要快速且频繁重新训练模型的复杂、频繁变化的类别定义问题，这类系统尤其有价值。
+- en: Efficient annotation techniques for particularly complex labeling tasks is an
+    ongoing field of research. Particularly if you are doing a common annotation problem,
+    a quick review of available tools from cloud and annotation providers is well
+    worth your time, as they are often adding new capabilities for AI-assisted annotation.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 针对特别复杂的标注任务的高效标注技术是一个持续的研究领域。特别是在处理常见标注问题时，从云和标注提供商那里快速查看可用工具是值得花时间的，因为它们经常添加新的AI辅助标注功能。
+- en: Documentation and Training for Labelers
+  id: totrans-131
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 标签员的文档和培训
+- en: Documentation and labeler training systems are some of the most commonly overlooked
+    parts of an annotation platform. While labeling instructions often start simply,
+    they inevitably get more complex as data is labeled and various corner cases are
+    discovered. To continue our preceding YarnIt example, perhaps some crochet stitches
+    are not mentioned in the labeling instructions, or the fabric is made from multiple
+    different stitches. Even conceptually simple annotation tasks such as “marking
+    all the people in an image” can end up with copious instructions on proper handling
+    of various corner cases (reflections, pictures of people, people behind car windows,
+    etc.).
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 文档和标签员培训系统是标注平台中常被忽视的部分之一。虽然标签指导通常起步简单，但随着数据的标注和各种特殊情况的发现，它们不可避免地变得更加复杂。继续我们之前的YarnIt示例，也许一些钩针编织没有在标签指导中提到，或者织物由多种不同的针法制成。即使是概念上简单的标注任务，比如“标记图像中的所有人”，最终也会有大量关于各种特殊情况的正确处理指令（如反射、人物照片、人物在汽车窗后面等）。
+- en: Labeling definitions and directions should be updated as new corner cases are
+    discovered, and the annotation and modeling teams should be notified about the
+    changes. If the changes are significant, previously labeled data might have to
+    be re-annotated to correct data labeled with old instructions. Annotation teams
+    often have significant turnover, so investing in training for using annotation
+    tools and for understanding labeling instructions will almost always give big
+    wins in label quality and throughput.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当发现新的特例时，应更新标注定义和指导方针，并通知标注和建模团队有关更改的信息。如果更改很大，可能需要重新标注以更正使用旧指导方针标注的数据。标注团队经常有较大的人员流动，因此投资于使用标注工具和理解标注指导方针的培训几乎总能带来标签质量和产量的显著提升。
+- en: Metadata
+  id: totrans-134
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 元数据
+- en: Feature systems and labeling systems both benefit from efficient tracking of
+    metadata. Now that you have a relatively complete understanding of the kinds of
+    data that will be provided by a feature or labeling system, you can start to think
+    about what metadata is produced during those operations.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征系统和标注系统都受益于对元数据的有效跟踪。现在您对特征或标注系统提供的数据类型有了相对完整的理解，可以开始考虑在这些操作期间产生的元数据。
+- en: Metadata Systems Overview
+  id: totrans-136
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 元数据系统概述
+- en: 'A *metadata system* is designed to keep track of what we’re doing. In the case
+    of features and labels, it should minimally keep track of the feature definitions
+    we have and the versions used in each model’s definitions and trained models.
+    But it is worth pausing for a minute and trying to see into the future: what are
+    we eventually going to expect out of a metadata system, and is there any way to
+    anticipate that?'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*元数据系统*的设计旨在跟踪我们正在做的事情。在特征和标签的情况下，它至少应该跟踪我们拥有的特征定义及每个模型定义和训练模型使用的版本。但是，值得暂停片刻并尝试展望未来：我们最终对元数据系统有什么期望，是否有办法提前预见？'
+- en: 'Most organizations start building their data sciences and ML infrastructure
+    without a solid metadata system, only to regret it later. The next most common
+    approach is to build several metadata systems, each targeted at solving a particular
+    problem. This is what we’re about to do here: make one for tracking feature definitions
+    and mappings to feature stores. Even within this very chapter, you’re about to
+    see that we’re going to need to store metadata about labels, including their specification
+    and when particular labels were applied to particular feature values. Later, we’re
+    going to need a system for mapping model definitions to trained models, along
+    with data about the engineers or teams responsible for those models. Our model
+    serving system is also going to need to keep track of trained model versions,
+    when they were put into production. Any model quality or fairness evaluation systems
+    will need to be read from all of these systems in order to identify and track
+    the likely contributing causes of changes in model quality or violations of our
+    proposed fairness metrics.'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数组织在构建其数据科学和机器学习基础设施时，没有一个坚实的元数据系统，只会在后来感到后悔。接下来最常见的方法是构建多个元数据系统，每个系统针对解决特定问题。这正是我们要做的：为跟踪特征定义和特征存储映射创建一个系统。即使在这本章节中，你将会看到我们需要存储关于标签的元数据，包括它们的规范以及何时将特定标签应用于特定的特征值。之后，我们还需要一个系统来将模型定义映射到训练好的模型，并包含有关负责这些模型的工程师或团队的数据。我们的模型服务系统还需要跟踪训练模型版本以及它们何时投入生产。任何模型质量或公平评估系统都需要从所有这些系统中读取数据，以便识别和跟踪影响模型质量变化或违反我们提出的公平度量的可能原因。
+- en: 'Our choices for a metadata system are relatively simple:'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的元数据系统选择相对简单：
+- en: One system
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个系统
+- en: Build one system to track metadata from all of these sources. This makes it
+    simple to make correlations across multiple subsystems, simplifying analysis and
+    reporting. Such a large system is difficult to get right from a data schema perspective.
+    We will be constantly adding columns when we discover data we would like to keep
+    track of (and backfilling those columns on existing data). It will also be difficult
+    to stabilize such a system and make it reliable. From a systems design perspective,
+    we should ensure that our metadata systems are never in the live path of either
+    model training or model serving. But it’s difficult to imagine how feature engineering
+    or labeling can take place without the metadata system being functional, so it
+    can still cause production problems for our humans working on those tasks.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 建立一个系统来跟踪所有这些来源的元数据。这样可以简化跨多个子系统的相关性分析和报告。从数据架构的角度来看，设计这样一个大系统很难做到完美。当我们发现需要跟踪的数据时，我们将不断添加列（并在现有数据上回填这些列）。稳定这样的系统并使其可靠也将是困难的。从系统设计的角度来看，我们应确保我们的元数据系统永远不处于模型训练或模型服务的实时路径中。但是很难想象在没有功能的元数据系统的情况下进行特征工程或标注，因此它仍然可能给我们的从事这些任务的人员带来生产问题。
+- en: Multiple systems (that work together)
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 多个协同工作的系统
+- en: We can build separate metadata systems for each task we identify. Perhaps we
+    would have one for features and labels, one for training, one for serving, and
+    one for quality monitoring. Decoupling the systems provides the standard advantages
+    and costs that decoupling always does. It allows us to develop each system separately
+    without concern for the others, making them nimbler and simpler to modify and
+    extend. Additionally, an outage of one metadata system has limited production
+    impact on others. The cost, though, is the added difficulty of analysis and reporting
+    across those systems. We will have processes that need to join data across the
+    features, labeling, training, and serving systems. Multiple systems should always
+    be designed in a way that allows their data to be joined, which either means creating
+    and sharing unique identifiers or establishing a meta-metadata system that tracks
+    the relationships of data fields across the metadata systems.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以为每个识别出的任务构建单独的元数据系统。也许我们可以有一个用于特征和标签的系统，一个用于训练，一个用于服务，一个用于质量监控。解耦系统提供了解耦总是提供的标准优势和成本。它允许我们单独开发每个系统，而不必担心其他系统，使它们更灵活和更容易修改和扩展。此外，一个元数据系统的故障对其他系统的生产影响有限。但成本是增加了跨这些系统的分析和报告的难度。我们将需要在特征、标注、训练和服务系统之间联合数据的过程。多个系统应始终设计成允许它们的数据进行关联，这意味着创建和共享唯一标识符或建立一个跟踪数据字段关系的元元数据系统。
+- en: If the needs are simple and well understood, prefer a single system.^([7](ch04.xhtml#ch01fn38))
+    If the area is rapidly developing and our teams expect to continue extending what
+    they track and how they work, multiple systems will simplify the development over
+    time.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果需求简单且易于理解，请优先选择单一系统。^([7](ch04.xhtml#ch01fn38)) 如果领域发展迅速且我们的团队预计会继续扩展跟踪和工作方式，则多个系统将随着时间推移简化开发。
+- en: Dataset Metadata
+  id: totrans-145
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据集元数据
+- en: 'For metadata about features and labels, here are a few specific elements that
+    we should ensure are included:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于特征和标签的元数据，以下是我们应确保包含的几个具体元素：
+- en: Dataset provenance
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据集溯源
+- en: Where did the data come from? Depending on the source of our data, we might
+    have a lookup table of logs from various systems, a key for an external data provider
+    with data about when we downloaded the data, or even a reference to the code that
+    generated the data.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据来源何处？根据数据来源，我们可能有各种系统的日志查找表，外部数据提供者的关键数据及其下载日期，甚至是生成数据的代码引用。
+- en: Dataset location
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据集位置
+- en: For some datasets, we will store raw, unprocessed data. In this case, we should
+    store a reference to where we keep that dataset, as well as perhaps information
+    about where we got it from. Some data we create for ourselves on an ongoing basis,
+    such as logs from our systems, and so in those cases we should store the log or
+    datastore reference where that data is stored, or where we are permitted to read
+    from it.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于某些数据集，我们将存储原始未处理数据。在这种情况下，我们应存储一个指向数据集存储位置的引用，以及可能关于数据来源的信息。我们定期为自己创建一些数据，例如系统日志，因此在这些情况下，应存储日志或数据存储引用，或者我们被允许从中读取的地方。
+- en: Dataset responsible person or team
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据集负责人员或团队
+- en: We should track which person or team is responsible for the dataset. In general,
+    this is the team that chose to download or create the dataset, or the team that
+    owns the system that produces the data.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应该追踪负责数据集的人员或团队。一般来说，这是选择下载或创建数据集的团队，或拥有生成数据的系统的团队。
+- en: Dataset creation date or version date
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据集创建日期或版本日期
+- en: It is often useful to know the first date a particular dataset was used.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常有必要知道特定数据集首次使用的日期。
+- en: Dataset use restrictions
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据集使用限制
+- en: Many datasets have restrictions on their use, either because of licensing or
+    governance constraints. We should document that in the metadata system for easy
+    analysis and compliance later.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多数据集由于许可或治理限制而受到使用限制。我们应在元数据系统中记录这一点，以便日后进行简便的分析和遵从性检查。
+- en: Feature Metadata
+  id: totrans-157
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征元数据
+- en: 'Keeping track of metadata about our feature definitions is part of what will
+    enable us to reliably use and maintain those features. This metadata includes
+    the following:'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 跟踪我们特征定义的元数据是使我们能够可靠使用和维护这些特征的一部分。该元数据包括以下内容：
+- en: Feature version definition
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征版本定义
+- en: The feature definition is a reference to code or another durable description
+    to what data the feature reads and how it processes the data to create the feature.
+    This should be updated for every updated version of the feature definition. As
+    was previously described, versioning these definitions (and restricting the versions
+    in use) will make the resulting codebase more predictable and maintainable.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征定义是对代码或其他持久性描述的引用，用于说明特征读取什么数据以及如何处理数据以创建特征。应在每个更新版本的特征定义时更新此信息。正如前面所述，对这些定义进行版本控制（并限制使用的版本）将使最终的代码库更可预测和可维护。
+- en: Feature definition responsible person or team
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征定义负责人员或团队
+- en: 'There are two good use cases for storing this information: figuring out what
+    a feature is for and finding someone who can help resolve an incident when the
+    feature might be at fault. In both cases, it is useful to store authorship or
+    maintainer information about that feature.'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储这些信息有两个很好的用例：确定特征用途和找到能帮助解决可能导致特征故障的事件的人员。在这两种情况下，存储特征的作者或维护者信息非常有用。
+- en: Feature definition creation date or current version date
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征定义创建日期或当前版本日期
+- en: This may be fairly obvious, but it’s useful to get a change history of when
+    a feature was most recently updated and when it was originally created.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可能相当明显，但获取特征最近更新和最初创建的更改历史非常有用。
+- en: Feature use restrictions
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征使用限制
+- en: This is important but trickier to store. Features may be restricted from use
+    in some contexts. For example, it may be illegal to use a particular feature in
+    some jurisdictions. Age and gender may be a reasonable predictor of automobile
+    insurance risk models, but insurance is highly regulated, and we may not be permitted
+    to take those fields into account. Banning particular fields only for specific
+    uses is difficult to track and implement, but the restrictions might be even more
+    subtle. For example, age may be able to be taken into account, but only with certain,
+    specific bucketing (like `under 25`, `25–64`, `65–79`, and `over 80`). In that
+    specific case, it’s easier to just define a transforming feature built on top
+    of the `age` column that meets these bucketing requirements and prohibit the general
+    `age` feature from being used for insurance purposes while allowing the `insurance_bucketed_age`
+    feature to be used. But the general case of storing and applying feature restrictions
+    based on governance requirements is extremely difficult, and no great designs
+    or solutions exist at the time of writing.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是重要的，但存储起来更为棘手。某些情况下可能限制特征的使用。例如，在某些司法管辖区可能会禁止使用特定特征。年龄和性别可能是汽车保险风险模型的合理预测因子，但保险业受到严格监管，我们可能不被允许考虑这些字段。对于特定用途禁止特定字段的实施和跟踪是困难的，但限制可能更加微妙。例如，年龄可能可以考虑，但只能使用特定的分桶（如`低于25岁`，`25-64岁`，`65-79岁`和`80岁以上`）。在这种特定情况下，更容易定义一个基于`age`列的转换特征，满足这些分桶要求，并禁止一般的`age`特征用于保险目的，同时允许使用`insurance_bucketed_age`特征。但根据治理要求存储和应用特征限制的一般情况极为困难，目前尚无理想的设计或解决方案。
+- en: Label Metadata
+  id: totrans-167
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 标签元数据
+- en: 'We should also track metadata about labels. This is intended to help with the
+    maintenance and development of the labeling system itself, but might also be used
+    by the training system as it uses the labels:'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还应该跟踪有关标签的元数据。这旨在帮助维护和开发标签系统本身，但也可能被训练系统用于使用标签时：
+- en: Label definition version
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标签定义版本
+- en: Switching to metadata specific to labels and analogously to features, we must
+    store the version of any label definitions to understand which labeling instructions
+    the labels were made with.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 切换到与标签相关的元数据，类似于特征，我们必须存储任何标签定义的版本，以了解标签是使用哪些标签说明生成的。
+- en: Label set version
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标签集版本
+- en: In addition to label definition changes, changes to the labels may occur because
+    of incorrect labels getting corrected or new labels being added. If the dataset
+    is being used for comparison with an older model, using an older version of the
+    labels may be desirable, to make the comparison more apples-to-apples.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了标签定义的更改，由于修正错误标签或添加新标签，标签的更改也可能发生。如果数据集用于与旧模型比较，则可能希望使用旧版本的标签，以进行更为公正的比较。
+- en: Label source
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标签来源
+- en: Although not typically needed for training, it is sometimes necessary to know
+    the source of each label in a dataset. This may be the source that particular
+    label was licensed from, the human who produced the label (along with any QA that
+    was applied to the label), or the algorithm that produced the label if an automated
+    labeling approach was used.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管通常不需要用于训练，但有时需要知道数据集中每个标签的来源。这可能是特定标签许可的来源，生成标签的人员（以及应用于标签的任何质量保证），或者如果使用了自动标记方法，则是生成标签的算法。
+- en: Label confidence
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标签置信度
+- en: Depending on how the labels are produced, we might have different estimates
+    of the confidence of correctness for different labels. For example, we might have
+    lower confidence in labels that are produced by an automated approach, or labels
+    produced by a newer labeler. Users of these labels might choose different thresholds
+    to decide which labels to use in training their models.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据标签生成的方式，我们可能对不同标签的正确性置信度有不同的估计。例如，我们可能对由自动化方法生成的标签或由新的标签生成器生成的标签的置信度较低。使用这些标签的用户可能会选择不同的阈值来决定在训练模型时使用哪些标签。
+- en: Pipeline Metadata
+  id: totrans-177
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 流水线元数据
+- en: 'This section covers a final type of metadata that we won’t spend as much time
+    on: metadata about the pipeline processes themselves. This is data about the intermediate
+    artifacts we have, which pipeline runs they came from, and which binaries produced
+    them. This type of metadata is produced automatically by some ML training systems;
+    for example, ML Metadata (MLMD) is automatically included in TensorFlow Extended
+    (TFX), which uses it to store artifacts about training runs. These systems are
+    either integrated into those systems or are somewhat difficult to implement later.
+    As a result, we don’t cover them much here.'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节涵盖了一种我们不会花太多时间讨论的最终类型的元数据：关于管道过程本身的元数据。这是关于我们拥有的中间产物、它们来自哪些管道运行以及哪些二进制文件产生了它们的数据。这种类型的元数据由某些机器学习训练系统自动产生；例如，ML
+    Metadata（MLMD）自动包含在TensorFlow Extended（TFX）中，用于存储关于训练运行的工件。这些系统要么集成到这些系统中，要么稍后实现起来相对困难。因此，在这里我们不会过多涉及它们。
+- en: More generally, metadata systems are often overlooked or deprioritized. They
+    should not be. They are one of the most effective and direct contributors to productive
+    use of the data in an ML system. Metadata unlocks value and should be prioritized.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更普遍地说，元数据系统经常被忽视或降低优先级。但它们不应该被忽视。它们是机器学习系统中最有效和直接的数据利用贡献者之一。元数据释放了价值，应优先考虑。
+- en: Data Privacy and Fairness
+  id: totrans-180
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 数据隐私与公平性
+- en: Feature and labeling systems give rise to profound privacy and ethical considerations.
+    While many of these topics are covered much more completely in [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical),
+    calling out a few specific topics here explicitly is worthwhile.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征和标记系统引发了深刻的隐私和伦理考虑。虽然这些主题在[第6章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)中有更详尽的讨论，但在此明确指出一些特定的主题仍然值得一提。
+- en: Privacy
+  id: totrans-182
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 隐私
+- en: Both the data that we receive and human annotation of that data has the significant
+    possibility of containing PII. While the simplest approach to dealing with private
+    information is to simply prohibit private or sensitive information from entering
+    into our feature storage system, this is often not practical.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们接收的数据以及对数据的人工标注很可能包含PII。虽然处理私人信息的最简单方法是简单地禁止私人或敏感信息进入我们的特征存储系统，但这通常不实际。
+- en: PII data and features
+  id: totrans-184
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: PII数据和特征
+- en: 'If we plan to have PII data in features, we will want to plan to do at least
+    three things in advance:'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们计划在特征中使用PII数据，我们希望至少提前计划执行以下三项任务：
+- en: Minimize the PII data we process and store
+  id: totrans-186
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最小化我们处理和存储的个人身份信息（PII）数据
+- en: Restrict and log access to the feature store containing the private features
+  id: totrans-187
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 限制和记录包含私有特征的特征存储器的访问
+- en: Plan to delete private features as soon as possible
+  id: totrans-188
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 计划尽快删除私有特征
+- en: 'It is best to plan for correct handling of PII data in advance. Before even
+    considering collecting PII data, a clear process should be in place for obtaining
+    consent from users: they should know what data they are providing and how it will
+    be used. Many organizations find it valuable to write a plan documenting exactly
+    the data that will be collected, how it will be processed, where it will be stored,
+    and the circumstances under which it can be accessed and will be deleted. This
+    allows for an internal (and possibly, eventually, external) review of the procedures
+    to ensure compliance with relevant laws and regulations. Most organizations will
+    want to document their procedures about planning for PII data and train staff
+    on these procedures regularly.'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最好是提前规划正确处理PII数据的方式。在考虑收集PII数据之前，应建立明确的用户同意获取流程：用户应知道他们提供了哪些数据以及将如何使用。许多组织发现编写计划，详细说明将收集的数据、处理方式、存储位置以及可以访问和将被删除的情况非常有价值。这使得可以进行内部（可能最终是外部）审查程序，以确保符合相关法律法规。大多数组织将希望记录关于规划PII数据的程序，并定期对员工进行这些程序的培训。
+- en: Remember that from an organizational point of view, private data is much more
+    of a liability than an asset. Therefore, we should be completely convinced that
+    the features containing private data are required—that they produce sufficient
+    value to outweigh the risks of processing and storing private data. As is always
+    the case, different pieces of nonprivate data may be combined to create a private
+    data element.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，从组织角度看，私人数据比资产更具有责任。因此，我们应完全确信包含私人数据的特征是必需的，即它们产生的价值足以抵消处理和存储私人数据的风险。正如总是情况一样，可以将不同的非私人数据组合在一起以创建私人数据元素。
+- en: Private data and labeling
+  id: totrans-191
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 私有数据与标记
+- en: Human annotation of PII data introduces a host of legal or reputational hazards
+    if not carefully and properly handled. The details about how to properly manage
+    this kind of data used in human annotation systems is extremely context specific
+    and is beyond the scope of this book. Often the best way to handle PII data is
+    to split the data so that the human doing the annotation has access to only the
+    non-PII parts of the data. This is specific to the problem at hand. Any labeling
+    of PII data should be done with the utmost care and awareness from project leadership
+    of the risks involved.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 人工注释PII数据如果处理不当，会引入一系列法律或声誉风险。如何正确管理这类数据用于人工注释系统是极其具体的情境，超出了本书的范围。通常，处理PII数据的最佳方式是将数据拆分，使得进行注释的人只能访问数据的非PII部分。这是特定问题的解决方案。任何标记PII数据都应该在项目领导层的高度关注和意识下谨慎进行。
+- en: Use of human annotators also introduces an additional risk of the model unintentionally
+    learning the cultural biases of the annotation instructions or the team itself.
+    This potential bias is best combated by thoughtful documentation and consideration
+    of potential areas for confusion, strong lines of communication with the annotation
+    team, and the hiring of a diverse annotation team. On the positive side, a well-trained
+    annotation team can be one of the most effective ways to filter sourced data with
+    potential biases to understand and remove bias.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用人工注释者还会带来另一个风险，即模型无意中学习注释说明或团队本身的文化偏见。最好通过深思熟虑的文档记录和考虑潜在混淆领域、与注释团队的强有力沟通以及聘请多样化的注释团队来应对这种潜在偏见。积极的一面是，训练有素的注释团队可以是过滤具有潜在偏见的数据源、理解和消除偏见的最有效方法之一。
+- en: Fairness
+  id: totrans-194
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 公平性
+- en: Fairness is a significant topic that is covered much more broadly and thoroughly
+    in [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical). Suffice it
+    to say here that considering fairness is important while thinking of features
+    and their labels. It is not easy to select features and sets of features that
+    ensure that the resulting ML system can be used in only a fair fashion. While
+    it is true that we need to avoid selecting features and datasets that are unrepresentative
+    and biased, this alone will not be sufficient to ensure fairness overall. This
+    would be a good time for those with a particular interest in fairness to read
+    (or reread) [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical).
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 公平性是一个重要的主题，在[第6章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)中有更广泛和更彻底的讨论。在考虑特征及其标签时，考虑公平性非常重要。选择确保生成的机器学习系统只能公平使用的特征和特征集合并不容易。虽然我们确实需要避免选择不具代表性和有偏见的特征和数据集，但仅此还不足以确保总体公平性。对于那些对公平性特别感兴趣的人来说，现在是阅读（或重新阅读）[第6章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)的好时机。
+- en: Conclusion
+  id: totrans-196
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: Production ML systems require mechanisms to efficiently and consistently manage
+    training data. Training data almost always consists of features, so having a structured
+    feature store significantly facilitates writing, storing, reading, and ultimately
+    deleting features. Many ML systems also have a component of human annotation of
+    data. Humans annotating data require their own systems to facilitate rapid, accurate,
+    and verified annotations, which ultimately need to be integrated into the feature
+    store.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产型机器学习系统需要有效和一致地管理训练数据的机制。训练数据几乎总是由特征组成的，因此拥有一个结构化的特征存储显著地促进了特征的编写、存储、读取和最终删除。许多机器学习系统还涉及人工注释数据的组件。进行数据注释的人类需要他们自己的系统来促进快速、准确和经过验证的注释，最终需要将其集成到特征存储中。
+- en: We hope we have given a clearer understanding of these components and the considerations
+    that should go into selecting or, in the worst case, building, them.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们希望我们已经更清楚地解释了这些组件以及在选择或者在最坏情况下构建它们时应考虑的因素。
+- en: ^([1](ch04.xhtml#ch01fn32-marker)) We are aware that one of the promises of
+    deep learning is that it is sometimes possible to use raw data to train a model
+    without specifically identifying features. This promise is partly true for some
+    use cases but applies mostly, right now, to perceptual data like images, video,
+    and audio. In those cases, we may not need to extract specific features from the
+    underlying data, although we may still get good value from metadata features.
+    For other cases, featurization is still required right now. So even deep learning
+    modelers will benefit from an understanding of features.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch04.xhtml#ch01fn32-marker)) 我们知道深度学习的一个承诺是有时可以使用原始数据训练模型，而无需明确识别特征。对于某些用例，这一承诺部分属实，但目前主要适用于感知数据，如图像、视频和音频。在这些情况下，我们可能不需要从底层数据中提取特定的特征，尽管我们仍然可能从元数据特征中获得良好的价值。对于其他情况，现在仍然需要特征化。因此，即使是深度学习建模者也将从对特征的理解中受益。
+- en: ^([2](ch04.xhtml#ch01fn33-marker)) For example, ML training that occurs on mobile
+    devices will still need to train on some data, but will not have a structured,
+    managed feature store, since there’s no need to mediate that data for other on-device
+    users.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch04.xhtml#ch01fn33-marker)) 例如，在移动设备上进行的ML训练仍然需要对一些数据进行训练，但不需要有一个结构化的、受管理的特征存储，因为没有必要为其他设备上的用户调解数据。
+- en: ^([3](ch04.xhtml#ch01fn34-marker)) Bucketing is just the process of placing
+    continuous data into discrete categories. *Transforming features* are those features
+    that are the result of a computed combination of one or more other features. Simple
+    examples include ideas like returning the day of the week when provided a date
+    feature, or returning the country name from a feature that stores a latitude and
+    longitude of a point on Earth. More complex examples might include fixing the
+    color balance of a picture or choosing a particular projection for 3D data. Perhaps
+    one of the most common examples is to convert 32-bit numbers (either integers
+    or, worse, floating-point numbers) into 8-bit numbers in order to significantly
+    reduce the space and computational resources required to process them.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch04.xhtml#ch01fn34-marker)) 分桶只是将连续数据放入离散类别的过程。*转换特征*是计算得出的一个或多个其他特征的组合的结果特征。简单的例子包括在提供日期特征时返回星期几，或从存储地球上某点的纬度和经度的特征返回国家名称。更复杂的例子可能包括修复图片的色彩平衡或为3D数据选择特定的投影。也许最常见的例子之一是将32位数（整数或更糟的是浮点数）转换为8位数，以显著减少处理它们所需的空间和计算资源。
+- en: ^([4](ch04.xhtml#ch01fn35-marker)) Some examples will contain features from
+    both buckets. For example, the pictures in an image are blobs that are best accessed
+    as unstructured data, but the metadata about the image (camera that took it, date,
+    exposure information, location information) is structured and might even be ordered
+    if it includes fields like `date`.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch04.xhtml#ch01fn35-marker)) 有些例子将包含来自两个存储桶的特征。例如，图像中的图片是最好作为非结构化数据访问的大块，但是关于图像的元数据（拍摄它的相机、日期、曝光信息、位置信息）是结构化的，如果包括像`date`这样的字段，甚至可能是有序的。
+- en: ^([5](ch04.xhtml#ch01fn36-marker)) This is also a technique used to expand the
+    training dataset algorithmically.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch04.xhtml#ch01fn36-marker)) 这也是一种通过算法扩展训练数据集的技术。
+- en: ^([6](ch04.xhtml#ch01fn37-marker)) Organizations need to ensure that human labelers
+    are treated fairly and paid reasonably for their work.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch04.xhtml#ch01fn37-marker)) 组织需要确保人工标记者得到公平对待，并且为他们的工作支付合理的报酬。
+- en: ^([7](ch04.xhtml#ch01fn38-marker)) The industry is littered with organizations
+    that have multiple metadata systems, each of which believes itself to be the one
+    single system. If the needs are simple and well understood, prefer one system,
+    but take action to ensure that it’s the only system unless you outgrow the needs
+    of it.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch04.xhtml#ch01fn38-marker)) 行业中存在许多具有多个元数据系统的组织，每个系统都认为自己是唯一的系统。如果需求简单且明确，可以优先选择一个系统，但应采取措施确保它是唯一的系统，除非你超出了它的需求。

@@ -1,0 +1,1880 @@
+- en: 'Chapter 3\. Going Beyond the Basics: Detecting Features in Images'
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第3章. 超越基础知识：检测图像中的特征
+- en: In [Chapter 2](ch02.xhtml#introduction_to_computer_vision) you learned how to
+    get started with computer vision by creating a simple neural network that matched
+    the input pixels of the Fashion MNIST dataset to 10 labels, each representing
+    a type (or class) of clothing. And while you created a network that was pretty
+    good at detecting clothing types, there was a clear drawback. Your neural network
+    was trained on small monochrome images that each contained only a single item
+    of clothing, and that item was centered within the image.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第2章](ch02.xhtml#introduction_to_computer_vision)中，您学习了如何通过创建一个简单的神经网络，将Fashion
+    MNIST数据集的输入像素与表示10种服装类型（或类别）的标签进行匹配，从而开始计算机视觉。虽然您创建的网络在检测服装类型方面相当不错，但显然也存在一个缺陷。您的神经网络是在小型单色图像上训练的，每个图像只包含一件服装，并且该服装位于图像的中心。
+- en: To take the model to the next level, you need to be able to detect *features*
+    in images. So, for example, instead of looking merely at the raw pixels in the
+    image, what if we could have a way to filter the images down to constituent elements?
+    Matching those elements, instead of raw pixels, would help us to detect the contents
+    of images more effectively. Consider the Fashion MNIST dataset that we used in
+    the last chapter—when detecting a shoe, the neural network may have been activated
+    by lots of dark pixels clustered at the bottom of the image, which it would see
+    as the sole of the shoe. But when the shoe is no longer centered and filling the
+    frame, this logic doesn’t hold.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将模型提升到下一个水平，您需要能够检测图像中的*特征*。例如，与其仅仅查看图像中的原始像素，如果我们能够有一种方法来将图像过滤成构成元素，会怎么样呢？匹配这些元素，而不是原始像素，将有助于更有效地检测图像的内容。考虑我们在上一章中使用的Fashion
+    MNIST数据集——当检测到鞋子时，神经网络可能会被聚集在图像底部的大量暗像素激活，它会将其视为鞋子的鞋底。但是当鞋子不再居中且填满整个框架时，这种逻辑就不成立了。
+- en: One method to detect features comes from photography and the image processing
+    methodologies that you might be familiar with. If you’ve ever used a tool like
+    Photoshop or GIMP to sharpen an image, you’re using a mathematical filter that
+    works on the pixels of the image. Another word for these filters is a *convolution*,
+    and by using these in a neural network you will create a *convolutional neural
+    network* (CNN).
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检测特征的一种方法源自摄影和您可能熟悉的图像处理方法论。如果您曾使用过像Photoshop或GIMP这样的工具来增强图像，那么您正在使用一种对图像像素起作用的数学滤波器。这些滤波器的另一个名称是*卷积*，通过在神经网络中使用这些滤波器，您将创建一个*卷积神经网络*（CNN）。
+- en: In this chapter you’ll learn about how to use convolutions to detect features
+    in an image. You’ll then dig deeper into classifying images based on the features
+    within. We’ll explore augmentation of images to get more features and transfer
+    learning to take preexisting features that were learned by others, and then look
+    briefly into optimizing your models using dropouts.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您将学习如何使用卷积来检测图像中的特征。然后，您将深入探讨基于图像内部特征分类图像。我们将探索增强图像以获取更多特征和迁移学习以利用他人学习的预先存在的特征，并简要探讨使用辍学来优化您的模型。
+- en: Convolutions
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 卷积
+- en: A convolution is simply a filter of weights that are used to multiply a pixel
+    with its neighbors to get a new value for the pixel. For example, consider the
+    ankle boot image from Fashion MNIST and the pixel values for it as shown in [Figure 3-1](#ankle_boot_with_convolution).
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 卷积简单来说是一组权重的滤波器，用于将一个像素与其邻居相乘，从而得到像素的新值。例如，考虑来自Fashion MNIST的踝靴图像及其像素值，如[图3-1](#ankle_boot_with_convolution)所示。
+- en: '![Ankle boot with convolution](Images/aiml_0301.png)'
+  id: totrans-7
+  prefs: []
+  type: TYPE_IMG
+  zh: '![带有卷积的踝靴](Images/aiml_0301.png)'
+- en: Figure 3-1\. Ankle boot with convolution
+  id: totrans-8
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-1. 带有卷积的踝靴
+- en: If we look at the pixel in the middle of the selection we can see that it has
+    the value 192 (recall that Fashion MNIST uses monochrome images with pixel values
+    from 0 to 255). The pixel above and to the left has the value 0, the one immediately
+    above has the value 64, etc.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们看一下选择区域中间的像素，我们可以看到它的值为192（请记住，Fashion MNIST使用单色图像，像素值从0到255）。上方和左侧的像素值为0，正上方的像素值为64，依此类推。
+- en: If we then define a filter in the same 3 × 3 grid, as shown below the original
+    values, we can transform that pixel by calculating a new value for it. We do this
+    by multiplying the current value of each pixel in the grid by the value in the
+    same position in the filter grid, and summing up the total amount. This total
+    will be the new value for the current pixel. We then repeat this for all pixels
+    in the image.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们在同样的3×3网格中定义一个滤波器，如下所示的原始值下方，我们可以通过计算一个新值来转换该像素。我们通过将网格中每个像素的当前值乘以滤波器网格中相同位置的值，并将总和起来来实现这一点。这个总和将成为当前像素的新值。然后我们对图像中的所有像素重复此操作。
+- en: 'So in this case, while the current value of the pixel in the center of the
+    selection is 192, the new value after applying the filter will be:'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，在这种情况下，虽然选择中心像素的当前值为192，但应用滤波器后的新值将为：
+- en: '[PRE0]'
+  id: totrans-12
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: This equals 577, which will be the new value for that pixel. Repeating this
+    process across every pixel in the image will give us a filtered image.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这等于577，这将成为该像素的新值。在图像的每个像素上重复此过程将给我们一个经过滤波的图像。
+- en: 'Let’s consider the impact of applying a filter on a more complicated image:
+    the [ascent image](https://oreil.ly/wgDN2) that’s built into SciPy for easy testing.
+    This is a 512 × 512 grayscale image that shows two people climbing a staircase.'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们考虑在更复杂的图像上应用滤波器的影响：内置于SciPy中用于简单测试的[攀升图像](https://oreil.ly/wgDN2)。这是一幅512×512的灰度图像，显示两个人正在爬楼梯。
+- en: Using a filter with negative values on the left, positive values on the right,
+    and zeros in the middle will end up removing most of the information from the
+    image except for vertical lines, as you can see in [Figure 3-2](#using_a_filter_to_get_vertical_lines).
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在左侧使用具有负值、右侧具有正值和中间为零的滤波器将会除去图像中的大部分信息，除了垂直线条，如您在[图3-2](#using_a_filter_to_get_vertical_lines)中所见。
+- en: '![Using a filter to get vertical lines](Images/aiml_0302.png)'
+  id: totrans-16
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用滤波器获取垂直线条](Images/aiml_0302.png)'
+- en: Figure 3-2\. Using a filter to get vertical lines
+  id: totrans-17
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-2。使用滤波器获取垂直线条
+- en: Similarly, a small change to the filter can emphasize the horizontal lines,
+    as shown in [Figure 3-3](#using_a_filter_to_get_horizontal_lines).
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，对滤波器进行小的更改可以强调水平线条，如在[图3-3](#using_a_filter_to_get_horizontal_lines)中所示。
+- en: '![Using a filter to get horizontal lines](Images/aiml_0303.png)'
+  id: totrans-19
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用滤波器获取水平线条](Images/aiml_0303.png)'
+- en: Figure 3-3\. Using a filter to get horizontal lines
+  id: totrans-20
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-3。使用滤波器获取水平线条
+- en: These examples also show that the amount of information in the image is reduced,
+    so we can potentially *learn* a set of filters that reduce the image to features,
+    and those features can be matched to labels as before. Previously, we *learned*
+    parameters that were used in neurons to match inputs to outputs. Similarly, the
+    best filters to match inputs to outputs can be learned over time.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些例子还显示图像中信息的减少，因此我们可以潜在地*学习*一组减少图像到特征的滤波器，并且这些特征可以像以前一样匹配标签。以前，我们*学习*了用于神经元中匹配输入与输出的参数。同样，可以随着时间的推移学习最佳的滤波器来匹配输入与输出。
+- en: When combined with *pooling*, we can reduce the amount of information in the
+    image while maintaining the features. We’ll explore that next.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当与*池化*结合使用时，我们可以减少图像中的信息量同时保持特征。我们接下来会探讨这一点。
+- en: Pooling
+  id: totrans-23
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 池化
+- en: Pooling is the process of eliminating pixels in your image while maintaining
+    the semantics of the content within the image. It’s best explained visually. [Figure 3-4](#demonstrating_max_pooling)
+    shows the concept of a *max* pooling.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 池化是在保持图像内容语义的同时消除图像中的像素的过程。最好通过视觉方式来解释。[图3-4](#demonstrating_max_pooling)展示了*最大*池化的概念。
+- en: '![Demonstrating max pooling](Images/aiml_0304.png)'
+  id: totrans-25
+  prefs: []
+  type: TYPE_IMG
+  zh: '![演示最大池化](Images/aiml_0304.png)'
+- en: Figure 3-4\. Demonstrating max pooling
+  id: totrans-26
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-4。演示最大池化
+- en: In this case, consider the box on the left to be the pixels in a monochrome
+    image. We then group them into 2 × 2 arrays, so in this case the 16 pixels are
+    grouped into four 2 × 2 arrays. These are called *pools*.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，将左侧的方框视为单色图像中的像素。然后，我们将它们分组为2×2的数组，因此在这种情况下，16个像素被分成四个2×2的数组。这些被称为*池*。
+- en: We then select the *maximum* value in each of the groups, and reassemble those
+    into a new image. Thus, the pixels on the left are reduced by 75% (from 16 to
+    4), with the maximum value from each pool making up the new image.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们选择每个组中的*最大*值，并将它们重新组合成一个新的图像。因此，左侧的像素减少了75%（从16到4），每个池中的最大值构成了新图像。
+- en: '[Figure 3-5](#ascent_after_vertical_filter_and_max_po) shows the version of
+    ascent from [Figure 3-2](#using_a_filter_to_get_vertical_lines), with the vertical
+    lines enhanced, after max pooling has been applied.'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-5](#ascent_after_vertical_filter_and_max_po)展示了从[图 3-2](#using_a_filter_to_get_vertical_lines)获取的上升版本，在应用了最大池化后增强了垂直线条。'
+- en: '![Ascent after vertical filter and max pooling](Images/aiml_0305.png)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_IMG
+  zh: '![垂直滤波器和最大池化后的上升](Images/aiml_0305.png)'
+- en: Figure 3-5\. Ascent after vertical filter and max pooling
+  id: totrans-31
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-5\. 垂直滤波器和最大池化后的上升
+- en: Note how the filtered features have not just been maintained, but further enhanced.
+    Also, the image size has changed from 512 × 512 to 256 × 256—a quarter of the
+    original size.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意过滤后的特征不仅得到了保留，而且进一步增强了。同时，图片的尺寸从512 × 512变为了256 × 256——原始尺寸的四分之一。
+- en: Note
+  id: totrans-33
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: There are other approaches to pooling, such as *min* pooling, which takes the
+    smallest pixel value from the pool, and *average* pooling, which takes the overall
+    average value.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有其他池化的方法，如*min*池化，它从池中取最小像素值，以及*average*池化，它取池中所有值的平均值。
+- en: Implementing Convolutional Neural Networks
+  id: totrans-35
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实现卷积神经网络
+- en: 'In [Chapter 2](ch02.xhtml#introduction_to_computer_vision) you created a neural
+    network that recognized fashion images. For convenience, here’s the complete code:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第2章](ch02.xhtml#introduction_to_computer_vision)中，你创建了一个识别时尚图片的神经网络。为了方便起见，这里是完整的代码：
+- en: '[PRE1]'
+  id: totrans-37
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: To convert this to a convolutional neural network, we simply use convolutional
+    layers in our model definition. We’ll also add pooling layers.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将这个转换为卷积神经网络，我们只需在模型定义中使用卷积层。我们还会添加池化层。
+- en: To implement a convolutional layer, you’ll use the `tf.keras.layers.Conv2D`
+    type. This accepts as parameters the number of convolutions to use in the layer,
+    the size of the convolutions, the activation function, etc.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现卷积层，你将使用`tf.keras.layers.Conv2D`类型。这个类型接受多个参数，包括在层中使用的卷积数目、卷积的大小、激活函数等。
+- en: 'For example, here’s a convolutional layer used as the input layer to a neural
+    network:'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，这里是一个作为神经网络输入层的卷积层：
+- en: '[PRE2]'
+  id: totrans-41
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: In this case, we want the layer to learn 64 convolutions. It will randomly initialize
+    these, and over time will learn the filter values that work best to match the
+    input values to their labels. The `(3, 3)` indicates the size of the filter. Earlier
+    I showed 3 × 3 filters, and that’s what we are specifying here. This is the most
+    common size of filter; you can change it as you see fit, but you’ll typically
+    see an odd number of axes like 5 × 5 or 7 × 7 because of how filters remove pixels
+    from the borders of the image, as you’ll see later.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，我们希望该层学习64个卷积。它将随机初始化这些卷积，随着时间的推移，会学习到最适合匹配输入值与标签的滤波值。`(3, 3)`指示了滤波器的大小。之前展示了3
+    × 3的滤波器，这里也是我们在指定的大小。这是最常见的滤波器大小；你可以根据需要进行更改，但通常会看到像5 × 5或7 × 7这样的奇数轴，因为滤波器会从图像的边缘移除像素，稍后你会看到这一点。
+- en: The `activation` and `input_shape` parameters are the same as before. As we’re
+    using Fashion MNIST in this example, the shape is still 28 × 28\. Do note, however,
+    that because `Conv2D` layers are designed for multicolor images, we’re specifying
+    the third dimension as 1, so our input shape is 28 × 28 × 1\. Color images will
+    typically have a 3 as the third parameter as they are stored as values of R, G,
+    and B.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`activation`和`input_shape`参数与之前相同。由于我们在这个示例中使用Fashion MNIST，因此形状仍然是28 × 28。但请注意，由于`Conv2D`层设计用于多色彩图像，我们将第三个维度指定为1，因此我们的输入形状是28
+    × 28 × 1。彩色图像通常会将第三个参数设置为3，因为它们存储为R、G和B的值。'
+- en: 'Here’s how to use a pooling layer in the neural network. You’ll typically do
+    this immediately after the convolutional layer:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里展示了如何在神经网络中使用池化层。通常，在卷积层之后立即进行这样的操作：
+- en: '[PRE3]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: In the example in [Figure 3-4](#demonstrating_max_pooling), we split the image
+    into 2 × 2 pools and picked the maximum value in each. This operation could have
+    been parameterized to define the pool size. Those are the parameters that you
+    can see here—the `(2, 2)` indicates that our pools are 2 × 2.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 3-4](#demonstrating_max_pooling)的示例中，我们将图片分割成2 × 2的池，并且每个池中选择最大值。这个操作可以通过参数化来定义池的大小。这里展示的是池的参数——`(2,
+    2)`表示我们的池是2 × 2的。
+- en: 'Now let’s explore the full code for Fashion MNIST with a CNN:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们来探索使用CNN处理Fashion MNIST的完整代码：
+- en: '[PRE4]'
+  id: totrans-48
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: There are a few things to note here. Remember earlier when I said that the input
+    shape for the images had to match what a `Conv2D` layer would expect, and we updated
+    it to be a 28 × 28 × 1 image? The data also had to be reshaped accordingly. 28
+    × 28 is the number of pixels in the image, and 1 is the number of color channels.
+    You’ll typically find that this is 1 for a grayscale image or 3 for a color image,
+    where there are three channels (red, green, and blue), with the number indicating
+    the intensity of that color.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里有几点需要注意。还记得之前我提到过图像的输入形状必须与`Conv2D`层所期望的匹配，并且我们将其更新为一个 28 × 28 × 1 的图像吗？数据也必须相应地进行重新整形。28
+    × 28 是图像中的像素数量，1 是颜色通道的数量。通常情况下，灰度图像的颜色通道数为1，彩色图像的颜色通道数为3（红、绿、蓝），数字表示该颜色的强度。
+- en: 'So, prior to normalizing the images, we also reshape each array to have that
+    extra dimension. The following code changes our training dataset from 60,000 images,
+    each 28 × 28 (and thus a 60,000 × 28 × 28 array), to 60,000 images, each 28 ×
+    28 × 1:'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，在归一化图像之前，我们还需要将每个数组重新整形以具有额外的维度。以下代码将我们的训练数据集从 60,000 个图像（每个 28 × 28，因此是一个
+    60,000 × 28 × 28 的数组）更改为 60,000 个图像，每个为 28 × 28 × 1：
+- en: '[PRE5]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: We then do the same thing with the test dataset.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们然后对测试数据集执行相同的操作。
+- en: Also note that in the original deep neural network (DNN) we ran the input through
+    a `Flatten` layer prior to feeding it into the first `Dense` layer. We’ve lost
+    that in the input layer here—instead, we just specify the input shape. Note that
+    prior to the `Dense` layer, after convolutions and pooling, the data will be flattened.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还要注意，在原始的深度神经网络（DNN）中，我们在将输入传递到第一个`Dense`层之前通过了一个`Flatten`层。但在这里的输入层中我们已经失去了这一点—而是直接指定了输入形状。请注意，在进行卷积和池化后，在`Dense`层之前，数据将被压平。
+- en: Training this network on the same data for the same 50 epochs as the network
+    shown in [Chapter 2](ch02.xhtml#introduction_to_computer_vision), we can see a
+    nice increase in accuracy. While the previous example reached 89% accuracy on
+    the test set in 50 epochs, this one will hit 99% in around half that many—24 or
+    25 epochs. So we can see that adding convolutions to the neural network is definitely
+    increasing its ability to classify images. Let’s next take a look at the journey
+    an image takes through the network so we can get a little bit more of an understanding
+    of why this works.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将这个网络与第[第二章](ch02.xhtml#introduction_to_computer_vision)展示的网络在相同数据上进行相同的 50
+    个 epoch 训练，我们可以看到准确率显著提高。前一个例子在 50 个 epoch 中的测试集准确率达到了 89%，而这个例子在大约 24 或 25 个
+    epoch 中就能达到 99% 的准确率。因此我们可以看出，向神经网络添加卷积确实提高了其对图像进行分类的能力。接下来让我们看一下图像在网络中经历的过程，以便更好地理解其工作原理。
+- en: Exploring the Convolutional Network
+  id: totrans-55
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 探索卷积网络
+- en: 'You can inspect your model using the `model.summary` command. When you run
+    it on the Fashion MNIST convolutional network we’ve been working on you’ll see
+    something like this:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用 `model.summary` 命令来检查您的模型。当您在我们一直在工作的时尚 MNIST 卷积网络上运行它时，您将看到类似这样的输出：
+- en: '[PRE6]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Let’s first take a look at the Output Shape column to understand what is going
+    on here. Our first layer will have 28 × 28 images, and apply 64 filters to them.
+    But because our filter is 3 × 3, a 1-pixel border around the image will be lost,
+    reducing our overall information to 26 × 26 pixels. Consider [Figure 3-6](#losing_pixels_when_running_a_filter).
+    If we take each of the boxes as a pixel in the image, the first possible filter
+    we can do starts at the second row and the second column. The same would happen
+    on the right side and at the bottom of the diagram.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们首先看一下输出形状列，以了解这里发生了什么。我们的第一层将有 28 × 28 的图像，并对它们应用 64 个滤波器。但由于我们的滤波器是 3 ×
+    3 的，图像周围将会丢失 1 个像素的边框，从而将我们的整体信息减少到 26 × 26 像素。考虑[图 3-6](#losing_pixels_when_running_a_filter)。如果我们将每个方框看作图像中的像素，我们可以进行的第一个可能的滤波器从图表的第二行和第二列开始。在图表的右侧和底部也会发生同样的情况。
+- en: '![Losing pixels when running a filter](Images/aiml_0306.png)'
+  id: totrans-59
+  prefs: []
+  type: TYPE_IMG
+  zh: '![运行滤波器时丢失像素](Images/aiml_0306.png)'
+- en: Figure 3-6\. Losing pixels when running a filter
+  id: totrans-60
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-6\. 运行滤波器时丢失像素
+- en: Thus, an image that is A × B pixels in shape when run through a 3 × 3 filter
+    will become (A–2) × (B–2) pixels in shape. Similarly, a 5 × 5 filter would make
+    it (A–4) × (B–4), and so on. As we’re using a 28 × 28 image and a 3 × 3 filter,
+    our output will now be 26 × 26.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，当一个 A × B 像素形状的图像通过一个 3 × 3 的滤波器时，其形状将变为 (A–2) × (B–2) 像素。同样地，一个 5 × 5 的滤波器会使其变为
+    (A–4) × (B–4) 像素，依此类推。由于我们使用的是一个 28 × 28 的图像和一个 3 × 3 的滤波器，我们的输出现在将是 26 × 26。
+- en: After that the pooling layer is 2 × 2, so the size of the image will halve on
+    each axis, and it will then become (13 × 13). The next convolutional layer will
+    reduce this further to 11 × 11, and the next pooling, rounding down, will make
+    the image 5 × 5.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之后的池化层是2 × 2，所以图像的尺寸将在每个轴上减半，然后变为（13 × 13）。接下来的卷积层将进一步减少至11 × 11，然后池化，向下取整，将使图像变为5
+    × 5。
+- en: 'So, by the time the image has gone through two convolutional layers, the result
+    will be many 5 × 5 images. How many? We can see that in the Param # (parameters)
+    column.'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '因此，当图像通过两个卷积层后，结果将是许多5 × 5的图像。有多少？我们可以在Param #（参数）列中看到。'
+- en: Each convolution is a 3 × 3 filter, plus a bias. Remember earlier with our dense
+    layers, each layer was Y = mX + c, where m was our parameter (aka weight) and
+    c was our bias? This is very similar, except that because the filter is 3 × 3
+    there are 9 parameters to learn. Given that we have 64 convolutions defined, we’ll
+    have 640 overall parameters (each convolution has 9 parameters plus a bias, for
+    a total of 10, and there are 64 of them).
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个卷积都是一个3 × 3的滤波器，再加上一个偏置。还记得我们之前的密集层，每一层都是Y = mX + c的形式吗？这非常相似，只不过因为滤波器是3 ×
+    3，所以有9个参数需要学习。考虑到我们定义了64个卷积，我们将有640个总体参数（每个卷积有9个参数加一个偏置，总共是10个，总共有64个）。
+- en: The `MaxPooling` layers don’t learn anything, they just reduce the image, so
+    there are no learned parameters there—hence 0 being reported.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`MaxPooling`层不会学习任何东西，它们只是减少图像大小，因此那里没有学习到的参数——因此报告为0。'
+- en: The next convolutional layer has 64 filters, but each of these is multiplied
+    across the *previous* 64 filters, each with 9 parameters. We have a bias on each
+    of the new 64 filters, so our number of parameters should be (64 × (64 × 9)) +
+    64, which gives us 36,928 parameters the network needs to learn.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来的卷积层有64个过滤器，但每个过滤器都与*前*的64个过滤器相乘，每个过滤器有9个参数。每个新的64个过滤器都有一个偏置，因此我们的参数数量应为(64
+    × (64 × 9)) + 64，这给出了网络需要学习的36,928个参数。
+- en: If this is confusing, try changing the number of convolutions in the first layer
+    to something—for example, 10\. You’ll see the number of parameters in the second
+    layer becomes 5,824, which is (64 × (10 × 9)) + 64).
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果这让你感到困惑，试着将第一层的卷积次数更改为某个数字——例如10。你会看到第二层的参数数量变为5,824，即(64 × (10 × 9)) + 64)。
+- en: By the time we get through the second convolution, our images are 5 × 5, and
+    we have 64 of them. If we multiply this out we now have 1,600 values, which we’ll
+    feed into a dense layer of 128 neurons. Each neuron has a weight and a bias, and
+    we have 128 of them, so the number of parameters the network will learn is ((5
+    × 5 × 64) × 128) + 128, giving us 204,928 parameters.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们通过第二个卷积层时，我们的图像是5 × 5，并且有64个。如果我们把这个乘起来，现在我们有1,600个值，我们将把它们馈送到128个神经元的密集层中。每个神经元都有一个权重和一个偏置，我们有128个神经元，所以网络将学习的参数数量是((5
+    × 5 × 64) × 128) + 128，给我们204,928个参数。
+- en: Our final dense layer of 10 neurons takes in the output of the previous 128,
+    so the number of parameters learned will be (128 × 10) + 10, which is 1,290.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们最后的密集层有10个神经元，接收前一个128个神经元的输出，因此学习到的参数数量将为(128 × 10) + 10，即1,290。
+- en: 'The total number of parameters is then the sum of all of these: 243,786.'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，总参数数是所有这些参数的总和：243,786。
+- en: Training this network requires us to learn the best set of these 243,786 parameters
+    to match the input images to their labels. It’s a slower process because there
+    are more parameters, but as we can see from the results, it also builds a more
+    accurate model!
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练这个网络要求我们学习最佳的这些243,786个参数集，以匹配输入图像和它们的标签。这是一个较慢的过程，因为参数更多，但正如我们从结果中看到的，它也建立了一个更准确的模型！
+- en: Of course, with this dataset we still have the limitation that the images are
+    28 × 28, monochrome, and centered. Next we’ll take a look at using convolutions
+    to explore a more complex dataset comprising color pictures of horses and humans,
+    and we’ll try to determine if an image contains one or the other. In this case,
+    the subject won’t always be centered in the image like with Fashion MNIST, so
+    we’ll have to rely on convolutions to spot distinguishing features.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，对于这个数据集，我们仍然有限制，即图像是28 × 28的单色图像，并且居中。接下来，我们将看看如何使用卷积来探索一个更复杂的数据集，包括马和人的彩色图片，然后尝试确定图像中是否包含其中一种。在这种情况下，主题不会像时尚MNIST那样总是居中显示，因此我们将依赖卷积来识别独特的特征。
+- en: Building a CNN to Distinguish Between Horses and Humans
+  id: totrans-73
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 建立一个CNN来区分马和人
+- en: In this section we’ll explore a more complex scenario than the Fashion MNIST
+    classifier. We’ll extend what we’ve learned about convolutions and convolutional
+    neural networks to try to classify the contents of images where the location of
+    a feature isn’t always in the same place. I’ve created the Horses or Humans dataset
+    for this purpose.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将探索比时尚 MNIST 分类器更复杂的场景。我们将扩展我们对卷积和卷积神经网络的了解，以尝试对那些特征位置不总是相同的图像内容进行分类。我为此创建了马或人类数据集。
+- en: The Horses or Humans Dataset
+  id: totrans-75
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 马或人类数据集
+- en: The dataset for [this section](https://oreil.ly/E5kbc) contains over a thousand
+    300 × 300-pixel images, approximately half each of horses and humans, rendered
+    in different poses. You can see some examples in [Figure 3-7](#horses_and_humans).
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节的数据集包含了一千多个 300 × 300 像素的图像，大约一半是马，一半是人类，展示了不同的姿势。你可以在[图 3-7](#horses_and_humans)中看到一些示例。
+- en: '![Horses and humans](Images/aiml_0307.png)'
+  id: totrans-77
+  prefs: []
+  type: TYPE_IMG
+  zh: '![马和人类](Images/aiml_0307.png)'
+- en: Figure 3-7\. Horses and humans
+  id: totrans-78
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-7\. 马和人类
+- en: As you can see, the subjects have different orientations and poses and the image
+    composition varies. Consider the two horses, for example—their heads are oriented
+    differently, and one is zoomed out showing the complete animal while the other
+    is zoomed in, showing just the head and part of the body. Similarly, the humans
+    are lit differently, have different skin tones, and are posed differently. The
+    man has his hands on his hips, while the woman has hers outstretched. The images
+    also contain backgrounds such as trees and beaches, so a classifier will have
+    to determine which parts of the image are the important features that determine
+    what makes a horse a horse and a human a human, without being affected by the
+    background.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以看到，主体的朝向和姿势各不相同，图像的构图也有所不同。以两匹马为例，它们的头部朝向不同，一匹放大显示整个动物，而另一匹则放大显示头部和部分身体。同样，人物的光线不同，皮肤色调不同，姿势也各异。男子双手叉腰，而女子则伸出双手。图像还包括背景，如树木和海滩，因此分类器必须确定图像的哪些部分是决定马是马、人是人的重要特征，而不受背景影响。
+- en: While the previous examples of predicting Y = 2X – 1 or classifying small monochrome
+    images of clothing *might* have been possible with traditional coding, it’s clear
+    that this is far more difficult, and you are crossing the line into where machine
+    learning is essential to solve a problem.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然先前的例子，如预测 Y = 2X – 1 或分类小型单色服装图像，*可能*可以通过传统编码实现，但显然这要困难得多，你已经跨入机器学习解决问题的领域。
+- en: An interesting side note is that these images are all computer-generated. The
+    theory is that features spotted in a CGI image of a horse should apply to a real
+    image. You’ll see how well this works later in this chapter.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个有趣的副产品是这些图像都是计算机生成的。理论上，发现在计算机生成图像中的特征应该也适用于真实图像。你将在本章后面看到这个理论实际效果如何。
+- en: The Keras ImageDataGenerator
+  id: totrans-82
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Keras 的 ImageDataGenerator
+- en: The Fashion MNIST dataset that you’ve been using up to this point comes with
+    labels. Every image file has an associated file with the label details. Many image-based
+    datasets do not have this, and Horses or Humans is no exception. Instead of labels,
+    the images are sorted into subdirectories of each type. With Keras in TensorFlow,
+    a tool called the `ImageDataGenerator` can use this structure to *automatically*
+    assign labels to images.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，你一直在使用的时尚 MNIST 数据集带有标签。每个图像文件都有一个关联的文件，其中包含标签详细信息。许多基于图像的数据集没有这种标签，马或人类数据集也不例外。相反，图像被分类到每种类型的子目录中。在
+    TensorFlow 的 Keras 中，一个名为 `ImageDataGenerator` 的工具可以利用这种结构来*自动*为图像分配标签。
+- en: To use the `ImageDataGenerator`, you simply ensure that your directory structure
+    has a set of named subdirectories, with each subdirectory being a label. For example,
+    the Horses or Humans dataset is available as a set of ZIP files, one with the
+    training data (1,000+ images) and another with the validation data (256 images).
+    When you download and unpack them into a local directory for training and validation,
+    ensure that they are in a file structure like the one in [Figure 3-8](Images/#ensuring_that_images_are_in_named_subdi).
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用 `ImageDataGenerator`，你只需确保你的目录结构有一组带有命名子目录，每个子目录作为一个标签。例如，马或人类数据集提供了一组 ZIP
+    文件，一个是训练数据（1000多张图像），另一个是验证数据（256张图像）。当你下载并解压它们到用于训练和验证的本地目录时，请确保它们的文件结构类似于[图
+    3-8](Images/#ensuring_that_images_are_in_named_subdi)中的结构。
+- en: 'Here’s the code to get the training data and extract it into the appropriately
+    named subdirectories, as shown in this figure:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是获取训练数据并将其提取到适当命名的子目录中的代码，如图所示：
+- en: '[PRE7]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: '![Ensuring that images are in named subdirectories](Images/aiml_0308.png)'
+  id: totrans-87
+  prefs: []
+  type: TYPE_IMG
+  zh: '![确保图像位于命名的子目录中](Images/aiml_0308.png)'
+- en: Figure 3-8\. Ensuring that images are in named subdirectories
+  id: totrans-88
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-8。确保图像位于命名的子目录中
+- en: 'Here’s the code to get the training data and extract it into the appropriately
+    named subdirectories, as shown in this figure:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是获取训练数据并将其提取到适当命名的子目录中的代码，如图所示：
+- en: '[PRE8]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: This simply downloads the ZIP of the training data and unzips it into a directory
+    at *horse-or-human/training* (we’ll deal with downloading the validation data
+    shortly). This is the parent directory that will contain subdirectories for the
+    image types.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这只是下载训练数据的ZIP文件，并将其解压缩到一个目录*horse-or-human/training*中（我们将很快处理下载验证数据）。这是将包含图像类型子目录的父目录。
+- en: 'To use the `ImageDataGenerator` we now simply use the following code:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，要使用`ImageDataGenerator`，我们只需使用以下代码：
+- en: '[PRE9]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: We first create an instance of an `ImageDataGenerator` called `train_datagen`.
+    We then specify that this will generate images for the training process by flowing
+    them from a directory. The directory is *training_dir*, as specified earlier.
+    We also indicate some hyperparameters about the data, such as the target size—in
+    this case the images are 300 × 300, and the class mode is `binary`. The mode is
+    usually `binary` if there are just two types of images (as in this case) or `categorical`
+    if there are more than two.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们创建一个名为`train_datagen`的`ImageDataGenerator`实例。然后，我们指定它将从一个目录中流动生成训练过程中的图像。目录是之前指定的*training_dir*。我们还指定了一些关于数据的超参数，比如目标大小——在这种情况下是300
+    × 300像素，类别模式是`binary`。如果只有两种类型的图像（就像这种情况），通常模式是`binary`，如果超过两种则是`categorical`。
+- en: CNN Architecture for Horses or Humans
+  id: totrans-95
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 《马或人的CNN架构》
+- en: 'There are several major differences between this dataset and the Fashion MNIST
+    one that you have to take into account when designing an architecture for classifying
+    the images. First, the images are much larger—300 × 300 pixels—so more layers
+    may be needed. Second, the images are full color, not grayscale, so each image
+    will have three channels instead of one. Third, there are only two image types,
+    so we have a binary classifier that can be implemented using just a single output
+    neuron, where it approaches 0 for one class and 1 for the other. Keep these considerations
+    in mind when exploring this architecture:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当设计用于分类图像的架构时，此数据集与Fashion MNIST数据集之间有几个重要的区别需要考虑。首先，图像要大得多——300 × 300像素，因此可能需要更多的层。其次，图像是全彩色的，而不是灰度的，所以每个图像将有三个通道而不是一个。第三，只有两种图像类型，因此我们可以使用只有一个输出神经元的二元分类器，其中一个类逼近0，另一个逼近1。在探索这种架构时，请记住这些考虑因素：
+- en: '[PRE10]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: There are a number of things to note here. First of all, this is the very first
+    layer. We’re defining 16 filters, each 3 × 3, but the input shape of the image
+    is (300, 300, 3). Remember that this is because our input image is 300 × 300 and
+    it’s in color, so there are three channels, instead of just one for the monochrome
+    Fashion MNIST dataset we were using earlier.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有几点需要注意。首先，这是第一层。我们定义了16个3 × 3的滤波器，但图像的输入形状是(300, 300, 3)。请记住，这是因为我们的输入图像是300
+    × 300，并且是彩色的，所以有三个通道，而不是像我们之前使用的单色Fashion MNIST数据集中的一个通道。
+- en: At the other end, notice that there’s only one neuron in the output layer. This
+    is because we’re using a binary classifier, and we can get a binary classification
+    with just a single neuron if we activate it with a sigmoid function. The purpose
+    of the sigmoid function is to drive one set of values toward 0 and the other toward
+    1, which is perfect for binary classification.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一端，请注意输出层只有一个神经元。这是因为我们使用的是二元分类器，如果我们使用sigmoid函数激活它，我们可以获得二元分类的结果。sigmoid函数的目的是将一组值朝向0，另一组值朝向1，这非常适合二元分类。
+- en: 'Next, notice how we stack several more convolutional layers. We do this because
+    our image source is quite large, and we want, over time, to have many smaller
+    images, each with features highlighted. If we take a look at the results of `model.summary`
+    we’ll see this in action:'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，请注意我们堆叠了几个更多的卷积层。我们之所以这样做，是因为我们的图像源非常大，我们希望随着时间的推移有许多更小的图像，每个都突出显示特征。如果我们查看`model.summary`的结果，我们将看到这一点在实际中的运作方式：
+- en: '[PRE11]'
+  id: totrans-101
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: Note how, by the time the data has gone through all the convolutional and pooling
+    layers, it ends up as 7 × 7 items. The theory is that these will be activated
+    feature maps that are relatively simple, containing just 49 pixels. These feature
+    maps can then be passed to the dense neural network to match them to the appropriate
+    labels.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，通过卷积层和池化层处理数据后，最终变为 7 × 7 个项目。理论上，这些将是激活的特征图，相对简单，仅包含 49 个像素。然后可以将这些特征图传递给密集神经网络，以将它们与相应的标签匹配。
+- en: This, of course, leads us to have many more parameters than the previous network,
+    so it will be slower to train. With this architecture, we’re going to learn 1.7
+    million parameters.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，这会导致我们比之前的网络拥有更多的参数，因此训练速度会变慢。通过这种架构，我们将学习 170 万个参数。
+- en: 'To train the network, we’ll have to compile it with a loss function and an
+    optimizer. In this case the loss function can be binary cross entropy loss function
+    binary cross entropy, because there are only two classes, and as the name suggests
+    this is a loss function that is designed for that scenario. And we can try a new
+    optimizer, *root mean square propagation* (`RMSprop`), that takes a learning rate
+    (`lr`) parameter that allows us to tweak the learning. Here’s the code:'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要训练网络，我们将需要使用损失函数和优化器对其进行编译。在这种情况下，损失函数可以是二元交叉熵损失函数，因为只有两类，正如其名称所示，这是为这种情况设计的损失函数。我们可以尝试一个新的优化器，*均方根传播*（`RMSprop`），它接受一个学习率（`lr`）参数，允许我们调整学习率。以下是代码：
+- en: '[PRE12]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'We train by using `fit_generator` and passing it the `training_generator` we
+    created earlier:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们通过使用`fit_generator`并将之前创建的`training_generator`传递给它进行训练：
+- en: '[PRE13]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: This sample will work in Colab, but if you want to run it on your own machine,
+    please ensure that the `Pillow` libraries are installed using `pip install` pillow.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个示例将在 Colab 上运行，但如果您想在自己的机器上运行它，请确保使用 `pip install` pillow 安装了 `Pillow` 库。
+- en: Note that with TensorFlow Keras, you can use `model.fit` to fit your training
+    data to your training labels. When using a generator, older versions required
+    you to use `model.fit_generator` instead. Later versions of TensorFlow will allow
+    you to use either.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，使用 TensorFlow Keras，您可以使用`model.fit`将训练数据拟合到训练标签上。当使用生成器时，旧版本要求您使用`model.fit_generator`。TensorFlow
+    的较新版本将允许您使用任何一种方式。
+- en: Over just 15 epochs, this architecture gives us a very impressive 95%+ accuracy
+    on the training set. Of course, this is just with the training data, and isn’t
+    an indication of performance on data that the network hasn’t previously seen.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在仅 15 个 epoch 中，这种架构在训练集上给我们提供了非常令人印象深刻的 95%+ 的准确率。当然，这仅限于训练数据，并不能说明在网络之前没有见过的数据上的表现。
+- en: Next we’ll look at adding the validation set using a generator and measuring
+    its performance to give us a good indication of how this model might perform in
+    real life.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将使用生成器添加验证集，并测量其性能，以便为我们提供模型在实际生活中的表现提供良好的指标。
+- en: Adding Validation to the Horses or Humans Dataset
+  id: totrans-112
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 将验证添加到马或人类数据集
+- en: To add validation, you’ll need a validation dataset that’s separate from the
+    training one. In some cases you’ll get a master dataset that you have to split
+    yourself, but in the case of Horses or Humans, there’s a separate validation set
+    that you can download.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要添加验证，您需要一个与训练集分开的验证数据集。在某些情况下，您将获得一个主数据集，需要自行分割，但在马或人的情况下，有一个可以下载的单独验证集。
+- en: Note
+  id: totrans-114
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: You may be wondering why we’re talking about a validation dataset here, rather
+    than a test dataset, and whether they’re the same thing. For simple models like
+    the ones developed in the previous chapters, it’s often sufficient to split the
+    dataset into two parts, one for training and one for testing. But for more complex
+    models like the one we’re building here, you’ll want to create separate validation
+    and test sets. What’s the difference? *Training* data is the data that is used
+    to teach the network how the data and labels fit together. *Validation* data is
+    used to see how the network is doing with previously unseen data *while* you are
+    training—i.e., it isn’t used for fitting data to labels, but to inspect how well
+    the fitting is going. *Test* data is used *after* training to see how the network
+    does with data it has never previously seen. Some datasets come with a three-way
+    split, and in other cases you’ll want to separate the test set into two parts
+    for validation and testing. Here, you’ll download some additional images for testing
+    the model.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能会想为什么我们在这里谈论的是验证数据集，而不是测试数据集，它们是否相同。对于像前几章中开发的简单模型，将数据集分为两部分，一部分用于训练，一部分用于测试，通常就足够了。但对于像我们正在构建的这样更复杂的模型，您需要创建单独的验证集和测试集。它们有什么区别呢？*训练*数据是用于教网络如何将数据和标签匹配在一起的数据。*验证*数据在您训练网络时用于查看网络在以前未见过的数据上的表现*，即它不用于将数据与标签匹配，而是用于检查拟合的效果如何。*测试*数据在训练后用于查看网络在以前从未见过的数据上的表现。有些数据集自带三分法分割，其他情况下，您需要将测试集分成验证集和测试集两部分。在这里，您将下载一些额外的图像来测试模型。
+- en: 'You can use very similar code to that used for the training images to download
+    the validation set and unzip it into a different directory:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用与训练图像相似的代码来下载验证集，并将其解压缩到不同的目录中：
+- en: '[PRE14]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Once you have the validation data, you can set up another `ImageDataGenerator`
+    to manage these images:'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您有了验证数据，您可以设置另一个`ImageDataGenerator`来管理这些图像：
+- en: '[PRE15]'
+  id: totrans-119
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'To have TensorFlow perform the validation for you, you simply update your `model.fit_generator`
+    method to indicate that you want to use the validation data to test the model
+    epoch by epoch. You do this by using the `validation_data` parameter and passing
+    it the validation generator you just constructed:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要让 TensorFlow 为您执行验证，您只需更新`model.fit_generator`方法，指示您想使用验证数据来逐个 epoch 测试模型。您可以通过使用`validation_data`参数并传递刚刚构建的验证生成器来实现这一点：
+- en: '[PRE16]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: After training for 15 epochs, you should see that your model is 99%+ accurate
+    on the training set, but only about 88% on the validation set. This is an indication
+    that the model is overfitting, as we saw in the previous chapter*.*
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练了 15 个 epochs 后，您应该看到您的模型在训练集上达到了 99%+ 的准确率，但在验证集上只有约 88%。这表明模型出现了过拟合，就像我们在前一章中看到的一样*。*
+- en: Still, the performance isn’t bad considering how few images it was trained on,
+    and how diverse those images were. You’re beginning to hit a wall caused by lack
+    of data, but there are some techniques that you can use to improve your model’s
+    performance. We’ll explore them later in this chapter, but before that let’s take
+    a look at how to *use* this model.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管它训练的图像数量很少，而且这些图像多种多样，但性能并不差。您开始因为缺乏数据而遇到瓶颈，但有一些技术可以提高模型的性能。我们将在本章后面探讨这些技术，但在此之前让我们看看如何*使用*这个模型。
+- en: Testing Horse or Human Images
+  id: totrans-124
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 测试马或人类图像
+- en: It’s all very well to be able to build a model, but of course you want to try
+    it out. A major frustration of mine when I was starting my AI journey was that
+    I could find lots of code that showed me how to build models, and charts of how
+    those models were performing, but very rarely was there code to help me kick the
+    tires of the model myself to try it out. I’ll try to avoid that in this book!
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 能够构建模型当然很好，但当然您也想尝试一下。在我开始我的 AI 之旅时，我主要的挫折之一是，我可以找到很多代码来展示如何构建模型，以及这些模型的表现图表，但很少有代码可以帮助我自己检验模型的性能。我会尽量避免在本书中重复这种情况！
+- en: Testing the model is perhaps easiest using Colab. I’ve provided a Horses or
+    Humans notebook on GitHub that you can open directly in [Colab](http://bit.ly/horsehuman).
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 Colab 可能是测试模型最简单的方法。我在 GitHub 上提供了一个《马或人类》的笔记本，您可以直接在[Colab](http://bit.ly/horsehuman)中打开。
+- en: Once you’ve trained the model, you’ll see a section called “Running the Model.”
+    Before running it, find a few pictures of horses or humans online and download
+    them to your computer. [Pixabay.com](http://Pixabay.com) is a really good site
+    to check out for royalty-free images. It’s a good idea to get your test images
+    together first, because the node can time out while you’re searching.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你训练好了模型，你将看到一个称为“运行模型”的部分。在运行之前，找几张马或人类的图片并下载到你的电脑上。[Pixabay.com](http://Pixabay.com)是一个非常好的免费图像网站。最好先准备好你的测试图片，因为在你搜索时节点可能会超时。
+- en: '[Figure 3-9](Images/#test_images) shows a few pictures of horses and humans
+    that I downloaded from Pixabay to test the model.'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-9](Images/#test_images)展示了我从Pixabay下载用于测试模型的几张马和人类的图片。'
+- en: '![Test images](Images/aiml_0309.png)'
+  id: totrans-129
+  prefs: []
+  type: TYPE_IMG
+  zh: '![测试图片](Images/aiml_0309.png)'
+- en: Figure 3-9\. Test images
+  id: totrans-130
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-9\. 测试图片
+- en: When they were uploaded, as you can see in [Figure 3-10](#executing_the_model),
+    the model correctly classified the first image as a human and the third image
+    as a horse, but the middle image, despite being obviously a human, was incorrectly
+    classified as a horse!
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当它们被上传时，正如你在[图 3-10](#executing_the_model)中所看到的，模型正确地将第一张图像分类为人类，第三张图像分类为马，但是中间的图像尽管明显是人类，却被错误地分类为马！
+- en: '![Executing the model](Images/aiml_0310.png)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![执行模型](Images/aiml_0310.png)'
+- en: Figure 3-10\. Executing the model
+  id: totrans-133
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-10\. 执行模型
+- en: You can also upload multiple images simultaneously and have the model make predictions
+    for all of them. You may notice that it tends to overfit toward horses. If the
+    human isn’t fully posed—i.e., you can’t see their full body—it can skew toward
+    horses. That’s what happened in this case. The first human model is fully posed
+    and the image resembles many of the poses in the dataset, so it was able to classify
+    her correctly. The second model was facing the camera, but only her upper half
+    is in the image. There was no training data that looked like that, so the model
+    couldn’t correctly identify her.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你也可以同时上传多张图片，让模型为它们所有做出预测。你可能注意到它倾向于过拟合到马的一面。如果人类没有完全摆好姿势——也就是说，你看不到他们的全身——它可能会偏向马的一面。这就是这种情况发生的原因。第一个人类模型摆好了姿势，图像类似于数据集中许多姿势的样本，因此能够正确分类她。第二个模型面对相机，但只有她的上半身在图像中。没有训练数据看起来像这样，所以模型无法正确识别她。
+- en: 'Let’s now explore the code to see what it’s doing. Perhaps the most important
+    part is this chunk:'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们来探索代码，看看它在做什么。也许最重要的部分就是这一段：
+- en: '[PRE17]'
+  id: totrans-136
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Here, we are loading the image from the path that Colab wrote it to. Note that
+    we specify the target size to be 300 × 300\. The images being uploaded can be
+    any shape, but if we are going to feed them into the model, they *must* be 300
+    × 300, because that’s what the model was trained to recognize. So, the first line
+    of code loads the image and *resizes* it to 300 × 300.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们正在从Colab写入的路径加载图像。请注意，我们指定目标尺寸为300 × 300。上传的图像可以是任何形状，但如果要将它们输入模型，它们*必须*是300
+    × 300，因为这是模型训练识别的尺寸。因此，第一行代码加载图像并将其*调整大小*为300 × 300。
+- en: The next line of code converts the image into a 2D array. The model, however,
+    expects a 3D array, as indicated by the `input_shape` in the model architecture.
+    Fortunately, Numpy provides an `expand_dims` method that handles this and allows
+    us to easily add a new dimension to the array.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一行代码将图像转换为2D数组。然而，模型期望一个3D数组，如模型架构中的`input_shape`所示。幸运的是，Numpy提供了一个`expand_dims`方法来处理这个问题，并允许我们轻松地向数组添加新的维度。
+- en: 'Now that we have our image in a 3D array, we just want to make sure that it’s
+    stacked vertically so that it is in the same shape as the training data:'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了一个3D数组中的图像，我们只需确保它被垂直堆叠，以便与训练数据的形状相同：
+- en: '[PRE18]'
+  id: totrans-140
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'With our image in the right format, it’s easy to do the classification:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了我们格式正确的图像，分类就变得很容易：
+- en: '[PRE19]'
+  id: totrans-142
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: The model returns an array containing the classifications. Because there’s only
+    one classification in this case, it’s effectively an array containing an array.
+    You can see this in [Figure 3-10](#executing_the_model), where for the first (human)
+    model it looks like `[[1.]]`.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型返回一个包含分类的数组。因为在这种情况下只有一个分类，所以实际上是一个包含数组的数组。你可以在[图 3-10](#executing_the_model)中看到这一点，在第一个（人类）模型中它看起来像`[[1.]]`。
+- en: 'So now it’s simply a matter of inspecting the value of the first element in
+    that array. If it’s greater than 0.5, we’re looking at a human:'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在只需要检查该数组中第一个元素的值。如果大于0.5，我们就在看一个人：
+- en: '[PRE20]'
+  id: totrans-145
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: There are a few important points to consider here. First, even though the network
+    was trained on synthetic, computer-generated imagery, it performs quite well at
+    spotting horses or humans in real photographs. This is a potential boon in that
+    you may not need thousands of photographs to train a model, and can do it relatively
+    cheaply with CGI.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里有几个重要的观点需要考虑。首先，即使网络是在合成的计算机生成的图像上训练的，它在识别真实照片中的马或人方面表现出色。这可能是一个好处，因为你可能不需要成千上万张照片来训练一个模型，而可以相对廉价地用CGI来完成。
+- en: But this dataset also demonstrates a fundamental issue you will face. Your training
+    set cannot hope to represent *every* possible scenario your model might face in
+    the wild, and thus the model will always have some level of overspecialization
+    toward the training set. A clear and simple example of that was shown here, where
+    the human in the center of [Figure 3-9](Images/#test_images) was miscategorized.
+    The training set didn’t include a human in that pose, and thus the model didn’t
+    “learn” that a human could look like that. As a result, there was every chance
+    it might see the figure as a horse, and in this case, it did.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是这个数据集也展示了你将面临的一个根本性问题。你的训练集不可能希望能够代表模型在野外可能面对的*每一种*情况，因此模型总会在某种程度上对训练集过度专注。这里展示的一个清晰简单的例子是，在[图 3-9](Images/#test_images)中心的人被错误分类。训练集中没有包含这种姿势的人物，因此模型没有“学到”人可以看起来像那样。结果，它有可能将该图像视为马，而在这种情况下确实如此。
+- en: What’s the solution? The obvious one is to add more training data, with humans
+    in that particular pose and others that weren’t initially represented. That isn’t
+    always possible, though. Fortunately, there’s a neat trick in TensorFlow that
+    you can use to virtually extend your dataset—it’s called *image augmentation*,
+    and we’ll explore that next.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决方案是什么？一个明显的解决方案是增加更多的训练数据，包括那些在特定姿势下的人和最初未被代表的其他数据。但并非总是可能的。幸运的是，在TensorFlow中有一个巧妙的技巧，你可以使用它来虚拟扩展你的数据集——它被称为*图像增强*，我们接下来会探讨这个技术。
+- en: Image Augmentation
+  id: totrans-149
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 图像增强
+- en: In the previous section, you built a horse-or-human classifier model that was
+    trained on a relatively small dataset. As a result, you soon began to hit problems
+    classifying some previously unseen images, such as the miscategorization of a
+    woman with a horse because the training set didn’t include any images of people
+    in that pose.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前一节中，你构建了一个基于相对较小数据集训练的马或人分类器模型。因此，你很快开始遇到一些问题，比如无法正确分类一些之前未见过的图像，例如因为训练集中没有包含人物在那个姿势下的图像而导致误分类。
+- en: One way to deal with such problems is with image augmentation. The idea behind
+    this technique is that, as TensorFlow is loading your data, it can create additional
+    new data by amending what it has using a number of transforms. For example, take
+    a look at [Figure 3-11](#dataset_similarities). While there is nothing in the
+    dataset that looks like the woman on the right, the image on the left is somewhat
+    similar.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理这类问题的一种方法是使用图像增强技术。这种技术的核心思想是，在TensorFlow加载数据时，它可以通过一些转换来修改现有数据，从而创建额外的新数据。例如，请看[图 3-11](#dataset_similarities)。尽管数据集中没有类似右侧女性的内容，但左侧的图像有些相似。
+- en: '![Dataset similarities](Images/aiml_0311.png)'
+  id: totrans-152
+  prefs: []
+  type: TYPE_IMG
+  zh: '![数据集相似性](Images/aiml_0311.png)'
+- en: Figure 3-11\. Dataset similarities
+  id: totrans-153
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-11\. 数据集相似性
+- en: So if you could, for example, zoom into the image on the left as you are training,
+    as shown in [Figure 3-12](#zooming_in_on_the_training_set_data), you would increase
+    the chances of the model being able to correctly classify the image on the right
+    as a person.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，如果你能够例如在训练时放大左侧图像，如[图 3-12](#zooming_in_on_the_training_set_data)，你将增加模型正确分类右侧图像为人的几率。
+- en: '![Zooming in on the training set data](Images/aiml_0312.png)'
+  id: totrans-155
+  prefs: []
+  type: TYPE_IMG
+  zh: '![放大训练集数据](Images/aiml_0312.png)'
+- en: Figure 3-12\. Zooming in on the training set data
+  id: totrans-156
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-12\. 放大训练集数据
+- en: 'In a similar way, you can broaden the training set with a variety of other
+    transformations, including:'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以类似的方式，你可以通过各种其他变换来扩展训练集，包括：
+- en: Rotation
+  id: totrans-158
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 旋转
+- en: Shifting horizontally
+  id: totrans-159
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 水平移位
+- en: Shifting vertically
+  id: totrans-160
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 垂直移位
+- en: Shearing
+  id: totrans-161
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 剪切
+- en: Zooming
+  id: totrans-162
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 放大
+- en: Flipping
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 翻转
+- en: 'Because you’ve been using the `ImageDataGenerator` to load the images, you’ve
+    seen it do a transform already—when it normalized the images like this:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为你一直在使用`ImageDataGenerator`来加载图像，你已经看到它已经进行了一个转换，即当它像这样对图像进行了标准化：
+- en: '[PRE21]'
+  id: totrans-165
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'The other transforms are easily available within the `ImageDataGenerator` too,
+    so, for example, you could do something like this:'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ImageDataGenerator`中也轻松获得其他的转换方法，例如，你可以做这样的事情：'
+- en: '[PRE22]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'Here, as well as rescaling the image to normalize it, you’re also doing the
+    following:'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，除了重新缩放图像以进行标准化之外，您还在进行以下操作：
+- en: Rotating each image randomly up to 40 degrees left or right
+  id: totrans-169
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 随机将每个图像向左或向右旋转最多40度
+- en: Translating the image up to 20% vertically or horizontally
+  id: totrans-170
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将图像垂直或水平平移最多20%
+- en: Shearing the image by up to 20%
+  id: totrans-171
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将图像剪切最多20%
+- en: Zooming the image by up to 20%
+  id: totrans-172
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将图像放大最多20%
+- en: Randomly flipping the image horizontally or vertically
+  id: totrans-173
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 随机水平或垂直翻转图像
+- en: Filling in any missing pixels after a move or shear with nearest neighbors
+  id: totrans-174
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在移动或剪切后使用最近邻填充任何丢失的像素
+- en: When you retrain with these parameters, one of the first things you’ll notice
+    is that training takes longer because of all the image processing. Also, your
+    model’s accuracy may not be as high as it was previously, because previously it
+    was overfitting to a largely uniform set of data.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您使用这些参数重新训练时，您会注意到训练时间更长，因为所有的图像处理。此外，由于以前过度拟合大部分统一的数据集，您的模型准确性可能不如以前那样高。
+- en: In my case, when training with these augmentations my accuracy went down from
+    99% to 85% after 15 epochs, with validation slightly higher at 89%. (This indicates
+    that the model is *underfitting* slightly, so the parameters could be tweaked
+    a bit.)
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我的情况下，当使用这些增强技术进行训练时，我的准确率从99%下降到了85%，在15个epochs后，验证准确率略高，达到了89%。（这表明模型略有*欠拟合*，因此参数可能需要稍作调整。）
+- en: What about the image from [Figure 3-9](Images/#test_images) that it misclassified
+    earlier? This time, it gets it right. Thanks to the image augmentations, the training
+    set now has sufficient coverage for the model to understand that this particular
+    image is a human too (see [Figure 3-13](#the_zoomed_woman_is_now_correctly_class)).
+    This is just a single data point, and may not be representative of the results
+    for real data, but it’s a small step in the right direction.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么[图3-9](Images/#test_images)中先前误分类的图像怎么样？这次它分类正确了。由于图像增强，训练集现在对于模型来说已经足够覆盖，以便了解这个特定的图像也是一个人类（见[图3-13](#the_zoomed_woman_is_now_correctly_class)）。这只是一个数据点，并不一定代表真实数据的结果，但这是朝着正确方向迈出的一小步。
+- en: '![The zoomed woman is now correctly classified](Images/aiml_0313.png)'
+  id: totrans-178
+  prefs: []
+  type: TYPE_IMG
+  zh: '![放大的女性现在被正确分类](Images/aiml_0313.png)'
+- en: Figure 3-13\. The zoomed woman is now correctly classified
+  id: totrans-179
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-13\. 放大的女性现在被正确分类
+- en: As you can see, even with a relatively small dataset like Horses or Humans you
+    can start to build a pretty decent classifier. With larger datasets you could
+    take this further. Another technique to improve the model is to use features that
+    were already learned elsewhere. Many researchers with massive resources (millions
+    of images) and huge models that have been trained on thousands of classes have
+    shared their models, and using a concept called *transfer learning* you can use
+    the features those models learned and apply them to your data. We’ll explore that
+    next!
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，即使是像马或人这样的相对较小的数据集，您也可以开始构建一个相当不错的分类器。使用更大的数据集可以进一步提升这一过程。另一种改进模型的技术是使用已经在其他地方学习过的特征。许多研究人员使用庞大的资源（数百万张图片）和经过数千类别训练的庞大模型共享了他们的模型，利用所谓的*迁移学习*，您可以使用这些模型学到的特征并将其应用到您的数据上。接下来我们将探讨这一点！
+- en: Transfer Learning
+  id: totrans-181
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 迁移学习
+- en: As we’ve already seen in this chapter, the use of convolutions to extract features
+    can be a powerful tool for identifying the contents of an image. The resulting
+    feature maps can then be fed into the dense layers of a neural network to match
+    them to the labels and give us a more accurate way of determining the contents
+    of an image. Using this approach, with a simple, fast-to-train neural network
+    and some image augmentation techniques, we built a model that was 80–90% accurate
+    at distinguishing between a horse and a human when trained on a very small dataset.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在本章中已经看到的那样，使用卷积来提取特征可以成为识别图像内容的强大工具。然后，将生成的特征图馈送到神经网络的密集层中，将其与标签匹配，从而给出一种更准确的确定图像内容的方式。使用这种方法，结合简单、快速训练的神经网络和一些图像增强技术，我们构建了一个模型，当在一个非常小的数据集上进行训练时，它在区分马和人方面的准确率达到了80-90%。
+- en: 'But we can improve our model even further using a method called transfer learning.
+    The idea behind transfer learning is simple: instead of learning a set of filters
+    from scratch for our dataset, why not use a set of filters that were learned on
+    a much larger dataset, with many more features than we can “afford” to build from
+    scratch? We can place these in our network and then train a model with our data
+    using the prelearned filters. For example, our Horses or Humans dataset has only
+    two classes. We can use an existing model that was pretrained for one thousand
+    classes, but at some point we’ll have to throw away some of the preexisting network
+    and add the layers that will let us have a classifier for two classes.'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是我们可以使用一种称为迁移学习的方法来进一步改进我们的模型。迁移学习背后的思想很简单：不是从头开始学习我们数据集的一组滤波器，为什么不使用在比我们能够“负担得起”的更大数据集上学习的一组滤波器？我们可以将这些放入我们的网络中，然后使用预先学习的滤波器训练我们的数据集的模型。例如，我们的马或人类数据集只有两类。我们可以使用一个已经为一千个类别预训练的现有模型，但在某个时候，我们将不得不丢弃一些现有网络并添加层，以便让我们有一个两类分类器。
+- en: '[Figure 3-14](#a_convolutional_neural_network_architec) shows what a CNN architecture
+    for a classification task like ours might look like. We have a series of convolutional
+    layers that lead to a dense layer, which in turn leads to an output layer.'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图3-14](#a_convolutional_neural_network_architec)展示了像我们这样的分类任务的CNN架构可能看起来像什么。我们有一系列卷积层，这些层导致一个密集层，然后导致一个输出层。'
+- en: '![A convolutional neural network architecture](Images/aiml_0314.png)'
+  id: totrans-185
+  prefs: []
+  type: TYPE_IMG
+  zh: '![卷积神经网络架构](Images/aiml_0314.png)'
+- en: Figure 3-14\. A convolutional neural network architecture
+  id: totrans-186
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 3-14\. 卷积神经网络架构
+- en: We’ve seen that we’re able to build a pretty good classifier using this architecture.
+    But with transfer learning, what if we could take the prelearned layers from another
+    model, freeze or lock them so that they aren’t trainable, and then put them on
+    top of our model, like in [Figure 3-15](#taking_layers_from_another_architecture)?
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到，使用这种架构我们能够构建一个相当不错的分类器。但是通过迁移学习，如果我们能够从另一个模型中获取预先学习的层，并且将它们冻结或锁定，以便它们不能再训练，然后像在[图3-15](#taking_layers_from_another_architecture)中那样将它们放在我们的模型顶部，那会怎么样？
+- en: '![Taking layers from another architecture via transfer learning](Images/aiml_0315.png)'
+  id: totrans-188
+  prefs: []
+  type: TYPE_IMG
+  zh: '![通过迁移学习从另一个架构获取层](Images/aiml_0315.png)'
+- en: Figure 3-15\. Taking layers from another architecture via transfer learning
+  id: totrans-189
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 3-15\. 通过迁移学习从另一个架构获取层
+- en: When we consider that, once they’ve been trained, all these layers are just
+    a set of numbers indicating the filter values, weights, and biases along with
+    a known architecture (number of filters per layer, size of filter, etc.), the
+    idea of reusing them is pretty straightforward.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们考虑到，一旦它们被训练，所有这些层都只是一组数字，指示着滤波器值、权重和偏差以及已知的架构（每层的滤波器数、滤波器大小等），重用它们的想法就非常简单了。
+- en: 'Let’s look at how this would appear in code. There are several pretrained models
+    already available from a variety of sources. We’ll use version 3 of the popular
+    Inception model from Google, which is trained on more than a million images from
+    a database called ImageNet. It has dozens of layers and can classify images into
+    one thousand categories. A saved model is available containing the pretrained
+    weights. To use this, we simply download the weights, create an instance of the
+    Inception V3 architecture, and then load the weights into this architecture like
+    this:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看这在代码中的表现。有许多已经来自各种来源的预训练模型。我们将使用来自谷歌的流行的Inception V3模型的第三版，该模型在名为ImageNet的数据库中训练了一百多万张图像。它有数十个层，并且可以将图像分类为一千个类别。有一个保存了预训练权重的模型可供使用。要使用它，我们只需下载权重，创建一个Inception
+    V3架构的实例，然后像这样加载权重：
+- en: '[PRE23]'
+  id: totrans-192
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'Now we have a full Inception model that’s pretrained. If you want to inspect
+    its architecture, you can do so with:'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有一个完整的预训练Inception模型。如果你想检查它的架构，可以这样做：
+- en: '[PRE24]'
+  id: totrans-194
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: Be warned—it’s huge! Still, take a look through it to see the layers and their
+    names. I like to use the one called `mixed7` because its output is nice and small—7
+    × 7 images—but feel free to experiment with others.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意——它非常庞大！不过，浏览一下它，看看各层及其名称是很有用的。我喜欢使用名为`mixed7`的那个，因为它的输出很好很小——7 × 7的图像——但请随意尝试其他选项。
+- en: 'Next, we’ll freeze the entire network from retraining and then set a variable
+    to point at `mixed7`’s output as where we want to crop the network up to. We can
+    do that with this code:'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将冻结整个网络，使其不可重新训练，然后设置一个变量，指向`mixed7`的输出，作为我们希望裁剪的网络位置。我们可以使用以下代码来实现这一点：
+- en: '[PRE25]'
+  id: totrans-197
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: Note that we print the output shape of the last layer, and you’ll see that we’re
+    getting 7 × 7 images at this point. This indicates that by the time the images
+    have been fed through to `mixed7`, the output images from the filters are 7 ×
+    7 in size, so they’re pretty easy to manage. Again, you don’t have to choose that
+    specific layer; you’re welcome to experiment with others.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们打印最后一层的输出形状，并且您将看到此时我们获得了7 × 7的图像。这表明，当图像通过`mixed7`层时，来自滤波器的输出图像大小为7 ×
+    7，因此它们非常易于管理。再次强调，您不必选择特定的层；欢迎您尝试其他层。
+- en: 'Let’s now see how to add our dense layers underneath this:'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们看看如何在这之下添加我们的密集层：
+- en: '[PRE26]'
+  id: totrans-200
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: It’s as simple as creating a flattened set of layers from the last output, because
+    we’ll be feeding the results into a dense layer. We then add a dense layer of
+    1,024 neurons, and a dense layer with 1 neuron for our output.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只需创建一组来自最后输出的平坦层，因为我们将把结果馈送到密集层中。然后，我们添加一个包含1,024个神经元的密集层，以及一个包含1个神经元的输出密集层。
+- en: 'Now we can define our model simply by saying it’s our pretrained model’s input
+    followed by the `x` we just defined. We then compile it in the usual way:'
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以简单地定义我们的模型，即我们预训练模型的输入，然后是我们刚刚定义的`x`。然后，我们按照通常的方式进行编译：
+- en: '[PRE27]'
+  id: totrans-203
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: Training the model on this architecture over 40 epochs gave an accuracy of 99%+,
+    with a validation accuracy of 96%+ (see [Figure 3-16](#training_the_horse_or_human_classifier_)).
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个架构上训练模型40个epoch后，准确率达到了99%以上，验证准确率达到了96%以上（见[图 3-16](#training_the_horse_or_human_classifier_)）。
+- en: '![Training the horse-or-human classifier with transfer learning](Images/aiml_0316.png)'
+  id: totrans-205
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用迁移学习训练马或人分类器](Images/aiml_0316.png)'
+- en: Figure 3-16\. Training the horse-or-human classifier with transfer learning
+  id: totrans-206
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-16\. 使用迁移学习训练马或人分类器
+- en: The results here are much better than with our previous model, but you can continue
+    to tweak and improve it. You can also explore how the model will work with a much
+    larger dataset, like the famous [Dogs vs. Cats](https://www.kaggle.com/c/dogs-vs-cats)
+    from Kaggle. This is an extremely varied dataset consisting of 25,000 images of
+    cats and dogs, often with the subjects somewhat obscured—for example, if they
+    are held by a human.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的结果比我们以前的模型要好得多，但您可以继续微调和改进它。您还可以探索模型在更大的数据集上的工作方式，比如来自Kaggle的著名[Dogs vs.
+    Cats](https://www.kaggle.com/c/dogs-vs-cats)数据集。这是一个包含25,000张猫和狗图片的极为多样的数据集，通常被主体部分遮挡——例如，如果它们被人类抱着。
+- en: Using the same algorithm and model design as before you can train a Dogs vs.
+    Cats classifier on Colab, using a GPU at about 3 minutes per epoch. For 20 epochs,
+    this equates to about 1 hour of training.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用与之前相同的算法和模型设计，您可以在Colab上使用GPU每个epoch大约3分钟来训练Dogs vs. Cats分类器。对于20个epoch，这相当于大约1小时的训练时间。
+- en: When tested with very complex pictures like those in [Figure 3-17](#unusual_dogs_and_cats_that_were_classif),
+    this classifier got them all correct. I chose one picture of a dog with catlike
+    ears, and one with its back turned. Both pictures of cats were nontypical.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在像[图 3-17](#unusual_dogs_and_cats_that_were_classif)中那样非常复杂的图片上进行测试时，这个分类器全部正确。我选择了一张狗耳朵像猫的图片，以及一张背对着的狗的图片。这两张猫的图片都是非典型的。
+- en: '![Unusual dogs and cats that were classified correctly](Images/aiml_0317.png)'
+  id: totrans-210
+  prefs: []
+  type: TYPE_IMG
+  zh: '![正确分类的不寻常的狗和猫](Images/aiml_0317.png)'
+- en: Figure 3-17\. Unusual dogs and cats that were classified correctly
+  id: totrans-211
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-17\. 正确分类的不寻常的狗和猫
+- en: The cat in the lower-right corner with its eyes closed, ears down, and tongue
+    out while washing its paw gave the results in [Figure 3-18](#classifying_the_cat_washing_its_paw)
+    when loaded into the model. You can see that it gave a very low value (4.98 ×
+    10^(–24)), which shows that the network was *almost* certain it was a cat!
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当加载到模型中时，位于右下角的那只猫，眼睛闭着，耳朵朝下，舌头伸出，正在洗爪，其结果显示在[图 3-18](#classifying_the_cat_washing_its_paw)中。您可以看到，它给出了一个非常低的值（4.98
+    × 10^(–24)），这表明网络几乎可以确定它是一只猫！
+- en: '![Classifying the cat washing its paw](Images/aiml_0318.png)'
+  id: totrans-213
+  prefs: []
+  type: TYPE_IMG
+  zh: '![分类洗爪的猫](Images/aiml_0318.png)'
+- en: Figure 3-18\. Classifying the cat washing its paw
+  id: totrans-214
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-18\. 分类洗爪的猫
+- en: You can find the complete code for the Horses or Humans and Dogs vs. Cats classifiers
+    in the [GitHub repository](https://github.com/lmoroney/tfbook) for this book.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在本书的[GitHub代码库](https://github.com/lmoroney/tfbook)中找到Horses or Humans和Dogs
+    vs. Cats分类器的完整代码。
+- en: Multiclass Classification
+  id: totrans-216
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 多类别分类
+- en: In all of the examples so far you’ve been building *binary* classifiers—ones
+    that choose between two options (horses or humans, cats or dogs). When building
+    multiclass classifiers the models are almost the same, but there are a few important
+    differences. Instead of a single neuron that is sigmoid-activated, or two neurons
+    that are binary-activated, your output layer will now require *n* neurons, where
+    *n* is the number of classes you want to classify. You’ll also have to change
+    your loss function to an appropriate one for multiple categories. For example,
+    whereas for the binary classifiers you’ve built so far in this chapter your loss
+    function was binary cross entropy, if you want to extend the model for multiple
+    classes you should instead use categorical cross entropy. If you’re using the
+    `ImageDataGenerator` to provide your images the labeling is done automatically,
+    so multiple categories will work the same as binary ones—the `ImageDataGenerator`
+    will simply label based on the number of subdirectories.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，所有的例子中，你一直在构建*二元*分类器——即在两个选项之间进行选择（马或人类，猫或狗）。当构建多类分类器时，模型几乎相同，但有一些重要的不同之处。不再是一个sigmoid激活的单个神经元，或者两个二进制激活的神经元，你的输出层现在将需要*n*个神经元，其中*n*是你想分类的类别数。你还必须将损失函数更改为适合多类别的函数。例如，对于到目前为止在本章中构建的二元分类器，你的损失函数是二元交叉熵，如果要将模型扩展到多个类别，则应改用分类交叉熵。如果你使用`ImageDataGenerator`来提供图像，标签将自动完成，因此多个类别将与二元类别相同——`ImageDataGenerator`将根据子目录的数量进行标记。
+- en: Consider, for example, the game Rock Paper Scissors. If you wanted to train
+    a dataset to recognize the different hand gestures, you’d need to handle three
+    categories. Fortunately, there’s a [simple dataset](https://oreil.ly/VHhmS) you
+    can use for this.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 比如说，考虑石头剪刀布游戏。如果你想训练一个数据集来识别不同的手势，你需要处理三个类别。幸运的是，这里有一个[简单的数据集](https://oreil.ly/VHhmS)，你可以用来做这个。
+- en: 'There are two downloads: a training set of many diverse hands, with different
+    sizes, shapes, colors, and details such as nail polish; and a testing set of equally
+    diverse hands, none of which are in the training set.'
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有两个下载：一个是训练集，包含许多不同的手，大小、形状、颜色以及指甲油等细节各异；另一个是测试集，同样包含多样化的手，但没有在训练集中出现过的。
+- en: You can see some examples in [Figure 3-19](#examples_of_rocksoliduspapersolidusscis).
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在[图3-19](#examples_of_rocksoliduspapersolidusscis)中看到一些示例。
+- en: '![Examples of Rock/Paper/Scissors gestures](Images/aiml_0319.png)'
+  id: totrans-221
+  prefs: []
+  type: TYPE_IMG
+  zh: '![石头/剪刀/布手势示例](Images/aiml_0319.png)'
+- en: Figure 3-19\. Examples of Rock/Paper/Scissors gestures
+  id: totrans-222
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-19\. 石头/剪刀/布手势示例
+- en: 'Using the dataset is simple. Download and unzip it—the sorted subdirectories
+    are already present in the ZIP file—and then use it to initialize an `ImageDataGenerator`:'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用数据集很简单。下载并解压缩它——排序后的子目录已经在ZIP文件中存在——然后用它初始化一个`ImageDataGenerator`：
+- en: '[PRE28]'
+  id: totrans-224
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'Note, however, that when you set up the data generator from this, you have
+    to specify that the class mode is categorical in order for the `ImageDataGenerator`
+    to use more than two subdirectories:'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，但是，当你从这里设置数据生成器时，你必须指定类别模式为分类，以便`ImageDataGenerator`可以使用超过两个子目录：
+- en: '[PRE29]'
+  id: totrans-226
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'When defining your model, while keeping an eye on the input and output layers,
+    you want to ensure that the input matches the shape of the data (in this case
+    150 × 150) and that the output matches the number of classes (now three):'
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在定义模型时，要注意输入和输出层，确保输入匹配数据的形状（在本例中为150 × 150），输出匹配类别数（现在是三个）：
+- en: '[PRE30]'
+  id: totrans-228
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: 'Finally, when compiling your model, you want to ensure that it uses a categorical
+    loss function, such as categorical cross entropy. Binary cross entropy will not
+    work with more than two classes:'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，在编译模型时，确保使用分类损失函数，如分类交叉熵。二元交叉熵不适用于超过两类：
+- en: '[PRE31]'
+  id: totrans-230
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'Training is then the same as before:'
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练过程与之前相同：
+- en: '[PRE32]'
+  id: totrans-232
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: Your code for testing predictions will also need to change somewhat. There are
+    now three output neurons, and they will output a value close to 1 for the predicted
+    class, and close to 0 for the other classes. Note that the activation function
+    used is `softmax`, which will ensure that all three predictions will add up to
+    1\. For example, if the model sees something it’s really unsure about it might
+    output .4, .4, .2, but if it sees something it’s quite sure about you might get
+    .98, .01, .01.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试预测代码需要进行一些更改。现在有三个输出神经元，它们将为预测的类输出接近1的值，对于其他类输出接近0的值。请注意，所使用的激活函数是`softmax`，这将确保所有三个预测的总和为1。例如，如果模型对某些事物感到非常不确定，可能会输出0.4,
+    0.4, 0.2，但如果它对某些事物非常确定，可能会得到0.98, 0.01, 0.01。
+- en: Note also that when using the `ImageDataGenerator`, the classes are loaded in
+    alphabetical order—so while you might expect the output neurons to be in the order
+    of the name of the game, the order in fact will be Paper, Rock, Scissors.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同时使用`ImageDataGenerator`时，请注意类是按字母顺序加载的——因此，虽然您可能期望输出神经元按游戏名称的顺序排列，但实际上顺序将是Paper，Rock，Scissors。
+- en: 'Code to try out predictions in a Colab notebook will look like this. It’s very
+    similar to what you saw earlier:'
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Colab笔记本中尝试预测的代码如下所示。这与您之前看到的非常相似：
+- en: '[PRE33]'
+  id: totrans-236
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: Note that it doesn’t parse the output, just prints the classes. [Figure 3-20](#testing_the_rock_paper_scissors_classif)
+    shows what it looks like in use.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，它不会解析输出，只会打印类。图[3-20](#testing_the_rock_paper_scissors_classif)展示了其使用情况。
+- en: '![Testing the Rock Paper Scissors classifier](Images/aiml_0320.png)'
+  id: totrans-238
+  prefs: []
+  type: TYPE_IMG
+  zh: '![测试石头纸剪刀分类器](Images/aiml_0320.png)'
+- en: Figure 3-20\. Testing the Rock/Paper/Scissors classifier
+  id: totrans-239
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-20。测试石头/纸/剪刀分类器
+- en: You can see from the filenames what the images were. *Paper1.png* ended up as
+    `[1, 0, 0]`, meaning the first neuron was activated and the others weren’t. Similarly,
+    *Rock1.png* ended up as `[0, 1, 0]`, activating the second neuron, and *Scissors2.png*
+    was `[0, 0, 1]`. Remember that the neurons are in alphabetical order by label!
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以从文件名中看出图像的内容。*Paper1.png* 最终变成了`[1, 0, 0]`，意味着第一个神经元被激活，其他两个没有被激活。类似地，*Rock1.png*
+    变成了`[0, 1, 0]`，第二个神经元被激活，而*Scissors2.png* 则是`[0, 0, 1]`。请记住，神经元按照标签的字母顺序排列！
+- en: Some images that you can use to test the dataset are available to [download](https://oreil.ly/dEUpx).
+    Alternatively, of course, you can try your own. Note that the training images
+    are all done against a plain white background, though, so there may be some confusion
+    if there is a lot of detail in the background of the photos you take.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些可用于测试数据集的图像可以[下载](https://oreil.ly/dEUpx)。当然，您也可以尝试您自己的图像。请注意，训练图像都是在纯白色背景下完成的，因此如果您拍摄的照片背景有很多细节，可能会产生一些混淆。
+- en: Dropout Regularization
+  id: totrans-242
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Dropout正则化
+- en: Earlier in this chapter we discussed overfitting, where a network may become
+    too specialized in a particular type of input data and fare poorly on others.
+    One technique to help overcome this is use of *dropout regularization*.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的前面部分，我们讨论了过拟合问题，即网络可能对特定类型的输入数据过于专门化，而对其他数据表现不佳。一种克服这个问题的技术是使用*dropout正则化*。
+- en: When a neural network is being trained, each individual neuron will have an
+    effect on neurons in subsequent layers. Over time, particularly in larger networks,
+    some neurons can become overspecialized—and that feeds downstream, potentially
+    causing the network as a whole to become overspecialized and leading to overfitting.
+    Additionally, neighboring neurons can end up with similar weights and biases,
+    and if not monitored this can lead the overall model to become overspecialized
+    to the features activated by those neurons.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当神经网络进行训练时，每个单独的神经元都会对后续层中的神经元产生影响。随着时间的推移，特别是在更大的网络中，一些神经元可能会变得过于专门化，这可能会导致整个网络变得过于专门化并导致过拟合。此外，相邻的神经元可能会具有相似的权重和偏差，如果没有监控，这可能会导致模型过于专门化于这些神经元激活的特征。
+- en: For example, consider the neural network in [Figure 3-21](#a_simple_neural_network),
+    where there are layers of 2, 6, 6, and 2 neurons. The neurons in the middle layers
+    might end up with very similar weights and biases.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，考虑图[3-21](#a_simple_neural_network)中的神经网络，其中有2、6、6和2个神经元层。中间层的神经元可能会具有非常相似的权重和偏差。
+- en: '![A simple neural network](Images/aiml_0321.png)'
+  id: totrans-246
+  prefs: []
+  type: TYPE_IMG
+  zh: '![一个简单的神经网络](Images/aiml_0321.png)'
+- en: Figure 3-21\. A simple neural network
+  id: totrans-247
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-21。一个简单的神经网络
+- en: While training, if you remove a random number of neurons and ignore them, their
+    contribution to the neurons in the next layer is temporarily blocked ([Figure 3-22](#a_neural_network_with_dropouts)).
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练过程中，如果移除了随机数量的神经元并忽略它们，它们对下一层神经元的贡献会被暂时阻断（[图 3-22](#a_neural_network_with_dropouts)）。
+- en: '![A neural network with dropouts](Images/aiml_0322.png)'
+  id: totrans-249
+  prefs: []
+  type: TYPE_IMG
+  zh: '![带有随机失活的神经网络](Images/aiml_0322.png)'
+- en: Figure 3-22\. A neural network with dropouts
+  id: totrans-250
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-22\. 带有随机失活的神经网络
+- en: This reduces the chances of the neurons becoming overspecialized. The network
+    will still learn the same number of parameters, but it should be better at generalization—that
+    is, it should be more resilient to different inputs.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这降低了神经元过度专门化的可能性。网络仍然会学习相同数量的参数，但它应该更擅长泛化，即对不同的输入更具弹性。
+- en: Note
+  id: totrans-252
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'The concept of dropouts was proposed by Nitish Srivastava et al. in their 2014
+    paper [“Dropout: A Simple Way to Prevent Neural Networks from Overfitting”](https://oreil.ly/673CJ).'
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'Nitish Srivastava 等人在其 2014 年的论文 [“Dropout: A Simple Way to Prevent Neural
+    Networks from Overfitting”](https://oreil.ly/673CJ) 中提出了失活的概念。'
+- en: 'To implement dropouts in TensorFlow, you can just use a simple Keras layer
+    like this:'
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在 TensorFlow 中实现失活，您可以像这样使用简单的 Keras 层：
+- en: '[PRE34]'
+  id: totrans-255
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: This will drop out, at random, the specified percentage of neurons (here, 20%)
+    in the specified layer. Note that it may take some experimentation to find the
+    correct percentage for your network.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将在指定层中随机删除指定百分比的神经元（这里是 20%）。请注意，可能需要一些实验才能找到适合您网络的正确百分比。
+- en: 'For a simple example that demonstrates this, consider the Fashion MNIST classifier
+    from [Chapter 2](ch02.xhtml#introduction_to_computer_vision). I’ll change the
+    network definition to have a lot more layers, like this:'
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为展示这一点的简单示例，请考虑来自[第二章](ch02.xhtml#introduction_to_computer_vision)的时尚 MNIST
+    分类器。我将更改网络定义，添加更多层，如下所示：
+- en: '[PRE35]'
+  id: totrans-258
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: Training this for 20 epochs gave around 94% accuracy on the training set, and
+    about 88.5% on the validation set. This is a sign of potential overfitting.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对这个进行 20 个 epoch 的训练，在训练集上达到了约 94% 的准确率，在验证集上约为 88.5%。这是过拟合的潜在迹象。
+- en: 'Introducing dropouts after each dense layer looks like this:'
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在每个密集层后引入失活看起来像这样：
+- en: '[PRE36]'
+  id: totrans-261
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: When this network was trained for the same period on the same data, the accuracy
+    on the training set dropped to about 89.5%. The accuracy on the validation set
+    stayed about the same, at 88.3%. These values are much closer to each other; the
+    introduction of dropouts thus not only demonstrated that overfitting was occurring,
+    but also that using dropouts can help remove such ambiguity by ensuring that the
+    network isn’t overspecializing to the training data.
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当该网络在相同数据上相同时期训练时，训练集上的准确率下降到约 89.5%。验证集上的准确率保持大致相同，约为 88.3%。这些值更接近彼此；引入失活不仅表明了过拟合的发生，还表明使用失活可以通过确保网络不过于专注于训练数据来消除这种歧义。
+- en: Keep in mind as you design your neural networks that great results on your training
+    set are not always a good thing. This could be a sign of overfitting. Introducing
+    dropouts can help you remove that problem, so that you can optimize your network
+    in other areas without that false sense of security.
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设计神经网络时，请记住在训练集上获得良好结果并不总是件好事。这可能是过拟合的迹象。引入随机失活可以帮助您解决这个问题，这样您可以在其他领域优化网络，而不会因为虚假的安全感而影响效果。
+- en: Summary
+  id: totrans-264
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: This chapter introduced you to a more advanced way of achieving computer vision
+    using convolutional neural networks. You saw how to use convolutions to apply
+    filters that can extract features from images, and designed your first neural
+    networks to deal with more complex vision scenarios than those you encountered
+    with the MNIST and Fashion MNIST datasets. You also explored techniques to improve
+    your network’s accuracy and avoid overfitting, such as the use of image augmentation
+    and dropouts.
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章向您介绍了使用卷积神经网络实现计算机视觉的更高级方法。您了解了如何使用卷积来应用能够从图像中提取特征的滤波器，并设计了第一个神经网络来处理比 MNIST
+    和时尚 MNIST 数据集更复杂的视觉场景。您还探索了改进网络准确性和避免过拟合的技术，如图像增强和失活的使用。
+- en: Before we explore further scenarios, in [Chapter 4](ch04.xhtml#using_public_datasets_with_tensorflow_d)
+    you’ll get an introduction to TensorFlow Datasets, a technology that makes it
+    much easier for you to get access to data for training and testing your networks.
+    In this chapter you were downloading ZIP files and extracting images, but that’s
+    not always going to be possible. With TensorFlow Datasets you’ll be able to access
+    lots of datasets with a standard API.
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们进一步探讨其他情景之前，在[第四章](ch04.xhtml#using_public_datasets_with_tensorflow_d)中，你将会对
+    TensorFlow Datasets 有所了解，这是一项使得你更容易获取用于训练和测试网络的数据的技术。在本章中，你下载了 ZIP 文件并提取了图像，但这并非总是可能的。使用
+    TensorFlow Datasets，你将能够通过标准 API 访问大量数据集。

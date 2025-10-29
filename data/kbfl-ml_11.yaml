@@ -1,0 +1,1186 @@
+- en: Chapter 10\. Hyperparameter Tuning and Automated Machine Learning
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第十章 超参数调整和自动化机器学习
+- en: In the previous chapters, we have seen how Kubeflow helps with the various phases
+    of machine learning. But knowing what to do in each phase—whether it’s feature
+    preparation or training or deploying models—requires some amount of expert knowledge
+    and experimentation. According to the [“no free lunch” theorem](https://oreil.ly/H_IHi),
+    no single model works best for every machine learning problem, therefore each
+    model must be constructed carefully. It can be very time-consuming and expensive
+    to fully build a highly performing model if each phase requires significant human
+    input.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前几章中，我们已经看到 Kubeflow 如何帮助完成机器学习的各个阶段。但是，了解每个阶段该做什么——无论是特征准备、训练还是部署模型——都需要一定的专业知识和实验。根据[“无免费午餐”定理](https://oreil.ly/H_IHi)，没有单一的模型适用于每个机器学习问题，因此每个模型必须经过精心构建。如果每个阶段需要大量人工输入，那么完全构建一个性能优异的模型可能会非常耗时和昂贵。
+- en: 'Naturally, one might wonder: is it possible to automate parts—or even the entirety—of
+    the machine learning process? Can we reduce the amount of overhead for data scientists
+    while still sustaining high model quality?'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自然地，人们可能会想：是否可能自动化机器学习过程的部分或整体？我们是否可以减少数据科学家的工作量，同时保持高质量的模型？
+- en: 'In machine learning, the umbrella term for solving these type of problems is
+    *automated machine learning* (AutoML). It is a constantly evolving field of research,
+    and has found its way to the industry with practical applications. AutoML seeks
+    to simplify machine learning for experts and nonexperts alike by reducing the
+    need for manual interaction in the more time-consuming and iterative phases of
+    machine learning: feature engineering, model construction, and hyperparameter
+    configuration.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在机器学习中，解决这些问题的总称是*自动化机器学习*（AutoML）。这是一个不断发展的研究领域，并已在实际应用中找到其位置。AutoML 试图通过减少在机器学习的更加耗时和迭代的阶段中的手动交互的需求，简化机器学习过程，无论是对专家还是非专家。
+- en: In this chapter we will see how Kubeflow can be used to automate hyperparameter
+    search and neural architecture search, two important subfields of AutoML.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将看到 Kubeflow 如何用于自动化超参数搜索和神经架构搜索，这是 AutoML 的两个重要子领域。
+- en: 'AutoML: An Overview'
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 自动机器学习（AutoML）概述
+- en: 'AutoML refers to the various processes and tools that automate parts of the
+    machine learning process. At a high level, AutoML refers to any algorithms and
+    methodologies that seek to solve one or more of the following problems:'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AutoML 指的是自动化机器学习过程中的各种流程和工具。在高层次上，AutoML 涉及解决以下一个或多个问题的算法和方法：
+- en: Data preprocessing
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据预处理
+- en: Machine learning requires data, and raw data can come from various sources and
+    in different formats. To make raw data useful, human experts typically have to
+    comb over the data, normalize values, remove erroneous or corrupted data, and
+    ensure data consistency.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习需要数据，原始数据可以来自不同来源且格式各异。为了使原始数据有用，通常需要人类专家逐行查看数据，规范化数值，删除错误或损坏的数据，并确保数据一致性。
+- en: Feature engineering
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征工程
+- en: Training models with too few input variables (or “features”) can lead to inaccurate
+    models. However, having too many features can also be problematic; the learning
+    process would be slower and more resource-consuming, and overfitting problems
+    can occur. Coming up with the right set of features can be the most time-consuming
+    part of building a machine learning model. Automated feature engineering can speed
+    up the process of feature extraction, selection, and transformation.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用过少的输入变量（或“特征”）训练模型可能导致模型不准确。然而，使用过多的特征也可能会导致问题；学习过程会变慢且消耗资源，可能会出现过拟合问题。找到合适的特征集可能是构建机器学习模型中最耗时的部分。自动特征工程可以加速特征提取、选择和转换的过程。
+- en: Model selection
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型选择
+- en: Once you have all the training data, you need to pick the right training model
+    for your dataset. The ideal model should be as simple as possible while still
+    providing a good measure of prediction accuracy.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您拥有了所有的训练数据，就需要为您的数据集选择合适的训练模型。理想的模型应尽可能简单，同时又能提供良好的预测精度。
+- en: Hyperparameter tuning
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 超参数调整
+- en: Most learning models have a number of parameters that are external to the model,
+    such as the learning rate, the batch size, and the number of layers in the neural
+    network. We call these *hyperparameters* to distinguish them from model parameters
+    that are adjusted by the learning process. Hyperparameter tuning is the process
+    of automating the search process for these parameters in order to improve the
+    accuracy of the model.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数学习模型有一些与模型外部相关的参数，例如学习率、批大小和神经网络中的层数。我们称这些参数为*超参数*，以区别于由学习过程调整的模型参数。超参数调整是自动化搜索这些参数的过程，以提高模型的准确性。
+- en: Neural architecture search
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 神经架构搜索。
+- en: A related field to hyperparameter tuning is *neural architecture search* (NAS).
+    Instead of choosing between a fixed range of values for each hyperparameter value,
+    NAS seeks to take automation one step further and generates an entire neural network
+    that outperforms handcrafted architectures. Common methodologies for NAS include
+    reinforcement learning and evolutionary algorithms.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与超参数调整相关的一个领域是*神经架构搜索*（NAS）。NAS 不是选择每个超参数值的固定范围，而是进一步实现自动化，生成一个整个神经网络，优于手工设计的架构。NAS
+    的常见方法包括强化学习和进化算法。
+- en: The focus of this chapter will be on the latter two problems—hyperparameter
+    tuning and neural architecture search. As they are related, they can be solved
+    using similar methodologies.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章重点讨论后两个问题——超参数调整和神经架构搜索。由于它们相关，可以使用类似的方法来解决。
+- en: Hyperparameter Tuning with Kubeflow Katib
+  id: totrans-18
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用 Kubeflow Katib 进行超参数调整。
+- en: In [Chapter 7](ch07.xhtml#tf_ch), it was mentioned that we needed to set a few
+    hyperparameters. In machine learning, hyperparameters refer to parameters that
+    are set before the training process begins (as opposed to model parameters which
+    are learned from the training process). Examples of hyperparameters include the
+    learning rate, number of decision trees, number of layers in a neural network,
+    etc.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第7章](ch07.xhtml#tf_ch)中提到，我们需要设置几个超参数。在机器学习中，超参数是在训练过程开始之前设置的参数（与从训练过程中学习的模型参数相对）。超参数的示例包括学习率、决策树数量、神经网络中的层数等。
+- en: 'The concept of hyperparameter optimization is very simple: select the set of
+    hyperparameter values that lead to optimal model performance. A hyperparameter
+    tuning framework is a tool that does exactly that. Typically, the user of such
+    a tool would define a few things:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 超参数优化的概念非常简单：选择导致最佳模型性能的一组超参数值。超参数调整框架就是做这件事的工具。通常，这样的工具的用户会定义几件事情：
+- en: The list of hyperparameters and their valid range of values (called the *search
+    space*)
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 超参数及其有效值范围的列表（称为*搜索空间*）。
+- en: The metrics used to measure model performance
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用于衡量模型性能的度量标准。
+- en: The methodology to use for the searching process
+  id: totrans-23
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用于搜索过程的方法论。
+- en: 'Kubeflow comes packaged with [Katib](https://oreil.ly/BW4TM), a general framework
+    for hyperparameter tuning. Among similar open source tools, Katib has a few distinguishing
+    features:'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow 打包了[Katib](https://oreil.ly/BW4TM)，一个用于超参数调整的通用框架。在类似的开源工具中，Katib 有几个显著的特点：
+- en: It is Kubernetes native
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它是 Kubernetes 原生的。
+- en: This means that Katib experiments can be ported wherever Kubernetes runs.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着 Katib 实验可以在 Kubernetes 运行的任何地方移植。
+- en: It has multiframework support
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它具有多框架支持。
+- en: Katib supports many popular learning frameworks, with first-class support for
+    TensorFlow and PyTorch distributed training.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Katib 支持许多流行的学习框架，并提供 TensorFlow 和 PyTorch 分布式训练的一流支持。
+- en: It is language-agnostic
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它是与语言无关的。
+- en: Training code can be written in any language, as long as it is built as a Docker
+    image.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练代码可以用任何语言编写，只要它构建为 Docker 镜像。
+- en: Note
+  id: totrans-31
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意。
+- en: The name *katib* means “secretary” or “scribe” in Arabic, and is an homage to
+    the Vizier framework that inspired its initial version (“vizier” being Arabic
+    for a minister or high official).
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*Katib* 这个名字在阿拉伯语中意为“秘书”或“书记”，是对启发其最初版本的 Vizier 框架的致敬（“vizier” 在阿拉伯语中是大臣或高级官员的意思）。'
+- en: In this chapter, we’ll take a look at how Katib simplifies hyperparameter optimization.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将看看 Katib 如何简化超参数优化。
+- en: Katib Concepts
+  id: totrans-34
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Katib 概念。
+- en: 'Let’s begin by defining a few terms that are central to the workflow of Katib
+    (as illustrated in [Figure 10-1](#katib-workflow)):'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从定义几个对 Katib 工作流程至关重要的术语开始（如图[10-1](#katib-workflow)所示）：
+- en: Experiment
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实验。
+- en: An experiment is an end-to-end process that takes a problem (e.g., tuning a
+    training model for handwriting recognition), an objective metric (maximize the
+    prediction accuracy), and a search space (range for hyperparameters), and produces
+    a final set of optimal hyperparameter values.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个实验是一个端到端的过程，它涉及一个问题（例如，调整手写识别训练模型）、一个目标指标（最大化预测准确率）和一个搜索空间（超参数的范围），并生成最终的最优超参数值集合。
+- en: Suggestion
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 建议
+- en: A suggestion is one possible solution to the problem we are trying to solve.
+    Since we are trying to find the combination of hyperparameter values that lead
+    to optimal model performance, a suggestion would be one set of hyperparameter
+    values from the specified search space.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 建议是我们试图解决的问题的一个可能解决方案。因为我们试图找到导致最佳模型性能的超参数值组合，一个建议将是指定搜索空间中的一组超参数值。
+- en: Trial
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 试验
+- en: A trial is one iteration of the experiment. Each trial takes a suggestion and
+    executes a worker process (packaged through Docker) that produces evaluation metrics.
+    Katib’s controller then computes the next suggestion based on previous metrics
+    and spawns new trials.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 试验是实验的一次迭代。每个试验接受一个建议，并执行一个生成评估指标的工作进程（通过 Docker 打包）。Katib 的控制器然后基于先前的指标计算出下一个建议，并生成新的试验。
+- en: '![kfml 1001](Images/kfml_1001.png)'
+  id: totrans-42
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kfml 1001](Images/kfml_1001.png)'
+- en: Figure 10-1\. Katib [system workflow](https://oreil.ly/BW4TM)
+  id: totrans-43
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-1\. Katib [系统工作流程](https://oreil.ly/BW4TM)
+- en: Note
+  id: totrans-44
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: In Katib, experiments, suggestions, and trials are all custom resources. This
+    means they are stored in Kubernetes and can be manipulated using standard Kubernetes
+    APIs.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Katib 中，实验、建议和试验都是自定义资源。这意味着它们存储在 Kubernetes 中，并且可以使用标准 Kubernetes API 进行操作。
+- en: 'Another important aspect of hyperparameter tuning is how to find the next set
+    of parameters. As of the time of this writing, Katib supports the following search
+    algorithms:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 超参数调优的另一个重要方面是如何找到下一组参数。截至本文撰写时，Katib 支持以下搜索算法：
+- en: Grid search
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 网格搜索
+- en: Also known as a parameter sweep, grid search is the simplest approach—exhaustively
+    search through possible parameter values in the specified search space. Although
+    resource-intensive, grid search has the advantage of having high parallelism since
+    the tasks are completely independent.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 也称为参数扫描，网格搜索是最简单的方法——穷举指定搜索空间中的所有可能参数值。虽然资源密集型，但网格搜索具有高并行性的优势，因为任务是完全独立的。
+- en: Random search
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机搜索
+- en: Similar to grid search, the tasks in random search are completely independent.
+    Instead of enumerating every possible value, random search attempts to generate
+    parameter values through random selection. When there are many hyperparameters
+    to tune (but only a few have significant impact on model performance), random
+    search can vastly outperform grid search. Random search can also be useful when
+    the number of discrete parameters is high, which makes grid search infeasible.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与网格搜索类似，随机搜索中的任务是完全独立的。随机搜索尝试通过随机选择生成参数值，而不是枚举每个可能的值。当需要调整的超参数很多（但只有少数对模型性能有显著影响时），随机搜索可以大大优于网格搜索。当离散参数的数量很高时，使得网格搜索不可行时，随机搜索也很有用。
+- en: Bayesian optimization
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 贝叶斯优化
+- en: This is a powerful approach that uses probability and statistics to seek better
+    parameters. Bayesian optimization builds a probabilistic model for the objective
+    function, finds parameter values that perform well on the model, and then iteratively
+    updates the model based on metrics collected during trial runs. Intuitively speaking,
+    Bayesian optimization seeks to improve upon a model by making informed guesses.
+    This optimization method relies on previous iterations to find new parameters,
+    and can be parallelized. While trials are not as independent as grid or random
+    search, Bayesian optimization can find results with fewer trials overall.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一种使用概率和统计来寻找更好参数的强大方法。贝叶斯优化构建了一个针对目标函数的概率模型，找到在模型上表现良好的参数值，然后根据试验运行期间收集的指标迭代更新模型。直观地说，贝叶斯优化通过做出明智的猜测来改进模型。这种优化方法依赖于先前的迭代来找到新的参数，并且可以并行化。虽然试验并非像网格搜索或随机搜索那样独立，但贝叶斯优化能够通过较少的总试验次数找到结果。
+- en: Hyperband
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 超带
+- en: This is a relatively new approach that selects configuration values randomly.
+    But unlike traditional random search, hyperband only evaluates each trial for
+    a small number of iterations. Then it takes the best-performing configurations
+    and runs them longer, repeating this process until a desired result is reached.
+    Due to its similarity to random search, tasks can be highly parallelized.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一种相对新的方法，它随机选择配置值。 但与传统的随机搜索不同，Hyperband仅对每个试验进行少量迭代的评估。 然后，它采用表现最佳的配置，并更长时间地运行它们，重复此过程直到达到所需的结果。
+    由于它与随机搜索的相似性，任务可以高度并行化。
+- en: Other experimental algorithms
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他实验性算法
+- en: These include the tree of Parzen estimators (TPE) and covariance matrix adaptation
+    evolution strategy (CMA-ES), both implemented by using the [Goptuna](https://oreil.ly/PDGOg)
+    optimization framework.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些包括使用[Goptuna](https://oreil.ly/PDGOg)优化框架实现的Parzen估计树（TPE）和协方差矩阵适应进化策略（CMA-ES）。
+- en: One final piece of the puzzle in Katib is the metrics collector. This is the
+    process that collects and parses evaluation metrics after each trial and pushes
+    them into the persistent database. Katib implements metrics collection through
+    a sidecar container, which runs alongside the main container in a pod.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Katib中拼图的最后一部分是指标收集器。 这是在每次试验后收集和解析评估指标并将它们推送到持久数据库中的过程。 Katib通过一个sidecar容器实现指标收集，该容器与pod中的主容器并行运行。
+- en: Overall, Katib’s design makes it highly scalable, portable, and extensible.
+    Since it is part of the Kubeflow platform, Katib natively supports integration
+    with many of Kubeflow’s other training components, like the TFJob and PyTorch
+    operators. Katib is also the first hyperparameter tuning framework that supports
+    multitenancy, making it ideal for a cloud hosted environment.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总的来说，Katib的设计使其具有高度可扩展性、可移植性和可扩展性。 由于它是Kubeflow平台的一部分，Katib本身原生支持与Kubeflow的许多其他训练组件集成，如TFJob和PyTorch运算符。
+    Katib还是第一个支持多租户的超参数调整框架，使其非常适合云托管环境。
+- en: Installing Katib
+  id: totrans-59
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 安装Katib
+- en: 'Katib is installed by default. To install Katib as a standalone service, you
+    can use the following script in the Kubeflow GitHub repo:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下安装了Katib。 要将Katib安装为独立服务，您可以使用Kubeflow GitHub存储库中的以下脚本：
+- en: '[PRE0]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'If your Kubernetes cluster doesn’t support dynamic volume provisioning, you
+    would also create a persistent volume:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的Kubernetes集群不支持动态卷配置，您还将创建一个持久卷：
+- en: '[PRE1]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'After installing Katib components, you can navigate to the Katib dashboard
+    to verify that it is running. If you installed Katib through Kubeflow and have
+    an endpoint, simply navigate to the Kubeflow dashboard and select “Katib” in the
+    menu. Otherwise, you can set up port forwarding to test your deployment:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装完Katib组件后，您可以导航到Katib仪表板以验证其运行状态。 如果您通过Kubeflow安装了Katib并且有一个端点，只需导航到Kubeflow仪表板并在菜单中选择“Katib”。
+    否则，您可以设置端口转发以测试部署：
+- en: '[PRE2]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'Then navigate to:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后导航到：
+- en: '[PRE3]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Running Your First Katib Experiment
+  id: totrans-68
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 运行您的第一个Katib实验
+- en: Now that Katib is up and running in your cluster, let’s take a look at how to
+    run an actual experiment. In this section we will use Katib to tune a simple MNist
+    model. You can find the source code and all configuration files on [Katib’s GitHub
+    page](https://oreil.ly/tdSM_).
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，Katib已在您的集群中运行起来了，让我们看看如何运行一个实际的实验。 在本节中，我们将使用Katib来调整一个简单的MNist模型。 您可以在[Katib的GitHub页面](https://oreil.ly/tdSM_)上找到源代码和所有配置文件。
+- en: Prepping Your Training Code
+  id: totrans-70
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 准备您的训练代码
+- en: 'The first step is to prepare your training code. Since Katib runs training
+    jobs for trial evaluation, each training job needs to be packaged as a Docker
+    container. Katib is language-agnostic, so it does not matter how you write the
+    training code. However, to be compatible with Katib, the training code must satisfy
+    a couple of requirements:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一步是准备您的训练代码。 由于Katib运行试验评估的训练作业，每个训练作业都需要打包为Docker容器。 Katib是语言无关的，因此您如何编写训练代码并不重要。
+    但是，为了与Katib兼容，训练代码必须满足一些要求：
+- en: 'Hyperparameters must be exposed as command-line arguments. For example:'
+  id: totrans-72
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 超参数必须公开为命令行参数。 例如：
+- en: '[PRE4]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'Metrics must be exposed in a format consistent with the metrics collector.
+    Katib currently supports metrics collection through standard output, file, TensorFlow
+    events, or custom. The simplest option is to use the standard metrics collector,
+    which means the evaluation metrics must be written to stdout, in the following
+    format:'
+  id: totrans-74
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 指标必须以与指标收集器一致的格式公开。 Katib目前通过标准输出、文件、TensorFlow事件或自定义支持指标收集。 最简单的选项是使用标准指标收集器，这意味着评估指标必须以以下格式写入stdout：
+- en: '[PRE5]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: The example training model code that we will use can be found [on this GitHub
+    site](https://oreil.ly/USb-Y).
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用的示例训练模型代码可以在 [此 GitHub 网站](https://oreil.ly/USb-Y) 找到。
+- en: After preparing the training code, simply package it as a Docker image and it
+    is ready to go.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 准备好训练代码后，将其简单打包为 Docker 镜像即可使用。
+- en: Configuring an Experiment
+  id: totrans-78
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 配置实验
+- en: Once you have the training container, the next step is to write a spec for your
+    experiment. Katib uses Kubernetes custom resources to represent experiments. [Example 10-1](#Examp_experimen_spec)
+    can be downloaded from [this GitHub page](https://oreil.ly/nwbbJ).
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你准备好训练容器，下一步就是为你的实验编写规范。Katib 使用 Kubernetes 自定义资源来表示实验。可以从 [这个 GitHub 页面](https://oreil.ly/nwbbJ)
+    下载 [示例 10-1](#Examp_experimen_spec)。
+- en: Example 10-1\. Example experiment spec
+  id: totrans-80
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-1\. 示例实验规范
+- en: '[PRE6]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'That’s quite a lot to follow. Let’s take a closer look at each part of the
+    `spec` section:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是相当多的内容需要跟进。让我们仔细查看 `spec` 部分的每个部分：
+- en: '[![1](Images/1.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO1-1)'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO1-1)'
+- en: '*Objective.* This is where you configure how to measure the performance of
+    your training model, and the goal of the experiment. In this experiment, we are
+    trying to maximize the validation-accuracy metric. We are stopping our experiment
+    if we reach the objective goal of 0.99 (99% accuracy). The `additionalMetricsNames`
+    represents metrics that are collected from each trial, but aren’t used to evaluate
+    the trial.'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*目标。* 这里是你配置如何衡量训练模型性能以及实验目标的地方。在这个实验中，我们试图最大化验证准确率指标。如果达到 0.99（99% 准确率）的目标，我们会停止实验。`additionalMetricsNames`
+    表示从每个试验中收集的指标，但不用于评估试验。'
+- en: '[![2](Images/2.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO1-2)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](Images/2.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO1-2)'
+- en: '*Algorithm.* In this experiment we are using random search; some algorithms
+    may require additional configurations.'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*算法。* 在这个实验中，我们使用随机搜索；有些算法可能需要额外的配置。'
+- en: '[![3](Images/3.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO1-3)'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](Images/3.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO1-3)'
+- en: '*Budget configurations.* This is where we configure our experiment budget.
+    In this experiment, we would run 3 trials in parallel, with a total of 12 trials.
+    We would also stop our experiment if we have three failed trials. This last part
+    is also called an *error budget*—an important concept in maintaining production-grade
+    system uptime.'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*预算配置。* 这里是我们配置实验预算的地方。在这个实验中，我们将并行运行 3 个试验，总共运行 12 个试验。如果有三个试验失败，我们也会停止实验。这最后一部分也被称为
+    *错误预算* —— 在维护生产级系统正常运行时间方面是一个重要的概念。'
+- en: '[![4](Images/4.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO1-4)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](Images/4.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO1-4)'
+- en: '*Parameters.* Here we define which parameters we want to tune and the search
+    space for each. For example, the `learning rate` parameter is exposed in the training
+    code as `--lr`. It is a double, with a contiguous search space between 0.01 and
+    0.03.'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*参数。* 这里我们定义想要调整的参数以及每个参数的搜索空间。例如，`学习率` 参数在训练代码中以 `--lr` 暴露，是一个双精度浮点数，搜索空间在
+    0.01 到 0.03 之间。'
+- en: '[![5](Images/5.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO1-5)'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![5](Images/5.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO1-5)'
+- en: '*Trial template.* The last part of the experiment spec is the template from
+    which each trial is configured. For the purpose of this example, the only important
+    parts are:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*试验模板。* 实验规范的最后部分是配置每个试验的模板。对于本例子，唯一重要的部分是：'
+- en: '[PRE7]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: This should point to the Docker image that you built in the previous step, with
+    the command-line entry point to run the code.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这应该指向您在前一步中构建的 Docker 镜像，其命令行入口点用于运行代码。
+- en: Running the Experiment
+  id: totrans-95
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 运行实验
+- en: 'After everything is configured, apply the resource to start the experiment:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一切配置完成后，应用资源以启动实验：
+- en: '[PRE8]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'You can check the status of the experiment by running the following:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过运行以下命令来检查实验的状态：
+- en: '[PRE9]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: In the output, you should see something like [Example 10-2](#Ex_exper_output).
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在输出中，你应该看到类似 [示例 10-2](#Ex_exper_output) 的内容。
+- en: Example 10-2\. Example experiment output
+  id: totrans-101
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-2\. 示例实验输出
+- en: '[PRE10]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'Some of the interesting parts of the output are:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出中的一些有趣部分包括：
+- en: '[![1](Images/1.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO2-1)'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO2-1)'
+- en: '*Status.* Here you can see the current state of the experiment, as well as
+    its previous states.'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*状态.* 在这里，您可以看到实验的当前状态及其先前的状态。'
+- en: '[![2](Images/2.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO2-2)'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](Images/2.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO2-2)'
+- en: '*Current Optimal Trial.* This is the “best” trial so far, i.e., the trial that
+    produced the best outcome as determined by our predefined metrics. You can also
+    see this trial’s parameters and metrics.'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*当前最佳试验.* 这是目前为止的“最佳”试验，即通过我们预定义的度量确定的表现最佳的试验。您还可以查看该试验的参数和指标。'
+- en: '[![3](Images/3.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO2-3)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](Images/3.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO2-3)'
+- en: '*Trials Succeeded/Running/Failed.* In this section, you can see how your experiment
+    is progressing.'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*Trials Succeeded/Running/Failed.* 在本节中，您可以查看实验的进展情况。'
+- en: Katib User Interface
+  id: totrans-110
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Katib 用户界面
+- en: Alternatively, you can use Katib’s user interface (UI) to submit and monitor
+    your experiments. If you have a Kubeflow deployment, you can navigate to the Katib
+    UI by clicking “Katib” in the navigation panel and then “Hyperparameter Tuning”
+    on the main page, shown in [Figure 10-2](#katib-main).
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，您可以使用 Katib 的用户界面（UI）提交和监视您的实验。如果您有 Kubeflow 部署，可以通过在导航面板中单击“Katib”，然后在主页面中单击“超参数调整”来访问
+    Katib UI，如 [图 10-2](#katib-main) 所示。
+- en: '![kfml 1002](Images/kfml_1002.png)'
+  id: totrans-112
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kfml 1002](Images/kfml_1002.png)'
+- en: Figure 10-2\. Katib UI main page
+  id: totrans-113
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-2\. Katib UI 主页面
+- en: Let’s submit our random search experiment (see [Figure 10-3](#katib-new-experiment)).
+    You can simply paste a YAML in the textbox here, or have one generated for you
+    by following the UI. To do this, click the `Parameters` tab.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们提交我们的随机搜索实验（参见 [图 10-3](#katib-new-experiment)）。您可以简单地在此处粘贴一个 YAML，或者通过 UI
+    生成一个 YAML。要执行此操作，请单击“参数”选项卡。
+- en: '![kfml 1003](Images/kfml_1003.png)'
+  id: totrans-115
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kfml 1003](Images/kfml_1003.png)'
+- en: Figure 10-3\. Configuring a new experiment, part 1
+  id: totrans-116
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-3\. 配置新实验，第1部分
+- en: You should see a panel like [Figure 10-4](#katib-new-experiment-2). Enter the
+    necessary configuration parameters on this page; define a run budget and the validation
+    metrics.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您应该看到一个面板，类似于 [图 10-4](#katib-new-experiment-2)。在此页面上输入必要的配置参数；定义运行预算和验证指标。
+- en: '![kfml 1004](Images/kfml_1004.png)'
+  id: totrans-118
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kfml 1004](Images/kfml_1004.png)'
+- en: Figure 10-4\. Configuring a new experiment, part 2
+  id: totrans-119
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-4\. 配置新实验，第2部分
+- en: Then scroll down the page and finish up the rest of the experiment by configuring
+    the search space and the trial template. For the latter, you can just leave it
+    on the default template. When you are done, click “Deploy.”
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，滚动页面并通过配置搜索空间和试验模板完成其余的实验。对于后者，您可以保持默认模板不变。完成后，单击“部署”。
+- en: Now that the experiment is running, you can monitor its status and see a visual
+    graph of the progress (see [Figure 10-5](#katib-random-example-graph)). You can
+    see your running and completed experiments by navigating to the drop-down menu
+    in the Katib dashboard, and then selecting “UI” and then “Monitor.”
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在实验正在运行中，您可以监视其状态，并查看进度的可视图表（参见 [图 10-5](#katib-random-example-graph)）。通过在
+    Katib 仪表板中导航到下拉菜单，然后选择“UI”，然后选择“监视”，可以查看正在运行和已完成的实验。
+- en: '![kfml 1005](Images/kfml_1005.png)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kfml 1005](Images/kfml_1005.png)'
+- en: Figure 10-5\. Katib UI for an experiment
+  id: totrans-123
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-5\. 用于实验的 Katib UI
+- en: Below this graph, you will see a detailed breakdown of each trial (shown in
+    [Figure 10-6](#katib-random-example-table)), the values of the hyperparameters
+    for each of the trials, and the final metric values. This is very useful for comparing
+    the effects of certain hyperparameters on the model’s performance.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此图表下方，您将看到每个试验的详细分析（如 [图 10-6](#katib-random-example-table) 所示），每个试验的超参数值以及最终的度量值。这对比较某些超参数对模型性能的影响非常有用。
+- en: '![kfml 1006](Images/kfml_1006.png)'
+  id: totrans-125
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kfml 1006](Images/kfml_1006.png)'
+- en: Figure 10-6\. Katib metrics for an experiment
+  id: totrans-126
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-6\. 实验的 Katib 指标
+- en: Since we are also collecting validation metrics along the way, we can actually
+    plot the graph for each trial. Click a row to see how the model performs with
+    the given hyperparameter values across time (as in [Figure 10-7](#katib-trial)).
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们还在实时收集验证指标，因此实际上可以为每个试验绘制图表。单击一行以查看模型如何在给定的超参数值下随时间表现（如 [图 10-7](#katib-trial)
+    所示）。
+- en: '![kfml 1007](Images/kfml_1007.png)'
+  id: totrans-128
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kfml 1007](Images/kfml_1007.png)'
+- en: Figure 10-7\. Metrics for each trial
+  id: totrans-129
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-7\. 每次试验的度量指标
+- en: Tuning Distributed Training Jobs
+  id: totrans-130
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 调整分布式训练工作
+- en: In [Chapter 7](ch07.xhtml#tf_ch) we saw an example of using Kubeflow to orchestrate
+    distributed training. What if we want to use Katib to tune parameters for a distributed
+    training job?
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第 7 章](ch07.xhtml#tf_ch)中，我们看到了使用Kubeflow来编排分布式训练的示例。如果我们想要使用Katib来调整分布式训练工作的参数，该怎么办？
+- en: The good news is that Katib natively supports integration with TensorFlow and
+    PyTorch distributed training. An MNIST example with TensorFlow can be found at
+    this [Katib GitHub page](https://oreil.ly/I3q4x). This example uses the same MNIST
+    distributed training example we saw in [Chapter 7](ch07.xhtml#tf_ch), and directly
+    integrates it into the Katib framework. In [Example 10-3](#distr_train_example),
+    we will launch an experiment to tune hyperparameters (learning rate and batch
+    size) for a distributed TensorFlow job.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好消息是，Katib原生支持与TensorFlow和PyTorch分布式训练的集成。TensorFlow的MNIST示例可以在这个[Katib GitHub页面](https://oreil.ly/I3q4x)找到。这个示例使用了我们在[第
+    7 章](ch07.xhtml#tf_ch)中看到的相同的MNIST分布式训练示例，并直接集成到Katib框架中。在[示例 10-3](#distr_train_example)中，我们将启动一个实验来调整分布式TensorFlow作业的超参数（学习率和批次大小）。
+- en: Example 10-3\. Distributed training example
+  id: totrans-133
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-3\. 分布式训练示例
+- en: '[PRE11]'
+  id: totrans-134
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: '[![1](Images/1.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO3-1)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO3-1)'
+- en: The total and parallel trial counts are similar to the previous experiment.
+    In this case they refer to the total and parallel number of distributed training
+    jobs to run.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总试验和并行试验计数与之前的实验类似。在这种情况下，它们指的是要运行的总分布式训练作业数和并行数。
+- en: '[![2](Images/2.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO3-2)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](Images/2.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO3-2)'
+- en: The objective specification is also similar—in this case we want to maximize
+    the `accuracy` measurement.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目标规范也类似——在这种情况下，我们希望最大化`accuracy`度量。
+- en: '[![3](Images/3.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO3-3)'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](Images/3.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO3-3)'
+- en: The metrics collector specification looks slightly different. This is because
+    this is a TensorFlow job, and we can use TFEvents outputted by TensorFlow directly.
+    Using the built-in `TensorFlowEvent` collector type, Katib can automatically parse
+    TensorFlow events and populate the metrics database.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 度量收集器规范看起来略有不同。这是因为这是一个TensorFlow作业，我们可以直接使用TensorFlow输出的TFEvents。通过使用内置的`TensorFlowEvent`收集器类型，Katib可以自动解析TensorFlow事件并填充度量数据库。
+- en: '[![4](Images/4.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO3-4)'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](Images/4.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO3-4)'
+- en: The parameter configurations are exactly the same—in this case we are tuning
+    the learning rate and batch size of the model.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 参数配置完全相同——在这种情况下，我们调整模型的学习率和批次大小。
+- en: '[![5](Images/5.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO3-5)'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![5](Images/5.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO3-5)'
+- en: The trial template should look familiar to you if you read [Chapter 7](ch07.xhtml#tf_ch)—it’s
+    the same distributed training example spec that we ran before. The imporant difference
+    here is that we’ve parameterized the input to `learning_rate` and `batch_size`.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你读过[第 7 章](ch07.xhtml#tf_ch)，那么试验模板应该很熟悉——这是我们之前运行过的相同分布式训练示例规范。这里的重要区别在于，我们已经将`learning_rate`和`batch_size`的输入参数化了。
+- en: So now you have learned how to use Katib to tune hyperparameters. But notice
+    that you still have to select the model yourself. Can we reduce the amount of
+    human work even further? What about other subfields in AutoML? In the next section
+    we will look at how Katib supports the generation of entire artificial neural
+    networks.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以现在你已经学会了如何使用Katib来调整超参数。但请注意，你仍然需要自己选择模型。我们能进一步减少人工工作量吗？关于AutoML的其他子领域呢？在接下来的部分中，我们将看看Katib如何支持整个人工神经网络的生成。
+- en: Neural Architecture Search
+  id: totrans-146
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 神经架构搜索
+- en: Neural architecture search (NAS) is a growing subfield in automated machine
+    learning. Unlike hyperparameter tuning, where the model is already chosen and
+    our goal is to optimize its performance by turning a few knobs, in NAS we are
+    trying to generate the network architecture itself. Recent research has shown
+    that NAS can outperform handcrafted neural networks on tasks like image classification,
+    object detection, and semantic segmentation.^([1](ch10.xhtml#idm45831164182632))
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 神经结构搜索（NAS）是自动化机器学习中不断发展的一个子领域。与超参数调整不同，后者选择了模型，我们的目标是通过调整少量旋钮来优化其性能；而 NAS 则试图生成网络架构本身。最近的研究表明，NAS
+    在图像分类、目标检测和语义分割等任务上可以胜过手工设计的神经网络。^([1](ch10.xhtml#idm45831164182632))
+- en: Most the methodologies for NAS can be categorized as either *generation* methods
+    or *mutation* methods. In *generation* methods, the algorithm will propose one
+    or more candidate architectures in each iteration. These proposed architectures
+    are then evaluated and then refined in the next iteration. In *mutation* methods,
+    an overly complex architecture is proposed first, and subsequent iterations will
+    attempt to prune the model.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数 NAS 方法可以归类为 *生成* 方法或 *变异* 方法。在 *生成* 方法中，算法会在每次迭代中提出一个或多个候选架构。这些提议的架构随后会在下一次迭代中进行评估和优化。在
+    *变异* 方法中，首先提出一个过度复杂的架构，随后的迭代会尝试修剪模型。
+- en: 'Katib currently supports two implementations of NAS: *Differentiable Architecture
+    Search (DARTS)*,^([2](ch10.xhtml#idm45831164168328)) and *Efficient Neural Architecture
+    Search (ENAS)*.^([3](ch10.xhtml#idm45831164166328)) DARTS achieves scalability
+    of NAS by relaxing the search space to be continuous instead of discrete and utilizes
+    gradient descent to optimize the architecture. ENAS takes a different approach,
+    by observing that in most NAS algorithms the bottleneck occurs during the training
+    of each child model. ENAS forces each child model to share parameters, thus improving
+    the overall efficiency.'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Katib 目前支持两种 NAS 实现方法：*可微结构搜索（DARTS）*^([2](ch10.xhtml#idm45831164168328)) 和
+    *高效神经结构搜索（ENAS）*^([3](ch10.xhtml#idm45831164166328))。DARTS 通过将搜索空间从离散变为连续来实现 NAS
+    的可扩展性，并利用梯度下降优化架构。ENAS 则采用不同的方法，观察到大多数 NAS 算法在训练每个子模型时会出现瓶颈。ENAS 强制每个子模型共享参数，从而提高整体效率。
+- en: The general workflow of NAS in Katib is similar to hyperparameter search, with
+    an additional step for constructing the model architecture. An internal module
+    of Katib, called the *model manager*, is responsible for taking topological configurations
+    and mutation parameters, and constructing new models. Katib then uses the same
+    concepts of trials and metrics to evaluate the model’s performance.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Katib 中 NAS 的一般工作流程与超参数搜索类似，额外增加了构建模型架构的步骤。Katib 的一个内部模块，称为 *模型管理器*，负责接收拓扑配置和变异参数，并构建新模型。然后，Katib
+    使用相同的试验和指标概念来评估模型的性能。
+- en: As an example, see the spec of a NAS experiment using DARTS in [Example 10-4](#Example_NAS_experiment_spec).
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，可以查看使用 DARTS 进行 NAS 实验的规范，在 [示例 10-4](#Example_NAS_experiment_spec) 中。
+- en: Example 10-4\. Example NAS experiment spec
+  id: totrans-152
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-4\. 示例 NAS 实验规范
+- en: '[PRE12]'
+  id: totrans-153
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: '[![1](Images/1.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO4-1)'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_hyperparameter_tuning_and_automated___span_class__keep_together__machine_learning__span__CO4-1)'
+- en: The general structure of a NAS experiment is similar to that of a hyperparameter
+    search experiment. The majority of the specification should look very familiar;
+    the most important difference is the addition of the `nasConfig`. This is where
+    you can configure the specifications of the neural network that you want to create,
+    such as the number of layers, the inputs and outputs at each layer, and the types
+    of operations.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: NAS 实验的一般结构与超参数搜索实验类似。规范的大部分内容应该非常熟悉；最重要的区别是添加了 `nasConfig`。这里可以配置想要创建的神经网络的规范，如层数、每层的输入和输出以及操作类型。
+- en: Advantages of Katib over Other Frameworks
+  id: totrans-156
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Katib 相比其他框架的优势
+- en: 'There are many similar open source systems for hyperparameter search, among
+    them [NNI](https://oreil.ly/lDwpN), [Optuna](https://oreil.ly/gAHgZ), [Ray Tune](https://oreil.ly/CnNFZ),
+    and [Hyperopt](https://oreil.ly/jlfoP). In addition, the original design of Katib
+    was inspired by [Google Vizier](https://oreil.ly/q1xiz). While these frameworks
+    offer many capabilities similar to Katib’s, namely the ability to configure parallel
+    hyperparameter sweeps using a variety of algorithms, there are a few features
+    of Katib that make it unique:'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有许多类似的开源系统用于超参数搜索，其中包括 [NNI](https://oreil.ly/lDwpN)、[Optuna](https://oreil.ly/gAHgZ)、[Ray
+    Tune](https://oreil.ly/CnNFZ) 和 [Hyperopt](https://oreil.ly/jlfoP)。此外，Katib 的原始设计灵感来源于
+    [Google Vizier](https://oreil.ly/q1xiz)。虽然这些框架在配置并行超参数扫描时具有许多与 Katib 类似的功能，例如使用多种算法，但
+    Katib 的几个特性使其独特：
+- en: Design catering to both user and admin
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设计旨在同时服务用户和管理员
+- en: Most tuning frameworks are designed to cater to the *user*—the data scientist
+    performing the tuning experiment. Katib is also designed to make life easier for
+    the *system admin*, who is responsible for maintaining the infrastructure, allocating
+    compute resources, and monitoring system health.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数调整框架旨在为*用户*——进行调整实验的数据科学家提供服务。Katib 也被设计为使*系统管理员*的生活更轻松，他负责维护基础设施、分配计算资源和监控系统健康状态。
+- en: Cloud native design
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 云原生设计
+- en: Other frameworks (such as Ray Tune) may support integration with Kubernetes,
+    but often require additional effort to set up a cluster. By contrast, Katib is
+    the first hyperparameter search framework to base its design entirely on Kubernetes;
+    every one of its resources can be accessed and manipulated by Kubernetes APIs.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他框架（例如 Ray Tune）可能支持与 Kubernetes 的集成，但通常需要额外的设置集群的工作。相比之下，Katib 是第一个完全基于 Kubernetes
+    设计的超参数搜索框架；其每一个资源都可以通过 Kubernetes API 进行访问和操作。
+- en: Scalable and portable
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可扩展和可移植
+- en: Because Katib uses Kubernetes as its orchestration engine, it is very easy to
+    scale up an experiment. You can run the same experiments on a laptop for prototyping
+    and deploy the job to a production cluster with minimal changes to the spec. By
+    contrast, other frameworks require additional effort to install and configure
+    depending on the hardware availability.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 Katib 使用 Kubernetes 作为其编排引擎，因此很容易扩展实验。您可以在笔记本电脑上运行相同的实验进行原型设计，并在生产集群上部署作业，只需对规格进行最少的更改。相比之下，其他框架则需要根据硬件可用性进行额外的安装和配置工作。
+- en: Extensible
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可扩展的
+- en: Katib offers flexible and pluggable interfaces for its search algorithms and
+    storage systems. Most other frameworks come with a preset list of algorithms and
+    have hardcoded mechanisms for metrics collection. In Katib, the user can easily
+    implement a custom search algorithm and integrate it with the framework.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Katib 提供了灵活和可插拔的接口，用于其搜索算法和存储系统。大多数其他框架都带有预设的算法列表，并且具有硬编码的指标收集机制。在 Katib 中，用户可以轻松实现自定义搜索算法，并将其集成到框架中。
+- en: Native support
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本地支持
+- en: Katib natively supports advanced features like distributed training and neural
+    architecture search.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Katib 原生支持高级功能，如分布式训练和神经架构搜索。
+- en: Conclusion
+  id: totrans-168
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: In this chapter we’ve taken a quick overview of AutoML and learned how it can
+    accelerate the development of machine learning models by automating time-consuming
+    tasks like hyperparameter search. With techniques like automated hyperparameter
+    tuning, you can scale up the development of your models while sustaining high
+    model quality.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们快速概述了 AutoML，并学习了如何通过自动化超参数搜索等技术加速机器学习模型的开发。通过自动化的超参数调整技术，您可以在保持高模型质量的同时扩展模型的开发。
+- en: We have then used Katib—a Kubernetes-native tuning service from the Kubeflow
+    platform—to configure and execute a hyperparameter search experiment. We have
+    also shown how you can use Katib’s dashboard to submit, track, and visualize your
+    experiments.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们随后使用了 Katib——来自 Kubeflow 平台的 Kubernetes 原生调整服务——来配置和执行超参数搜索实验。我们还展示了如何使用 Katib
+    的仪表板提交、跟踪和可视化您的实验。
+- en: We’ve also explored how Katib handles neural architecture search (NAS). Katib
+    currently supports two methods of NAS—DARTS and ENAS, with more development to
+    follow.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还探讨了 Katib 如何处理神经架构搜索（NAS）。Katib 目前支持 NAS 的两种方法——DARTS 和 ENAS，并将继续进行更多开发。
+- en: Hopefully, this has given you some insights into how Katib can be leveraged
+    to reduce the amount of work in your machine learning workflows. Katib is still
+    an evolving project, and you can follow the latest developments on this [Katib
+    GitHub page](https://oreil.ly/OHFAL).
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 希望这些内容能为您提供一些关于如何利用Katib来减少机器学习工作流中工作量的见解。Katib仍然是一个不断发展的项目，您可以在[Katib GitHub页面](https://oreil.ly/OHFAL)上关注最新的发展动态。
+- en: Thank you for joining us on your adventures in learning Kubeflow. We hope that
+    Kubeflow meets your needs and helps you deliver on machine learning’s ability
+    to bring value to your organization. To keep up to date on the latest changes
+    with Kubeflow, we encourage you to join the [Kubeflow Slack workspace and mailing
+    lists](https://oreil.ly/4fT2i).
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 感谢您加入我们一起学习Kubeflow的旅程。我们希望Kubeflow能够满足您的需求，并帮助您利用机器学习的能力为您的组织带来价值。为了了解最新的Kubeflow变化，请加入[Kubeflow
+    Slack工作空间和邮件列表](https://oreil.ly/4fT2i)。
+- en: '^([1](ch10.xhtml#idm45831164182632-marker)) T. Elsken, J. H. Metzen, F. Hutter,
+    “Neural Architecture Search: A Survey,” *Journal of Machine Learning Research*
+    20 (2019), [*https://oreil.ly/eO-CV*](https://oreil.ly/eO-CV), pp. 1-21.'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch10.xhtml#idm45831164182632-marker)) T. Elsken, J. H. Metzen, F. Hutter,
+    “神经架构搜索：一项调查,” *机器学习研究杂志* 20 (2019), [*https://oreil.ly/eO-CV*](https://oreil.ly/eO-CV),
+    pp. 1-21.
+- en: ^([2](ch10.xhtml#idm45831164168328-marker)) H. Liu, K. Simonyan, and Y. Tang,
+    “Differentiable Architecture Search (DARTS),” [*https://oreil.ly/JSAIX*](https://oreil.ly/JSAIX).
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch10.xhtml#idm45831164168328-marker)) H. Liu, K. Simonyan, and Y. Tang,
+    “可微架构搜索（DARTS）,” [*https://oreil.ly/JSAIX*](https://oreil.ly/JSAIX).
+- en: ^([3](ch10.xhtml#idm45831164166328-marker)) H. Pham et al., “Efficient Neural
+    Architecture Search via Parameter Sharing,” [*https://oreil.ly/SQPxn*](https://oreil.ly/SQPxn).
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch10.xhtml#idm45831164166328-marker)) H. Pham等人，“通过参数共享实现高效的神经架构搜索”，[*https://oreil.ly/SQPxn*](https://oreil.ly/SQPxn)。

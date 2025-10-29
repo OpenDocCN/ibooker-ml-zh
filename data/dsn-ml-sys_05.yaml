@@ -1,0 +1,1926 @@
+- en: Chapter 5\. Feature Engineering
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第5章 特征工程
+- en: In 2014, the paper [“Practical Lessons from Predicting Clicks on Ads at Facebook”](https://oreil.ly/oS16J)
+    claimed that having the right features is the most important thing in developing
+    their ML models. Since then, many of the companies that I’ve worked with have
+    discovered time and time again that once they have a workable model, having the
+    right features tends to give them the biggest performance boost compared to clever
+    algorithmic techniques such as hyperparameter tuning. State-of-the-art model architectures
+    can still perform poorly if they don’t use a good set of features.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 2014年，论文["Practical Lessons from Predicting Clicks on Ads at Facebook"](https://oreil.ly/oS16J)声称拥有正确的特征是开发他们ML模型中最重要的事情。从那时起，我与许多公司合作，一次又一次地发现，一旦他们拥有可行的模型，正确的特征往往会给他们带来与调整超参数等聪明算法技术相比更大的性能提升。尽管使用了先进的模型架构，如果不使用好的特征集，其表现仍可能很差。
+- en: 'Due to its importance, a large part of many ML engineering and data science
+    jobs is to come up with new useful features. In this chapter, we will go over
+    common techniques and important considerations with respect to feature engineering.
+    We will dedicate a section to go into detail about a subtle yet disastrous problem
+    that has derailed many ML systems in production: data leakage and how to detect
+    and avoid it.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于其重要性，许多ML工程和数据科学工作的大部分内容是提出新的有用特征。在本章中，我们将讨论常见的技术和与特征工程相关的重要考虑因素。我们将专门介绍一个微妙但灾难性的问题，这个问题已经使许多生产中的ML系统出现偏离：数据泄漏以及如何检测和避免它。
+- en: We will end the chapter discussing how to engineer good features, taking into
+    account both the feature importance and feature generalization. Talking about
+    feature engineering, some people might think of feature stores. Since feature
+    stores are closer to infrastructure to support multiple ML applications, we’ll
+    cover feature stores in [Chapter 10](ch10.xhtml#infrastructure_and_tooling_for_mlops).
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在本章中讨论如何设计好的特征工程，考虑到特征重要性和特征泛化。谈到特征工程，一些人可能会想到特征存储。由于特征存储更接近于支持多个ML应用程序的基础设施，我们将在[第10章](ch10.xhtml#infrastructure_and_tooling_for_mlops)中介绍特征存储。
+- en: Learned Features Versus Engineered Features
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 学习到的特征与工程化的特征
+- en: 'When I cover this topic in class, my students frequently ask: “Why do we have
+    to worry about feature engineering? Doesn’t deep learning promise us that we no
+    longer have to engineer features?”'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我在课堂上讲解这个主题时，我的学生经常问：“为什么我们要担心特征工程？深度学习不是承诺我们不再需要进行特征工程吗？”
+- en: They are right. The promise of deep learning is that we won’t have to handcraft
+    features. For this reason, deep learning is sometimes called feature learning.^([1](ch05.xhtml#ch01fn132))
+    Many features can be automatically learned and extracted by algorithms. However,
+    we’re still far from the point where all features can be automated. This is not
+    to mention that, as of this writing, the majority of ML applications in production
+    aren’t deep learning. Let’s go over an example to understand what features can
+    be automatically extracted and what features still need to be handcrafted.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 他们是对的。深度学习的承诺是我们不再需要手工设计特征。因此，深度学习有时被称为特征学习^([1](ch05.xhtml#ch01fn132))。许多特征可以通过算法自动学习和提取。然而，我们离所有特征都可以自动化的时候还有很长的路要走。更不用说，截至撰写本文时，大多数生产中的ML应用程序并不是深度学习。让我们举一个例子来理解哪些特征可以自动提取，哪些特征仍然需要手工设计。
+- en: Imagine that you want to build a sentiment analysis classifier to classify whether
+    a comment is spam or not. Before deep learning, when given a piece of text, you
+    would have to manually apply classical text processing techniques such as lemmatization,
+    expanding contractions, removing punctuation, and lowercasing everything. After
+    that, you might want to split your text into n-grams with *n* values of your choice.​​
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下，你想构建一个情感分析分类器来判断评论是否是垃圾信息。在深度学习之前，当给定一段文本时，你必须手动应用经典的文本处理技术，如词形还原、扩展缩略语、去除标点符号并将所有内容转换为小写。之后，你可能希望将文本拆分为你选择的*n*值的n-gram。​​​
+- en: 'For those unfamiliar, an n-gram is a contiguous sequence of *n* items from
+    a given sample of text. The items can be phonemes, syllables, letters, or words.
+    For example, given the post “I like food,” its word-level 1-grams are [“I”, “like”,
+    “food”] and its word-level 2-grams are [“I like”, “like food”]. This sentence’s
+    set of n-gram features, if we want *n* to be 1 and 2, is: [“I”, “like”, “food”,
+    “I like”, “like food”].'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于那些不熟悉的人，n-gram 是来自给定文本样本的一系列连续的 *n* 个项目。这些项目可以是音素、音节、字母或单词。例如，对于帖子“I like
+    food”，其单词级别的 1-gram 是 [“I”, “like”, “food”]，其单词级别的 2-gram 是 [“I like”, “like food”]。如果我们希望
+    *n* 为 1 和 2，该句子的 n-gram 特征集合是：[“I”, “like”, “food”, “I like”, “like food”]。
+- en: '[Figure 5-1](#an_example_of_techniques_that_you_can_u) shows an example of
+    classical text processing techniques you can use to handcraft n-gram features
+    for your text.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 5-1](#an_example_of_techniques_that_you_can_u) 显示了您可以用来手工创建文本的 n-gram 特征的经典文本处理技术示例。'
+- en: '![](Images/dmls_0501.png)'
+  id: totrans-10
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0501.png)'
+- en: Figure 5-1\. An example of techniques that you can use to handcraft n-gram features
+    for your text
+  id: totrans-11
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-1\. 显示了您可以用来手工创建文本的 n-gram 特征的技术示例
+- en: Once you’ve generated n-grams for your training data, you can create a vocabulary
+    that maps each n-gram to an index. Then you can convert each post into a vector
+    based on its n-grams’ indices. For example, if we have a vocabulary of seven n-grams
+    as shown in [Table 5-1](#example_of_a_one_gram_and_two_gram_voca), each post can
+    be a vector of seven elements. Each element corresponds to the number of times
+    the n-gram at that index appears in the post. “I like food” will be encoded as
+    the vector [1, 1, 0, 1, 1, 0, 1]. This vector can then be used as an input into
+    an ML model.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您为训练数据生成了 n-gram，您可以创建一个词汇表，将每个 n-gram 映射到一个索引。然后，您可以基于其 n-gram 的索引将每个帖子转换为向量。例如，如果我们有一个如
+    [表 5-1](#example_of_a_one_gram_and_two_gram_voca) 所示的七个 n-gram 的词汇表，每个帖子可以是一个包含七个元素的向量。每个元素对应于该索引处
+    n-gram 在帖子中出现的次数。“I like food” 将被编码为向量 [1, 1, 0, 1, 1, 0, 1]。然后可以将此向量用作 ML 模型的输入。
+- en: Table 5-1\. Example of a 1-gram and 2-gram vocabulary
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 5-1\. 1-gram 和 2-gram 词汇表示例
+- en: '| I | like | good | food | I like | good food | like food |'
+  id: totrans-14
+  prefs: []
+  type: TYPE_TB
+  zh: '| 我 | 喜欢 | 好 | 食物 | 我喜欢 | 好食物 | 喜欢食物 |'
+- en: '| 0 | 1 | 2 | 3 | 4 | 5 | 6 |'
+  id: totrans-15
+  prefs: []
+  type: TYPE_TB
+  zh: '| 0 | 1 | 2 | 3 | 4 | 5 | 6 |'
+- en: Feature engineering requires knowledge of domain-specific techniques—in this
+    case, the domain is natural language processing (NLP) and the native language
+    of the text. It tends to be an iterative process, which can be brittle. When I
+    followed this method for one of my early NLP projects, I kept having to restart
+    my process either because I had forgotten to apply one technique or because one
+    technique I used turned out to be working poorly and I had to undo it.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征工程需要领域特定技术的知识——在这种情况下，领域是自然语言处理（NLP）和文本的母语。这往往是一个迭代过程，可能会很脆弱。当我在我的早期 NLP 项目中采用这种方法时，我不断不得不重新启动我的过程，要么是因为我忘记了应用某项技术，要么是因为我使用的某项技术效果不佳而不得不撤销它。
+- en: However, much of this pain has been alleviated since the rise of deep learning.
+    Instead of having to worry about lemmatization, punctuation, or stopword removal,
+    you can just split your raw text into words (i.e., tokenization), create a vocabulary
+    out of those words, and convert each of your words into one-shot vectors using
+    this vocabulary. Your model will hopefully learn to extract useful features from
+    this. In this new method, much of feature engineering for text has been automated.
+    Similar progress has been made for images too. Instead of having to manually extract
+    features from raw images and input those features into your ML models, you can
+    just input raw images directly into your deep learning models.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，随着深度学习的兴起，这种痛苦大大减轻了。不必再担心词形还原、标点符号或停用词删除，您只需将原始文本拆分成单词（即标记化），从这些单词创建词汇表，并使用该词汇表将每个单词转换为一次性向量。希望您的模型能够从中提取有用的特征。在这种新方法中，文本的特征工程大部分已经自动化。对图像也取得了类似的进展。不必再手动从原始图像中提取特征并将这些特征输入到您的
+    ML 模型中，您可以直接将原始图像输入到深度学习模型中。
+- en: 'However, an ML system will likely need data beyond just text and images. For
+    example, when detecting whether a comment is spam or not, on top of the text in
+    the comment itself, you might want to use other information about:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，一个 ML 系统很可能需要除了文本和图像之外的数据。例如，在检测评论是否为垃圾评论时，除了评论本身的文本外，您可能还希望使用关于以下信息的其他信息：
+- en: The comment
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 评论本身
+- en: How many upvotes/downvotes does it have?
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它有多少赞成票/反对票？
+- en: The user who posted this comment
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 发表此评论的用户
+- en: When was this account created, how often do they post, and how many upvotes/downvotes
+    do they have?
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个账户是什么时候创建的，他们发帖频率如何，以及他们有多少赞/踩？
+- en: The thread in which the comment was posted
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 发表评论的帖子
+- en: How many views does it have? Popular threads tend to attract more spam.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它有多少观看次数？受欢迎的帖子往往会吸引更多的垃圾信息。
+- en: There are many possible features to use in your model. Some of them are shown
+    in [Figure 5-2](#some_of_the_possible_features_about_a_c). The process of choosing
+    what information to use and how to extract this information into a format usable
+    by your ML models is feature engineering. For complex tasks such as recommending
+    videos for users to watch next on TikTok, the number of features used can go up
+    to millions. For domain-specific tasks such as predicting whether a transaction
+    is fraudulent, you might need subject matter expertise with banking and frauds
+    to be able to come up with useful features.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你的模型中有许多可能的特征可供使用。其中一些显示在[图 5-2](#some_of_the_possible_features_about_a_c)中。选择要使用的信息以及如何将这些信息提取到可供机器学习模型使用的格式中的过程称为特征工程。对于像推荐用户在TikTok上观看下一个视频这样的复杂任务，使用的特征数量可能高达数百万个。对于像预测交易是否存在欺诈这样的领域特定任务，您可能需要具备银行业务和欺诈方面的专业知识，以能够提出有用的特征。
+- en: '![](Images/dmls_0502.png)'
+  id: totrans-26
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0502.png)'
+- en: Figure 5-2\. Some of the possible features about a comment, a thread, or a user
+    to be included in your model
+  id: totrans-27
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-2\. 有关评论、帖子或用户可能包含在您的模型中的一些可能特征
+- en: Common Feature Engineering Operations
+  id: totrans-28
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 常见的特征工程操作
+- en: Because of the importance and the ubiquity of feature engineering in ML projects,
+    there have been many techniques developed to streamline the process. In this section,
+    we will discuss several of the most important operations that you might want to
+    consider while engineering features from your data. They include handling missing
+    values, scaling, discretization, encoding categorical features, and generating
+    the old-school but still very effective cross features as well as the newer and
+    exciting positional features. This list is nowhere near being comprehensive, but
+    it does comprise some of the most common and useful operations to give you a good
+    starting point. Let’s dive in!
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴于特征工程在机器学习项目中的重要性和普遍性，已经开发出许多技术来简化这一过程。在本节中，我们将讨论几个最重要的操作，您可能在从数据中提取特征时要考虑到。它们包括处理缺失值、缩放、离散化、编码分类特征，以及生成老派但仍然非常有效的交叉特征以及较新和令人兴奋的位置特征。这个列表远非全面，但它确实包括一些最常见和有用的操作，为您提供一个良好的起点。让我们深入探讨！
+- en: Handling Missing Values
+  id: totrans-30
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 处理缺失值
+- en: One of the first things you might notice when dealing with data in production
+    is that some values are missing. However, one thing that many ML engineers I’ve
+    interviewed don’t know is that not all types of missing values are equal.^([2](ch05.xhtml#ch01fn133))
+    To illustrate this point, consider the task of predicting whether someone is going
+    to buy a house in the next 12 months. A portion of the data we have is in [Table 5-2](#example_data_for_predicting_house_buyin).
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在处理生产数据时，您可能首先注意到的是某些值缺失。然而，我采访过的许多机器学习工程师不知道的一件事是，并非所有类型的缺失值都是相同的。^([2](ch05.xhtml#ch01fn133))
+    为了说明这一点，考虑预测某人是否会在接下来的12个月内购房的任务。我们的部分数据在[表 5-2](#example_data_for_predicting_house_buyin)中。
+- en: Table 5-2\. Example data for predicting house buying in the next 12 months
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 5-2\. 预测未来12个月内购房的示例数据
+- en: '| ID | Age | Gender | Annual income | Marital status | Number of children |
+    Job | Buy? |'
+  id: totrans-33
+  prefs: []
+  type: TYPE_TB
+  zh: '| ID | 年龄 | 性别 | 年收入 | 婚姻状况 | 子女数 | 职业 | 购买？ |'
+- en: '| --- | --- | --- | --- | --- | --- | --- | --- |'
+  id: totrans-34
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- | --- | --- |'
+- en: '| 1 |  | A | 150,000 |  | 1 | Engineer | No |'
+  id: totrans-35
+  prefs: []
+  type: TYPE_TB
+  zh: '| 1 |  | A | 150,000 |  | 1 | 工程师 | 否 |'
+- en: '| 2 | 27 | B | 50,000 |  |  | Teacher | No |'
+  id: totrans-36
+  prefs: []
+  type: TYPE_TB
+  zh: '| 2 | 27 | B | 50,000 |  |  | 老师 | 否 |'
+- en: '| 3 |  | A | 100,000 | Married | 2 |  | Yes |'
+  id: totrans-37
+  prefs: []
+  type: TYPE_TB
+  zh: '| 3 |  | A | 100,000 | 已婚 | 2 |  | 是 |'
+- en: '| 4 | 40 | B |  |  | 2 | Engineer | Yes |'
+  id: totrans-38
+  prefs: []
+  type: TYPE_TB
+  zh: '| 4 | 40 | B |  |  | 2 | 工程师 | 是 |'
+- en: '| 5 | 35 | B |  | Single | 0 | Doctor | Yes |'
+  id: totrans-39
+  prefs: []
+  type: TYPE_TB
+  zh: '| 5 | 35 | B |  | Single | 0 | 医生 | 是 |'
+- en: '| 6 |  | A | 50,000 |  | 0 | Teacher | No |'
+  id: totrans-40
+  prefs: []
+  type: TYPE_TB
+  zh: '| 6 |  | A | 50,000 |  | 0 | 老师 | 否 |'
+- en: '| 7 | 33 | B | 60,000 | Single |  | Teacher | No |'
+  id: totrans-41
+  prefs: []
+  type: TYPE_TB
+  zh: '| 7 | 33 | B | 60,000 | 单身 |  | 老师 | 否 |'
+- en: '| 8 | 20 | B | 10,000 |  |  | Student | No |'
+  id: totrans-42
+  prefs: []
+  type: TYPE_TB
+  zh: '| 8 | 20 | B | 10,000 |  |  | 学生 | 否 |'
+- en: There are three types of missing values. The official names for these types
+    are a little bit confusing, so we’ll go into detailed examples to mitigate the
+    confusion.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有三种类型的缺失值。这些类型的官方名称有点令人困惑，因此我们将详细举例以减少混淆。
+- en: Missing not at random (MNAR)
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 非随机缺失（MNAR）
+- en: This is when the reason a value is missing is because of the true value itself.
+    In this example, we might notice that some respondents didn’t disclose their income.
+    Upon investigation it may turn out that the income of respondents who failed to
+    report tends to be higher than that of those who did disclose. *The income values
+    are missing for reasons related to the values themselves*.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当值缺失的原因是值本身时，就是这种情况。在这个例子中，我们可能会注意到一些受访者没有披露他们的收入。调查后可能发现，未披露收入的受访者的收入往往比披露收入的受访者高。*收入值的缺失是由于值本身的原因*。
+- en: Missing at random (MAR)
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机缺失（MAR）
+- en: This is when the reason a *value is missing is not due to the value itself,
+    but due to another observed variable*. In this example, we might notice that age
+    values are often missing for respondents of the gender “A,” which might be because
+    the people of gender A in this survey don’t like disclosing their age.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当值缺失的原因不是由于值本身，而是由于另一个观察到的变量时，就是这种情况。在这个例子中，我们可能会注意到某些性别“A”的受访者的年龄值经常缺失，这可能是因为此调查中性别“A”的人不喜欢透露他们的年龄。
+- en: Missing completely at random (MCAR)
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完全随机缺失（MCAR）
+- en: This is when *there’s no pattern in when the value is missing*. In this example,
+    we might think that the missing values for the column “Job” might be completely
+    random, not because of the job itself and not because of any other variable. People
+    just forget to fill in that value sometimes for no particular reason. However,
+    this type of missing is very rare. There are usually reasons why certain values
+    are missing, and you should investigate.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当 *值缺失时没有模式* 时，就是这种情况。在这个例子中，我们可能认为列“工作”的缺失值可能是完全随机的，不是因为工作本身或任何其他变量。有时人们仅仅因为没有特定的原因而忘记填写该值。然而，这种类型的缺失非常罕见。通常会有某些值缺失的原因，你应该进行调查。
+- en: When encountering missing values, you can either fill in the missing values
+    with certain values (imputation) or remove the missing values (deletion). We’ll
+    go over both.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 遇到缺失值时，你可以选择用特定值填充缺失值（插补），或者删除缺失值（删除）。我们将讨论两种方法。
+- en: Deletion
+  id: totrans-51
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 删除
+- en: When I ask candidates about how to handle missing values during interviews,
+    many tend to prefer deletion, not because it’s a better method, but because it’s
+    easier to do.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我在面试中问候选人如何处理缺失值时，许多人倾向于选择删除，不是因为这是一种更好的方法，而是因为它更容易做到。
+- en: 'One way to delete is *column deletion*: if a variable has too many missing
+    values, just remove that variable. For example, in the example above, over 50%
+    of the values for the variable “Marital status” are missing, so you might be tempted
+    to remove this variable from your model. The drawback of this approach is that
+    you might remove important information and reduce the accuracy of your model.
+    Marital status might be highly correlated to buying houses, as married couples
+    are much more likely to be homeowners than single people.^([3](ch05.xhtml#ch01fn134))'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种删除的方式是 *列删除*：如果某个变量的缺失值太多，只需删除该变量。例如，在上面的例子中，“婚姻状况”变量的值超过50%缺失，因此你可能会考虑从模型中删除此变量。这种方法的缺点是可能会移除重要信息并降低模型的准确性。婚姻状况可能与购买房产高度相关，因为已婚夫妇比单身人士更有可能拥有自己的房产。^([3](ch05.xhtml#ch01fn134))
+- en: 'Another way to delete is *row deletion*: if a sample has missing value(s),
+    just remove that sample. This method can work when the missing values are completely
+    at random (MCAR) and the number of examples with missing values is small, such
+    as less than 0.1%. You don’t want to do row deletion if that means 10% of your
+    data samples are removed.'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种删除的方式是 *行删除*：如果样本存在缺失值，只需删除该样本。当缺失值完全是随机的（MCAR），且具有缺失值的样本数量较少，例如少于0.1%时，此方法可行。如果意味着删除了10%的数据样本，你就不应该采取行删除。
+- en: However, removing rows of data can also remove important information that your
+    model needs to make predictions, especially if the missing values are not at random
+    (MNAR). For example, you don’t want to remove samples of gender B respondents
+    with missing income because the fact that income is missing is information itself
+    (missing income might mean higher income, and thus, more correlated to buying
+    a house) and can be used to make predictions.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，删除数据行也可能会移除模型需要用于预测的重要信息，特别是当缺失值不是随机的（MNAR）时。例如，你不应该删除缺失收入的性别B受访者的样本，因为收入缺失本身就是一种信息（缺失收入可能意味着更高的收入，因此与购买房产更相关），可以用于预测。
+- en: On top of that, removing rows of data can create biases in your model, especially
+    if the missing values are at random (MAR). For example, if you remove all examples
+    missing age values in the data in [Table 5-2](#example_data_for_predicting_house_buyin),
+    you will remove all respondents with gender A from your data, and your model won’t
+    be able to make good predictions for respondents with gender A.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，删除数据行可能会在你的模型中引入偏差，尤其是在缺失值是随机的情况下（MAR）。例如，如果你删除表 [5-2](#example_data_for_predicting_house_buyin)
+    中所有缺少年龄值的示例数据，你将从你的数据中删除所有性别为A的受访者，导致你的模型无法对性别为A的受访者做出良好的预测。
+- en: Imputation
+  id: totrans-57
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 填充
+- en: Even though deletion is tempting because it’s easy to do, deleting data can
+    lead to losing important information and introduce biases into your model. If
+    you don’t want to delete missing values, you will have to impute them, which means
+    “fill them with certain values.” Deciding which “certain values” to use is the
+    hard part.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使删除数据很诱人，因为这样做很容易，但删除数据可能会导致丢失重要信息，并引入模型偏差。如果你不想删除缺失值，你就需要进行填充，也就是“用某些值填充它们”。决定使用哪些“特定的值”是难点所在。
+- en: One common practice is to fill in missing values with their defaults. For example,
+    if the job is missing, you might fill it with an empty string “”. Another common
+    practice is to fill in missing values with the mean, median, or mode (the most
+    common value). For example, if the temperature value is missing for a data sample
+    whose month value is July, it’s not a bad idea to fill it with the median temperature
+    of July.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种常见的做法是使用默认值填充缺失值。例如，如果职位信息缺失，你可以用空字符串“”来填充。另一种常见的做法是使用均值、中位数或众数（即最常见的值）来填充缺失值。例如，如果某数据样本的月份为7月，而温度数值缺失，用7月份的温度中位数来填充是个不错的选择。
+- en: Both practices work well in many cases, but sometimes they can cause hair-pulling
+    bugs. One time, in one of the projects I was helping with, we discovered that
+    the model was spitting out garbage because the app’s frontend no longer asked
+    users to enter their age, so age values were missing, and the model filled them
+    with 0\. But the model never saw the age value of 0 during training, so it couldn’t
+    make reasonable predictions.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两种做法在许多情况下效果很好，但有时会导致令人抓狂的错误。有一次，在我参与的一个项目中，我们发现模型输出的结果一团糟，因为应用程序的前端不再要求用户输入年龄，因此年龄数值缺失，模型用0来填充。但模型在训练过程中从未见过年龄数值为0，因此无法做出合理的预测。
+- en: In general, you want to avoid filling missing values with possible values, such
+    as filling the missing number of children with 0—0 is a possible value for the
+    number of children. It makes it hard to distinguish between people whose information
+    is missing and people who don’t have children.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一般来说，你要避免用可能的值来填充缺失值，比如用0来填充孩子数量的缺失值——0是孩子数量的一个可能值。这会导致很难区分信息缺失的人和确实没有孩子的人。
+- en: 'Multiple techniques might be used at the same time or in sequence to handle
+    missing values for a particular set of data. Regardless of what techniques you
+    use, one thing is certain: there is no perfect way to handle missing values. With
+    deletion, you risk losing important information or accentuating biases. With imputation,
+    you risk injecting your own bias into and adding noise to your data, or worse,
+    data leakage. If you don’t know what data leakage is, don’t panic, we’ll cover
+    it in the section [“Data Leakage”](#data_leakage).'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于特定数据集，可能会同时或依次使用多种技术来处理缺失值。无论你使用何种技术，有一点是确定的：没有一种完美的处理缺失值的方式。删除数据时，你面临的风险是丢失重要信息或强化偏差。而填充数据时，你则面临注入自身偏差、给数据添加噪声或更糟的数据泄露的风险。如果你不知道数据泄露是什么，请不要惊慌，我们将在
+    [“数据泄露”](#data_leakage) 部分详细介绍。
+- en: Scaling
+  id: totrans-63
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 缩放
+- en: Consider the task of predicting whether someone will buy a house in the next
+    12 months, and the data shown in [Table 5-2](#example_data_for_predicting_house_buyin).
+    The values of the variable Age in our data range from 20 to 40, whereas the values
+    of the variable Annual Income range from 10,000 to 150,000\. When we input these
+    two variables into an ML model, it won’t understand that 150,000 and 40 represent
+    different things. It will just see them both as numbers, and because the number
+    150,000 is much bigger than 40, it might give it more importance, regardless of
+    which variable is actually more useful for generating predictions.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑预测某人是否在接下来的12个月内购房的任务，以及[表格 5-2](#example_data_for_predicting_house_buyin)中显示的数据。我们数据中变量Age的值范围从20到40，而变量Annual
+    Income的值范围从10,000到150,000。当我们将这两个变量输入到ML模型时，它不会理解150,000和40代表不同的事物。它只会把它们都看作数字，并且因为150,000比40大得多，可能会赋予它更高的重要性，而不管哪个变量实际上对生成预测更有用。
+- en: Before inputting features into models, it’s important to scale them to be similar
+    ranges. This process is called *feature scaling*. This is one of the simplest
+    things you can do that often results in a performance boost for your model. Neglecting
+    to do so can cause your model to make gibberish predictions, especially with classical
+    algorithms like gradient-boosted trees and logistic regression.^([4](ch05.xhtml#ch01fn135))
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在将特征输入模型之前，将它们缩放到相似的范围非常重要。这个过程称为*特征缩放*。这是你可以做的最简单的事情之一，通常能提升模型性能。忽略这一步可能会导致模型做出荒谬的预测，特别是在像梯度提升树和逻辑回归这样的传统算法中。^([4](ch05.xhtml#ch01fn135))
+- en: 'An intuitive way to scale your features is to get them to be in the range [0,
+    1]. Given a variable *x*, its values can be rescaled to be in this range using
+    the following formula:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缩放特征的一种直观方式是使它们在范围[0, 1]内。给定变量*x*，其值可以使用以下公式重新缩放到此范围：
+- en: "<math alttext=\"x prime equals StartFraction x minus min left-parenthesis x\
+    \ right-parenthesis Over max left-parenthesis x right-parenthesis minus min left-parenthesis\
+    \ x right-parenthesis EndFraction\"><mrow><mi>x</mi> <mi>â</mi> <mi>\x80</mi>\
+    \ <mi>\x99</mi> <mo>=</mo> <mfrac><mrow><mi>x</mi><mo>-</mo><mo movablelimits=\"\
+    true\" form=\"prefix\">min</mo><mo>(</mo><mi>x</mi><mo>)</mo></mrow> <mrow><mo\
+    \ movablelimits=\"true\" form=\"prefix\">max</mo><mo>(</mo><mi>x</mi><mo>)</mo><mo>-</mo><mo\
+    \ movablelimits=\"true\" form=\"prefix\">min</mo><mo>(</mo><mi>x</mi><mo>)</mo></mrow></mfrac></mrow></math>"
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: "<math alttext=\"x prime equals StartFraction x minus min left-parenthesis x\
+    \ right-parenthesis Over max left-parenthesis x right-parenthesis minus min left-parenthesis\
+    \ x right-parenthesis EndFraction\"><mrow><mi>x</mi> <mi>â</mi> <mi>\x80</mi>\
+    \ <mi>\x99</mi> <mo>=</mo> <mfrac><mrow><mi>x</mi><mo>-</mo><mo movablelimits=\"\
+    true\" form=\"prefix\">min</mo><mo>(</mo><mi>x</mi><mo>)</mo></mrow> <mrow><mo\
+    \ movablelimits=\"true\" form=\"prefix\">max</mo><mo>(</mo><mi>x</mi><mo>)</mo><mo>-</mo><mo\
+    \ movablelimits=\"true\" form=\"prefix\">min</mo><mo>(</mo><mi>x</mi><mo>)</mo></mrow></mfrac></mrow></math>"
+- en: You can validate that if *x* is the maximum value, the scaled value *x*′ will
+    be 1\. If *x* is the minimum value, the scaled value *x*′ will be 0.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以验证，如果*x*是最大值，缩放后的值*x*′将为1。如果*x*是最小值，缩放后的值*x*′将为0。
+- en: 'If you want your feature to be in an arbitrary range [*a*, *b*]—empirically,
+    I find the range [–1, 1] to work better than the range [0, 1]—you can use the
+    following formula:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你希望你的特征在任意范围[*a*, *b*]内——根据经验，我发现范围[–1, 1]比范围[0, 1]更有效——你可以使用以下公式：
+- en: <math alttext="x prime equals a plus StartFraction left-parenthesis x minus
+    min left-parenthesis x right-parenthesis right-parenthesis left-parenthesis b
+    minus a right-parenthesis Over max left-parenthesis x right-parenthesis minus
+    min left-parenthesis x right-parenthesis EndFraction"><mrow><mi>x</mi> <mo>'</mo>
+    <mo>=</mo> <mi>a</mi> <mo>+</mo> <mfrac><mrow><mo>(</mo><mi>x</mi><mo>-</mo><mo
+    movablelimits="true" form="prefix">min</mo><mo>(</mo><mi>x</mi><mo>)</mo><mo>)</mo><mo>(</mo><mi>b</mi><mo>-</mo><mi>a</mi><mo>)</mo></mrow>
+    <mrow><mo movablelimits="true" form="prefix">max</mo><mo>(</mo><mi>x</mi><mo>)</mo><mo>-</mo><mo
+    movablelimits="true" form="prefix">min</mo><mo>(</mo><mi>x</mi><mo>)</mo></mrow></mfrac></mrow></math>
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="x prime equals a plus StartFraction left-parenthesis x minus
+    min left-parenthesis x right-parenthesis right-parenthesis left-parenthesis b
+    minus a right-parenthesis Over max left-parenthesis x right-parenthesis minus
+    min left-parenthesis x right-parenthesis EndFraction"><mrow><mi>x</mi> <mo>'</mo>
+    <mo>=</mo> <mi>a</mi> <mo>+</mo> <mfrac><mrow><mo>(</mo><mi>x</mi><mo>-</mo><mo
+    movablelimits="true" form="prefix">min</mo><mo>(</mo><mi>x</mi><mo>)</mo><mo>)</mo><mo>(</mo><mi>b</mi><mo>-</mo><mi>a</mi><mo>)</mo></mrow>
+    <mrow><mo movablelimits="true" form="prefix">max</mo><mo>(</mo><mi>x</mi><mo>)</mo><mo>-</mo><mo
+    movablelimits="true" form="prefix">min</mo><mo>(</mo><mi>x</mi><mo>)</mo></mrow></mfrac></mrow></math>
+- en: 'Scaling to an arbitrary range works well when you don’t want to make any assumptions
+    about your variables. If you think that your variables might follow a normal distribution,
+    it might be helpful to normalize them so that they have zero mean and unit variance.
+    This process is called *standardization*:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你不想对变量做任何假设时，将其缩放到任意范围通常是有效的。如果你认为你的变量可能符合正态分布，将它们标准化到均值为零、方差为一可能会有帮助。这个过程称为*标准化*：
+- en: <math alttext="x prime equals StartFraction x minus x overbar Over sigma EndFraction
+    comma"><mrow><mi>x</mi> <mo>'</mo> <mo>=</mo> <mfrac><mrow><mi>x</mi><mo>-</mo><mover
+    accent="true"><mi>x</mi> <mo>¯</mo></mover></mrow> <mi>σ</mi></mfrac> <mo>,</mo></mrow></math>
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="x prime equals StartFraction x minus x overbar Over sigma EndFraction
+    comma"><mrow><mi>x</mi> <mo>'</mo> <mo>=</mo> <mfrac><mrow><mi>x</mi><mo>-</mo><mover
+    accent="true"><mi>x</mi> <mo>¯</mo></mover></mrow> <mi>σ</mi></mfrac> <mo>,</mo></mrow></math>
+- en: with <math alttext="x overbar"><mover accent="true"><mi>x</mi> <mo>¯</mo></mover></math>
+    being the mean of variable *x*, and <math alttext="sigma"><mi>σ</mi></math> being
+    its standard deviation.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中<math alttext="x overbar"><mover accent="true"><mi>x</mi> <mo>¯</mo></mover></math>表示变量*x*的均值，<math
+    alttext="sigma"><mi>σ</mi></math>表示其标准差。
+- en: 'In practice, ML models tend to struggle with features that follow a skewed
+    distribution. To help mitigate the skewness, a technique commonly used is [log
+    transformation](https://oreil.ly/RMwEy): apply the log function to your feature.
+    An example of how the log transformation can make your data less skewed is shown
+    in [Figure 5-3](#in_many_casescomma_the_log_transformati). While this technique
+    can yield performance gain in many cases, it doesn’t work for all cases, and you
+    should be wary of the analysis performed on log-transformed data instead of the
+    original data.^([5](ch05.xhtml#ch01fn136))'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实践中，ML模型往往难以处理偏斜分布的特征。为了帮助减少偏斜，常用的技术之一是[对数变换](https://oreil.ly/RMwEy)：对你的特征应用对数函数。对数变换如何使你的数据更加对称的示例显示在[图 5-3](#in_many_casescomma_the_log_transformati)中。虽然这种技术在许多情况下能够提升性能，但并不适用于所有情况，你应该警惕在对数变换数据而不是原始数据上执行的分析。^([5](ch05.xhtml#ch01fn136))
+- en: '![](Images/dmls_0503.png)'
+  id: totrans-75
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0503.png)'
+- en: Figure 5-3\. In many cases, the log transformation can help reduce the skewness
+    of your data
+  id: totrans-76
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-3\. 在许多情况下，对数变换可以帮助减少数据的偏斜
+- en: There are two important things to note about scaling. One is that it’s a common
+    source of data leakage (this will be covered in greater detail in the section
+    [“Data Leakage”](#data_leakage)). Another is that it often requires global statistics—you
+    have to look at the entire or a subset of training data to calculate its min,
+    max, or mean. During inference, you reuse the statistics you had obtained during
+    training to scale new data. If the new data has changed significantly compared
+    to the training, these statistics won’t be very useful. Therefore, it’s important
+    to retrain your model often to account for these changes.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于缩放有两件重要的事情需要注意。一是它是数据泄漏的常见来源（这将在“数据泄漏”部分详细介绍）。另一件事是，它通常需要全局统计数据——你必须查看整个或部分训练数据来计算其最小值、最大值或平均值。在推断时，你会重复使用训练期间获取的统计数据来缩放新数据。如果新数据与训练数据相比有了显著变化，这些统计数据将不会非常有用。因此，经常重新训练模型以考虑这些变化是很重要的。
+- en: Discretization
+  id: totrans-78
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 离散化
+- en: This technique is included in this book for completeness, though in practice,
+    I’ve rarely found discretization to help. Imagine that we’ve built a model with
+    the data in [Table 5-2](#example_data_for_predicting_house_buyin). During training,
+    our model has seen the annual income values of “150,000,” “50,000,” “100,000,”
+    and so on. During inference, our model encounters an example with an annual income
+    of “9,000.50.”
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管在实践中，我很少发现离散化有所帮助，但这个技术还是包含在这本书中以确保完整性。想象一下，我们用表5-2中的数据建立了一个模型来预测房屋购买。在训练期间，我们的模型看到了“150,000”、“50,000”、“100,000”等年收入值。在推断时，我们的模型遇到了一个年收入为“9,000.50”的例子。
+- en: Intuitively, we know that $9,000.50 a year isn’t much different from $10,000/year,
+    and we want our model to treat both of them the same way. But the model doesn’t
+    know that. Our model only knows that 9,000.50 is different from 10,000, and it
+    will treat them differently.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 直觉上，我们知道每年$9,000.50和$10,000之间的差异并不大，我们希望我们的模型以相同的方式对待它们。但模型不知道这一点。我们的模型只知道9,000.50和10,000是不同的，并且会对它们进行不同处理。
+- en: 'Discretization is the process of turning a continuous feature into a discrete
+    feature. This process is also known as quantization or binning. This is done by
+    creating buckets for the given values. For annual income, you might want to group
+    them into three buckets as follows:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 离散化是将连续特征转换为离散特征的过程。这个过程也称为量化或分桶。通过为给定的值创建桶，来实现这一目标。对于年收入，你可能想将它们分成以下三个桶：
+- en: 'Lower income: less than $35,000/year'
+  id: totrans-82
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 低收入：每年少于$35,000
+- en: 'Middle income: between $35,000 and $100,000/year'
+  id: totrans-83
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 中等收入：每年在$35,000到$100,000之间
+- en: 'Upper income: more than $100,000/year'
+  id: totrans-84
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 高收入：每年超过$100,000
+- en: Instead of having to learn an infinite number of possible incomes, our model
+    can focus on learning only three categories, which is a much easier task to learn.
+    This technique is supposed to be more helpful with limited training data.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的模型不再需要学习无限可能的收入数额，而是可以专注于学习只有三个类别，这是一个更容易的任务。这种技术在有限的训练数据中应该更有帮助。
+- en: 'Even though, by definition, discretization is meant for continuous features,
+    it can be used for discrete features too. The age variable is discrete, but it
+    might still be useful to group the values into buckets such as follows:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管从定义上讲，离散化是针对连续特征的，但它也可以用于离散特征。年龄变量是离散的，但将其值分组成如下桶可能仍然有用：
+- en: Less than 18
+  id: totrans-87
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 少于18岁
+- en: Between 18 and 22
+  id: totrans-88
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 介于18和22之间
+- en: Between 22 and 30
+  id: totrans-89
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 介于22和30之间
+- en: Between 30 and 40
+  id: totrans-90
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 介于30和40之间
+- en: Between 40 and 65
+  id: totrans-91
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 介于40和65之间
+- en: Over 65
+  id: totrans-92
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 超过65岁
+- en: The downside is that this categorization introduces discontinuities at the category
+    boundaries—$34,999 is now treated as completely different from $35,000, which
+    is treated the same as $100,000\. Choosing the boundaries of categories might
+    not be all that easy. You can try to plot the histograms of the values and choose
+    the boundaries that make sense. In general, common sense, basic quantiles, and
+    sometimes subject matter expertise can help.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不足之处在于，这种分类会在类别边界引入不连续性——例如，$34,999现在被视为与$35,000完全不同，而$35,000则与$100,000相同。选择类别的边界可能并不那么容易。你可以尝试绘制值的直方图并选择有意义的边界。总的来说，常识、基本分位数和有时主题专业知识可以提供帮助。
+- en: Encoding Categorical Features
+  id: totrans-94
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 编码分类特征
+- en: We’ve talked about how to turn continuous features into categorical features.
+    In this section, we’ll discuss how to best handle categorical features.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经讨论了如何将连续特征转换为分类特征。在本节中，我们将讨论如何最好地处理分类特征。
+- en: People who haven’t worked with data in production tend to assume that categories
+    are *static*, which means the categories don’t change over time. This is true
+    for many categories. For example, age brackets and income brackets are unlikely
+    to change, and you know exactly how many categories there are in advance. Handling
+    these categories is straightforward. You can just give each category a number
+    and you’re done.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那些没有在生产环境中处理过数据的人倾向于认为类别是*静态*的，这意味着类别随时间不会改变。对于许多类别来说确实如此。例如，年龄段和收入段不太可能改变，而且你提前知道有多少个类别。处理这些类别很简单。你只需给每个类别一个编号，问题就解决了。
+- en: However, in production, categories change. Imagine you’re building a recommender
+    system to predict what products users might want to buy from Amazon. One of the
+    features you want to use is the product brand. When looking at Amazon’s historical
+    data, you realize that there are a lot of brands. Even back in 2019, there were
+    already over two million brands on Amazon!^([6](ch05.xhtml#ch01fn137))
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在生产环境中，类别会发生变化。想象你正在构建一个推荐系统，以预测用户可能想从亚马逊购买的产品。你希望使用的一个特征是产品品牌。当查看亚马逊的历史数据时，你意识到有很多品牌。即使在2019年，亚马逊已经有超过两百万个品牌了！
+- en: 'The number of brands is overwhelming, but you think: “I can still handle this.”
+    You encode each brand as a number, so now you have two million numbers, from 0
+    to 1,999,999, corresponding to two million brands. Your model does spectacularly
+    on the historical test set, and you get approval to test it on 1% of today’s traffic.'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 品牌数量令人难以置信，但你认为：“我仍然能处理这个问题。”你将每个品牌编码为一个数字，现在你有了两百万个数字，从0到1,999,999，对应两百万个品牌。你的模型在历史测试集上表现出色，你获得了测试今天流量的1%的批准。
+- en: In production, your model crashes because it encounters a brand it hasn’t seen
+    before and therefore can’t encode. New brands join Amazon all the time. To address
+    this, you create a category UNKNOWN with the value of 2,000,000 to catch all the
+    brands your model hasn’t seen during training.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产环境中，你的模型因为遇到一个之前没有见过的品牌而崩溃，无法编码。新品牌不断加入亚马逊。为了解决这个问题，你创建了一个名为UNKNOWN的类别，值为200万，以捕获训练期间模型没有见过的所有品牌。
+- en: Your model doesn’t crash anymore, but your sellers complain that their new brands
+    are not getting any traffic. It’s because your model didn’t see the category UNKNOWN
+    in the train set, so it just doesn’t recommend any product of the UNKNOWN brand.
+    You fix this by encoding only the top 99% most popular brands and encode the bottom
+    1% brand as UNKNOWN. This way, at least your model knows how to deal with UNKNOWN
+    brands.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你的模型不再崩溃了，但你的销售人员抱怨说他们的新品牌没有流量。这是因为你的模型在训练集中没有看到类别UNKNOWN，所以它不推荐任何UNKNOWN品牌的产品。你通过只编码前99%最流行的品牌并将剩余的1%品牌编码为UNKNOWN来解决这个问题。这样，至少你的模型知道如何处理UNKNOWN品牌。
+- en: Your model seems to work fine for about one hour, then the click-through rate
+    on product recommendations plummets. Over the last hour, 20 new brands joined
+    your site; some of them are new luxury brands, some of them are sketchy knockoff
+    brands, some of them are established brands. However, your model treats them all
+    the same way it treats unpopular brands in the training data.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你的模型大约运行了一个小时，然后产品推荐的点击率急剧下降。在过去的一个小时内，有20个新品牌加入了你的网站；其中一些是新的奢侈品牌，一些是可疑的仿冒品牌，一些是老牌品牌。然而，你的模型对待它们的方式和对待训练数据中不受欢迎的品牌一样。
+- en: This isn’t an extreme example that only happens if you work at Amazon. This
+    problem happens quite a lot. For example, if you want to predict whether a comment
+    is spam, you might want to use the account that posted this comment as a feature,
+    and new accounts are being created all the time. The same goes for new product
+    types, new website domains, new restaurants, new companies, new IP addresses,
+    and so on. If you work with any of them, you’ll have to deal with this problem.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这不是只有在亚马逊工作才会发生的极端案例。这个问题经常发生。例如，如果你想预测一条评论是否是垃圾评论，你可能想使用发布该评论的账户作为特征，而新账户一直在被创建。同样的情况也适用于新产品类型、新网站域名、新餐厅、新公司、新IP地址等等。如果你处理任何这些内容，你都必须解决这个问题。
+- en: Finding a way to solve this problem turns out to be surprisingly difficult.
+    You don’t want to put them into a set of buckets because it can be really hard—how
+    would you even go about putting new user accounts into different groups?
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 发现解决这个问题的方法竟然如此困难。你不想将其放入一个桶中，因为这样做可能非常困难——你怎么能把新用户账户分成不同的组呢？
+- en: One solution to this problem is the *hashing trick*, popularized by the package
+    Vowpal Wabbit developed at Microsoft.^([7](ch05.xhtml#ch01fn138)) The gist of
+    this trick is that you use a hash function to generate a hashed value of each
+    category. The hashed value will become the index of that category. Because you
+    can specify the hash space, you can fix the number of encoded values for a feature
+    in advance, without having to know how many categories there will be. For example,
+    if you choose a hash space of 18 bits, which corresponds to 2^(18) = 262,144 possible
+    hashed values, all the categories, even the ones that your model has never seen
+    before, will be encoded by an index between 0 and 262,143.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决这个问题的一种方法是*哈希技巧*，由Microsoft开发的Vowpal Wabbit包推广。^([7](ch05.xhtml#ch01fn138))
+    这个技巧的要点是使用哈希函数为每个类别生成一个哈希值。这个哈希值将成为该类别的索引。由于可以指定哈希空间，可以预先确定一个特征的编码值的数量，而不需要知道将会有多少类别。例如，如果选择一个18位的哈希空间，对应于2^(18)
+    = 262,144个可能的哈希值，所有的类别，即使是你的模型以前从未见过的，都将被编码为0到262,143之间的索引。
+- en: 'One problem with hashed functions is collision: two categories being assigned
+    the same index. However, with many hash functions, the collisions are random;
+    new brands can share an index with any of the existing brands instead of always
+    sharing an index with unpopular brands, which is what happens when we use the
+    preceding UNKNOWN category. The impact of colliding hashed features is, fortunately,
+    not that bad. In research done by Booking.com, even for 50% colliding features,
+    the performance loss is less than 0.5%, as shown in [Figure 5-4](#a_fivezeropercent_collision_rate_only_c).^([8](ch05.xhtml#ch01fn139))'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 哈希函数的一个问题是碰撞：两个类别被分配相同的索引。然而，对于许多哈希函数来说，碰撞是随机的；新品牌可以与任何现有品牌共享索引，而不是总是与不受欢迎的品牌共享索引，这是当我们使用先前的未知类别时发生的情况。碰撞哈希特征的影响，幸运的是，不是那么严重。Booking.com的研究表明，即使是50%的碰撞特征，性能损失也不到0.5%，如[图5-4](#a_fivezeropercent_collision_rate_only_c)^([8](ch05.xhtml#ch01fn139))所示。
+- en: '![](Images/dmls_0504.png)'
+  id: totrans-106
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0504.png)'
+- en: 'Figure 5-4\. A 50% collision rate only causes the log loss to increase less
+    than 0.5%. Source: Lucas Bernardi'
+  id: totrans-107
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-4\. 50%的碰撞率只会使对数损失增加不到0.5%。来源：Lucas Bernardi
+- en: You can choose a hash space large enough to reduce the collision. You can also
+    choose a hash function with properties that you want, such as a locality-sensitive
+    hashing function where similar categories (such as websites with similar names)
+    are hashed into values close to each other.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以选择一个足够大的哈希空间来减少碰撞。您还可以选择具有您想要的属性的哈希函数，例如局部敏感哈希函数，其中相似的类别（例如具有相似名称的网站）被哈希到彼此靠近的值。
+- en: Because it’s a trick, it’s often considered hacky by academics and excluded
+    from ML curricula. But its wide adoption in the industry is a testimonial to how
+    effective the trick is. It’s essential to Vowpal Wabbit and it’s part of the frameworks
+    of scikit-learn, TensorFlow, and gensim. It can be especially useful in continual
+    learning settings where your model learns from incoming examples in production.
+    We’ll cover continual learning in [Chapter 9](ch09.xhtml#continual_learning_and_test_in_producti).
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为这是一个技巧，学术界通常认为它是一种巧妙的方法，并且从机器学习课程中排除。但其在行业中的广泛采用证明了这种技巧的有效性。它对于Vowpal Wabbit至关重要，并且是scikit-learn、TensorFlow和gensim框架的一部分。在产品中，这种技巧尤其在连续学习环境中特别有用，其中模型从传入的示例中学习。我们将在[第9章](ch09.xhtml#continual_learning_and_test_in_producti)中介绍连续学习。
+- en: Feature Crossing
+  id: totrans-110
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征交叉
+- en: Feature crossing is the technique to combine two or more features to generate
+    new features. This technique is useful to model the nonlinear relationships between
+    features. For example, for the task of predicting whether someone will want to
+    buy a house in the next 12 months, you suspect that there might be a nonlinear
+    relationship between marital status and number of children, so you combine them
+    to create a new feature “marriage and children” as in [Table 5-3](#example_of_how_two_features_can_be_comb).
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征交叉是将两个或更多特征组合以生成新特征的技术。这种技术对于建模特征之间的非线性关系非常有用。例如，在预测某人是否会在接下来的12个月内购买房屋的任务中，您可能会怀疑婚姻状况和子女数量之间存在非线性关系，因此您将它们组合成一个新特征“婚姻和子女”，如[表5-3](#example_of_how_two_features_can_be_comb)中所示。
+- en: Table 5-3\. Example of how two features can be combined to create a new feature
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表5-3\. 两个特征如何组合以创建一个新特征的示例
+- en: '| Marriage | Single | Married | Single | Single | Married |'
+  id: totrans-113
+  prefs: []
+  type: TYPE_TB
+  zh: '| 婚姻 | 单身 | 已婚 | 单身 | 单身 | 已婚 |'
+- en: '| Children | 0 | 2 | 1 | 0 | 1 |'
+  id: totrans-114
+  prefs: []
+  type: TYPE_TB
+  zh: '| 子女 | 0 | 2 | 1 | 0 | 1 |'
+- en: '| Marriage and children | Single, 0 | Married, 2 | Single, 1 | Single, 0 |
+    Married, 1 |'
+  id: totrans-115
+  prefs: []
+  type: TYPE_TB
+  zh: '| 婚姻和子女 | 单身，0 | 已婚，2 | 单身，1 | 单身，0 | 已婚，1 |'
+- en: Because feature crossing helps model nonlinear relationships between variables,
+    it’s essential for models that can’t learn or are bad at learning nonlinear relationships,
+    such as linear regression, logistic regression, and tree-based models. It’s less
+    important in neural networks, but it can still be useful because explicit feature
+    crossing occasionally helps neural networks learn nonlinear relationships faster.
+    DeepFM and xDeepFM are the family of models that have successfully leveraged explicit
+    feature interactions for recommender systems and click-through-rate prediction.^([9](ch05.xhtml#custom_ch05fn1))
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为特征交叉帮助模型建模变量之间的非线性关系，这对于不能学习或不擅长学习非线性关系的模型非常重要，例如线性回归、逻辑回归和基于树的模型。在神经网络中这并不是那么重要，但它仍然可能很有用，因为显式特征交叉有时可以帮助神经网络更快地学习非线性关系。DeepFM和xDeepFM是成功利用显式特征交互的模型家族，用于推荐系统和点击率预测（参见[9](ch05.xhtml#custom_ch05fn1)）。
+- en: A caveat of feature crossing is that it can make your feature space blow up.
+    Imagine feature A has 100 possible values and feature B has 100 possible features;
+    crossing these two features will result in a feature with 100 × 100 = 10,000 possible
+    values. You will need a lot more data for models to learn all these possible values.
+    Another caveat is that because feature crossing increases the number of features
+    models use, it can make models overfit to the training data.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征交叉的一个警告是它可能导致特征空间的爆炸增长。想象一下，特征A有100个可能的取值，而特征B有100个可能的特征；交叉这两个特征将导致一个具有100
+    × 100 = 10,000个可能值的特征。你将需要更多的数据来让模型学习所有这些可能的值。另一个警告是，由于特征交叉增加了模型使用的特征数量，它可能导致模型对训练数据过拟合。
+- en: Discrete and Continuous Positional Embeddings
+  id: totrans-118
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 离散和连续位置嵌入
+- en: First introduced to the deep learning community in the paper [“Attention Is
+    All You Need”](https://oreil.ly/eXk16) (Vaswani et al. 2017), positional embedding
+    has become a standard data engineering technique for many applications in both
+    computer vision and NLP. We’ll walk through an example to show why positional
+    embedding is necessary and how to do it.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在2017年Vaswani等人的论文[“Attention Is All You Need”](https://oreil.ly/eXk16)中首次介绍给深度学习社区，位置嵌入已经成为计算机视觉和自然语言处理中许多应用的标准数据工程技术。我们将通过一个示例来说明为什么位置嵌入是必要的，以及如何实现它。
+- en: Consider the task of language modeling where you want to predict the next token
+    (e.g., a word, character, or subword) based on the previous sequence of tokens.
+    In practice, a sequence length can be up to 512, if not larger. However, for simplicity,
+    let’s use words as our tokens and use the sequence length of 8\. Given an arbitrary
+    sequence of 8 words, such as “Sometimes all I really want to do is,” we want to
+    predict the next word.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑语言建模任务，你希望基于先前的标记序列预测下一个标记（例如单词、字符或子词）。在实践中，序列长度可以高达512，甚至更大。然而，为简单起见，让我们以单词作为标记，并使用长度为8的序列。给定一个任意的8个单词序列，例如“有时候我真的只想做的是”，我们希望预测下一个单词。
+- en: If we use a recurrent neural network, it will process words in sequential order,
+    which means the order of words is implicitly inputted. However, if we use a model
+    like a transformer, words are processed in parallel, so words’ positions need
+    to be explicitly inputted so that our model knows the order of these words (“a
+    dog bites a child” is very different from “a child bites a dog”). We don’t want
+    to input the absolute positions, 0, 1, 2, …, 7, into our model because empirically,
+    neural networks don’t work well with inputs that aren’t unit-variance (that’s
+    why we scale our features, as discussed previously in the section [“Scaling”](#scaling)).
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们使用循环神经网络，它将按顺序处理单词，这意味着单词的顺序隐含地成为输入。然而，如果我们使用像Transformer这样的模型，单词是并行处理的，因此需要明确地输入单词的位置，以便我们的模型知道这些单词的顺序（“一只狗咬了一个孩子”与“一个孩子咬了一只狗”是完全不同的）。我们不希望将绝对位置0、1、2、…、7直接输入到我们的模型中，因为经验上，神经网络不擅长处理不是单位方差的输入（这就是为什么我们要缩放我们的特征，正如在[“缩放”](#scaling)部分中讨论的那样）。
+- en: If we rescale the positions to between 0 and 1, so 0, 1, 2, …, 7 become 0, 0.143,
+    0.286, …, 1, the differences between the two positions will be too small for neural
+    networks to learn to differentiate.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们将位置重新缩放到0到1之间，使得0、1、2、…、7成为0、0.143、0.286、…、1，那么这两个位置之间的差异对于神经网络学习区分将会太小。
+- en: A way to handle position embeddings is to treat it the way we’d treat word embedding.
+    With word embedding, we use an embedding matrix with the vocabulary size as its
+    number of columns, and each column is the embedding for the word at the index
+    of that column. With position embedding, the number of columns is the number of
+    positions. In our case, since we only work with the previous sequence size of
+    8, the positions go from 0 to 7 (see [Figure 5-5](#one_way_to_embed_positions_is_to_treat)).
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理位置嵌入的一种方法是将其视为处理词嵌入的方式。使用词嵌入时，我们使用一个具有词汇量大小作为其列数的嵌入矩阵，每列是该列索引处词的嵌入。对于位置嵌入，列数是位置数。在我们的情况下，由于我们只处理前一个序列大小为8，因此位置从0到7（参见[图5-5](#one_way_to_embed_positions_is_to_treat)）。
+- en: The embedding size for positions is usually the same as the embedding size for
+    words so that they can be summed. For example, the embedding for the word “food”
+    at position 0 is the sum of the embedding vector for the word “food” and the embedding
+    vector for position 0\. This is the way position embeddings are implemented in
+    Hugging Face’s BERT as of August 2021\. Because the embeddings change as the model
+    weights get updated, we say that the position embeddings are learned.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 位置嵌入的嵌入大小通常与单词的嵌入大小相同，以便它们可以相加。例如，单词“food”在位置0的嵌入是单词“food”的嵌入向量和位置0的嵌入向量的和。这是Hugging
+    Face的BERT在2021年8月实施位置嵌入的方式。由于嵌入随着模型权重的更新而改变，我们说位置嵌入是可学习的。
+- en: '![](Images/dmls_0505.png)'
+  id: totrans-125
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0505.png)'
+- en: Figure 5-5\. One way to embed positions is to treat them the way you’d treat
+    word embeddings
+  id: totrans-126
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-5。一种嵌入位置的方式是将它们视为处理词嵌入的方式
+- en: Position embeddings can also be fixed. The embedding for each position is still
+    a vector with *S* elements (*S* is the position embedding size), but each element
+    is predefined using a function, usually sine and cosine. In [the original Transformer
+    paper](https://oreil.ly/hifg6), if the element is at an even index, use sine.
+    Else, use cosine. See [Figure 5-6](#example_of_fixed_position_embeddingdot).
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 位置嵌入也可以是固定的。每个位置的嵌入仍然是具有*S*个元素的向量（*S*是位置嵌入的大小），但是每个元素都是使用函数预定义的，通常是正弦和余弦。在[原始Transformer论文](https://oreil.ly/hifg6)中，如果元素位于偶数索引，则使用正弦。否则，使用余弦。参见[图5-6](#example_of_fixed_position_embeddingdot)。
+- en: '![](Images/dmls_0506.png)'
+  id: totrans-128
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0506.png)'
+- en: Figure 5-6\. Example of fixed position embedding. H is the dimension of the
+    outputs produced by the model.
+  id: totrans-129
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-6。固定位置嵌入的示例。*H*是模型生成的输出的维数。
+- en: Fixed positional embedding is a special case of what is known as Fourier features.
+    If positions in positional embeddings are discrete, Fourier features can also
+    be continuous. Consider the task involving representations of 3D objects, such
+    as a teapot. Each position on the surface of the teapot is represented by a three-dimensional
+    coordinate, which is continuous. When positions are continuous, it’d be very hard
+    to build an embedding matrix with continuous column indices, but fixed position
+    embeddings using sine and cosine functions still work.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 固定位置嵌入是所谓傅里叶特征的一个特例。如果位置在位置嵌入中是离散的，那么傅里叶特征也可以是连续的。考虑涉及三维对象（如茶壶）表示的任务。茶壶表面上的每个位置由三维坐标表示，这是连续的。当位置是连续的时，要构建一个具有连续列索引的嵌入矩阵会非常困难，但使用正弦和余弦函数的固定位置嵌入仍然有效。
+- en: The following is the generalized format for the embedding vector at coordinate
+    *v*, also called the Fourier features of coordinate *v*. Fourier features have
+    been shown to improve models’ performance for tasks that take in coordinates (or
+    positions) as inputs. If interested, you might want to read more about it in [“Fourier
+    Features Let Networks Learn High Frequency Functions in Low Dimensional Domains”](https://oreil.ly/cbxr1)
+    (Tancik et al. 2020).
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是坐标*v*的嵌入向量的广义格式，也称为坐标*v*的傅里叶特征。已经显示傅里叶特征可以提高模型对接收坐标（或位置）作为输入的任务的性能。如果感兴趣，您可能想在[“Fourier
+    Features Let Networks Learn High Frequency Functions in Low Dimensional Domains”](https://oreil.ly/cbxr1)（Tancik等人，2020年）中进一步阅读。
+- en: <math alttext="gamma left-parenthesis v right-parenthesis equals left-bracket
+    a 1 cosine left-parenthesis 2 pi b 1 Superscript upper T Baseline v right-parenthesis
+    comma a 1 sine left-parenthesis 2 pi b 1 Superscript upper T Baseline v right-parenthesis
+    comma ellipsis comma a Subscript m Baseline cosine left-parenthesis 2 pi b Subscript
+    m Baseline Superscript upper T Baseline v right-parenthesis comma a Subscript
+    m Baseline sine left-parenthesis 2 pi b Subscript m Baseline Superscript upper
+    T Baseline v right-parenthesis right-bracket Superscript upper T"><mrow><mi>γ</mi>
+    <mrow><mo>(</mo> <mi>v</mi> <mo>)</mo></mrow> <mo>=</mo> <msup><mrow><mo>[</mo><msub><mi>a</mi>
+    <mn>1</mn></msub> <mo form="prefix">cos</mo><mrow><mo>(</mo><mn>2</mn><mi>π</mi><msup><mrow><msub><mi>b</mi>
+    <mn>1</mn></msub></mrow> <mi>T</mi></msup> <mi>v</mi><mo>)</mo></mrow><mo>,</mo><msub><mi>a</mi>
+    <mn>1</mn></msub> <mo form="prefix">sin</mo><mrow><mo>(</mo><mn>2</mn><mi>π</mi><msup><mrow><msub><mi>b</mi>
+    <mn>1</mn></msub></mrow> <mi>T</mi></msup> <mi>v</mi><mo>)</mo></mrow><mo>,</mo><mo>...</mo><mo>,</mo><msub><mi>a</mi>
+    <mi>m</mi></msub> <mo form="prefix">cos</mo><mrow><mo>(</mo><mn>2</mn><mi>π</mi><msup><mrow><msub><mi>b</mi>
+    <mi>m</mi></msub></mrow> <mi>T</mi></msup> <mi>v</mi><mo>)</mo></mrow><mo>,</mo><msub><mi>a</mi>
+    <mi>m</mi></msub> <mo form="prefix">sin</mo><mrow><mo>(</mo><mn>2</mn><mi>π</mi><msup><mrow><msub><mi>b</mi>
+    <mi>m</mi></msub></mrow> <mi>T</mi></msup> <mi>v</mi><mo>)</mo></mrow><mo>]</mo></mrow>
+    <mi>T</mi></msup></mrow></math>
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="gamma left-parenthesis v right-parenthesis equals left-bracket
+    a 1 cosine left-parenthesis 2 pi b 1 Superscript upper T Baseline v right-parenthesis
+    comma a 1 sine left-parenthesis 2 pi b 1 Superscript upper T Baseline v right-parenthesis
+    comma ellipsis comma a Subscript m Baseline cosine left-parenthesis 2 pi b Subscript
+    m Baseline Superscript upper T Baseline v right-parenthesis comma a Subscript
+    m Baseline sine left-parenthesis 2 pi b Subscript m Baseline Superscript upper
+    T Baseline v right-parenthesis right-bracket Superscript upper T"><mrow><mi>γ</mi>
+    <mrow><mo>(</mo> <mi>v</mi> <mo>)</mo></mrow> <mo>=</mo> <msup><mrow><mo>[</mo><msub><mi>a</mi>
+    <mn>1</mn></msub> <mo form="prefix">cos</mo><mrow><mo>(</mo><mn>2</mn><mi>π</mi><msup><mrow><msub><mi>b</mi>
+    <mn>1</mn></msub></mrow> <mi>T</mi></msup> <mi>v</mi><mo>)</mo></mrow><mo>,</mo><msub><mi>a</mi>
+    <mn>1</mn></msub> <mo form="prefix">sin</mo><mrow><mo>(</mo><mn>2</mn><mi>π</mi><msup><mrow><msub><mi>b</mi>
+    <mn>1</mn></msub></mrow> <mi>T</mi></msup> <mi>v</mi><mo>)</mo></mrow><mo>,</mo><mo>...</mo><mo>,</mo><msub><mi>a</mi>
+    <mi>m</mi></msub> <mo form="prefix">cos</mo><mrow><mo>(</mo><mn>2</mn><mi>π</mi><msup><mrow><msub><mi>b</mi>
+    <mi>m</mi></msub></mrow> <mi>T</mi></msup> <mi>v</mi><mo>)</mo></mrow><mo>,</mo><msub><mi>a</mi>
+    <mi>m</mi></msub> <mo form="prefix">sin</mo><mrow><mo>(</mo><mn>2</mn><mi>π</mi><msup><mrow><msub><mi>b</mi>
+    <mi>m</mi></msub></mrow> <mi>T</mi></msup> <mi>v</mi><mo>)</mo></mrow><mo>]</mo></mrow>
+    <mi>T</mi></msup></mrow></math>
+- en: Data Leakage
+  id: totrans-133
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 数据泄露
+- en: In July 2021, *MIT Technology Review* ran a provocative article titled “Hundreds
+    of AI Tools Have Been Built to Catch Covid. None of Them Helped.” These models
+    were trained to predict COVID-19 risks from medical scans. The article listed
+    multiple examples where ML models that performed well during evaluation failed
+    to be usable in actual production settings.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 2021 年 7 月，《麻省理工科技评论》发表了一篇引人深思的文章，题为“数百种 AI 工具被开发用于捕捉 Covid。但它们一个都没用。” 这些模型是为了从医学扫描中预测
+    COVID-19 风险而训练的。文章列举了多个例子，显示在评估时表现良好的机器学习模型在实际生产环境中却无法使用。
+- en: In one example, researchers trained their model on a mix of scans taken when
+    patients were lying down and standing up. “Because patients scanned while lying
+    down were more likely to be seriously ill, the model learned to predict serious
+    covid risk from a person’s position.”
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 举例来说，研究人员训练他们的模型时混合了患者仰卧和站立时拍摄的扫描。"因为仰卧扫描的患者更可能重症，所以模型学会从人体位置预测严重的 Covid 风险。"
+- en: In some other cases, models were “found to be picking up on the text font that
+    certain hospitals used to label the scans. As a result, fonts from hospitals with
+    more serious caseloads became predictors of covid risk.”^([12](ch05.xhtml#ch01fn142))
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在其他一些情况下，模型“被发现依赖于某些医院用于标记扫描的文本字体。因此，来自严重病例负担更重的医院的字体成为 Covid 风险的预测因子。”^([12](ch05.xhtml#ch01fn142))
+- en: Both of these are examples of data leakage. *Data leakage* refers to the phenomenon
+    when a form of the label “leaks” into the set of features used for making predictions,
+    and this same information is not available during inference.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两个例子都是数据泄漏的示例。*数据泄漏* 是指标签的某种形式“泄漏”到用于进行预测的特征集中，而这些信息在推断时不可用。
+- en: Data leakage is challenging because often the leakage is nonobvious. It’s dangerous
+    because it can cause your models to fail in an unexpected and spectacular way,
+    even after extensive evaluation and testing. Let’s go over another example to
+    demonstrate what data leakage is.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据泄漏具有挑战性，因为泄漏通常不明显。它是危险的，因为即使经过了广泛的评估和测试，它也可能导致你的模型以意想不到的令人瞩目的方式失败。让我们通过另一个例子来演示数据泄漏是什么。
+- en: Suppose you want to build an ML model to predict whether a CT scan of a lung
+    shows signs of cancer. You obtained the data from hospital A, removed the doctors’
+    diagnosis from the data, and trained your model. It did really well on the test
+    data from hospital A, but poorly on the data from hospital B.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你想要建立一个机器学习模型来预测肺部 CT 扫描是否显示癌症迹象。你从 A 医院获取了数据，删除了医生的诊断信息，并训练了你的模型。在 A 医院的测试数据上表现良好，但在
+    B 医院的数据上表现不佳。
+- en: After extensive investigation, you learned that at hospital A, when doctors
+    think that a patient has lung cancer, they send that patient to a more advanced
+    scan machine, which outputs slightly different CT scan images. Your model learned
+    to rely on the information on the scan machine used to make predictions on whether
+    a scan image shows signs of lung cancer. Hospital B sends the patients to different
+    CT scan machines at random, so your model has no information to rely on. We say
+    that labels are leaked into the features during training.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 经过深入调查，你发现在 A 医院，当医生认为患者患有肺癌时，他们会将患者送往更先进的扫描机器，这些机器会输出略有不同的 CT 扫描图像。你的模型学会依赖于用于预测扫描图像是否显示肺癌迹象的扫描机器信息。而
+    B 医院随机将患者送往不同的 CT 扫描机器，因此你的模型无法依赖任何信息。我们称这种情况为标签在训练过程中泄漏到特征中。
+- en: Data leakage can happen not only with newcomers to the field, but has also happened
+    to several experienced researchers whose work I admire, and in one of my own projects.
+    Despite its prevalence, data leakage is rarely covered in ML curricula.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据泄漏不仅可能发生在这个领域的新手身上，还曾经发生在几位我敬仰的经验丰富的研究人员身上，甚至在我的一个项目中也发生过。尽管数据泄漏很常见，但在机器学习课程中很少涉及。
+- en: Common Causes for Data Leakage
+  id: totrans-142
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据泄漏的常见原因
+- en: In this section, we’ll go over some common causes for data leakage and how to
+    avoid them.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一部分中，我们将讨论一些数据泄漏的常见原因及其如何避免。
+- en: Splitting time-correlated data randomly instead of by time
+  id: totrans-144
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 随机分割时间相关的数据，而不是按时间分割
+- en: When I learned ML in college, I was taught to randomly split my data into train,
+    validation, and test splits. This is also how data is often reportedly split in
+    ML research papers. However, this is also one common cause for data leakage.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我在大学学习机器学习时，我被教导将我的数据随机分成训练、验证和测试集。这也是机器学习研究论文中常见的数据分割方式。然而，这也是数据泄漏的一个常见原因之一。
+- en: In many cases, data is time-correlated, which means that the time the data is
+    generated affects its label distribution. Sometimes, the correlation is obvious,
+    as in the case of stock prices. To oversimplify it, the prices of similar stocks
+    tend to move together. If 90% of the tech stocks go down today, it’s very likely
+    the other 10% of the tech stocks go down too. When building models to predict
+    the future stock prices, you want to split your training data by time, such as
+    training your model on data from the first six days and evaluating it on data
+    from the seventh day. If you randomly split your data, prices from the seventh
+    day will be included in your train split and leak into your model the condition
+    of the market on that day. We say that the information from the future is leaked
+    into the training process.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多情况下，数据是时间相关的，这意味着生成数据的时间影响其标签分布。有时，相关性是显而易见的，比如股票价格的情况。简单地说，相似股票的价格倾向于一起波动。如果今天有
+    90% 的科技股票下跌，其他 10% 的科技股票很可能也会下跌。在构建预测未来股票价格的模型时，你希望按时间分割训练数据，比如在前六天的数据上训练模型，然后在第七天的数据上进行评估。如果随机分割数据集，第七天的价格将包含在训练集中，并泄漏到模型中关于那天市场情况的信息。我们称未来的信息泄漏到了训练过程中。
+- en: However, in many cases, the correlation is nonobvious. Consider the task of
+    predicting whether someone will click on a song recommendation. Whether someone
+    will listen to a song depends not only on their music taste but also on the general
+    music trend that day. If an artist passes away one day, people will be much more
+    likely to listen to that artist. By including samples from a certain day in the
+    train split, information about the music trend that day will be passed into your
+    model, making it easier for it to make predictions on other samples on that same
+    day.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在许多情况下，相关性并不明显。考虑预测某人是否会点击歌曲推荐的任务。是否会听某首歌不仅取决于他们的音乐品味，还取决于那一天的一般音乐趋势。如果一位艺术家某天去世，人们很可能更倾向于听那位艺术家的歌曲。通过在训练集中包含某一天的样本，该天的音乐趋势信息将传递到你的模型中，使其更容易对同一天的其他样本进行预测。
+- en: To prevent future information from leaking into the training process and allowing
+    models to cheat during evaluation, split your data by time, instead of splitting
+    randomly, whenever possible. For example, if you have data from five weeks, use
+    the first four weeks for the train split, then randomly split week 5 into validation
+    and test splits as shown in [Figure 5-7](#split_data_by_time_to_prevent_future_in).
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了防止未来信息泄漏到训练过程中并且允许模型在评估过程中作弊，尽可能按时间分割数据，而不是随机分割。例如，如果你有五周的数据，使用前四周作为训练集，然后像图
+    5-7 中展示的那样，随机分割第五周为验证集和测试集。
+- en: '![](Images/dmls_0507.png)'
+  id: totrans-149
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0507.png)'
+- en: Figure 5-7\. Split data by time to prevent future information from leaking into
+    the training process
+  id: totrans-150
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 5-7\. 按时间分割数据，防止未来信息泄漏到训练过程中
+- en: Scaling before splitting
+  id: totrans-151
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 分割前先进行缩放
+- en: As discussed in the section [“Scaling”](#scaling), it’s important to scale your
+    features. Scaling requires global statistics—e.g., mean, variance—of your data.
+    One common mistake is to use the entire training data to generate global statistics
+    before splitting it into different splits, leaking the mean and variance of the
+    test samples into the training process, allowing a model to adjust its predictions
+    for the test samples. This information isn’t available in production, so the model’s
+    performance will likely degrade.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如在章节 [“缩放”](#scaling) 中讨论的，对于你的特征进行缩放是很重要的。缩放需要全局统计数据，比如均值、方差。一个常见的错误是在将训练数据分割成不同部分之前，使用整个训练数据生成全局统计数据，将测试样本的均值和方差泄漏到训练过程中，使模型调整其对测试样本的预测。这些信息在生产中是不可用的，因此模型的性能可能会下降。
+- en: To avoid this type of leakage, always split your data first before scaling,
+    then use the statistics from the train split to scale all the splits. Some even
+    suggest that we split our data before any exploratory data analysis and data processing,
+    so that we don’t accidentally gain information about the test split.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了避免这种泄漏，总是在缩放之前先分割数据，然后使用训练集的统计数据来缩放所有的分割。有些人甚至建议在进行任何探索性数据分析和数据处理之前先分割数据，这样就不会意外地获取有关测试集的信息。
+- en: Filling in missing data with statistics from the test split
+  id: totrans-154
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用测试集的统计数据填充缺失数据
+- en: One common way to handle the missing values of a feature is to fill (input)
+    them with the mean or median of all values present. Leakage might occur if the
+    mean or median is calculated using entire data instead of just the train split.
+    This type of leakage is similar to the type of leakage caused by scaling, and
+    it can be prevented by using only statistics from the train split to fill in missing
+    values in all the splits.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理特征缺失值的一种常见方法是使用所有现有值的平均值或中位数来填充（输入）它们。如果使用整个数据集而不是仅使用训练集来计算平均值或中位数，则可能导致泄漏。这种类型的泄漏类似于由缩放引起的泄漏，可以通过仅使用训练集的统计数据来填充所有分割中的缺失值来预防。
+- en: Poor handling of data duplication before splitting
+  id: totrans-156
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 分割前的数据重复处理不当
+- en: If you have duplicates or near-duplicates in your data, failing to remove them
+    before splitting your data might cause the same samples to appear in both train
+    and validation/test splits. Data duplication is quite common in the industry,
+    and has also been found in popular research datasets. For example, CIFAR-10 and
+    CIFAR-100 are two popular datasets used for computer vision research. They were
+    released in 2009, yet it was not until 2019 that Barz and Denzler discovered that
+    3.3% and 10% of the images from the test sets of the CIFAR-10 and CIFAR-100 datasets
+    have duplicates in the training set.^([15](ch05.xhtml#ch01fn145))
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的数据中存在重复或接近重复的情况，在分割数据之前未能去除它们可能导致相同样本出现在训练和验证/测试分割中。数据重复在行业中非常普遍，并且在流行的研究数据集中也有发现。例如，CIFAR-10和CIFAR-100是用于计算机视觉研究的两个流行数据集。它们在2009年发布，但直到2019年，Barz和Denzler才发现，CIFAR-10和CIFAR-100数据集的测试集中有3.3%和10%的图像在训练集中存在重复。^([15](ch05.xhtml#ch01fn145))
+- en: Data duplication can result from data collection or merging of different data
+    sources. A 2021 *Nature* article listed data duplication as a common pitfall when
+    using ML to detect COVID-19, which happened because “one dataset combined several
+    other datasets without realizing that one of the component datasets already contains
+    another component.”^([16](ch05.xhtml#ch01fn146)) Data duplication can also happen
+    because of data processing—for example, oversampling might result in duplicating
+    certain examples.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据重复可能是由于数据收集或合并不同数据源导致的。2021年的一篇《自然》文章将数据重复列为使用机器学习检测COVID-19时的常见陷阱之一，原因是“一个数据集合并了几个其他数据集，却没有意识到一个组件数据集已经包含了另一个组件。”^([16](ch05.xhtml#ch01fn146))
+    数据重复也可能是由于数据处理引起的——例如，过度采样可能导致某些示例的重复。
+- en: To avoid this, always check for duplicates before splitting and also after splitting
+    just to make sure. If you oversample your data, do it after splitting.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了避免这种情况，请在分割之前和之后都检查重复项以确保安全。如果您过度采样数据，请在分割之后再执行此操作。
+- en: Group leakage
+  id: totrans-160
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 组泄漏
+- en: A group of examples have strongly correlated labels but are divided into different
+    splits. For example, a patient might have two lung CT scans that are a week apart,
+    which likely have the same labels on whether they contain signs of lung cancer,
+    but one of them is in the train split and the second is in the test split. This
+    type of leakage is common for objective detection tasks that contain photos of
+    the same object taken milliseconds apart—some of them landed in the train split
+    while others landed in the test split. It’s hard avoiding this type of data leakage
+    without understanding how your data was generated.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一组示例具有强相关的标签，但分为不同的分割。例如，一个患者可能有两个相隔一周的肺部CT扫描，它们可能在是否包含肺癌迹象的标签上具有相同的标签，但其中一个在训练集中，另一个在测试集中。这种类型的泄漏在包含同一对象照片的客观检测任务中很常见——一些照片落在训练集中，而其他照片落在测试集中。如果不了解数据生成方式，很难避免这种数据泄漏。
+- en: Leakage from data generation process
+  id: totrans-162
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 来自数据生成过程的泄漏
+- en: The example earlier about how information on whether a CT scan shows signs of
+    lung cancer is leaked via the scan machine is an example of this type of leakage.
+    Detecting this type of data leakage requires a deep understanding of the way data
+    is collected. For example, it would be very hard to figure out that the model’s
+    poor performance in hospital B is due to its different scan machine procedure
+    if you don’t know about different scan machines or that the procedures at the
+    two hospitals are different.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 早些时候关于CT扫描显示肺癌迹象信息通过扫描机泄漏的示例就是这种类型的泄漏。检测这种数据泄漏需要深入了解数据收集方式。例如，如果不了解不同的扫描机或两家医院的程序不同，就很难弄清楚模型在医院B表现不佳的原因。
+- en: There’s no foolproof way to avoid this type of leakage, but you can mitigate
+    the risk by keeping track of the sources of your data and understanding how it
+    is collected and processed. Normalize your data so that data from different sources
+    can have the same means and variances. If different CT scan machines output images
+    with different resolutions, normalizing all the images to have the same resolution
+    would make it harder for models to know which image is from which scan machine.
+    And don’t forget to incorporate subject matter experts, who might have more contexts
+    on how data is collected and used, into the ML design process!
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有绝对可靠的方法来避免这种类型的泄漏，但你可以通过跟踪数据的来源并了解数据的收集和处理方式来减少风险。归一化你的数据，使不同来源的数据具有相同的均值和方差。如果不同的
+    CT 扫描机器输出具有不同分辨率的图像，将所有图像归一化到相同的分辨率会使模型更难区分哪些图像来自哪个扫描机器。还要不要忘记将更多了解数据收集和使用背景的学科专家纳入机器学习设计过程中！
+- en: Detecting Data Leakage
+  id: totrans-165
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 检测数据泄漏
+- en: Data leakage can happen during many steps, from generating, collecting, sampling,
+    splitting, and processing data to feature engineering. It’s important to monitor
+    for data leakage during the entire lifecycle of an ML project.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据泄漏可能发生在许多步骤中，从生成、收集、抽样、分割和处理数据到特征工程。在机器学习项目的整个生命周期中监控数据泄漏非常重要。
+- en: Measure the predictive power of each feature or a set of features with respect
+    to the target variable (label). If a feature has unusually high correlation, investigate
+    how this feature is generated and whether the correlation makes sense. It’s possible
+    that two features independently don’t contain leakage, but two features together
+    can contain leakage. For example, when building a model to predict how long an
+    employee will stay at a company, the starting date and the end date separately
+    doesn’t tell us much about their tenure, but both together can give us that information.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测量每个特征或一组特征相对于目标变量（标签）的预测能力。如果一个特征具有异常高的相关性，请调查该特征的生成方式及其相关性是否合理。可能两个特征单独来看不包含泄漏信息，但两个特征一起可能包含泄漏信息。例如，当构建一个预测员工在公司停留时间的模型时，起始日期和结束日期单独来看并不能告诉我们太多关于他们的任职期，但两者结合起来可以提供这些信息。
+- en: Do ablation studies to measure how important a feature or a set of features
+    is to your model. If removing a feature causes the model’s performance to deteriorate
+    significantly, investigate why that feature is so important. If you have a massive
+    amount of features, say a thousand features, it might be infeasible to do ablation
+    studies on every possible combination of them, but it can still be useful to occasionally
+    do ablation studies with a subset of features that you suspect the most. This
+    is another example of how subject matter expertise can come in handy in feature
+    engineering. Ablation studies can be run offline at your own schedule, so you
+    can leverage your machines during downtime for this purpose.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进行消融研究，衡量一个特征或一组特征对模型的重要性。如果删除某个特征会显著降低模型的性能，请调查该特征为何如此重要。如果特征数量庞大，比如一千个特征，可能无法对每一种可能的组合都进行消融研究，但偶尔使用你怀疑最重要的一些特征子集进行消融研究仍然有用。这是学科专业知识在特征工程中如何派上用场的另一个例子。消融研究可以在你自己的时间安排下线下运行，所以你可以利用机器在空闲时间进行这项工作。
+- en: Keep an eye out for new features added to your model. If adding a new feature
+    significantly improves your model’s performance, either that feature is really
+    good or that feature just contains leaked information about labels.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要密切关注添加到模型的新特征。如果添加新特征显著改善了模型的性能，那么要么该特征非常好，要么该特征只是包含有关标签的泄漏信息。
+- en: Be very careful every time you look at the test split. If you use the test split
+    in any way other than to report a model’s final performance, whether to come up
+    with ideas for new features or to tune hyperparameters, you risk leaking information
+    from the future into your training process.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每次查看测试分割时都要非常小心。如果你在任何方式上使用测试分割，而不仅仅是报告模型的最终性能，比如用于提出新特征的想法或调整超参数，都存在将未来信息泄漏到训练过程中的风险。
+- en: Engineering Good Features
+  id: totrans-171
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 工程化良好特征
+- en: 'Generally, adding more features leads to better model performance. In my experience,
+    the list of features used for a model in production only grows over time. However,
+    more features doesn’t always mean better model performance. Having too many features
+    can be bad both during training and serving your model for the following reasons:'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一般来说，增加更多特征会提高模型性能。根据我的经验，用于生产模型的特征列表随时间只会增加。然而，更多特征并不总是意味着更好的模型性能。因为在训练和为模型提供服务时，拥有太多特征可能会因以下原因而不利：
+- en: The more features you have, the more opportunities there are for data leakage.
+  id: totrans-173
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 拥有更多特征意味着有更多数据泄露的机会。
+- en: Too many features can cause overfitting.
+  id: totrans-174
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 太多的特征可能会导致过拟合。
+- en: Too many features can increase memory required to serve a model, which, in turn,
+    might require you to use a more expensive machine/instance to serve your model.
+  id: totrans-175
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 太多的特征可能会增加为模型提供服务所需的内存，这反过来可能需要您使用更昂贵的机器/实例来为模型提供服务。
+- en: Too many features can increase inference latency when doing online prediction,
+    especially if you need to extract these features from raw data for predictions
+    online. We’ll go deeper into online prediction in [Chapter 7](ch07.xhtml#model_deployment_and_prediction_service).
+  id: totrans-176
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 太多的特征可能会增加在线预测时的推断延迟，特别是如果您需要从原始数据中提取这些特征进行在线预测。我们将在[第7章](ch07.xhtml#model_deployment_and_prediction_service)更深入地讨论在线预测。
+- en: Useless features become technical debts. Whenever your data pipeline changes,
+    all the affected features need to be adjusted accordingly. For example, if one
+    day your application decides to no longer take in information about users’ age,
+    all features that use users’ age need to be updated.
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 无用的特征变成了技术债务。每当您的数据管道发生变化时，所有受影响的特征都需要相应地进行调整。例如，如果有一天您的应用程序决定不再接收有关用户年龄的信息，则需要更新使用用户年龄的所有特征。
+- en: In theory, if a feature doesn’t help a model make good predictions, regularization
+    techniques like L1 regularization should reduce that feature’s weight to 0\. However,
+    in practice, it might help models learn faster if the features that are no longer
+    useful (and even possibly harmful) are removed, prioritizing good features.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理论上，如果一个特征对模型的预测没有帮助，正则化技术如L1正则化应该将该特征的权重减少到0。然而，在实践中，如果不再有用（甚至可能有害）的特征被移除，优先考虑好的特征可能会帮助模型更快地学习。
+- en: You can store removed features to add them back later. You can also just store
+    general feature definitions to reuse and share across teams in an organization.
+    When talking about feature definition management, some people might think of feature
+    stores as the solution. However, not all feature stores manage feature definitions.
+    We’ll discuss feature stores further in [Chapter 10](ch10.xhtml#infrastructure_and_tooling_for_mlops).
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以存储已移除的特征以便稍后添加回来。您也可以仅存储一般特征定义，以便在组织中的团队之间重复使用和共享。谈论特征定义管理时，一些人可能会考虑特征存储作为解决方案。然而，并非所有特征存储管理特征定义。我们将在[第10章](ch10.xhtml#infrastructure_and_tooling_for_mlops)进一步讨论特征存储。
+- en: 'There are two factors you might want to consider when evaluating whether a
+    feature is good for a model: importance to the model and generalization to unseen
+    data.'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在评估特征对模型是否有益时，您可能要考虑两个因素：对模型的重要性和对未见数据的泛化能力。
+- en: Feature Importance
+  id: totrans-181
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征重要性
+- en: There are many different methods for measuring a feature’s importance. If you
+    use a classical ML algorithm like boosted gradient trees, the easiest way to measure
+    the importance of your features is to use built-in feature importance functions
+    implemented by XGBoost.^([17](ch05.xhtml#ch01fn147)) For more model-agnostic methods,
+    you might want to look into SHAP (SHapley Additive exPlanations).^([18](ch05.xhtml#ch01fn148))
+    [InterpretML](https://oreil.ly/oPllN) is a great open source package that leverages
+    feature importance to help you understand how your model makes predictions.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有许多不同的方法来衡量特征的重要性。如果您使用像增强梯度树这样的经典机器学习算法，衡量您特征重要性的最简单方法是使用XGBoost实现的内置特征重要性函数。^([17](ch05.xhtml#ch01fn147))
+    对于更多与模型无关的方法，您可能需要研究SHAP（SHapley Additive exPlanations）。^([18](ch05.xhtml#ch01fn148))
+    [InterpretML](https://oreil.ly/oPllN)是一个很好的开源软件包，利用特征重要性帮助您理解模型如何进行预测。
+- en: The exact algorithm for feature importance measurement is complex, but intuitively,
+    a feature’s importance to a model is measured by how much that model’s performance
+    deteriorates if that feature or a set of features containing that feature is removed
+    from the model. SHAP is great because it not only measures a feature’s importance
+    to an entire model, it also measures each feature’s contribution to a model’s
+    specific prediction. Figures [5-8](#how_much_each_feature_contributes_to) and
+    [5-9](#how_much_each_feature_contributes_to_a) show how SHAP can help you understand
+    the contribution of each feature to a model’s predictions.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征重要性测量的确切算法很复杂，但直觉上，特征对模型的重要性是通过如果删除该特征或包含该特征的一组特征，模型性能会如何恶化来衡量的。SHAP之所以出色，是因为它不仅衡量特定模型对整体模型的重要性，还衡量每个特征对模型特定预测的贡献。图
+    [5-8](#how_much_each_feature_contributes_to) 和 [5-9](#how_much_each_feature_contributes_to_a)
+    展示了SHAP如何帮助您理解每个特征对模型预测的贡献。
+- en: '![](Images/dmls_0508.png)'
+  id: totrans-184
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0508.png)'
+- en: 'Figure 5-8\. How much each feature contributes to a model’s single prediction,
+    measured by SHAP. The value LSTAT = 4.98 contributes the most to this specific
+    prediction. Source: Scott Lundberg^([19](ch05.xhtml#custom_ch05fn2))'
+  id: totrans-185
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-8\. 每个特征对模型单次预测的贡献，由SHAP测量。值LSTAT = 4.98对此特定预测贡献最大。来源：Scott Lundberg^([19](ch05.xhtml#custom_ch05fn2))
+- en: '![](Images/dmls_0509.png)'
+  id: totrans-186
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0509.png)'
+- en: 'Figure 5-9\. How much each feature contributes to a model, measured by SHAP.
+    The feature LSTAT has the highest importance. Source: Scott Lundberg'
+  id: totrans-187
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-9\. 每个特征对模型的贡献，由SHAP测量。特征LSTAT具有最高的重要性。来源：Scott Lundberg
+- en: Often, a small number of features accounts for a large portion of your model’s
+    feature importance. When measuring feature importance for a click-through rate
+    prediction model, the ads team at Facebook found out that the top 10 features
+    are responsible for about half of the model’s total feature importance, whereas
+    the last 300 features contribute less than 1% feature importance, as shown in
+    [Figure 5-10](#boosting_feature_importancedot_x_axis_c).^([20](ch05.xhtml#ch01fn149))
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，少数特征占据了模型特征重要性的大部分。在衡量点击率预测模型的特征重要性时，Facebook的广告团队发现，前10个特征负责模型总特征重要性的约一半，而最后的300个特征贡献的特征重要性不到1%，如
+    [图5-10](#boosting_feature_importancedot_x_axis_c) 所示^([20](ch05.xhtml#ch01fn149))。
+- en: '![](Images/dmls_0510.png)'
+  id: totrans-189
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0510.png)'
+- en: 'Figure 5-10\. Boosting feature importance. X-axis corresponds to the number
+    of features. Feature importance is in log scale. Source: He et al.'
+  id: totrans-190
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-10\. 提升特征重要性。X轴对应特征数。特征重要性以对数刻度显示。来源：He等
+- en: Not only good for choosing the right features, feature importance techniques
+    are also great for interpretability as they help you understand how your models
+    work under the hood.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征重要性技术不仅有助于选择正确的特征，还有助于解释性，因为它们帮助您了解模型的内部运作方式。
+- en: Feature Generalization
+  id: totrans-192
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征泛化
+- en: Since the goal of an ML model is to make correct predictions on unseen data,
+    features used for the model should generalize to unseen data. Not all features
+    generalize equally. For example, for the task of predicting whether a comment
+    is spam, the identifier of each comment is not generalizable at all and shouldn’t
+    be used as a feature for the model. However, the identifier of the user who posts
+    the comment, such as username, might still be useful for a model to make predictions.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于机器学习模型的目标是在未见数据上做出正确预测，用于模型的特征应该对未见数据泛化。并非所有特征都能同等泛化。例如，在预测评论是否为垃圾的任务中，每条评论的标识符完全不具备泛化能力，不应作为模型特征。然而，发表评论的用户标识符（如用户名）可能对模型进行预测仍然有用。
+- en: 'Measuring feature generalization is a lot less scientific than measuring feature
+    importance, and it requires both intuition and subject matter expertise on top
+    of statistical knowledge. Overall, there are two aspects you might want to consider
+    with regards to generalization: feature coverage and distribution of feature values.'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 衡量特征泛化不如衡量特征重要性科学，除了统计知识，还需要直觉和学科专业知识。总体而言，关于泛化，有两个方面需要考虑：特征覆盖和特征值的分布。
+- en: Coverage is the percentage of the samples that has values for this feature in
+    the data—so the fewer values that are missing, the higher the coverage. A rough
+    rule of thumb is that if this feature appears in a very small percentage of your
+    data, it’s not going to be very generalizable. For example, if you want to build
+    a model to predict whether someone will buy a house in the next 12 months and
+    you think that the number of children someone has will be a good feature, but
+    you can only get this information for 1% of your data, this feature might not
+    be very useful.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 覆盖率是数据中具有该特征值的样本的百分比——因此缺失值越少，覆盖率越高。一个粗略的经验法则是，如果这个特征在你的数据中出现的百分比非常小，它可能不具备很好的泛化能力。例如，如果你想建立一个模型来预测某人在接下来的12个月内是否会购买房屋，而你认为某人拥有孩子的数量会是一个好特征，但你只能获取到这个信息的数据占总数据的1%，那么这个特征可能并不是很有用。
+- en: This rule of thumb is rough because some features can still be useful even if
+    they are missing in most of your data. This is especially true when the missing
+    values are not at random, which means having the feature or not might be a strong
+    indication of its value. For example, if a feature appears only in 1% of your
+    data, but 99% of the examples with this feature have POSITIVE labels, this feature
+    is useful and you should use it.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个经验法则是粗略的，因为即使某些特征在大多数数据中缺失，它们仍然可能是有用的。特别是当缺失值不是随机分布时，这意味着拥有或者不拥有这个特征可能是其价值的一个强烈指示。例如，如果一个特征只出现在你的数据中的1%中，但这个特征中99%的样本都有正面标签，这个特征就是有用的，你应该使用它。
+- en: Coverage of a feature can differ wildly between different slices of data and
+    even in the same slice of data over time. If the coverage of a feature differs
+    a lot between the train and test split (such as it appears in 90% of the examples
+    in the train split but only in 20% of the examples in the test split), this is
+    an indication that your train and test splits don’t come from the same distribution.
+    You might want to investigate whether the way you split your data makes sense
+    and whether this feature is a cause for data leakage.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征的覆盖率在不同数据切片之间可能会有很大差异，甚至在同一数据切片中随时间也可能有所不同。如果一个特征在训练集和测试集中的覆盖率差别很大（例如在训练集中出现在90%的样本中，但在测试集中只有20%的样本中出现），这表明你的训练集和测试集并不来自同一分布。你可能需要调查一下你分割数据的方式是否合理，以及这个特征是否导致数据泄露的原因。
+- en: For the feature values that are present, you might want to look into their distribution.
+    If the set of values that appears in the seen data (such as the train split) has
+    no overlap with the set of values that appears in the unseen data (such as the
+    test split), this feature might even hurt your model’s performance.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于出现的特征值，你可能需要查看它们的分布情况。如果在已见数据（如训练集）中出现的值集合与未见数据（如测试集）中出现的值集合没有重叠，这个特征甚至可能会影响你模型的性能。
+- en: As a concrete example, imagine you want to build a model to estimate the time
+    it will take for a given taxi ride. You retrain this model every week, and you
+    want to use the data from the last six days to predict the ETAs (estimated time
+    of arrival) for today. One of the features is DAY_OF_THE_WEEK, which you think
+    is useful because the traffic on weekdays is usually worse than on the weekend.
+    This feature coverage is 100%, because it’s present in every feature. However,
+    in the train split, the values for this feature are Monday to Saturday, whereas
+    in the test split, the value for this feature is Sunday. If you include this feature
+    in your model without a clever scheme to encode the days, it won’t generalize
+    to the test split, and might harm your model’s performance.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为一个具体的例子，假设你想建立一个模型来估算给定出租车行程需要的时间。你每周重新训练这个模型，并且你想使用过去六天的数据来预测今天的到达时间（ETA）。其中一个特征是DAY_OF_THE_WEEK，你认为这个特征很有用，因为工作日的交通通常比周末糟糕。这个特征的覆盖率是100%，因为它在每个特征中都出现。然而，在训练集中，这个特征的取值是星期一到星期六，而在测试集中，这个特征的取值是星期日。如果你在模型中包含这个特征，但没有巧妙地编码这些天，它将无法推广到测试集，并可能损害你模型的性能。
+- en: On the other hand, HOUR_OF_THE_DAY is a great feature, because the time in the
+    day affects the traffic too, and the range of values for this feature in the train
+    split overlaps with the test split 100%.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，HOUR_OF_THE_DAY 是一个很好的特征，因为一天中的时间也会影响交通，并且这个特征在训练集和测试集中的取值范围完全重叠100%。
+- en: When considering a feature’s generalization, there’s a trade-off between generalization
+    and specificity. You might realize that the traffic during an hour only changes
+    depending on whether that hour is the rush hour. So you generate the feature IS_RUSH_HOUR
+    and set it to 1 if the hour is between 7 a.m. and 9 a.m. or between 4 p.m. and
+    6 p.m. IS_RUSH_HOUR is more generalizable but less specific than HOUR_OF_THE_DAY.
+    Using IS_RUSH_HOUR without HOUR_OF_THE_DAY might cause models to lose important
+    information about the hour.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在考虑特征的泛化性时，存在泛化性和特异性之间的权衡。您可能会意识到某小时的交通状况只取决于该小时是否是高峰时间。因此，生成特征IS_RUSH_HOUR，并在早上7点到9点或下午4点到6点之间将其设置为1。IS_RUSH_HOUR比HOUR_OF_THE_DAY更具泛化性，但更不具体。在没有HOUR_OF_THE_DAY的情况下使用IS_RUSH_HOUR可能会导致模型丢失有关小时重要信息。
+- en: Summary
+  id: totrans-202
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: Because the success of today’s ML systems still depends on their features, it’s
+    important for organizations interested in using ML in production to invest time
+    and effort into feature engineering.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为今天的机器学习系统的成功仍然取决于它们的特征，对于希望在生产中使用机器学习的组织来说，投入时间和精力进行特征工程非常重要。
+- en: 'How to engineer good features is a complex question with no foolproof answers.
+    The best way to learn is through experience: trying out different features and
+    observing how they affect your models’ performance. It’s also possible to learn
+    from experts. I find it extremely useful to read about how the winning teams of
+    Kaggle competitions engineer their features to learn more about their techniques
+    and the considerations they went through.'
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何设计好的特征是一个复杂的问题，没有百分之百的答案。最好的学习方法是通过经验：尝试不同的特征并观察它们对模型性能的影响。也可以从专家那里学习。我发现阅读关于Kaggle竞赛获胜团队如何设计特征的文章非常有益，可以了解他们的技术和考虑过的因素。
+- en: Feature engineering often involves subject matter expertise, and subject matter
+    experts might not always be engineers, so it’s important to design your workflow
+    in a way that allows nonengineers to contribute to the process.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征工程通常涉及专业知识，而专业知识可能并不总是工程师的强项，因此设计工作流程以便非工程师也能参与到该过程中非常重要。
+- en: 'Here is a summary of best practices for feature engineering:'
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里总结了特征工程的最佳实践：
+- en: Split data by time into train/valid/test splits instead of doing it randomly.
+  id: totrans-207
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将数据按时间拆分为训练/验证/测试集，而不是随机分配。
+- en: If you oversample your data, do it after splitting.
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果对数据进行过采样，应在数据拆分后进行。
+- en: Scale and normalize your data after splitting to avoid data leakage.
+  id: totrans-209
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在拆分数据后进行缩放和归一化，以避免数据泄漏。
+- en: Use statistics from only the train split, instead of the entire data, to scale
+    your features and handle missing values.
+  id: totrans-210
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 仅使用训练集的统计数据来缩放特征和处理缺失值，而不是整个数据集。
+- en: Understand how your data is generated, collected, and processed. Involve domain
+    experts if possible.
+  id: totrans-211
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 了解数据的生成、收集和处理方式。如有可能，应该邀请领域专家参与其中。
+- en: Keep track of your data’s lineage.
+  id: totrans-212
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 跟踪数据的来源。
+- en: Understand feature importance to your model.
+  id: totrans-213
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 了解特征对模型的重要性。
+- en: Use features that generalize well.
+  id: totrans-214
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用泛化性好的特征。
+- en: Remove no longer useful features from your models.
+  id: totrans-215
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从模型中移除不再有用的特征。
+- en: 'With a set of good features, we’ll move to the next part of the workflow: training
+    ML models. Before we move on, I just want to reiterate that moving to modeling
+    doesn’t mean we’re done with handling data or feature engineering. We are never
+    done with data and features. In most real-world ML projects, the process of collecting
+    data and feature engineering goes on as long as your models are in production.
+    We need to use new, incoming data to continually improve models, which we’ll cover
+    in [Chapter 9](ch09.xhtml#continual_learning_and_test_in_producti).'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 拥有一组好的特征后，我们将继续工作流程的下一部分：训练机器学习模型。在我们继续之前，我想再次强调，转向建模并不意味着我们完成了数据处理或特征工程。在大多数真实世界的机器学习项目中，收集数据和进行特征工程的过程会随着模型投入使用而持续进行。我们需要使用新进数据不断改进模型，这一点将在[第9章](ch09.xhtml#continual_learning_and_test_in_producti)中讨论。
+- en: '^([1](ch05.xhtml#ch01fn132-marker)) Loris Nanni, Stefano Ghidoni, and Sheryl
+    Brahnam, “Handcrafted vs. Non-handcrafted Features for Computer Vision Classification,”
+    *Pattern Recognition* 71 (November 2017): 158–72, [*https://oreil.ly/CGfYQ*](https://oreil.ly/CGfYQ);
+    Wikipedia, s.v. “Feature learning,” [*https://oreil.ly/fJmwN*](https://oreil.ly/fJmwN).'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch05.xhtml#ch01fn132-marker)) Loris Nanni、Stefano Ghidoni和Sheryl Brahnam在《模式识别》（*Pattern
+    Recognition*）71卷（2017年11月）中讨论了手工制作和非手工制作的计算机视觉分类特征，参见[*https://oreil.ly/CGfYQ*](https://oreil.ly/CGfYQ);
+    Wikipedia, s.v. “Feature learning,” [*https://oreil.ly/fJmwN*](https://oreil.ly/fJmwN)。
+- en: ^([2](ch05.xhtml#ch01fn133-marker)) In my experience, how well a person handles
+    missing values for a given dataset during interviews strongly correlates with
+    how well they will do in their day-to-day jobs.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch05.xhtml#ch01fn133-marker)) 根据我的经验，在面试过程中，一个人处理给定数据集中缺失值的能力很大程度上决定了他们在日常工作中的表现。
+- en: ^([3](ch05.xhtml#ch01fn134-marker)) Rachel Bogardus Drew, “3 Facts About Marriage
+    and Homeownership,” Joint Center for Housing Studies of Harvard University, December
+    17, 2014, [*https://oreil.ly/MWxFp*](https://oreil.ly/MWxFp).
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch05.xhtml#ch01fn134-marker)) Rachel Bogardus Drew, "关于婚姻和房屋所有权的三个事实,"
+    哈佛大学住房研究中心, 2014 年 12 月 17 日, [*https://oreil.ly/MWxFp*](https://oreil.ly/MWxFp).
+- en: ^([4](ch05.xhtml#ch01fn135-marker)) Feature scaling once boosted my model’s
+    performance by almost 10%.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch05.xhtml#ch01fn135-marker)) 特征缩放一度将我的模型性能提升了近 10%。
+- en: '^([5](ch05.xhtml#ch01fn136-marker)) Changyong Feng, Hongyue Wang, Naiji Lu,
+    Tian Chen, Hua He, Ying Lu, and Xin M. Tu, “Log-Transformation and Its Implications
+    for Data Analysis,” *Shanghai Archives of Psychiatry* 26, no. 2 (April 2014):
+    105–9, [*https://oreil.ly/hHJjt*](https://oreil.ly/hHJjt).'
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([5](ch05.xhtml#ch01fn136-marker)) 冯长勇, 王宏悦, 卢乃基, 陈田, 何华, 陆莹, 和徐新明, "对数转换及其在数据分析中的影响,"
+    *上海精神病学档案* 26 卷 2 期 (2014 年 4 月): 105–9, [*https://oreil.ly/hHJjt*](https://oreil.ly/hHJjt).'
+- en: ^([6](ch05.xhtml#ch01fn137-marker)) “Two Million Brands on Amazon,” *Marketplace
+    Pulse*, June 11, 2019, [*https://oreil.ly/zrqtd*](https://oreil.ly/zrqtd).
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch05.xhtml#ch01fn137-marker)) "Amazon 上的两百万品牌," *Marketplace Pulse*, 2019
+    年 6 月 11 日, [*https://oreil.ly/zrqtd*](https://oreil.ly/zrqtd).
+- en: ^([7](ch05.xhtml#ch01fn138-marker)) Wikipedia, s.v. “Feature hashing,” [*https://oreil.ly/tINTc*](https://oreil.ly/tINTc).
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch05.xhtml#ch01fn138-marker)) 维基百科，见“特征哈希”，[*https://oreil.ly/tINTc*](https://oreil.ly/tINTc).
+- en: ^([8](ch05.xhtml#ch01fn139-marker)) Lucas Bernardi, “Don’t Be Tricked by the
+    Hashing Trick,” Booking.com, January 10, 2018, [*https://oreil.ly/VZmaY*](https://oreil.ly/VZmaY).
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch05.xhtml#ch01fn139-marker)) Lucas Bernardi, "不要被哈希技巧愚弄," Booking.com,
+    2018 年 1 月 10 日, [*https://oreil.ly/VZmaY*](https://oreil.ly/VZmaY).
+- en: '^([9](ch05.xhtml#custom_ch05fn1-marker)) Huifeng Guo, Ruiming Tang, Yunming
+    Ye, Zhenguo Li, and Xiuqiang He, “DeepFM: A Factorization-Machine Based Neural
+    Network for CTR Prediction,” *Proceedings of the Twenty-Sixth International Joint
+    Conference on Artificial Intelligence* (IJCAI, 2017), [*https://oreil.ly/1Vs3v*](https://oreil.ly/1Vs3v);
+    Jianxun Lian, Xiaohuan Zhou, Fuzheng Zhang, Zhongxia Chen, Xing Xie, and Guangzhong
+    Sun, “xDeepFM: Combining Explicit and Implicit Feature Interactions for Recommender
+    Systems,” *arXiv*, 2018, [*https://oreil.ly/WFmFt*](https://oreil.ly/WFmFt).'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch05.xhtml#custom_ch05fn1-marker)) 郭慧峰, 汤锐明, 叶云明, 李政果, 和何秀强, "DeepFM：基于因子分解机的神经网络用于点击率预测,"
+    *第二十六届国际人工智能联合会议论文集* (IJCAI, 2017), [*https://oreil.ly/1Vs3v*](https://oreil.ly/1Vs3v);
+    连建勋, 周晓欢, 张福政, 陈忠霞, 谢星, 和孙广忠, "xDeepFM：结合显式和隐式特征交互的推荐系统," *arXiv*, 2018 年, [*https://oreil.ly/WFmFt*](https://oreil.ly/WFmFt).
+- en: ^([10](ch05.xhtml#ch01fn140-marker)) Flavian Vasile, Elena Smirnova, and Alexis
+    Conneau, “Meta-Prod2Vec—Product Embeddings Using Side-Information for Recommendation,”
+    *arXiv*, July 25, 2016, [*https://oreil.ly/KDaEd*](https://oreil.ly/KDaEd); “Product
+    Embeddings and Vectors,” Coveo, [*https://oreil.ly/ShaSY*](https://oreil.ly/ShaSY).
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([10](ch05.xhtml#ch01fn140-marker)) Flavian Vasile, Elena Smirnova 和 Alexis
+    Conneau, "Meta-Prod2Vec——使用侧信息的产品嵌入," *arXiv*, 2016 年 7 月 25 日, [*https://oreil.ly/KDaEd*](https://oreil.ly/KDaEd);
+    "产品嵌入与向量," Coveo, [*https://oreil.ly/ShaSY*](https://oreil.ly/ShaSY).
+- en: ^([11](ch05.xhtml#ch01fn141-marker)) Andrew Zhai, “Representation Learning for
+    Recommender Systems,” August 15, 2021, [*https://oreil.ly/OchiL*](https://oreil.ly/OchiL).
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([11](ch05.xhtml#ch01fn141-marker)) Andrew Zhai, "推荐系统的表示学习," 2021 年 8 月 15
+    日, [*https://oreil.ly/OchiL*](https://oreil.ly/OchiL).
+- en: ^([12](ch05.xhtml#ch01fn142-marker)) Will Douglas Heaven, “Hundreds of AI Tools
+    Have Been Built to Catch Covid. None of Them Helped,” *MIT Technology Review*,
+    July 30, 2021, [*https://oreil.ly/Ig1b1*](https://oreil.ly/Ig1b1).
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([12](ch05.xhtml#ch01fn142-marker)) Will Douglas Heaven, "数百种 AI 工具用于检测 Covid，但没有一款有用,"
+    *MIT Technology Review*, 2021 年 7 月 30 日, [*https://oreil.ly/Ig1b1*](https://oreil.ly/Ig1b1).
+- en: ^([13](ch05.xhtml#ch01fn143-marker)) Zidmie, “The leak explained!” Kaggle, [*https://oreil.ly/1JgLj*](https://oreil.ly/1JgLj).
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([13](ch05.xhtml#ch01fn143-marker)) Zidmie, "泄漏解释！" Kaggle, [*https://oreil.ly/1JgLj*](https://oreil.ly/1JgLj).
+- en: ^([14](ch05.xhtml#ch01fn144-marker)) Addison Howard, “Competition Recap—Congratulations
+    to our Winners!” Kaggle, [*https://oreil.ly/wVUU4*](https://oreil.ly/wVUU4).
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([14](ch05.xhtml#ch01fn144-marker)) Addison Howard, "竞赛回顾——恭喜我们的获奖者！" Kaggle,
+    [*https://oreil.ly/wVUU4*](https://oreil.ly/wVUU4).
+- en: '^([15](ch05.xhtml#ch01fn145-marker)) Björn Barz and Joachim Denzler, “Do We
+    Train on Test Data? Purging CIFAR of Near-Duplicates,” *Journal of Imaging* 6,
+    no. 6 (2020): 41.'
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([15](ch05.xhtml#ch01fn145-marker)) Björn Barz 和 Joachim Denzler, “我们在测试数据上进行训练吗？净化
+    CIFAR 近似重复数据,” *Journal of Imaging* 6, no. 6 (2020): 41.'
+- en: '^([16](ch05.xhtml#ch01fn146-marker)) Michael Roberts, Derek Driggs, Matthew
+    Thorpe, Julian Gilbey, Michael Yeung, Stephan Ursprung, Angelica I. Aviles-Rivero,
+    et al. “Common Pitfalls and Recommendations for Using Machine Learning to Detect
+    and Prognosticate for COVID-19 Using Chest Radiographs and CT Scans,” *Nature
+    Machine Intelligence* 3 (2021): 199–217, [*https://oreil.ly/TzbKJ*](https://oreil.ly/TzbKJ).'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([16](ch05.xhtml#ch01fn146-marker)) Michael Roberts, Derek Driggs, Matthew
+    Thorpe, Julian Gilbey, Michael Yeung, Stephan Ursprung, Angelica I. Aviles-Rivero
+    等，“使用胸部 X 光和 CT 扫描检测和预测 COVID-19 的机器学习常见问题和建议”，*Nature Machine Intelligence* 3
+    (2021): 199–217, [*https://oreil.ly/TzbKJ*](https://oreil.ly/TzbKJ).'
+- en: ^([17](ch05.xhtml#ch01fn147-marker)) With XGBoost function [`get_score`](https://oreil.ly/8sCfD).
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([17](ch05.xhtml#ch01fn147-marker)) 使用 XGBoost 函数 [`get_score`](https://oreil.ly/8sCfD)。
+- en: ^([18](ch05.xhtml#ch01fn148-marker)) A great open source Python package for
+    calculating SHAP can be found on [GitHub](https://oreil.ly/hGxcF).
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([18](ch05.xhtml#ch01fn148-marker)) 一个很棒的开源 Python 包用于计算 SHAP，可以在 [GitHub](https://oreil.ly/hGxcF)
+    上找到。
+- en: ^([19](ch05.xhtml#custom_ch05fn2-marker)) Scott Lundberg, SHAP (SHapley Additive
+    exPlanations), GitHub repository, last accessed 2021, [*https://oreil.ly/c8qqE*](https://oreil.ly/c8qqE).
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([19](ch05.xhtml#custom_ch05fn2-marker)) Scott Lundberg, SHAP（SHapley 加法解释），GitHub
+    代码库，最后访问于 2021 年，[*https://oreil.ly/c8qqE*](https://oreil.ly/c8qqE).
+- en: '^([20](ch05.xhtml#ch01fn149-marker)) Xinran He, Junfeng Pan, Ou Jin, Tianbing
+    Xu, Bo Liu, Tao Xu, Yanxin Shi, et al., “Practical Lessons from Predicting Clicks
+    on Ads at Facebook,” in *ADKDD ’14: Proceedings of the Eighth International Workshop
+    on Data Mining for Online Advertising* (August 2014): 1–9, [*https://oreil.ly/dHXeC*](https://oreil.ly/dHXeC).'
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([20](ch05.xhtml#ch01fn149-marker)) Xinran He, Junfeng Pan, Ou Jin, Tianbing
+    Xu, Bo Liu, Tao Xu, Yanxin Shi 等，“在 Facebook 预测广告点击的实际经验教训”，在 *ADKDD ’14: Proceedings
+    of the Eighth International Workshop on Data Mining for Online Advertising* 中
+    (2024 年 8 月): 1–9, [*https://oreil.ly/dHXeC*](https://oreil.ly/dHXeC).'

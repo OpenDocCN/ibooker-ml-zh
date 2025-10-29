@@ -1,0 +1,816 @@
+- en: Chapter 14\. Accessing Cloud-Based Models from Mobile Apps
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 14 章。从移动应用访问基于云的模型
+- en: Throughout this book you’ve been creating models and converting them to the
+    TensorFlow Lite format so they could be used within your mobile apps. This works
+    very well for models that you want to use on mobile for the reasons discussed
+    in [Chapter 1](ch01.html#introduction_to_ai_and_machine_learning), such as latency
+    and privacy. However, there may be times when you don’t want to deploy the model
+    to a mobile device—maybe it’s too large or complex for mobile, maybe you want
+    to update it frequently, or maybe you don’t want to risk it being reverse-engineered
+    and have your IP used by others.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在整本书中，您一直在创建模型并将其转换为 TensorFlow Lite 格式，以便在移动应用中使用。出于本书讨论的原因，这对于希望在移动设备上使用的模型非常有效，例如延迟和隐私。然而，也许有时您不想将模型部署到移动设备上——也许它对移动设备来说太大或太复杂，也许您希望频繁更新它，或者可能您不希望冒风险使其被逆向工程并且您的知识产权被他人使用。
+- en: In those cases you’ll want to deploy your model to a server, perform the inference
+    there, and then have some form of server manage the requests from your clients,
+    invoke the model for inference, and respond with the results. A high-level view
+    of this is shown in [Figure 14-1](#a_high_level_look_at_a_server_architect).
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这些情况下，您将需要将模型部署到服务器上，在那里执行推断，然后由服务器管理客户端的请求，调用模型进行推断，并以结果响应。这一高层视图如图 [14-1](#a_high_level_look_at_a_server_architect)
+    所示。
+- en: '![](assets/aiml_1401.png)'
+  id: totrans-3
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1401.png)'
+- en: Figure 14-1\. A high-level look at a server architecture for models
+  id: totrans-4
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 14-1。模型服务器架构的高层视图
+- en: Another benefit of this architecture is in managing model drift. When you deploy
+    a model to devices, you can end up in a situation with multiple models in the
+    wild if people don’t or can’t update their app to get the latest model. Consider
+    then the scenario where you *want* model drift; perhaps people with more premium
+    hardware can have a bigger and more accurate version of your model, whereas others
+    can get a smaller and slightly less accurate version. Managing that can be difficult!
+    But if the model is hosted on a server, you don’t have to worry about this because
+    you control the hardware platform on which the model runs. Another advantage of
+    server-side model inference is that you can easily test different model versions
+    with different audiences. See [Figure 14-2](#managing_different_models_using_hosted).
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此架构的另一个好处是管理模型漂移。当您将模型部署到设备时，如果用户无法或不愿更新他们的应用程序以获取最新模型，可能会出现多个模型的情况。考虑一下希望模型漂移的情况；也许拥有更高端硬件的人可以使用更大更精确的模型版本，而其他人则可以获得较小且稍微不太精确的版本。管理这一切可能很困难！但如果模型托管在服务器上，您就不必担心这些问题，因为您可以控制模型运行的硬件平台。服务器端模型推断的另一个优势是，您可以轻松地针对不同受众测试不同的模型版本。参见图
+    [14-2](#managing_different_models_using_hosted)。
+- en: '![](assets/aiml_1402.png)'
+  id: totrans-6
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1402.png)'
+- en: Figure 14-2\. Managing different models using hosted inference
+  id: totrans-7
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 14-2。使用托管推断管理不同模型
+- en: Here you can see that I have two different versions of the model (called Model
+    v1 and Model v2), which are deployed to different clients using a load balancer.
+    In the diagram I show that these are managed by something called TensorFlow Serving,
+    and we’ll explore how to install and use that next, including training and deploying
+    a simple model to it.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，您可以看到我有两个不同版本的模型（称为 Model v1 和 Model v2），这些模型通过负载均衡器部署到不同的客户端。在图中，我展示了这些模型是由
+    TensorFlow Serving 管理的，接下来我们将探讨如何安装和使用它，包括对其进行简单模型的训练和部署。
+- en: Installing TensorFlow Serving
+  id: totrans-9
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 安装 TensorFlow Serving
+- en: TensorFlow Serving can be installed with two different server architectures.
+    The first, `tensorflow-model-server`, is a fully optimized server that uses platform-specific
+    compiler options for various architectures. In general it’s the preferred option,
+    unless your server machine doesn’t have those architectures. The alternative,
+    `tensorflow-model-server-universal`, is compiled with basic optimizations that
+    should work on all machines, and provides a nice backup if `tensorflow-model-server`
+    does not work. There are several methods by which you can install TensorFlow Serving,
+    including using Docker as well as a direct package installation using `apt`. We’ll
+    look at both of those options next.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow Serving 可以使用两种不同的服务器架构进行安装。第一种是`tensorflow-model-server`，这是一个完全优化的服务器，使用特定于平台的编译器选项针对各种架构进行编译。总体而言，这是首选的选项，除非您的服务器机器不支持这些架构。另一种选择是`tensorflow-model-server-universal`，它使用基本的优化进行编译，应该可以在所有机器上工作，并且在`tensorflow-model-server`不可用时提供一个很好的备用选项。有多种方法可以安装
+    TensorFlow Serving，包括使用 Docker 和直接使用`apt`进行软件包安装。接下来我们将看看这两种选项。
+- en: Installing Using Docker
+  id: totrans-11
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用 Docker 安装
+- en: '[Docker](https://docker.com) is a tool that lets you encapsulate an operating
+    system plus software dependencies into a single, simple-to-use image. Using Docker
+    is perhaps the easiest way to get up and running quickly. To get started, use
+    `docker pull` to get the TensorFlow Serving package:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Docker](https://docker.com) 是一个工具，允许您将操作系统及其软件依赖项封装到一个简单易用的镜像中。使用 Docker 可能是快速启动并运行的最简单方式。要开始使用，使用
+    `docker pull` 命令获取 TensorFlow Serving 软件包：'
+- en: '[PRE0]'
+  id: totrans-13
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Once you’ve done this, clone the TensorFlow Serving code from GitHub:'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完成这些步骤后，从 GitHub 上克隆 TensorFlow Serving 代码：
+- en: '[PRE1]'
+  id: totrans-15
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'This includes some sample models, including one called Half Plus Two that,
+    given a value, will return half that value, plus two. To do this, first set up
+    a variable called `TESTDATA` that contains the path of the sample models:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这包括一些示例模型，包括一个称为 Half Plus Two 的模型，它接受一个值，并返回该值的一半加两。为此，首先设置一个名为 `TESTDATA`
+    的变量，其中包含示例模型的路径：
+- en: '[PRE2]'
+  id: totrans-17
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'You can now run TensorFlow Serving from the Docker image:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您现在可以从 Docker 镜像中运行 TensorFlow Serving：
+- en: '[PRE3]'
+  id: totrans-19
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: This will instantiate a server on port 8501—you’ll see how to do that in more
+    detail later in this chapter—and execute the model on that server. You can then
+    access the model at *http://localhost:8501/v1/models/half_plus_two:predict*.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将在端口 8501 上实例化一个服务器——稍后在本章中您将详细了解如何做到这一点——并在该服务器上执行模型。然后，您可以访问 *http://localhost:8501/v1/models/half_plus_two:predict*
+    来访问该模型。
+- en: 'To pass the data that you want to run inference on, you can POST a tensor containing
+    the values to this URL. Here’s an example using curl (run this in a separate terminal
+    if you’re running on your development machine):'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要传递您希望运行推断的数据，您可以将包含这些值的张量 POST 到此 URL。以下是使用 curl 的示例（如果在开发机器上运行，请在另一个终端中运行此命令）：
+- en: '[PRE4]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: You can see the results in [Figure 14-3](#results_of_running_tensorflow_serving).
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在 [Figure 14-3](#results_of_running_tensorflow_serving) 中查看结果。
+- en: '![](assets/aiml_1403.png)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1403.png)'
+- en: Figure 14-3\. Results of running TensorFlow Serving
+  id: totrans-25
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 14-3\. 运行 TensorFlow Serving 的结果
+- en: While the Docker image is certainly convenient, you might also want the full
+    control of installing it directly on your machine. You’ll explore how to do that
+    next.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然 Docker 镜像确实很方便，但您可能也希望完全控制在本地安装它。接下来您将了解如何操作。
+- en: Installing Directly on Linux
+  id: totrans-27
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在 Linux 上直接安装
+- en: 'Whether you are using `tensorflow-model-server` or `tensorflow-model-server-universal`,
+    the package name is the same. So, it’s a good idea to remove `tensorflow-model-server`
+    before you start so you can ensure you get the right one. If you want to try this
+    on your own hardware, I’ve provided [a Colab notebook](https://oreil.ly/CYiWc)
+    in the GitHub repo with the code:'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论您使用 `tensorflow-model-server` 还是 `tensorflow-model-server-universal`，软件包名称都是相同的。因此，在开始之前最好删除
+    `tensorflow-model-server`，以确保您获取正确的版本。如果您想在自己的硬件上尝试此操作，我在 GitHub 仓库中提供了 [一个 Colab
+    notebook](https://oreil.ly/CYiWc) 与相关代码：
+- en: '[PRE5]'
+  id: totrans-29
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Then add the [TensorFlow package source](https://oreil.ly/NDwab) to your system:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后将 [TensorFlow package source](https://oreil.ly/NDwab) 添加到您的系统：
+- en: '[PRE6]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'If you need to use `sudo` on your local system, you can do so like this:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您需要在本地系统上使用 `sudo`，可以像这样操作：
+- en: '[PRE7]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'You’ll need to update `apt-get` next:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来您需要更新 `apt-get`：
+- en: '[PRE8]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'Once this has been done, you can install the model server with `apt`:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦完成这些步骤，您就可以使用 `apt` 安装模型服务器：
+- en: '[PRE9]'
+  id: totrans-37
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'And you can ensure you have the latest version by using:'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过以下方式确保您使用的是最新版本：
+- en: '[PRE10]'
+  id: totrans-39
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: The package should now be ready to use.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在该包应该已经准备好使用了。
+- en: Building and Serving a Model
+  id: totrans-41
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 构建和服务模型
+- en: In this section we’ll do a walkthrough of the complete process of creating a
+    model, preparing it for serving, deploying it with TensorFlow Serving, and then
+    running inference using it.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将完整演示创建模型、准备模型进行服务、使用 TensorFlow Serving 部署模型，然后运行推理的整个过程。
+- en: 'You’ll use the simple “Hello World” model that we’ve been exploring throughout
+    the book:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将使用我们在整本书中探索的简单的“Hello World”模型：
+- en: '[PRE11]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'This should train very quickly and give you a result of 18.98 or so, when asked
+    to predict y when x is 10.0\. Next, the model needs to be saved. You’ll need a
+    temporary folder to save it in:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这应该会非常快速地训练，并在被询问当 x 是 10.0 时预测 y 时给出约为 18.98 的结果。接下来，需要保存模型。你需要一个临时文件夹来保存它：
+- en: '[PRE12]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: You can export it to whatever directory you want, but I like to use a temp directory.
+    Note that here I saved it in */tmp/serving_model/1/,* but later when we are serving
+    we’ll use */tmp/serving_model/* only—that’s because TensorFlow Serving will look
+    for model versions based on a number, and it will default to looking for version
+    1.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以将其导出到任何目录，但我喜欢使用临时目录。注意，这里我将其保存在 */tmp/serving_model/1/* 中，但稍后在服务时我们只会使用
+    */tmp/serving_model/* ——这是因为 TensorFlow Serving 将根据数字查找模型版本，默认情况下会查找版本 1。
+- en: If there’s anything in the directory you’re saving the model to, it’s a good
+    idea to delete it before proceeding (avoiding this issue is one reason why I like
+    using a temp directory!).
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果目录中有任何你正在保存模型的内容，最好在继续之前将其删除（避免此问题是我喜欢使用临时目录的一个原因！）。
+- en: 'The TensorFlow Serving tools include a utility called `saved_model_cli` that
+    can be used to inspect a model. You can call this with the show command, giving
+    it the directory of the model in order to get the full model metadata:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow Serving 工具包括一个名为 `saved_model_cli` 的实用程序，可用于检查模型。可以使用 show 命令调用它，并给出模型的目录以获取完整的模型元数据：
+- en: '[PRE13]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'The output of this command will be very long, but will contain details like
+    this:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此命令的输出将非常长，但将包含以下详细信息：
+- en: '[PRE14]'
+  id: totrans-52
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: Note the contents of the `signature_def`, which in this case is `serving_default`.
+    You’ll need them later.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意 `signature_def` 的内容，在这种情况下是 `serving_default`。稍后会用到这些内容。
+- en: Also note that the inputs and outputs have a defined shape and type. In this
+    case, each is a float and has the shape (–1, 1). You can effectively ignore the
+    –1, and just bear in mind that the input to the model is a float and the output
+    is a float.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还要注意输入和输出具有定义的形状和类型。在本例中，每个都是浮点数，形状为（–1，1）。你可以有效地忽略 –1，并记住模型的输入是浮点数，输出也是浮点数。
+- en: 'To run the TensorFlow model server with a command line, you need a number of
+    parameters. First you need to specify a couple of parameters to the `tensorflow_model_server`
+    command. `rest_api_port` is the port number you want to run the server on. Here
+    it’s set to `8501`. You then give the model a name with the `model_name` switch—here
+    I’ve called it `helloworld`. Finally, you then pass the server the path to the
+    model you saved in the `MODEL_DIR` operating system environment variable with
+    `model_base_path`. Here’s the code:'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用命令行运行 TensorFlow 模型服务器，需要一些参数。首先需要在 `tensorflow_model_server` 命令中指定几个参数。`rest_api_port`
+    是你希望服务器运行的端口号。这里设置为 `8501`。然后，使用 `model_name` 选项为模型命名——这里我称其为 `helloworld`。最后，使用
+    `model_base_path` 将模型保存路径传递给服务器，该路径存储在 `MODEL_DIR` 操作系统环境变量中。以下是代码：
+- en: '[PRE15]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'At the end of the script is code to output the results to *server.log*. Open
+    this file and take a look at it—you should see that the server started successfully
+    with a note showing that it is exporting the HTTP/REST API at *localhost:8501*:'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 脚本的结尾包含了将结果输出到 *server.log* 的代码。打开这个文件并查看它——你应该会看到服务器成功启动的消息，并显示它在 *localhost:8501*
+    导出 HTTP/REST API：
+- en: '[PRE16]'
+  id: totrans-58
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: If it fails, you should see a notification about the failure. Should that happen,
+    you might need to reboot your system.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果失败，应该会看到有关失败的通知。如果发生这种情况，可能需要重新启动系统。
+- en: 'If you want to test the server, you can do so within Python:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想测试服务器，可以在 Python 中执行以下操作：
+- en: '[PRE17]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: To send data to the server, you need to get it into JSON format. So with Python
+    it’s a case of creating a NumPy array of the values you want to send—in this case
+    it’s a list of two values, 9.0 and 10.0\. Each of these is an array in itself,
+    because as you saw earlier the input shape is (–1,1). Single values should be
+    sent to the model, so if you want multiple ones it should be a list of lists,
+    with the inner lists having single values only.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将数据发送到服务器，您需要将其转换为 JSON 格式。因此，使用 Python 只需创建一个包含要发送的值的 NumPy 数组—在本例中是两个值的列表，即
+    9.0 和 10.0。每个值本身就是一个数组，因为正如您之前看到的，输入形状是（-1,1）。单个值应发送到模型，因此如果要发送多个值，应该是一个列表的列表，其中内部列表只包含单个值。
+- en: Use `json.dumps` in Python to create the payload, which is two name/value pairs.
+    The first is the signature name to call on the model, which in this case is `serving_default`
+    (as you’ll recall from earlier, when you inspected the model). The second is `instances`,
+    which is the list of values you want to pass to the model.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 Python 中的 `json.dumps` 来创建负载，其中包含两个名称/值对。第一个是要调用模型的签名名称，在本例中为 `serving_default`（正如您之前检查模型时所记得的）。第二个是
+    `instances`，这是您要传递给模型的值列表。
+- en: 'Do note that when passing values to a model using serving, your input data
+    to the model should be in a list of values, even if there’s only a single value.
+    So, for example, if you want to use this model to get an inference for the value
+    9.0, you still have to put it in a list such as [9.0]. If you want two inferences
+    for two values, you might expect it to look like [9.0, 10.0], but that would actually
+    be wrong! Two separate inputs, expecting two separate inferences, should be two
+    separate lists, so [9.0], [10.0]. However, you are passing these as a single *batch*
+    to the model for inference, so the batch itself should be a list containing the
+    lists that you pass to the model—thus [[9.0], [10.0]]. Keep this also in mind
+    if you are only passing a single value for inference. It will be in a list, and
+    that list will be within a list, like this: [ [10.0] ].'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，使用服务传递值到模型时，您的输入数据应该是一个值列表，即使只有一个单独的值也是如此。因此，例如，如果您想要使用此模型获取值 9.0 的推断，您仍然必须将其放入列表中，如
+    [9.0]。如果您想要获取两个值的推断，您可能期望看起来像 [9.0, 10.0]，但实际上是错误的！期望两个单独输入的两个推断应该是两个单独的列表，所以
+    [9.0], [10.0]。然而，您将它们作为单个 *批次* 传递给模型进行推断，因此批次本身应该是包含您传递给模型的列表的列表—如 [[9.0], [10.0]]。如果您仅传递单个值进行推断，请也牢记这一点。它将是在列表中，并且该列表将在一个列表中，像这样：[
+    [10.0] ]。
+- en: 'So, to get this model to run inference twice, and calculate the values for
+    y where the values for x are 9.0 and 10.0, the desired payload should look like
+    this:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，为了让这个模型运行推断两次，并计算 x 值为 9.0 和 10.0 时的 y 值，所需的负载应如下所示：
+- en: '[PRE18]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'You can call the server using the requests library to do an HTTP POST. Note
+    the URL structure. The model is called `helloworld`, and you want to run its prediction.
+    The POST command requires data, which is the payload you just created, and a `headers`
+    specification, where you’re telling the server the content type is JSON:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用 requests 库调用服务器执行 HTTP POST。请注意 URL 结构。模型名为 `helloworld`，您希望运行其预测。POST
+    命令需要数据，即您刚刚创建的负载，并且需要一个 `headers` 规范，告诉服务器内容类型是 JSON：
+- en: '[PRE19]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'The response will be a JSON payload containing the predictions:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 响应将是一个包含预测的 JSON 负载：
+- en: '[PRE20]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Note that the `requests` library in Python also provides a `json` property,
+    which you can use to automatically decode the response into a JSON `dict`.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，Python 中的 `requests` 库还提供了一个 `json` 属性，您可以使用它来自动解码响应为 JSON `dict`。
+- en: Accessing a Server Model from Android
+  id: totrans-72
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 从 Android 访问服务器模型
+- en: 'Now that you have a server running and exposing the model over a REST interface,
+    putting together code to use it on Android is really straightforward. We’ll explore
+    that here, after creating a simple app with just a single view (check back to
+    [Chapter 4](ch04.html#computer_vision_apps_with_ml_kit_on_and) for several examples
+    of this), containing an EditText that you can use to input a number, a label that
+    will present the results, and a button that the user can press to trigger the
+    inference:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您有一个运行中并通过 REST 接口公开模型的服务器后，编写用于在 Android 上使用它的代码非常简单。我们将在这里探讨这个问题，在创建了一个只有单一视图的简单应用程序之后（请回顾
+    [第 4 章](ch04.html#computer_vision_apps_with_ml_kit_on_and) 中几个示例），其中包含一个 EditText，您可以用来输入一个数字，一个标签，将呈现结果，并且一个按钮，用户可以按下以触发推断：
+- en: '[PRE21]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'The code will use an HTTP library called Volley that handles the request and
+    response asynchronously to and from the server. To use this, add this code to
+    your app’s build.gradle file:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该代码将使用一个名为Volley的HTTP库，该库可以处理来自服务器的请求和响应的异步处理。要使用此功能，请将以下代码添加到您的应用的build.gradle文件中：
+- en: '[PRE22]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'The code for this activity can then look like this—setting up the controls
+    and creating an `onClickListener` for the button that will call the model hosted
+    on TensorFlow Serving:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，此活动的代码看起来可能会像这样——设置控件并创建一个按钮的`onClickListener`，该按钮将调用托管在TensorFlow Serving上的模型：
+- en: '[PRE23]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: Remember that the model hosting served it from *http://<server>:8501/v1/models/helloworld:predict—*if
+    you are using your developer box and running the Android code in the Android emulator,
+    you can use the server bridge at 10.0.2.2 instead of localhost.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，模型托管自*http://<server>:8501/v1/models/helloworld:predict* ——如果你正在使用开发人员框和在Android模拟器中运行Android代码，则可以使用服务器桥接到10.0.2.2而不是localhost。
+- en: So, when pressing the button, the value of the input will be read, converted
+    to an integer, and then passed to a function called `doPost`. Let’s explore what
+    that function should do.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，当按下按钮时，将读取输入的值，转换为整数，然后传递给名为`doPost`的函数。让我们探讨一下该函数应该做什么。
+- en: 'First, you’ll use `Volley` to set up an asynchronous request/response queue:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，你将使用`Volley`来建立一个异步请求/响应队列：
+- en: '[PRE24]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 'Next, you’ll need to set up the URL of the hosting service. I’m using the server
+    bridge of 10.0.2.2 instead of localhost, or whatever the server name would be,
+    as I’m running the server on my developer box, and running this Android app on
+    the emulator:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，你需要设置托管服务的URL。我使用的是10.0.2.2的服务器桥接，而不是localhost，或者服务器名称，因为我正在开发人员框上运行服务器，并在模拟器上运行这个Android应用：
+- en: '[PRE25]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'Recall that if you want to pass values to the server via JSON, every set of
+    input values for input to the model needs to be in a list, and then all of your
+    lists need to be stored within another list, so passing a value such as 10 to
+    it for inference will look like this: `[ [10.0] ]`.'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，如果你想通过JSON将值传递给服务器，那么每组输入值都需要放在一个列表中，然后所有的列表都需要存储在另一个列表中，因此传递一个值例如10用于推理将会是这样的：`[
+    [10.0] ]`。
+- en: 'The JSON payload would then look like this:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后JSON有效负载将如下所示：
+- en: '[PRE26]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'I’ve called the list containing the value the *inner* list, and the list containing
+    that list the *outer* list. These are both going to be treated as `JSONArray`
+    types:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我将包含值的列表称为*内部*列表，而包含该列表的列表称为*外部*列表。这两者都将被视为`JSONArray`类型：
+- en: '[PRE27]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'Then, to have the `requestQueue` manage the communication, you’ll create an
+    instance of a `StringRequest` object. Within this you’ll override the `getBody()`
+    function to add the `requestbody` string you just created to add it to the request.
+    You’ll also set up a `Response.listener` to catch the asynchronous response. Within
+    that response you can get the array of predictions, and your answer will be the
+    first value in that list:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，为了让`requestQueue`管理通信，你将创建一个`StringRequest`对象的实例。在此之内，你将重写`getBody()`函数，将刚刚创建的`requestbody`字符串添加到请求中。你还将设置一个`Response.listener`来捕获异步响应。在该响应中，你可以获取预测数组，你的答案将是该列表中的第一个值：
+- en: '[PRE28]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: Volley will then do the rest—posting the request to the server, and catching
+    the asynchronous response; in this case the `Response.Listener` will parse the
+    result, and output the values to the UI. You can see this in [Figure 14-4](#running_inference_from_tensorflow_servi).
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接着，Volley将会完成其余的工作——将请求发送到服务器，并捕获异步响应；在这种情况下，`Response.Listener`将解析结果，并将值输出到UI中。你可以在[图 14-4](#running_inference_from_tensorflow_servi)中看到这一点。
+- en: '![](assets/aiml_1404.png)'
+  id: totrans-93
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1404.png)'
+- en: Figure 14-4\. Running inference from TensorFlow Serving in an Android app
+  id: totrans-94
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 14-4\. 在Android应用中从TensorFlow Serving运行推理
+- en: Note that in this case our response was very simple, so we just decoded a string
+    out of it. For more complex data coming back in JSON, it would be best to use
+    a JSON parsing library such as [GSON](https://oreil.ly/cm35R).
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，在这种情况下，我们的响应非常简单，所以我们只是解码了一个字符串。对于返回的更复杂的JSON数据，最好使用诸如[GSON](https://oreil.ly/cm35R)之类的JSON解析库。
+- en: While this is admittedly a very simple app, it provides a workflow for what
+    you’d expect any Android app to use when running remote inference. The key things
+    to keep in mind are the JSON payload design. Ensure that you have your data in
+    JSON arrays, and that these arrays are hosted within another, so that even a single
+    number will be uploaded as [[10.0]]. Similarly the return values from the model
+    will be encoded as a list of lists, even if it’s just a single value!
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这是一个非常简单的应用程序，但它提供了一个当运行远程推断时您期望任何 Android 应用程序使用的工作流程。需要记住的关键事项是 JSON 载荷的设计。确保你的数据是
+    JSON 数组，并且这些数组被托管在另一个数组中，因此即使是单个数字也将被上传为[[10.0]]。同样，模型的返回值将被编码为列表的列表，即使它只是一个单一的值！
+- en: Note that this example uses an unauthenticated server. There are various technologies
+    that could be used to add authentication on the backend and then use this on Android.
+    One such is [Firebase Authentication](https://oreil.ly/WTSaa).
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，此示例使用了一个未经身份验证的服务器。有各种技术可以用来在后端添加身份验证，然后在 Android 上使用这个。其中之一是[Firebase Authentication](https://oreil.ly/WTSaa)。
+- en: Accessing a Server Model from iOS
+  id: totrans-98
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 从 iOS 访问服务器模型
+- en: 'Earlier you created a model and hosted it on TensorFlow Serving, where it was
+    available at *http://<server>:8501/v1/models/helloworld:predict*. For this example,
+    my server is at *192.168.86.26*, so I’ll create a simple iOS app that can access
+    the server, pass it data, and get an inference back. To do this, and get inference
+    for a single value, you’ll need a JSON payload posted to the server that looks
+    like this:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前你在 TensorFlow Serving 上创建了一个模型并将其托管在那里，它可以在*http://<server>:8501/v1/models/helloworld:predict*处使用。在这个例子中，我的服务器在*192.168.86.26*上，所以我将创建一个简单的
+    iOS 应用程序，它可以访问服务器，传递数据，并得到一个推断。为了做到这一点，并获得一个单一值的推断，你需要向服务器发布一个看起来像这样的 JSON 载荷：
+- en: '[PRE29]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'And if this is successful, you’ll get a payload back containing the inference:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果成功的话，你会收到一个包含推断结果的载荷返回：
+- en: '[PRE30]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: 'So, we’ll first need an app to pass the payload to the server, and parse what’s
+    returned. Let’s explore how to do this in Swift. You can find a full working app
+    at the [book’s repo](https://oreil.ly/wPL4V). In this section, I’ll just explore
+    how this app does the remote inference:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，我们首先需要一个应用程序将载荷传递给服务器，并解析返回的内容。让我们探讨如何在 Swift 中完成这个操作。你可以在[书籍的存储库](https://oreil.ly/wPL4V)找到一个完整的工作应用程序。在本节中，我只是探索这个应用程序如何进行远程推断。
+- en: 'First of all, in Swift, it’s easiest to decode JSON values if you have the
+    equivalent struct set up. So, to decode the predictions, you can create a struct
+    like this:'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，在 Swift 中，如果你有等效的结构设置，解码 JSON 值是最容易的。因此，为了解码预测，你可以创建一个像这样的结构体：
+- en: '[PRE31]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'So now, if you have value stored as a double, you can create the payload to
+    upload to the server like this:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，如果你有存储为双精度的值，你可以创建一个上传到服务器的载荷，像这样：
+- en: '[PRE32]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: Next, you can post this payload to the URL. You’ll do this by creating a request
+    from the URL, setting the request to be a POST request, and adding the JSON payload
+    to the request’s body.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，你可以将此载荷发布到 URL。你可以通过从 URL 创建一个请求，将请求设置为 POST 请求，并将 JSON 载荷添加到请求的主体中来完成这个操作。
+- en: '[PRE33]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'The request/response is asynchronous, so instead of locking up the thread while
+    waiting for the response, you’ll use a task:'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请求/响应是异步的，因此不要在等待响应时锁定线程，而是使用一个任务：
+- en: '[PRE34]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: The `URLSession` is created with the request from earlier, which is a POST to
+    the URL with the JSON body containing the input data. This will give you back
+    data with the response payload, the response itself, and any error information.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用前面创建的请求创建`URLSession`，这是一个向 URL 发送 JSON 主体包含输入数据的 POST 请求。这将给你带来响应载荷的数据，响应本身，以及任何错误信息。
+- en: 'You can use the results to parse out the response. Recall earlier that you
+    created a results struct that matched the format of the JSON payload. So here,
+    you can decode, using the `JSONDecoder()` the response in the format of that struct,
+    and load the predictions into `results`. As this contains an array of arrays,
+    and the inner array has the inferred values, you can access them in `results.predictions[0][0]`.
+    As this is on a task, and we’re going to update a UI item, it has to be done within
+    a `DispatchQueue`:'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以使用结果来解析响应。回想一下之前你创建了一个与 JSON 载荷格式匹配的结果结构体。因此在这里，你可以使用`JSONDecoder()`解码响应，并将预测加载到`results`中。由于这包含一个数组的数组，并且内部数组有推断的值，你可以在`results.predictions[0][0]`中访问它们。由于这是一个任务，并且我们将要更新一个
+    UI 项，因此必须在`DispatchQueue`内完成：
+- en: '[PRE35]'
+  id: totrans-114
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: 'And that’s it! It’s super simple to do in Swift because of the struct for parsing
+    the output, and inner and outer lists can be set up using the `[String : Any]`
+    format. You can see what an app using this will look like in [Figure 14-5](#accessing_the_twox_one_odel_from_tensor).'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '就是这样！在 Swift 中这非常简单，因为有用于解析输出的结构体，内部和外部列表可以使用 `[String : Any]` 格式设置。你可以在 [图 14-5](#accessing_the_twox_one_odel_from_tensor)
+    中看到使用这种方法的应用程序样子。'
+- en: As with accessing the model with TensorFlow Serving via Python, the most important
+    thing is to get your input and output data correct. The easiest gotcha is forgetting
+    that the payloads are lists of lists, so make sure you get that correct when using
+    more complex data structures!
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与通过 Python 访问 TensorFlow Serving 模型类似，最重要的是确保输入和输出数据正确。最容易犯的错误是忘记有效载荷是列表的列表，因此在使用更复杂的数据结构时，请确保正确处理这一点！
+- en: '![](assets/aiml_1405.png)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/aiml_1405.png)'
+- en: Figure 14-5\. Accessing the 2x − 1 model from TensorFlow Serving on iOS
+  id: totrans-118
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 14-5\. 在 iOS 上访问 TensorFlow Serving 中的 2x − 1 模型
+- en: Summary
+  id: totrans-119
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: In this chapter you got an introduction to TensorFlow Serving and how it provides
+    an environment that lets you give access to your models over an HTTP interface.
+    You saw how to install and configure TensorFlow Serving, as well as how to deploy
+    models to it. You then looked into performing remote inference using these models
+    by building super simple Android and iOS apps that took user input, created a
+    JSON payload from it, posted that to a TensorFlow Serving instance, and parsed
+    the return values containing the model’s inference on the original data. While
+    the scenario was very basic, it provided the framework for any type of serving
+    where you’ll create POST requests with a JSON payload and parse the response.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您已经了解了 TensorFlow Serving 及其如何通过 HTTP 接口提供访问模型的环境。您了解了如何安装和配置 TensorFlow
+    Serving，并将模型部署到其中。然后，您学习了如何通过构建超简单的 Android 和 iOS 应用程序来执行远程推理，这些应用程序接收用户输入，创建
+    JSON 负载，将其发送到 TensorFlow Serving 实例，并解析包含原始数据上模型推理的返回值。虽然场景非常基础，但它为任何需要通过 POST
+    请求发送 JSON 负载并解析响应的服务提供了框架。

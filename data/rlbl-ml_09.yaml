@@ -1,0 +1,1961 @@
+- en: Chapter 8\. Serving
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第8章 服务
+- en: You’ve made a model; now you have to get it out there into the world and start
+    predicting things. This is a process often known as *serving the model*. That’s
+    a common shorthand for “creating a structure to ensure our system can ask the
+    model to make predictions on new examples, and return those predictions to the
+    people or systems that need them” (so you can see why the shorthand was invented).
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你已经创建了一个模型；现在你必须让它进入世界，并开始预测事物。这个过程通常被称为*模型服务*。这是一个常见的简称，用来描述“创建一个结构，以确保我们的系统可以要求模型对新示例进行预测，并将这些预测返回给需要它们的人或系统”（所以你可以看到为什么会发明这个简称）。
+- en: In our *yarnit.ai* online store example, we can imagine that our team has just
+    created a model that is great at predicting the likelihood that a given user will
+    purchase a given product. We need to have a way for the model to share its predictions
+    with our overall system. But how, exactly, should we set this up?
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的*yarnit.ai*在线商店示例中，我们可以想象我们的团队刚刚创建了一个可以很好地预测给定用户购买特定产品可能性的模型。我们需要一种方式让模型与我们的整体系统分享其预测结果。但是，确切地说，我们应该如何设置这个？
+- en: 'We have a range of possibilities, each with different architectures and trade-offs.
+    They are sufficiently different in approach that it might not be obvious looking
+    at the list that these are all attempts to solve the same problem: how can we
+    integrate our predictions with the overall system? We could do any of the following:'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们有各种可能性，每一种都有不同的架构和权衡。它们在方法上有很大的不同，所以看到这个列表时可能并不明显，这些都是解决同一个问题的尝试：我们如何将我们的预测与整体系统集成？我们可以做以下任何一项：
+- en: Load the model into 1,000 servers in Des Moines, Iowa, and feed all incoming
+    traffic to these servers.
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将模型加载到爱荷华州得梅因市的1,000台服务器中，并将所有传入的流量发送到这些服务器。
+- en: Precompute the model’s predictions for the 100,000,000 most commonly seen combinations
+    of yarn products and user queries using a big offline batch-processing job. Write
+    those to a shared database once a day that is read by our system, and use a default
+    score of *p* = 0.01 for anything not in that list.
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 预计算模型对100,000,000个最常见的羊毛产品组合和用户查询的预测，使用一个大型离线批处理作业。每天将这些写入一个共享数据库，并对不在列表中的内容使用*p*
+    = 0.01的默认分数。
+- en: Create a JavaScript version of the model and load it into the web page so that
+    predictions are made in the user’s browser.
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建模型的JavaScript版本，并将其加载到网页中，以便在用户的浏览器中进行预测。
+- en: Create a mobile app that has the model embedded into it so that predictions
+    are made on the user’s mobile device.
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建一个嵌入模型的移动应用程序，以便在用户的移动设备上进行预测。
+- en: Have different versions of the model with different trade-offs of computational
+    cost and accuracy. Create a tiered system in which versions of the model are available
+    in the cloud, using different hardware with different costs. Send the easy queries
+    to a cheaper (less accurate) model and send the more difficult queries to a more
+    expensive (more accurate) model.
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 有不同版本的模型，具有计算成本和准确性的不同权衡。创建一个分层系统，其中模型的不同版本在云中可用，使用不同成本的不同硬件。将简单的查询发送到成本更低（准确性更低）的模型，将更难的查询发送到成本更高（准确性更高）的模型。
+- en: This chapter is devoted to helping us map out the criteria for selecting from
+    choices like this. Along the way, we will also discuss critical practicalities
+    like ensuring that the feature pipeline used in serving is compatible with that
+    used in training, and strategies for updating a model in serving.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一章致力于帮助我们制定从诸如此类选择中选择的标准。在此过程中，我们还将讨论一些关键的实际问题，比如确保在服务中使用的特征流水线与训练中使用的兼容，并更新服务中的模型的策略。
+- en: Key Questions for Model Serving
+  id: totrans-10
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型服务的关键问题
+- en: There are a lot of ways that we can think about creating structures around a
+    model that support serving, each with very different sets of trade-offs. To help
+    navigate this space, it’s useful to think through some specific questions about
+    the needs for our system.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以考虑许多在模型周围创建支持服务的结构的方法，每种方法都有不同的权衡集。为了帮助导航这个领域，思考一些关于我们系统需求的具体问题是很有用的。
+- en: What Will Be the Load to Our Model?
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 我们的模型负载会是多少？
+- en: The first thing to understand about our serving environment is the level of
+    traffic that our model will be asked to handle—often referred to as *queries per
+    second* (*QPS*) when queries are made on demand. A model serving predictions to
+    millions of daily users may be asked to handle tens of thousands of queries per
+    second. A model that runs an audio recognizer that listens for a *wake word* on
+    a mobile device, like “Hey YarnIt,” may run at a few QPS. A model that predicts
+    housing prices for a real estate service might not be served on demand at all,
+    and may instead be run as part of a large batch-processing pipeline.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于我们的服务环境，首先要理解的是我们的模型将要处理的流量水平——通常在按需进行查询时称为*每秒查询数*（*QPS*）。为每天数百万用户提供预测的模型可能需要处理数万次每秒的查询。运行在移动设备上监听“Hey
+    YarnIt”等唤醒词的音频识别器模型可能只需几个QPS。预测房地产服务中房价的模型可能根本不会按需提供，而可能作为大型批处理流水线的一部分运行。
+- en: A few basic strategies can address large traffic load. The first is to replicate
+    the model across many machines and run these in parallel—perhaps using a cloud-based
+    platform to allow a combination of traffic distribution and easy scaling up as
+    demand grows. The second is to use more powerful hardware, such as hardware accelerators
+    like GPUs or other specialized chips. These often require batching requests together
+    to maximize efficiency, because the chips are so powerful that they can be bottlenecked
+    more on input and output rather than on computing the model predictions themselves.^([1](ch08.xhtml#ch01fn86))
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 几种基本策略可以解决大流量负载问题。第一种是将模型复制到多台机器上并并行运行——可能使用基于云的平台来实现流量分发和根据需求扩展。第二种是使用更强大的硬件，比如像GPU或其他专用芯片这样的硬件加速器。这些通常需要将请求批量处理以最大化效率，因为这些芯片非常强大，它们可能更多地受限于输入和输出而不是计算模型预测本身。^([1](ch08.xhtml#ch01fn86))
+- en: We could also tune the computation cost of the model itself, perhaps by using
+    fewer features, or a deep learning model with fewer layers or parameters, or approaches
+    such as quantization and sparsification to make the internal mathematical operations
+    less expensive. Model cascades can also be effective at cost reduction—this is
+    where a cheap model is used to make first-guess decisions on easy examples, and
+    only the more difficult examples are sent to a more expensive model.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以调整模型本身的计算成本，例如使用较少的特征，或者深度学习模型使用较少的层或参数，或者采用量化和稀疏化等方法使内部数学操作成本更低。模型级联也可以有效降低成本——这是指使用廉价模型对简单示例进行初步决策，只有更困难的示例才会发送到更昂贵的模型。
+- en: What Are the Prediction Latency Needs of Our Model?
+  id: totrans-16
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 我们的模型对预测延迟有什么需求？
+- en: '*Prediction latency* is the time between the moment we make a request and the
+    moment we get an answer back. Acceptable prediction latency can vary dramatically
+    among applications, and is a major determiner of serving architecture choices.'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*预测延迟*是我们发出请求到收到答复的时间间隔。可接受的预测延迟在不同应用中可能差异巨大，是服务架构选择的主要决定因素。'
+- en: For an online web store like *yarnit.ai*, we might have a total time budget
+    of only half a second between the time that the user types in a query like “merino
+    wool yarn” and the time they expect to see a full page of suggested products.
+    Factoring in network delays and other processing necessary to build and load the
+    page, this might mean that we have only a few milliseconds for the model to make
+    all of its predictions on candidate products. Other very low-latency applications
+    might include models that are used in high-frequency trading platforms, or that
+    do real-time guidance of autonomous vehicles.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于像*yarnit.ai*这样的在线网络商店，我们可能只有半秒钟的总时间预算，从用户输入类似“美利奴羊毛线”这样的查询到他们希望看到完整推荐产品页面的时间。考虑到网络延迟和构建加载页面所需的其他处理，这可能意味着我们只有几毫秒的时间让模型对候选产品进行所有预测。其他非常低延迟的应用可能包括用于高频交易平台的模型，或者实时引导自动驾驶车辆的模型。
+- en: On the other end of the spectrum, we might have a model that is being used to
+    determine the optimal spot to drill for oil, or that is trying to guide the design
+    of protein sequences to be used to create new antibody treatments. For applications
+    like these, latency is not a major concern because using these predictions (such
+    as actually creating an oil rig or actually testing a candidate protein sequence
+    in the wet lab) is likely to take weeks or months. Other application modalities
+    have implicit delays built in. For example, an email spam-filtering model might
+    not need to have millisecond response time if a user checks their inbox only every
+    morning.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在另一方面，我们可能有一个模型，用于确定最佳的石油钻探点，或者尝试指导蛋白质序列的设计，用于创建新的抗体治疗方法。对于这些应用，延迟并不是一个主要的关注点，因为使用这些预测结果（例如实际建造石油钻机或在湿实验室中测试候选蛋白质序列）可能需要几周或几个月的时间。其他应用方式内含有隐含的延迟。例如，如果用户每天早上检查他们的收件箱，则电子邮件垃圾过滤模型可能不需要毫秒级响应时间。
+- en: Taken together, latency and traffic load define the overall computational needs
+    of our ML system. If prediction latency is too high, we can mitigate the issue
+    by using more powerful hardware, or by making our model less expensive to compute.
+    However, it is important to note that parallelization by creating a larger number
+    of model replicas is usually not a solution to prediction latency, as the end-to-end
+    time it takes to send a single example through the model isn’t affected by simply
+    having more versions of the model available.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 综合考虑，延迟和流量负载定义了我们机器学习系统的整体计算需求。如果预测延迟过高，我们可以通过使用更强大的硬件来减轻问题，或者通过使我们的模型计算成本更低来解决问题。然而，需要注意的是，通过创建更多模型副本来进行并行化通常不是解决预测延迟的方法，因为通过模型的单个示例的端到端时间不受简单拥有更多模型版本的影响。
+- en: Real systems often produce a distribution of latency values, due to network
+    effects and overall system load. It can be useful to look at tail latency, such
+    as the worst few percent, rather than average latency, so that we do not miss
+    noticing if a percentage of requests are getting dropped.^([2](ch08.xhtml#ch01fn87))
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 真实系统通常会产生延迟值的分布，这是由网络效应和整体系统负载引起的。关注尾延迟，如最坏的几个百分比，而不是平均延迟，这样我们就不会错过注意到一部分请求可能被丢弃的情况。^([2](ch08.xhtml#ch01fn87))
+- en: Where Does the Model Need to Live?
+  id: totrans-22
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型需要存储在哪里？
+- en: In our modern world, defined as it is by flows of information and concepts like
+    virtual machines and cloud computing, it can be easy to forget that computers
+    are physical devices, and that a model needs to be stored on a physical device
+    in a specific location. We need to determine the home (or homes) for our model,
+    and this choice has significant implications on the overall serving system architecture.
+    Here are some options to consider.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们现代世界中，定义为信息流动和虚拟机等概念的流动，我们很容易忘记计算机是物理设备，并且模型需要存储在具体位置的物理设备上。我们需要确定我们模型的主要存储位置（或多个位置），这个选择对整体服务系统架构有重要的影响。以下是一些考虑的选项。
+- en: On a local machine
+  id: totrans-24
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 在本地机器上
+- en: Although this is not really a production-level solution, in some cases a model
+    developer may have a model running on their local machine, perhaps invoking small
+    batch jobs to process data when needed. This is not recommended for anything beyond
+    small-scale prototyping or bespoke uses. Even in these cases, it is easy to come
+    to rely on this in early stages and create more trouble than expected when we
+    need to migrate to a production-level environment.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这并不是一个真正的生产级解决方案，在某些情况下，模型开发人员可能在他们的本地机器上运行模型，可能在需要时调用小批处理作业来处理数据。这不推荐用于除小规模原型设计或定制使用外的任何情况。即使在这些情况下，很容易在早期阶段依赖这一点，并在需要迁移到生产级环境时产生比预期更多的麻烦。
+- en: On servers owned or managed by our organization
+  id: totrans-26
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 在我们组织拥有或管理的服务器上
+- en: If our organization owns or operates its own servers, we likely will run our
+    models on this same platform. This may be especially important when specific privacy
+    or security concerns are in place. It may also be the right option if latency
+    is a hypercritical concern, or if specialty hardware is needed to run our models.
+    However, this choice can limit flexibility in terms of ability to scale up or
+    down, and will likely require special attention to monitoring.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们的组织拥有或运营自己的服务器，我们可能会在同一平台上运行我们的模型。在特定的隐私或安全问题需要考虑时，这可能尤为重要。如果延迟是一个超级关键的问题，或者运行我们的模型需要专用硬件，那么这可能是正确的选择。然而，这个选择可能会限制在能力上的灵活性，无论是扩展还是收缩，都需要特别关注监控。
+- en: In the cloud
+  id: totrans-28
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 在云端
+- en: 'Serving our models by using a cloud-based provider can allow for easily scaling
+    our overall computational footprint up or down, and may also allow us to choose
+    from several hardware options. This may be done in two ways. The first, running
+    model servers on our own virtual servers and controlling how many of them we use,
+    is essentially indistinguishable from the preceding option of using servers owned
+    or managed by our organization. In this case, it might be slightly easier to scale
+    up or scale down the number of servers, but the management overhead is otherwise
+    similar. Here we’re more interested in the second case: using a managed inference
+    service.'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过使用基于云的提供商来提供我们的模型，可以轻松地扩展或缩减我们的整体计算印记，同时还可以选择多种硬件选项。这可以通过两种方式实现。首先，我们可以在自己的虚拟服务器上运行模型服务器，并控制我们使用多少个服务器，这本质上与之前使用我们组织拥有或管理的服务器的选项无异。在这种情况下，也许稍微容易一些扩展或缩减服务器的数量，但管理开销在其他方面是类似的。这里我们更感兴趣的是第二种情况：使用托管推理服务。
+- en: 'In a managed inference service, some monitoring needs may be automatically
+    addressed—although we will still likely need to independently verify and monitor
+    overall model quality and predictive performance. Round-trip latency will likely
+    be higher because of network costs. Depending on the geographical location of
+    the actual datacenters, these costs may be higher or lower, and we may be able
+    to mitigate some of these issues by using datacenters in multiple major geographical
+    locations if we will be fielding requests globally. Privacy and security needs
+    are also highlighted here, as we will be sending information across the network
+    and will need to ensure that appropriate safeguards are in place. Finally, in
+    addition to privacy and security concerns, we may have governance reasons for
+    being cautious about using particular cloud providers: some online activities
+    are regulated by national governments in a way that requires certain data to be
+    kept in particular jurisdictions. Make sure you know about these factors before
+    making a serving layout plan.'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在托管推理服务中，一些监控需求可能会自动解决——尽管我们仍然可能需要独立验证和监控整体模型质量和预测性能。由于网络成本的原因，往返延迟可能会较高。根据实际数据中心的地理位置不同，这些成本可能会高低不一，如果我们要全球处理请求，可能可以通过在多个主要地理位置使用数据中心来缓解部分问题。隐私和安全需求在这里也被突显出来，因为我们将通过网络发送信息，并且需要确保适当的保护措施已经到位。最后，除了隐私和安全问题外，我们可能出于治理原因而对使用特定云提供商保持谨慎：一些在线活动受国家政府监管的方式要求某些数据必须保留在特定司法管辖区。在制定服务布局计划之前，请确保您了解这些因素。
+- en: On-device
+  id: totrans-31
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 在设备上
+- en: Today’s world is filled with computational devices that are part of our daily
+    lives. Everything from mobile phones to smart watches, digital assistants, automobiles,
+    thermostats, printers, home security systems, and even exercise equipment have
+    a surprising amount of computational capacity, and developers are finding ML applications
+    in nearly all of them. When a model is needed in these settings, it is much more
+    likely that it will need to be stored on the device itself, because the alternative
+    is to access a model in the cloud, which requires constant network connection
+    and may also have complicated privacy concerns. These settings of serving “on
+    the edge” typically have strict constraints on model size, because memory is limited,
+    as well as the amount of power that may be consumed by model predictions.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当今世界充满了成为我们日常生活一部分的计算设备。从手机到智能手表，数字助理，汽车，恒温器，打印机，家庭安全系统，甚至是运动设备，这些设备都具有令人惊讶的计算能力，开发人员几乎在所有这些设备中找到了机器学习应用。当这些环境需要模型时，很可能需要将模型存储在设备本身上，因为另一种选择是访问云中的模型，这需要持续的网络连接，并可能存在复杂的隐私问题。这些“边缘服务”设置通常对模型大小有严格的限制，因为内存有限，并且可能由模型预测消耗的电量也有限制。
+- en: Updating the model in such settings typically requires a push across the network,
+    and is unlikely to happen for all such devices in a timely fashion; some devices
+    may never receive any updates at all. Because of the difficulty of making fixes
+    to push updates, testing and verification take on a whole new level of importance
+    in these settings. In some critical use cases, such as a model that continually
+    needs to scan input audio for certain commands, it may even be necessary to encode
+    the model at the hardware level rather than the software levels. This can yield
+    huge efficiency improvements, but at the cost of making updates more difficult—or
+    even impossible.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这些设置中更新模型通常需要通过网络推送，并且不太可能及时更新所有此类设备；某些设备甚至可能根本不会接收任何更新。由于难以进行修复和推送更新，测试和验证在这些设置中变得尤为重要。在某些关键用例中，例如一个需要不断扫描输入音频以检测特定命令的模型，甚至可能需要在硬件级别而不是软件级别对模型进行编码。这可以带来巨大的效率提升，但会增加更新的难度，甚至可能不可能。
+- en: What Are the Hardware Needs for Our Model?
+  id: totrans-34
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 我们模型的硬件需求是什么？
+- en: In recent years, a range of computational hardware and chip options has emerged
+    that has enabled dramatic improvements in serving efficiency for various model
+    types. Understanding these options is important for informing our overall serving
+    architecture.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 近年来，出现了一系列计算硬件和芯片选项，这些选项极大地提升了各种模型类型的服务效率。了解这些选项对于指导我们的整体服务架构非常重要。
+- en: The main thing to know about deep models in serving is that they rely on dense
+    matrix multiplications, which basically means that we need to do a lot of multiplication
+    and addition operations in a way that is compute intensive, but that is also highly
+    predictable in terms of memory access patterns.^([3](ch08.xhtml#ch01fn88)) The
+    little multiplication and addition operations that make up one dense matrix multiplication
+    operation parallelize beautifully. This means that traditional CPUs will struggle
+    to perform well. At the time of writing, a typical CPU has around eight cores,
+    each with one or at most a small number of algorithmic logic units (ALUs), which
+    are the pieces of the chip that know how to do multiplication and addition operations.
+    Thus, CPUs can typically parallelize only a handful of these operations at once,
+    and their strengths in handling branching, memory access, and a wide variety of
+    computational operations don’t really come into play. This makes running inference
+    for deep learning models slow on CPUs.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在服务中了解深度模型的主要内容是它们依赖于密集矩阵乘法，这基本上意味着我们需要以计算密集的方式进行大量乘法和加法运算，但在内存访问模式方面也非常可预测。^([3](ch08.xhtml#ch01fn88))
+    构成一个密集矩阵乘法运算的小乘法和加法操作可以很好地并行化。这意味着传统的 CPU 在执行良好方面会遇到困难。在撰写本文时，典型的 CPU 大约有八个核心，每个核心拥有一个或者最多几个算法逻辑单元（ALU），这些是芯片中知道如何进行乘法和加法运算的部件。因此，CPU
+    通常只能同时并行化少数这些操作，并且它们在处理分支、内存访问和各种计算操作方面的优势并没有真正发挥出来。这使得在 CPU 上运行深度学习模型的推断速度变慢。
+- en: A much better choice for serving deep learning models are chips called *hardware
+    accelerators*. The most common ones are GPUs because these chips were first developed
+    for processing graphics, which also rely on doing fast dense matrix multiplications.^([4](ch08.xhtml#ch01fn89))
+    The main insight in a GPU is that if a few ALUs are good, thousands must be better.
+    GPUs are thus great at the special-purpose task of dense matrix multiplications,
+    but typically are not well suited to other tasks.^([5](ch08.xhtml#ch01fn90))
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务深度学习模型的一个更好选择是称为*硬件加速器*的芯片。最常见的是 GPU，因为这些芯片最初是为处理图形而开发的，图形处理同样依赖于快速的密集矩阵乘法。^([4](ch08.xhtml#ch01fn89))
+    GPU 的主要洞察是，如果少数 ALU 是好的，那么成千上万个肯定更好。因此，GPU 在专门的密集矩阵乘法任务上表现出色，但通常不适合其他任务。^([5](ch08.xhtml#ch01fn90))
+- en: Of course, GPUs have drawbacks, the most obvious of which is that these are
+    specialized hardware. This typically means that either we need to invest organizationally
+    in serving deep models using GPUs, or we are using a cloud service that supplies
+    GPUs (and may charge a premium accordingly), or that we are serving in an on-device
+    setting where a GPU is locally available.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，GPU 也有其缺点，其中最明显的是这些都是专门的硬件。这通常意味着我们要在组织上投资，以便使用 GPU 为深度模型提供服务；或者我们正在使用提供
+    GPU 的云服务（可能会相应收费）；或者我们正在使用本地可用 GPU 的设备。
+- en: The other main drawback of GPUs is that they’re not well suited to operations
+    not involving large amounts of dense matrix multiplications. Sparse models are
+    one such example. Sparse models are most useful when we need to use only a small
+    number of important pieces of information out of a large universe of possibilities,
+    such as the specific words that show up in a given sentence or search query out
+    of the large universe of all possible words. With appropriate modeling, sparsity
+    can be used in these settings to dramatically reduce computational cost, but GPUs
+    can’t easily benefit from this and CPUs may be much more appropriate. Sparse models
+    may include nondeep methods such as sparse linear models or random forests. They
+    can also appear in deep learning models as sparse embeddings, which can be thought
+    of as a learned input adapter that converts sparse input data (such as text) into
+    a dense representation that is more easily used within a deep model.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: GPU的另一个主要缺点是它们不太适合不涉及大量密集矩阵乘法的操作。稀疏模型就是一个例子。稀疏模型在我们只需要从大量可能性中选择少量重要信息时非常有用，例如给定句子或搜索查询中出现的具体词语，而这些词语又来自所有可能词语的大量可能性。通过适当的建模，稀疏性可以在这些设置中被使用以显著减少计算成本，但是GPU不能轻易从中受益，而CPU可能更为适合。稀疏模型可能包括非深度方法，例如稀疏线性模型或随机森林。它们也可以出现在深度学习模型中作为稀疏嵌入，可以将稀疏输入数据（例如文本）转换为更容易在深度模型中使用的密集表示。
+- en: How Will the Serving Model Be Stored, Loaded, Versioned, and Updated?
+  id: totrans-40
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 服务模型将如何存储、加载、进行版本控制和更新？
+- en: As a physical object, our serving model has a specific size that needs to be
+    stored. A model that is serving offline in an environment might be stored on disk
+    and loaded in by specific binaries in batch jobs whenever a new set of predictions
+    needs to be made. The main storage requirements are thus the disk space needed
+    to keep the model, as well as the I/O capacity to load the model from disk, and
+    the RAM needed to load the model into memory for use—and of these costs, the RAM
+    is likely more expensive or more limited in capacity.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为物理对象，我们的服务模型具有特定的大小需要存储。在离线环境中提供服务的模型可能存储在磁盘上，并且通过特定的二进制文件在批处理作业中加载，每当需要进行新的预测时。主要的存储需求因此是保持模型所需的磁盘空间，以及从磁盘加载模型的I/O容量，以及将模型加载到内存中进行使用所需的RAM——在这些成本中，RAM可能更昂贵或容量更有限。
+- en: A model that is used in live online serving needs to be stored in RAM in dedicated
+    machines, and for high-throughput services in latency-critical settings, copies
+    of this model likely will be stored and served in many replica machines in parallel.
+    As we discuss in [Chapter 10](ch10.xhtml#continuous_ml), most models will need
+    to be updated eventually by retraining on new data, and some are updated weekly,
+    daily, hourly, or even more frequently. This means that we will need to swap the
+    version of a model currently used in serving on a given machine with a new version.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于实时在线服务的模型需要存储在专用机器的RAM中，并且在高吞吐量服务和延迟关键设置中，该模型的副本可能会并行存储和提供在许多复制机器中。正如我们在[第10章](ch10.xhtml#continuous_ml)中讨论的那样，大多数模型最终需要通过在新数据上进行重新训练来更新，有些模型每周、每天、每小时甚至更频繁地更新。这意味着我们需要用新版本替换在给定机器上当前用于服务的模型版本。
+- en: If we want to avoid production outages while this happens, we have two main
+    strategies. The first is to allocate twice as much RAM for the serving jobs, so
+    that the new version of the model can be loaded into the machine while the old
+    one is still serving, and then hot-swapping which one is used once the new version
+    is fully ready. This works well but is wasteful of RAM for the majority of the
+    time when a model is not being loaded or swapped. The second is to overprovision
+    in terms of the number of replica machines by a certain percentage and then to
+    progressively take a proportion (e.g., 10%) offline in turn to update the model.
+    This more gradual approach also allows for more graceful error checking and canarying.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们希望在此过程中避免生产中断，我们有两种主要策略。第一种是为服务作业分配两倍的RAM，这样在旧版本仍在提供服务时，新版本的模型可以加载到机器中，然后一旦新版本完全准备就绪，就可以热替换使用哪个版本。这种方法效果很好，但在大多数时间内模型未加载或交换时会浪费RAM。第二种策略是根据机器副本数的百分比过度配置，然后逐步将一定比例（例如10%）的机器下线以更新模型。这种更渐进的方法还允许更优雅的错误检查和金丝雀发布。
+- en: It is also important to remember that if we want our system to support A/B testing,
+    which most developers will want to use, then it will be important to create an
+    architecture that allows both an A and a B version of the model to be served—and
+    indeed, developers may want to have many kinds of Bs running in A/B tests at the
+    same time. Deciding exactly how many versions will be supported and at what capacity
+    is an important architectural choice that requires balancing resourcing, system
+    complexity, and organizational requirements together.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还要记住，如果我们希望系统支持A/B测试（大多数开发者都希望使用），那么创建一个允许同时提供模型的A版本和B版本的架构非常重要。事实上，开发者可能希望在同一时间运行多种类型的B版本进行A/B测试。决定支持多少个版本以及以何种容量支持是一项重要的架构选择，需要平衡资源、系统复杂性和组织需求。
+- en: What Will Our Feature Pipeline for Serving Look Like?
+  id: totrans-45
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 我们的服务特征管道会是什么样子？
+- en: Features need to be processed at serving time as well as at training time. Any
+    feature processing or other data manipulation that is done to our data at training
+    time will almost certainly need to be repeated for all examples sent to our model
+    at serving time, and the computational requirements for this may be considerable.
+    In some cases, this is as simple as converting the raw pixel values of an image
+    into a dense vector to be fed to an image model. In more typical production settings,
+    it may require joining several sources of information together in real time.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征需要在服务时和训练时处理。任何在训练时对数据进行的特征处理或其他数据操作几乎肯定需要在发送给我们模型的所有示例中重复执行，并且这可能需要相当大的计算资源。在某些情况下，这可能仅仅是将图像的原始像素值转换为密集向量以供图像模型使用。在更典型的生产设置中，可能需要实时合并多个信息源。
+- en: 'For example, for our *yarnit.ai* store, we might need to supply a product recommendation
+    model with the following:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，对于我们的*yarnit.ai*商店，我们可能需要为产品推荐模型提供以下内容：
+- en: Tokenized normalized text from a user query, drawn from the search box entry
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户查询的标记化标准化文本，来自搜索框输入。
+- en: Information about past purchase history, drawn from a stored database of user
+    information
+  id: totrans-49
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 过去的购买历史信息，来自存储的用户信息数据库。
+- en: Information about product prices and descriptions, drawn from a stored product
+    database
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 产品价格和描述信息，来自存储的产品数据库。
+- en: Information about geography, language, and time of day, drawn from a localization
+    system
+  id: totrans-51
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 地理信息、语言和时间信息，来自本地化系统。
+- en: Each kind of information comes from a different source, and may have different
+    opportunities for precomputation or reuse from query to query or session to session.
+    In many cases, this means that the actual code used to turn these pieces of information
+    into features for our ML model to use may be different at serving time from the
+    code used for similar tasks at training time. This distinction is one of the main
+    sources of classic *training-serving skew* errors and bugs, which are notoriously
+    difficult to detect and debug. For a much more in-depth discussion of this kind
+    of skew, and others, see [Chapter 9](ch09.xhtml#monitoring_and_observability_for_models).
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每种信息来源不同，并且在查询到查询或会话到会话之间可能有不同的预计算或重用机会。在许多情况下，这意味着用于将这些信息转换为我们的ML模型在服务时间使用的特征的实际代码可能与训练时间用于类似任务的代码不同。这种区别是经典的*训练-服务偏差*错误和错误的主要来源之一，而这些错误通常难以检测和调试。关于这种偏差及其他类型的更深入讨论，请参见[第9章](ch09.xhtml#monitoring_and_observability_for_models)。
+- en: One of the promises of modern feature stores is that they handle both training
+    and serving together in a single logical package. The reality of this promise
+    may differ by system and use case, so it is well worth ensuring robust monitoring
+    in any case.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现代特征存储的一个承诺是它们在单一逻辑包中同时处理训练和服务。这一承诺的实际情况可能因系统和用例而异，因此确保在任何情况下进行强大的监控非常重要。
+- en: It is also worth noting that creating features for our model to use at serving
+    time is a key source of latency, and in many systems will be the dominating factor.
+    This means that the serving feature pipeline is far from an afterthought, and
+    is indeed often the most production-critical part of the entire serving stack.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还值得注意的是，在服务时间为我们的模型创建特征是延迟的一个主要来源，在许多系统中可能是支配性因素。这意味着服务特征管道远非一种事后想法，实际上通常是整个服务堆栈中最关键的部分。
+- en: Model Serving Architectures
+  id: totrans-55
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型服务架构。
+- en: 'With the preceding questions in mind, we will now examine four broad categories
+    of serving architectures. Obviously, each needs to be tailored to specific use
+    cases, and some serving systems may use a combination of approaches. With that
+    said, we observe that most of the architecture and deployment approaches fall
+    into the following four broad categories:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到前面的问题，我们现在将详细研究四种广泛的服务架构。显然，每种都需要根据具体的用例进行定制，有些服务系统可能会使用多种方法的组合。话虽如此，我们注意到大多数架构和部署方法可归为以下四类：
+- en: Offline
+  id: totrans-57
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 离线
+- en: Online
+  id: totrans-58
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在线
+- en: Model as a service
+  id: totrans-59
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型即服务
+- en: Serving at the edge
+  id: totrans-60
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 边缘服务
+- en: We look at each in detail now.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在详细查看每个。
+- en: Offline Serving (Batch Inference)
+  id: totrans-62
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 离线服务（批量推理）
+- en: '*Offline serving* is often the simplest and fastest architecture to implement.
+    The application serving the end user is not exposed to the models directly. Models
+    are trained ahead of time, often referred to as *batch inference*.'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*离线服务*通常是实现最简单和最快的架构。直接面向最终用户的应用程序不会直接暴露给模型。模型通常提前训练好，通常称为*批量推理*。'
+- en: Batch inference is a way to avoid the problem of hosting a model to be reachable
+    for predictions on demand when you don’t need that. It works by loading the model
+    and executing its predictions offline against a predefined set of input data.
+    As a result, the model’s predictions are stored as a simple dataset, perhaps in
+    a database or a *.csv* file or another resource that stores data. Once these predictions
+    are needed, the problem is identical to any other problem for which static data
+    resources need to be loaded from data storage. In essence, by computing the model
+    predictions offline, you convert on-demand model predictions into a more standard
+    problem of simple data lookup ([Figure 8-1](#offline_model_serving_via_data_store)).
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量推理是一种避免主机模型以在需要时进行预测的问题的方法。它通过加载模型并针对预定义的输入数据离线执行其预测来工作。因此，模型的预测被存储为简单的数据集，可能存储在数据库或*.csv*文件或其他存储数据的资源中。一旦需要这些预测，问题就变成了从数据存储加载静态数据资源的标准问题。本质上，通过离线计算模型预测，您将按需模型预测转换为更标准的简单数据查找问题（[图 8-1](#offline_model_serving_via_data_store)）。
+- en: For example, the *popularity* of each product on *yarnit.ai* for a given subset
+    of users can be computed offline—perhaps at a convenient low-load time, if doing
+    so is expensive in some way—and used as a sort function helper when displaying
+    arbitrary items at any point as required to render the page.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，可以在离线计算*yarnit.ai*上每个产品的*流行度*，针对给定的用户子集—也许在方便的低负载时间进行，如果某种方式的开销较大—并在需要时用作排序功能助手，以在任何时候根据需要呈现页面。
+- en: '![Offline model serving via data store](Images/reml_0801.png)'
+  id: totrans-66
+  prefs: []
+  type: TYPE_IMG
+  zh: '![通过数据存储进行离线模型服务](Images/reml_0801.png)'
+- en: Figure 8-1\. Offline model serving via data store
+  id: totrans-67
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-1\. 通过数据存储进行离线模型服务
+- en: If the use case is less demanding, we might even be able to avoid the complexity
+    of storing and serving model predictions via a database and write the predictions
+    to a flat file, or in-memory data structure, and use them directly within the
+    application ([Figure 8-2](#offline_model_serving_via_in_memory_dat)). As an example,
+    our web store could use a *search query intent classifier* (specific product versus
+    broad category) to help the query engine rewrite the query for retrieving the
+    search results efficiently. (You could, of course, build an approximation to the
+    same structure by, say, indexing yarn by fiber content as a hash containing wool,
+    cotton, acrylic, blends, etc., and/or a reverse hash.)
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果用例要求不高，我们甚至可以避免通过数据库存储和提供模型预测的复杂性，将预测写入平面文件或内存数据结构，并在应用程序中直接使用它们（[图 8-2](#offline_model_serving_via_in_memory_dat)）。例如，我们的网店可以使用*搜索查询意图分类器*（特定产品与广泛类别），帮助查询引擎高效地重写查询以检索搜索结果。
+    （当然，您当然可以通过构建类似结构的近似值来索引纱线，例如通过包含羊毛、棉花、丙烯酸、混合物等的散列，或者反向散列。）
+- en: '![Offline model serving via in-memory data structures](Images/reml_0802.png)'
+  id: totrans-69
+  prefs: []
+  type: TYPE_IMG
+  zh: '![通过内存数据结构进行离线模型服务](Images/reml_0802.png)'
+- en: Figure 8-2\. Offline model serving via in-memory data structures
+  id: totrans-70
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-2\. 通过内存数据结构进行离线模型服务
+- en: Advantages
+  id: totrans-71
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 优点
+- en: 'The advantages of offline serving are as follows:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 离线服务的优点如下：
+- en: Less complicated
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 较少复杂
+- en: This approach requires no special infrastructure. Often you can reuse something
+    you already have, or start something small and simple. The runtime system has
+    fewer moving parts.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法不需要特殊的基础设施。通常可以重用已有的东西，或者开始一些小而简单的东西。运行时系统的移动部件较少。
+- en: Easy access
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 方便使用
+- en: Applications facilitating the use case can perform simple key-value lookups
+    or SQL queries based on the data store.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 促进使用案例的应用可以根据数据存储执行简单的键值查找或SQL查询。
+- en: Better performance
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更好的性能
+- en: Predictions are provided quickly, since they have been precomputed. This might
+    be an overriding consideration for certain mission-critical applications.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预测是快速提供的，因为它们已经预先计算。这可能是某些关键任务应用的首要考虑因素。
+- en: Flexible
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 灵活
+- en: By using separate tables or records based on an identifier, this approach provides
+    a flexible and easy way to roll out and roll back various models.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过基于标识符的单独表格或记录，此方法提供了一个灵活且简便的方式来推出和回退各种模型。
+- en: Verification
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 验证
+- en: The ability to verify all model predictions before use is a significant benefit
+    for establishing correct operation.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用之前验证所有模型预测的能力是建立正确操作的重要优势。
+- en: Disadvantages
+  id: totrans-83
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 缺点
+- en: 'The disadvantages of offline serving are listed here:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 离线服务的缺点在这里列出：
+- en: Availability of data (training)
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据的可用性（训练）
+- en: Training data needs to be available ahead of time. Hence, model enhancements
+    will take longer to deploy into production systems. Also, a critical upstream
+    data outage could lead to stale models, days’ worth of delays, permanently lost
+    data, and expensive backfill processes to “catch up” the offline job to a current
+    state.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练数据需要提前准备好。因此，模型增强将需要更长时间才能部署到生产系统中。此外，关键的上游数据故障可能导致过时的模型、数天的延迟、永久丢失的数据，以及昂贵的回填过程来“赶上”离线作业到当前状态。
+- en: Availability of data (serving)
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据的可用性（服务）
+- en: Effectively, the serving data needs to be available ahead of time; for fully
+    correct operation, the system needs to know in advance every possible query that
+    will be made of it. This is simply impossible in many use cases.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，服务数据需要提前准备好；为了完全正确的运行，系统需要事先知道每一个可能查询的可能。在许多使用案例中，这是不可能的。
+- en: Scaling
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 扩展
+- en: Scaling is difficult, especially for use cases dependent on large datasets or
+    large query spaces. For example, you can’t handle a search query space with a
+    long tail—i.e., many different queries, the bulk of which aren’t commonly used—with
+    high accuracy and low latency.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 扩展很困难，特别是对于依赖大型数据集或大查询空间的使用案例。例如，无法处理长尾搜索查询空间——即许多不同的查询，其中大部分不常用——以高准确度和低延迟。
+- en: Capacity limits
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容量限制
+- en: Storing multiple model outputs in memory or in application databases will have
+    storage limitations and/or cause performance problems. This will impact the ability
+    to run multiple A/B tests at the same time. This may not cause a real problem,
+    provided that the database and query resource requirements scale at similar rates
+    and provided we have enough resources to provision.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将多个模型输出存储在内存中或应用程序数据库中会有存储限制和/或导致性能问题。这将影响同时运行多个A/B测试的能力。只要数据库和查询资源需求的扩展速率相似，并且我们有足够的资源来提供，这可能不会造成真正的问题。
+- en: Less selectivity
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择性较少
+- en: Since models and predictions are precomputed, we won’t be able to influence
+    the predictions by using online context.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于模型和预测是预先计算的，我们无法通过使用在线上下文影响预测。
+- en: Online Serving (Online Inference)
+  id: totrans-95
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在线服务（在线推理）
+- en: In contrast to the preceding approach, *online serving* does not rely on precomputed
+    outputs from a fixed query space. Instead, we provide predictions in real time
+    by ingesting/streaming samples of real-time data, generally from user activity.
+    In our web store example, we could build a more personalized shopping experience
+    by having the model constantly learn the real-time user behavior by using the
+    current context along with historical information to make the predictions. The
+    current context might include location, views/impressions on precomputed recommendations,
+    recent search sessions, items viewed, or items added to and removed from the basket.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与前述方法相比，*在线服务* 不依赖于固定查询空间的预先计算输出。相反，我们通过摄取/流式传输实时数据样本，通常来自用户活动，实时提供预测。在我们的网店示例中，我们可以通过使模型不断学习实时用户行为来建立更个性化的购物体验，通过使用当前上下文以及历史信息来进行预测。当前上下文可能包括位置、对预先计算推荐的视图/印象、最近的搜索会话、查看的物品或添加到购物篮和从购物篮中删除的物品。
+- en: Because all of this activity can be taken into account at prediction time, this
+    allows significantly more flexibility in how to respond. Applications powered
+    by inferences generated by offline models plus training the supplemental models
+    for additional parameters in real time ([Figure 8-3](#online_model_serving_in_combination_wit))
+    provides huge benefits and significant business impacts.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为所有这些活动可以在预测时考虑到，这使得如何响应具有显著的灵活性成为可能。由离线模型生成的推断驱动的应用程序加上实时训练补充模型以获取额外参数（[图 8-3](#online_model_serving_in_combination_wit)）提供了巨大的好处和显著的业务影响。
+- en: '![Hybrid online model serving in combination with predictions generated offline](Images/reml_0803.png)'
+  id: totrans-98
+  prefs: []
+  type: TYPE_IMG
+  zh: '![混合在线模型服务与离线生成预测的结合](Images/reml_0803.png)'
+- en: Figure 8-3\. Hybrid online model serving in combination with predictions generated
+    offline
+  id: totrans-99
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-3\. 混合在线模型服务与离线生成预测的结合
+- en: Advantages
+  id: totrans-100
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 优点
+- en: 'Advantages of online serving include the following:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在线服务的优点包括以下几点：
+- en: Adaptability
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 适应性
+- en: Online models learn as they go, and so greatly reduce the cadence with which
+    model retraining and redeployment are required. Instead of adapting to concept
+    drift at deployment time, the model adapts to concept drift at inference time,
+    improving the performance of the model for customers.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在线模型在学习过程中不断进步，因此大大减少了模型重新训练和部署所需的周期。模型不是在部署时适应概念漂移，而是在推断时适应概念漂移，从而提高了客户模型的性能。
+- en: Amenable to supplemental models
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可供补充模型适用
+- en: Instead of training and changing one global model, we can tune more situation-specific
+    models with a small subset of real-time data (for example, user- or location-specific
+    models).
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以调整更多情境特定的模型，而不是训练和更改一个全局模型，只需使用一小部分实时数据（例如用户或位置特定的模型）。
+- en: Disadvantages
+  id: totrans-106
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 缺点
+- en: 'Here are some disadvantages of the online-serving approach:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里是在线服务方法的一些缺点：
+- en: Latency budget required
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要延迟预算
+- en: The model needs access to all relevant features. It will need quick access to
+    new queries so that it can convert them into features and in turn look up relevant
+    features stored elsewhere. If all the data we need for a single training example
+    can’t be sent to the server as part of the payload on the API call, we need to
+    grab that data from somewhere else in milliseconds. Typically, that means using
+    an in-memory store of some kind (for example, Redis).
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型需要访问所有相关特征。它需要快速访问新的查询，以便将其转换为特征，并进一步查找存储在其他地方的相关特征。如果我们需要为单个训练示例发送的所有数据不能作为
+    API 调用负载的一部分发送到服务器，则需要在毫秒级别从其他地方获取这些数据。通常，这意味着使用某种内存存储（例如，Redis）。
+- en: Deployment complexities
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署复杂性
+- en: As the predictions are made in real time, rolling out the model changes is highly
+    challenging, especially in a container-orchestration environment like Kubernetes.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于预测是实时进行的，因此在容器编排环境（如 Kubernetes）中部署模型更改非常具有挑战性。
+- en: Scalability constrained
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 受可扩展性约束
+- en: Since a model can and will change from time to time, it’s not horizontally scalable.
+    Instead, we might need to build a cluster of single-model instances that can consume
+    new data as quickly as possible, and return the sets of learned parameters as
+    part of the API response.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为模型可能会随时更改，所以它不具备水平扩展性。相反，我们可能需要构建一组单模型实例的集群，这些实例可以尽快消耗新数据，并将学习到的参数集作为 API
+    响应的一部分返回。
+- en: Higher oversight requirements
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要更高的监督要求
+- en: This approach needs more advanced monitoring and adjustment/rollback mechanisms
+    in place, since real-time changes could well include fraudulent behaviors caused
+    by the bad actors in the ecosystem, and they could interact with, or influence,
+    model behavior in some way.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法需要更先进的监控和调整/回滚机制，因为实时变化可能包括生态系统中由恶意行为者引起的欺诈行为，并且它们可能以某种方式与模型行为互动或影响。
+- en: Higher management requirements
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要更高的管理要求
+- en: In addition to strong monitoring and rollback mechanisms, doing this correctly
+    requires nontrivial expertise and fine-tuning to get right, both for data science
+    and product engineering. Therefore, this approach is probably worth it for only
+    critical line-of-business applications, usually with high monetary impact for
+    the business.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了强大的监控和回滚机制之外，正确执行这一点还需要非常复杂的专业知识和精细调整，既包括数据科学又包括产品工程。因此，这种方法可能仅对关键的业务线应用程序值得，通常对业务有很高的经济影响。
+- en: Serving models online is more powerful when it’s combined with the model-as-a-service
+    approach we discuss in the following section. We note in passing that real-time
+    predictions can be served either synchronously or asynchronously. While synchronous
+    mode is more straightforward and simpler to reason about, asynchronous mode gives
+    us a lot more flexibility to handle the way results are passed around, and enable
+    approaches like sending predictions via push *or* pull mechanisms, depending on
+    the application and the end client (browser, app, device, internal service, etc.).
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当在线提供模型与我们在下一节中讨论的模型即服务方法相结合时，其能力更加强大。我们顺便提一句，实时预测可以同步或异步提供。虽然同步模式更直接简单，更容易理解，但异步模式使我们在处理结果传递方式时更加灵活，并且能够启用通过推送或拉取机制发送预测的方法，具体取决于应用程序和最终客户端（浏览器、应用程序、设备、内部服务等）。
+- en: Model as a Service
+  id: totrans-119
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型即服务
+- en: The *Model-as-a-Service (MaaS)* approach is similar to software as a service
+    and inherently favors a microservice architecture. With MaaS, models are stored
+    in a dedicated cluster and served results via well-defined APIs. Regardless of
+    the transport or serialization methods (e.g., gRPC or REST),^([6](ch08.xhtml#ch01fn91))
+    because models are served as a microservice, they’re relatively isolated from
+    the main application ([Figure 8-4](#models_served_as_a_separate_microservic)).
+    This is therefore the most flexible and scalable deployment/serving strategy,
+    since no in-process interaction or tight coupling are necessarily required.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*模型即服务 (MaaS)* 方法类似于软件即服务，并固有地支持微服务架构。使用 MaaS，模型存储在专用集群中，并通过明确定义的 API 提供结果。无论传输或序列化方法如何（例如
+    gRPC 或 REST），^([6](ch08.xhtml#ch01fn91)) 由于模型作为微服务提供，它们相对于主应用程序是相对隔离的（见[图 8-4](#models_served_as_a_separate_microservic)）。因此，这是最灵活和可扩展的部署/服务策略，因为不一定需要进程内交互或紧密耦合。'
+- en: '![Models served as a separate microservice](Images/reml_0804.png)'
+  id: totrans-121
+  prefs: []
+  type: TYPE_IMG
+  zh: '![作为单独的微服务提供模型](Images/reml_0804.png)'
+- en: Figure 8-4\. Models served as a separate microservice
+  id: totrans-122
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 8-4\. 作为单独的微服务提供模型
+- en: Given the wide popularity of X-as-a-service approaches throughout the industry,
+    we will focus on this particular method more than others, and will examine in
+    detail various aspects of serving model predictions via APIs later in the chapter.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴于行业中 X 即服务方法的广泛流行，我们将更多关注这种特定方法，并将在本章后续详细探讨通过 API 提供模型预测的各个方面。
+- en: Advantages
+  id: totrans-124
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 优势
+- en: 'The following are advantages of MaaS:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是 MaaS 的优势：
+- en: Leveraging context
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 利用上下文
+- en: By definition in the MaaS context, we have the ability to serve predictions
+    in real time by using real-time context and new features.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据 MaaS 上下文的定义，我们有能力通过使用实时上下文和新功能实时提供预测。
+- en: Separation of concerns
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关注点分离
+- en: A separate service approach allows ML engineering to make model adjustments
+    in a stabler way, and apply well-known techniques for managing operational problems.
+    Most models of the MaaS type can be organized in a stateless way without any shared
+    configuration dependencies. In these cases, adding a new model-serving capacity
+    is as simple as adding new instances to the serving architecture, also known as
+    *horizontal scaling*.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 采用单独服务方法允许 ML 工程师以更稳定的方式进行模型调整，并应用于管理操作问题的众所周知的技术。大多数 MaaS 类型的模型可以以无状态方式组织，没有任何共享配置依赖。在这些情况下，增加新的模型服务能力就像向服务架构添加新实例一样简单，也称为*横向扩展*。
+- en: Deployment isolation
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署隔离
+- en: 'As per any development architecture in which RPCs are the sole method of communication,
+    the choice of technical stack could vary between application and model service
+    layers, allowing respective teams to develop very differently if required. Independent
+    deployment cycles could follow too, and make it a little easier to deploy versions
+    on different timescales, or multiple environments: QA, staging, canaries, etc.'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与任何开发架构一样，在其中 RPC 是唯一的通信方法，技术堆栈的选择可能会在应用程序和模型服务层之间变化，允许各自团队根据需要进行非常不同的开发。也可以遵循独立的部署周期，更容易在不同的时间轴上部署版本，或者在多个环境中进行部署：QA、staging、金丝雀发布等。
+- en: Version management
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 版本管理
+- en: Versioning is easy to proliferate, since we can store multiple versions of the
+    models in the same cluster and point to them as required; this is extremely convenient
+    for A/B testing, for example. The version-identifying information about the model
+    being used can often be designed as a part of the service’s response data as well.
+    Among other benefits, this allows for rolling redeployments because stakeholder
+    systems can rely on a model identifier to track, route, and collate any event
+    data that may be generated as a result of using the ML model, such as tracking
+    which model was used to serve a particular result in an A/B test.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 版本控制很容易扩展，因为我们可以在同一集群中存储多个模型版本，并根据需要指向它们；例如，在 A/B 测试中非常方便。关于使用的模型的版本标识信息通常也可以设计为服务响应数据的一部分。此外，这还允许滚动部署，因为利益相关者系统可以依赖模型标识符来跟踪、路由和汇总由使用
+    ML 模型引起的任何事件数据，例如在 A/B 测试中用于服务特定结果的模型。
+- en: Centralization facilitates monitoring
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集中化有助于便捷的监控
+- en: Because the model architecture is centralized, it’s comparatively easier to
+    monitor system health, capacity/throughout, latency, and resource consumption,
+    as well as per model business metrics like impressions, clicks, conversions, and
+    so on. If we design architectural components that wrap inputs/outputs and standardize
+    the process of identifying models and loading them from configs, many of the SRE
+    “golden four” types of observability metrics can be obtained “for free” just by
+    plugging into other predefined tools that provide these for other general microservices.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于模型架构是集中化的，因此比较容易监控系统健康、容量/吞吐量、延迟和资源消耗，以及每个模型的业务指标，如印象、点击、转化等。如果我们设计包装输入/输出和标准化识别模型并从配置加载它们的架构组件，那么可以通过插入其他提供这些常规微服务的
+    SRE “黄金四”类型的可观察性指标的预定义工具来“免费”获得许多这些指标。
+- en: Disadvantages
+  id: totrans-136
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 缺点
+- en: 'MaaS disadvantages are as follows:'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MaaS 的缺点如下所示：
+- en: Management overhead
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管理开销
+- en: When you climb aboard the microservice train, getting off is difficult, and
+    a lot of overhead is required to stay onboard safely and well. However, this overhead
+    does at least have the advantage of being somewhat well documented and understood.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您加入微服务列车时，要安全且良好地保持在车上是困难的，并且需要大量的开销。然而，这种开销至少有一个优点，即被充分记录和理解。
+- en: Organizational compliance
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组织合规性
+- en: When we reply on the standard framework for deploying microservices, we might
+    initially get a lot of things “for free,” such as log aggregation, metrics scraping
+    and dashboarding, tracking metadata for containers and compute usage, and managed
+    delivery software that converts a code build or release into a real deployment.
+    But we will also get change requests to comply with privacy, security standards,
+    authentication, auditing, resource limitations, and various migrations.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们依赖于标准框架部署微服务时，最初可能会得到许多“免费”的东西，例如日志聚合、指标抓取和仪表板、跟踪容器和计算使用的元数据，以及将代码构建或发布转换为真正部署的管理交付软件。但是，我们也会收到改变请求，以遵守隐私、安全标准、身份验证、审计、资源限制以及各种迁移。
+- en: Latency budgets required
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要延迟预算
+- en: In any kind of microservice architecture that effectively externalizes your
+    call stack, latency becomes a critical and unignorable constraint. Since user-perceived
+    latency needs to be kept within reasonably tight constraints (subsecond, ideally),
+    this imposes performance-related constraints on all the other systems you’ll communicate
+    with. It also potentially creates an organizational blind spot around user-perceived
+    performance, since (by default in siloed enterprises) no one team will own that
+    performance as a whole. As a result, the choice of underlying data stores, languages,
+    and organizational structure and patterns becomes important.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在任何有效将您的调用堆栈外部化的微服务架构中，延迟成为一个关键且不可忽视的约束条件。由于用户感知的延迟需要保持在合理紧凑的限制内（理想情况下为亚秒级），这对您将与之通信的所有其他系统施加了性能相关的约束。它还可能在用户感知性能周围创建组织盲点，因为（在分离的企业中默认情况下）没有一个团队会整体拥有那个性能。因此，选择底层数据存储、语言、组织结构和模式变得非常重要。
+- en: Distributed availability
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式可用性
+- en: Architectures built on distributed microservices must be able to tolerate partial
+    failures robustly. The calling service must have reasonable fallbacks when the
+    model service is down.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 建立在分布式微服务上的架构必须能够鲁棒地容忍部分故障。当模型服务不可用时，调用服务必须有合理的后备方案。
+- en: Serving at the Edge
+  id: totrans-146
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 边缘服务
+- en: A slightly less commonly understood serving architecture is used when a model
+    is deployed onto edge devices ([Figure 8-5](#models_served_at_the_edge_and_as_a_sepa)).
+    An *edge device* might be anything from an Internet of Things (IoT) doorbell to
+    self-driving vehicles, or anything in between. Today, the bulk of edge devices
+    with an internet connection are modern smartphones.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当模型部署到边缘设备上时，使用一种稍少见的服务架构（参见图8-5）。边缘设备可能是从物联网（IoT）门铃到自动驾驶车辆等各种设备。如今，具有互联网连接的大多数边缘设备是现代智能手机。
+- en: '![Models served at the edge and as a separate microservice on the server](Images/reml_0805.png)'
+  id: totrans-148
+  prefs: []
+  type: TYPE_IMG
+  zh: '![模型在边缘和服务器上作为单独的微服务提供](Images/reml_0805.png)'
+- en: Figure 8-5\. Models served at the edge and as a separate microservice on the
+    server
+  id: totrans-149
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-5。模型在边缘和服务器上作为单独的微服务提供
+- en: 'Usually these models don’t exist on their own: a server-side supplemental model
+    of some kind helps fill the gaps. It’s also common that most edge applications
+    primarily rely on on-device inferences. That might change in the future, with
+    emerging techniques like federated/collaborative learning.^([7](ch08.xhtml#ch01fn92))
+    The closeness to the user is a great advantage for some applications, but we often
+    face severe resource limits in this architecture.'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些模型通常不会独立存在：某种服务器端的补充模型有助于填补空白。同时，大多数边缘应用程序主要依赖设备上的推理。这种情况可能会随着联合/协作学习等新技术的出现而发生变化。^([7](ch08.xhtml#ch01fn92))
+    较接近用户的优势对某些应用来说是一个很大的优势，但我们在这种架构中经常面临严重的资源限制。
+- en: Advantages
+  id: totrans-151
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 优势
+- en: 'Serving at the edge has these advantages:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 边缘提供的优势包括：
+- en: Low latency
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 低延迟
+- en: 'Putting the model on the device allows it to be quicker. Near-instantaneous
+    response (and no risk of dropped packets, etc.) to predict things can be absolutely
+    critical for some applications: high latency or jitter in self-driving vehicles
+    could cause accidents, injuries, or even deaths. Running models on edge devices
+    is essentially compulsory here.'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将模型放在设备上可以加快速度。对于某些应用程序，几乎即时的响应（没有丢包的风险等）非常关键：在自动驾驶车辆中，高延迟或抖动可能导致事故、伤害甚至死亡。在边缘设备上运行模型在这里实际上是强制性的。
+- en: More-efficient network usage
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更高效的网络使用
+- en: The more queries you can answer locally, the fewer you have to send over the
+    network.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你能够本地回答的查询越多，就越少需要通过网络发送。
+- en: Improved privacy and security
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提高隐私和安全性
+- en: Making inferences locally means that the user data and the predictions made
+    on that data are much harder to compromise. This is really useful for personalized
+    search, or recommendations that might require PII such as user profile, location,
+    or transaction history.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本地进行推断意味着用户数据及其上的预测变得更难被攻击。这对于个性化搜索或需要个人身份信息（PII）如用户配置文件、位置或交易历史的推荐非常有用。
+- en: More reliable
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更可靠
+- en: When the network connection is not consistently stable, being able to execute
+    certain operations locally that were previously executed remotely becomes desirable
+    and sometimes even necessary.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当网络连接不稳定时，能够在本地执行某些以前在远程执行的操作变得更加可取，甚至有时是必要的。
+- en: Energy efficiency
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 能源效率
+- en: One key design requirement of edge devices is energy efficiency. In certain
+    cases, local computing consumes less energy than network transmission.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 边缘设备的一个关键设计要求是能源效率。在某些情况下，本地计算消耗的能量比网络传输要少。
+- en: Disadvantages
+  id: totrans-163
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 缺点
+- en: 'The following are disadvantages of serving at the edge:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是边缘提供的缺点：
+- en: Resource constraints (specialization)
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 资源限制（专业化）
+- en: With limited computing power, edge devices can perform only a few tasks. Non-edge
+    infrastructure should still handle training, building, and serving of large models,
+    while edge devices can perform local inferences with smaller models.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在计算能力有限的情况下，边缘设备只能执行少数任务。非边缘基础设施仍应处理大型模型的训练、构建和服务，而边缘设备则可以使用较小的模型进行本地推理。
+- en: Resource constraints (accuracy)
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 资源限制（准确性）
+- en: ML models can consume lots of RAM and be computationally expensive; fitting
+    these on memory-constrained edge devices can be difficult or impossible. The good
+    news is a lot of research is ongoing to find alternative ways to address this;
+    for example, parameter-efficient neural networks like SqueezeNet and MobileNet
+    are both attempts to keep the models small and efficient without sacrificing too
+    much accuracy.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习模型可能会消耗大量RAM并且计算成本高昂；将它们适配到内存受限的边缘设备上可能会很困难或不可能。好消息是，目前有大量研究正在进行以寻找替代方法来解决这个问题；例如，像SqueezeNet和MobileNet这样的参数高效神经网络正是为了保持模型小巧高效而不牺牲太多准确性的尝试。
+- en: Device heterogeneity (device-specific programming languages)
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设备异构性（特定于设备的编程语言）
+- en: 'Coming up with a way to ensure that edge serving and on-device training happen
+    precisely the same on both iOS and Android, for example, is a significant challenge.
+    Doing it efficiently within the context of mobile development best practices also
+    involves the intersections of two highly domain-specific groups of people (ML
+    engineers and mobile engineers), which can create organizational strain on scarce
+    shared specialty teams or prevent embracing standardized team models for full-stack
+    development. A similar set of interactions exists whenever software is deployed
+    into public-facing use as a service. For example, an accounting service available
+    on the web will require that software engineers expert in building accounting
+    systems deal with production engineers experienced at running software in production.
+    The difference here is mostly of degree: ML engineers and mobile engineers come
+    from extremely different worlds and technical contexts and are unlikely to communicate
+    well without effort.'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，想出一种确保iOS和Android上的边缘服务和设备内训练完全一致的方法是一个重大挑战。在移动开发最佳实践的背景下高效完成这项工作，还涉及到两个高度专业化的团队（ML工程师和移动工程师）的交叉，这可能会对稀缺的共享专业团队造成组织压力，或者阻止采用全栈开发的标准化团队模型。类似的交互集合存在于将软件部署为面向公众使用的服务时。例如，一个在Web上可用的会计服务将要求具有建立会计系统经验的软件工程师与具有在生产环境中运行软件经验的生产工程师打交道。这里的差异主要是程度上的：ML工程师和移动工程师来自极不同的世界和技术背景，如果不加努力，可能不太可能有效沟通。
+- en: Device software versions are in the user’s control
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设备软件版本由用户控制
+- en: Unless you use a backend-for-frontend proxy service design pattern to route
+    various calls off-device into a server-side backend, the owner of the edge device
+    controls the software update cycles. We might push out a critical improvement
+    to an on-device ML model in an iOS app, but that doesn’t mean that millions of
+    existing users have to update the version on their iPhones. They might wait around
+    and continue using the outdated version for as long as they would like. Because
+    any ML model deployed to the edge device might need to robustly keep operating
+    and have its prediction and on-device learning setup continue working for a long
+    time, it’s a huge architectural commitment that might carry a lot of future-looking
+    tech debt and legacy support with it, and should be chosen carefully.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除非您使用后端代理服务设计模式将各种调用从设备路由到服务器端后端，否则边缘设备的所有者将控制软件更新周期。我们可能在iOS应用程序中推出一个关键的改进，但这并不意味着数百万现有用户必须更新其iPhone上的版本。他们可能会继续等待并继续使用过时版本，直到他们愿意为止。因为部署到边缘设备的任何ML模型可能需要稳定运行，并且其预测和设备上学习设置可能需要长时间继续工作，这是一个巨大的架构承诺，可能带来大量未来技术债务和遗留支持，并且应该谨慎选择。
+- en: Note
+  id: totrans-173
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'One of the important attributes you need to track when serving ML models in
+    production is versioning. Feedback loop data, backups, disaster recovery, and
+    performance measurement all rely on it. We discuss these ideas in more detail
+    in [Chapter 9](ch09.xhtml#monitoring_and_observability_for_models). In particular,
+    we will look at suggested measurements in two sections: serving and SLOs.'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产中为ML模型提供服务时需要跟踪的重要属性之一是版本控制。反馈循环数据、备份、灾难恢复和性能测量都依赖于它。我们将在[第9章](ch09.xhtml#monitoring_and_observability_for_models)中更详细地讨论这些想法。特别是，在两个部分中我们将查看建议的测量：服务和SLOs。
+- en: Choosing an Architecture
+  id: totrans-175
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 选择架构
+- en: Having talked about the various architecture options, we now need to choose
+    the right one! Depending on the use case, that could be a complex affair; the
+    differences between the model lifecycles, formats, and so on are one axis of consideration,
+    never mind the vast implementation landscape that exists.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 谈论了各种架构选项之后，我们现在需要选择正确的架构！根据用例的不同，这可能是一件复杂的事情；模型生命周期、格式等之间的差异是考虑的一个方面，更不用说存在的广泛实施景观了。
+- en: 'Our recommended approach is to first consider the *amount* of data and *speed*
+    of the data required for your application: if extremely low latency is the priority,
+    use offline/in-memory serving. Otherwise, use MaaS, except when you’re running
+    on an edge device, in which case serving at the edge is (obviously) the most appropriate.'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们推荐的方法是首先考虑应用程序所需的数据量和数据速度：如果极低的延迟是优先考虑的，使用离线/内存服务。否则，使用MaaS，除非您在边缘设备上运行，在这种情况下，在边缘提供服务（显然）是最合适的。
+- en: The rest of this chapter focuses on MaaS, since it’s more flexible, and pedagogically
+    better since it suffers from fewer constraints.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的其余部分专注于MaaS，因为它更加灵活，并且从教学角度来看更好，因为它受到的约束较少。
+- en: Model API Design
+  id: totrans-179
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型API设计
+- en: Production-scale ML models are usually built using a wide variety of programming
+    languages, toolkits, frameworks, and custom-built software. When trying to integrate
+    with other production systems, such differences limit their *accessibility*, since
+    ML and software engineers may have to learn a new programming language or write
+    a parser for a new data format, and their *interoperability*, requiring data format
+    converters and multiple language platforms.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，生产规模的ML模型通常使用各种编程语言、工具包、框架和定制软件构建。当试图与其他生产系统集成时，由于ML和软件工程师可能需要学习新的编程语言或编写新数据格式的解析器，这些差异限制了它们的*可访问性*，以及它们的*互操作性*，需要数据格式转换器和多语言平台。
+- en: 'One way of improving the accessibility and interoperability is to provide an
+    abstracted interface via web services. Resource-oriented architectures (ROAs)
+    in the REST style appear well suited to this task, given the natural alignment
+    of REST’s design philosophy with the desire to hide implementation-specific details.^([8](ch08.xhtml#ch01fn93))
+    Partially in support of this view, we’ve seen rapid growth in the area of ML web
+    services in recent years: for example, Google Prediction/Vision APIs, Microsoft
+    Azure Machine Learning, and many more.'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 改进可访问性和互操作性的一种方式是通过Web服务提供抽象接口。基于资源的架构（ROAs）符合REST风格的设计哲学，适合隐藏实现特定细节的愿望。^([8](ch08.xhtml#ch01fn93))
+    部分支持这一观点，我们近年来在ML Web服务领域看到了快速增长的情况，例如Google Prediction/Vision APIs、Microsoft
+    Azure Machine Learning等。
+- en: 'Most service-oriented architecture (SOA) best practices apply to ML model/inference
+    APIs too.^([9](ch08.xhtml#ch01fn94)) But you’ll want to take note of the following
+    points for models:'
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数面向服务的架构（SOA）最佳实践也适用于ML模型/推理API。^([9](ch08.xhtml#ch01fn94)) 但是对于模型，您需要注意以下几点：
+- en: Data science versus engineering skills
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据科学与工程技能
+- en: Many organizations have a pure data science team, with little or no experience
+    running services in production. To gain all the benefits of DevOps, however, you
+    will want to empower the data science team to take full ownership of releasing
+    its models to production. Instead of “handing over” models to another team, they
+    will collaborate with operations teams and co-own that process from start to finish.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多组织拥有纯数据科学团队，几乎没有在生产中运行服务的经验。然而，为了获得DevOps的所有好处，您将希望授权数据科学团队全权负责将其模型发布到生产环境中。他们不会把模型“移交”给另一个团队，而是与运维团队合作，共同完成从头到尾的流程。
+- en: Representations and models
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表示和模型
+- en: Even the slightest change in distribution of a feature may cause models to drift.
+    For complex-enough models, creating this representation may mean numerous data
+    pipelines, databases, and even upstream models. Handling this relationship is
+    nontrivial for many ML teams.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 甚至特征分布的轻微变化也可能导致模型漂移。对于足够复杂的模型，创建这种表示可能意味着大量的数据管道、数据库，甚至是上游模型。对于许多ML团队来说，处理这种关系是非常棘手的。
+- en: Scale/performance characteristics
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 规模/性能特征
+- en: In general, the *predict* part of the pipeline is purely compute-bound, something
+    that is rather unique in a service environment. In many cases, the *representation*
+    part of the workflow is more I/O bound, especially when we need to enrich the
+    input, by loading data/features, or retrieve the image/video we’re trying to predict
+    on.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，管道的*预测*部分在服务环境中是纯计算绑定的，这在服务环境中是相当独特的。在许多情况下，工作流程的*表示*部分更多地受到I/O绑定的影响，特别是当我们需要通过加载数据/特征来丰富输入，或检索我们试图进行预测的图像/视频时。
+- en: We believe the overwhelming factor that drives many design patterns in inference
+    service design is—perhaps surprisingly—*organizational support and skill set*.
+    A fundamental tension exists between requiring a data science team to fully own
+    all end-to-end components of a production deployment and fully separating production
+    concerns away from the data science team so it may focus fully on its domain specialization
+    of model training and model optimization.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们认为推动推理服务设计中许多设计模式的压倒性因素是——也许令人惊讶的是——*组织支持和技能集*。在要求数据科学团队完全负责生产部署的所有端到端组件与完全将生产问题与数据科学团队分开以便其专注于模型训练和模型优化的领域专业化之间存在根本的紧张关系。
+- en: Too far in either direction may prove unhealthy. If the data science team is
+    asked to own too much, or doesn’t have close collaborative partnership with operations
+    support teams, it can become overwhelmed dealing with production concerns for
+    which it has no training. If the data science team owns too little, it may be
+    disconnected from the constraints or realities of the production system its models
+    must fit into, and will be unable to remediate errors, assist in critical bug
+    fixes, or contribute to architectural planning.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在任何方向上都走得太远可能都不利。如果要求数据科学团队承担过多责任，或者与运维支持团队没有密切合作伙伴关系，可能会因为处理没有接受过训练的生产问题而感到不堪重负。如果数据科学团队承担的责任过少，可能会脱离模型必须适应的生产系统的限制或实际情况，无法纠正错误、协助关键错误修复或参与架构规划。
+- en: 'So, when we are ready to deploy models in production, we actually deploy two
+    different things: the model itself and the APIs that go and query the model to
+    fetch the predictions for a given input. Those two things also generate a lot
+    of telemetry and a lot of information that’ll later be used to help us monitor
+    the models in production, try to detect drift or other anomalies, and feed back
+    into the training phase of the ML lifecycle.'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，当我们准备在生产环境中部署模型时，实际上部署了两种不同的东西：模型本身以及用于查询模型并获取给定输入的预测的API。这两个方面还会生成大量遥测数据和信息，稍后将用于帮助我们监视生产中的模型，尝试检测漂移或其他异常，并反馈到机器学习生命周期的训练阶段。
+- en: Testing
+  id: totrans-192
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 测试
+- en: 'Testing model APIs, before deploying and serving in production, is extremely
+    critical because models can be have a significant memory footprint and require
+    significant computational resources to provide fast answers. Data scientists and
+    ML engineers need to work closely with the software and QA engineers, and product
+    and business teams, to estimate API usage. At a minimum, we need to perform the
+    following tests:'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在将模型部署和提供服务到生产环境之前，测试模型API非常关键，因为模型可能具有显著的内存占用，并且需要大量计算资源来提供快速响应。数据科学家和机器学习工程师需要与软件和质量保证工程师，产品和业务团队密切合作，以估算API的使用情况。至少需要执行以下测试：
+- en: Functional testing (e.g., expected output for given input)
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 功能测试（例如，对于给定输入的预期输出）
+- en: Statistical testing (e.g., test the API on 1,000 unseen requests, and the distribution
+    of the predicted class should match the trained distribution)
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 统计测试（例如，对1,000个未见请求进行API测试，预测类的分布应与训练分布匹配）
+- en: Error handling (e.g., data type validation in the request)
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 错误处理（例如，请求中的数据类型验证）
+- en: Load testing (e.g., *n* simultaneous users calling *x* times/second)
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 负载测试（例如，*n*个同时用户每秒调用*x*次）
+- en: End-to-end testing (e.g., validate that all the subsystems are working and/or
+    logging as expected)
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 端到端测试（例如，验证所有子系统是否按预期工作和/或记录）
+- en: Serving for Accuracy or Resilience?
+  id: totrans-199
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 服务的准确性还是韧性？
+- en: When serving ML models, a performance increase doesn’t always mean business
+    growth. Monitoring and correlating the model metrics with the business key performance
+    indicators (KPIs) help bridge the gap between performance analysis and business
+    impact, integrating the whole organization to function more efficiently toward
+    a common goal. It is important to view every improvement in the ML pipeline through
+    business KPIs; this helps in quantifying which factors matter the most.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当为机器学习模型提供服务时，性能提升并不总是意味着业务增长。通过监控并将模型指标与业务关键绩效指标（KPI）相关联，有助于弥合性能分析与业务影响之间的差距，整合整个组织以更高效地朝着共同目标运作。重要的是要通过业务KPI来看待机器学习管道中的每一项改进；这有助于量化哪些因素最为重要。
+- en: Model performance is an assessment of the model’s ability to perform a task
+    accurately, not only with sample data but also with actual user data in real time
+    in a production setup. It is necessary to evaluate performance to spot any erroneous
+    predictions like drift in detection, bias, and increased data inconsistency. Detection
+    is followed by mitigation of these errors by debugging, based on its behavior
+    to ensure that the deployed model is making accurate predictions at the user’s
+    end and is resilient to data fluctuations. ML model metrics are measured and evaluated
+    based on the type of model that the users are served by (for example, binary classification,
+    linear regression, etc.), to yield a statistical report that enlists all the KPIs
+    and becomes the basis of model performance.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型性能是评估模型在执行任务时的准确性能力，不仅使用样本数据，还使用实际用户数据在生产设置中实时运行。必须评估性能以发现任何错误预测，如检测中的漂移、偏差和增加的数据不一致性。检测之后，根据其行为调试以缓解这些错误，确保部署的模型在用户端进行准确预测，并且对数据波动具有弹性。ML模型指标是根据用户所服务的模型类型（例如，二元分类、线性回归等）来进行测量和评估，生成统计报告列出所有KPI，成为模型性能的基础。
+- en: 'Even though improvements in these metrics, such as minimizing log loss or improving
+    recall, will lead to better statistical performance for the model, we find that
+    business owners tend to care less about these statistical metrics and more about
+    business KPIs. We will be looking for KPIs that provide a detailed view of how
+    well a particular organization is performing, and create an analytical basis for
+    optimized decision making. In our *yarnit.ai* web store example, a couple of main
+    KPIs could be as follows:'
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管改进这些指标（如减少对数损失或提高召回率）会提升模型的统计性能，但我们发现业务所有者往往更少关心这些统计指标，而更注重业务关键绩效指标（KPI）。我们将寻找能够详细展示特定组织表现以及为优化决策制定分析基础的KPI。在我们的*yarnit.ai*网店示例中，主要的KPI可能如下：
+- en: Page views per visit
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每次访问的页面浏览量
+- en: This measures the average number of pages a user visits during a single site
+    visit. A high value might indicate an unsatisfactory user experience due to the
+    enormous digging the user had to do to reach what they want. Alternatively, a
+    very low value might indicate boredom or frustration with the site and point to
+    abandonment.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这度量用户在单次访问期间平均浏览页面的数量。较高的值可能表明用户体验不佳，因为用户必须进行大量搜索才能找到他们想要的内容。或者，非常低的值可能表明用户对网站感到无聊或沮丧，并且可能导致流失。
+- en: Returning customer order
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回头客订单
+- en: This measures the orders of an existing customer, and is essential for keeping
+    track of brand value and growth.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这度量现有客户的订单数量，对于追踪品牌价值和增长至关重要。
+- en: 'A resilient model, while not the best model with respect to data science measures
+    like accuracy or AUC, will perform well on a wide range of datasets beyond just
+    the training set. It will also perform better for a longer period of time, as
+    it’s more robust and less overfitted. This means that we don’t need to constantly
+    monitor and retrain the model, which can disrupt model use in production and potentially
+    even create losses for the organization. While no single KPI measures model resilience,
+    here are a few ways we can evaluate the resiliency of models:'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个弹性模型，虽然在数据科学指标如准确性或AUC方面并非最佳模型，但在除了训练集之外的广泛数据集上表现良好。它也将在更长时间内表现更好，因为它更加鲁棒和不容易过拟合。这意味着我们不需要不断监控和重新训练模型，这可能会干扰模型在生产中的使用，甚至可能造成组织损失。虽然没有单一的KPI来衡量模型的弹性，但我们可以通过以下几种方式来评估模型的弹性：
+- en: Smaller standard deviations in a cross-validation run
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 交叉验证运行中较小的标准偏差
+- en: Similar error rates for longer times in production models
+  id: totrans-209
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在生产模型中，较长时间内的类似错误率
+- en: Less discrepancy between error rates of test and validation datasets
+  id: totrans-210
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 测试和验证数据集的错误率之间的差异较小
+- en: How much the model is impacted by input drift
+  id: totrans-211
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型受输入漂移影响的程度
+- en: We discuss more details about model quality and evaluation in [Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality),
+    and API/system-level KPIs like latencies and resource utilization in [Chapter 9](ch09.xhtml#monitoring_and_observability_for_models).
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在[第5章](ch05.xhtml#evaluating_model_validity_and_quality)中详细讨论了模型质量和评估，以及API/系统级KPI，如延迟和资源利用率在[第9章](ch09.xhtml#monitoring_and_observability_for_models)中。
+- en: Scaling
+  id: totrans-213
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 缩放
+- en: We’ve exposed the models via API endpoints so they can deliver value to the
+    business and customers. This is good, but it’s just the beginning. If all goes
+    well, the model endpoints might see significantly higher workloads in the near
+    future. If the organization starts to serve many more users, these increased demands
+    can quickly bring down the ML services/infrastructure.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们通过 API 端点公开了模型，以便为业务和客户提供价值。这很好，但这只是一个开始。如果一切顺利，模型端点可能会在不久的将来看到显著增加的工作负载。如果组织开始为更多用户提供服务，这些增加的需求可以迅速导致
+    ML 服务/基础设施的崩溃。
+- en: ML models deployed as API endpoints need to respond to such changes in demand.
+    The number of API instances serving the models should increase when requests rise.
+    When workload decreases, the number of instances should be reduced so that we
+    don’t end up in a state of underutilization of resources in the cluster, and we
+    could potentially save a significant amount of operational expenses. This is similar
+    to the autoscaling in any cloud computing environment in modern software architectures.
+    Caching can also be efficient in ML environments, just as in traditional software
+    architectures. Let’s discuss these briefly.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署为 API 端点的 ML 模型需要响应这种需求变化。在请求增加时，为服务模型的 API 实例数应增加。当工作负载减少时，实例数应减少，以避免在集群中资源被低效利用，并且我们可以潜在地节省大量运营费用。这类似于现代软件架构中任何云计算环境中的自动缩放。在
+    ML 环境中，缓存也可以效率高效，就像传统软件架构中一样。让我们简要讨论一下这些。
+- en: Autoscaling
+  id: totrans-216
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 自动缩放
+- en: '*Autoscaling* dynamically adjusts the number of instances provisioned for a
+    model in response to changes in the workload. Autoscaling works by monitoring
+    a target metric (e.g., CPU or memory usage) and comparing it to a target value
+    we monitor for. Additionally, we can configure the minimum and maximum scaling
+    capacity and a cool-down period to control scaling behavior and price. In our
+    *yarnit.ai* web store example, the per language spelling-correction module used
+    for powering search use cases can be scaled independently from scaling the personalized
+    recommendations module for sending periodic emails recommending new/similar products
+    based on customer purchase history.'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*自动缩放* 根据工作负载的变化动态调整模型分配的实例数量。自动缩放通过监控目标指标（例如 CPU 或内存使用情况）并将其与我们监控的目标值进行比较来工作。此外，我们可以配置最小和最大缩放容量以及冷却期来控制缩放行为和价格。在我们的
+    *yarnit.ai* 网店示例中，用于支持搜索用例的每语言拼写校正模块可以与基于客户购买历史推荐新/类似产品的个性化推荐模块的扩展独立扩展。'
+- en: Caching
+  id: totrans-218
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 缓存
+- en: Consider the problem of predicting categories and subcategories within our *yarnit.ai*
+    online store. A user might search for “cable needles,” and we might predict their
+    intended shopping area is Equipment → Needles coming from an internal taxonomy
+    of our store category layout. In a case like this, rather than repeatedly invoke
+    the expensive ML model each time a repeat query like “cable needles” is encountered,
+    we could leverage a cache.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑在我们的 *yarnit.ai* 网上商店中预测类别和子类别的问题。用户可能搜索“cable needles”，我们可能会预测他们的预期购物区域是设备
+    → 针织针，来自我们商店类别布局的内部分类系统。在这种情况下，与其每次遇到重复查询如“cable needles”时重复调用昂贵的 ML 模型，我们可以利用缓存。
+- en: For simple cases that have a small number of queries in the cache, this can
+    usually be solved with a simple in-memory cache, possibly defined directly in
+    the application logic or in the model’s API server. But if we are dealing with
+    a huge number of customer queries to fit in the cache, we may want to expand our
+    cache into a separate API/service that can be independently scaled and monitored.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于在缓存中有少量查询的简单情况，通常可以通过简单的内存缓存来解决，可能直接定义在应用逻辑中或模型的 API 服务器中。但是，如果我们处理大量客户查询以适应缓存，我们可能需要将我们的缓存扩展到独立可独立扩展和监控的单独
+    API/服务中。
+- en: Disaster Recovery
+  id: totrans-221
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 灾难恢复
+- en: 'ML serving via MaaS has all the same failure-recovery requirements as other
+    software as a service (SaaS) platforms: surviving the loss of a datacenter and
+    diversifying infrastructure risks, avoiding vendor lock-in, rolling back bad code
+    changes quickly, and ensuring good circuit breaking to avoid contributing to failure
+    cascades. Separate from these standard service failure considerations, the deep
+    reliance of ML systems on training and data pipelines (whether online or offline)
+    creates additional requirements, including accommodating data schema changes and
+    database upgrades, onboarding new data sources, durable recovery of stateful data
+    resources (like the state of online learning, or the state of on-device retraining
+    in an edge serving use case after an app crashes), and graceful failure in the
+    face of missing data or upstream data ETL job outages—to name but a few.'
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MaaS通过ML服务与其他软件即服务（SaaS）平台具有相同的故障恢复要求：生存单个数据中心的丢失，多样化基础设施风险，避免供应商锁定，快速回滚糟糕的代码更改，并确保良好的断路器以避免贡献于故障级联。除了这些标准服务故障考虑因素外，ML系统对训练和数据管道（无论在线还是离线）的深度依赖性还带来了额外的要求，包括适应数据架构变化和数据库升级，接入新的数据源，以及在面对缺失数据或上游数据ETL作业中断时优雅地失败等等。
+- en: 'Data is constantly changing and growing in data warehouses, data lakes, and
+    streaming data sources: adding new and/or enhancing existing features in the product/service
+    creates new telemetry, a new data source may be added to supplement a new model,
+    an existing database goes through a migration, someone accidentally begins initializing
+    a counter at 1 instead of 0 in the last version of the model, and the list can
+    go on. Any one of such changes brings more challenges to ML systems in production.'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据在数据仓库、数据湖和流数据源中不断变化和增长：在产品/服务中添加新特性或增强现有特性会创建新的遥测，可能会添加新的数据源来补充新模型，现有数据库经历迁移，某人在上个模型版本中意外地从1开始初始化计数器而不是0等。任何这些变化都给生产中的ML系统带来更多挑战。
+- en: We discussed the challenges around data availability in [Chapter 7](ch07.xhtml#training_systems).
+    Without proper care for failure recovery, ML models that experience unexplained
+    data changes or data disruptions may need to be taken out of production and iterated
+    offline, sometimes for months or longer. During the early stages of architecture
+    review, be sure to ask many questions about how the system will react to unusual
+    data changes and how the system can be made robust to allow it to continue operating
+    in production. Additionally, we will inevitably want to expand a successful model’s
+    scope or optimize a poorly performing model by adding additional data features.
+    It is critical to factor in this data extensibility as an early architectural
+    consideration to avoid failure scenarios where we are blocked from being able
+    to ingest a new feature for the model because of the logistics of accommodating
+    the new data in production.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第7章](ch07.xhtml#training_systems)中讨论了数据可用性方面的挑战。在没有适当的故障恢复措施的情况下，经历未知数据变化或数据中断的机器学习模型可能需要从生产环境中移除，并进行长达数月甚至更长时间的离线迭代。在架构审查的早期阶段，务必多问关于系统如何应对异常数据变化以及如何增强系统健壮性以保证其继续在生产环境中运行的问题。此外，我们无可避免地希望通过添加额外的数据特征来扩展成功模型的范围或优化表现不佳的模型。在早期架构考虑中，将这种数据可扩展性视为关键因素至关重要，以避免因为新数据在生产中的处理逻辑而导致模型无法接收新特征的失败场景。
+- en: Also for high availability, we may want to run the model API clusters in multiple
+    datacenters and/or availability zones/regions in the cloud computing world. This
+    will allow us to quickly route the traffic when an outage occurs in a specific
+    cluster. Such deployment architecture decisions are fundamentally driven by the
+    SLOs of the organization.^([10](ch08.xhtml#ch01fn95)) We discuss SLOs in more
+    detail in [Chapter 9](ch09.xhtml#monitoring_and_observability_for_models).
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，为了确保高可用性，我们可能希望在云计算世界中的多个数据中心和/或可用性区域/地区中运行模型API集群。这将使我们能够在特定集群发生故障时快速路由流量。这些部署架构决策基本上受到组织服务水平目标（SLOs）的驱动。我们在[第9章](ch09.xhtml#monitoring_and_observability_for_models)中对SLOs进行了更详细的讨论。
+- en: Just as with application data, we need to have backup strategies in place to
+    constantly take snapshots of the current model data and use the last known good
+    copies when needed. These backups could be used offline for further analysis and
+    could potentially feed into training pipelines to enhance the existing models
+    by deriving new features.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像应用数据一样，我们需要有备份策略，不断地对当前模型数据进行快照，并在需要时使用最后一个已知的良好副本。这些备份可以离线用于进一步分析，并且可能会通过训练流水线来增强现有模型，衍生新特征。
+- en: Ethics and Fairness Considerations
+  id: totrans-227
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 道德和公平考虑
+- en: The general topic of fairness and ethics (along with privacy) is covered in
+    depth in [Chapter 6](ch06.xhtml#fairnesscomma_privacycomma_and_ethical). This
+    is a broad area that can be overwhelming for system implementers to consider.
+    We strongly encourage you to read that chapter for a general introduction along
+    with some concrete suggestions.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第6章](ch06.xhtml#fairnesscomma_privacycomma_and_ethical)详尽讨论了公平和道德（以及隐私）的总体主题。这是一个广泛的领域，使系统实施者可能会感到不知所措。我们强烈建议您阅读该章节，了解一般介绍以及一些具体建议。'
+- en: 'We should consider the following specific points for serving, however:'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，对于服务而言，我们应考虑以下具体要点：
+- en: Organizational support and transparency
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组织支持和透明度
+- en: When it comes to ethics and fairness while serving the ML models in production,
+    we need to establish checks and balances as part of the development and deployment
+    framework and be transparent with both internal stakeholders and customers about
+    the data being collected and how it will be used.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产中提供ML模型时，涉及道德和公平问题，我们需要在开发和部署框架中建立检查和平衡，并且对内部利益相关者和客户透明，说明所收集数据的用途。
+- en: Minimize privacy attack surface
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 减少隐私攻击面
+- en: When we process a request through the model APIs, request and response schemas
+    should try to avoid or at least minimize the need for user personal, demographic
+    information. If it’s part of the request, we need to make sure that data is not
+    logged anywhere while serving the predictions. Even for serving personalized predictions,
+    organizations that are extremely committed to ethics and privacy often interact
+    with serving infrastructure with short-lived user identifiers/tokens instead of
+    tracking the unique identifiers like user ID, device ID, and so on.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们通过模型API处理请求时，请求和响应模式应尽量避免或至少减少对用户个人、人口统计信息的需求。如果这些信息是请求的一部分，我们需要确保在提供预测时不在任何地方记录这些数据。即使是为了提供个性化的预测服务，对道德和隐私非常承诺的组织也经常使用短期的用户标识符/令牌与服务基础设施交互，而不是追踪唯一标识符如用户ID、设备ID等。
+- en: Secure endpoints
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安全端点
+- en: Along with data privacy, especially when dealing with PII, product/business
+    owners and ML/software engineers should invest more time and resources to secure
+    the model API endpoints even though they are accessible only within the internal
+    network (i.e., user requests are first processed by the application server before
+    calling model APIs).
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了数据隐私，特别是处理个人身份信息（PII）时，产品/业务所有者和ML/软件工程师应投入更多时间和资源来保护模型API端点，即使它们仅在内部网络中可访问（即，用户请求首先由应用服务器处理，然后调用模型API）。
+- en: Everyone’s responsibility
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个人的责任
+- en: Fairness and ethics are a responsibility for everyone, not just ethicists, and
+    it is critical that implementers and users of an ML serving system be educated
+    about these topics. Governance of these critical issues is not just the domain
+    of ML engineers, and must be informed holistically by other members of the organization,
+    including legal counsel, governance and risk management, operations and budget
+    planning, and all members of the engineering team.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 公平和道德是每个人的责任，不仅仅是伦理学家，关键是ML服务系统的实施者和用户必须接受这些主题的教育。这些关键问题的治理不仅仅是ML工程师的领域，必须全面地由组织中的其他成员，包括法律顾问、治理和风险管理、运营和预算规划以及所有工程团队的成员来综合考虑。
+- en: Conclusion
+  id: totrans-238
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: Serving reliably is hard. Making the models available to millions of users with
+    millisecond latencies and 99.99% uptime is extremely challenging. Setting up the
+    backend infrastructure so the right people can be notified when something goes
+    wrong and then figuring out what went wrong is also hard. But we can successfully
+    tackle that complexity in multiple ways, including asking the right questions
+    about your system at the start, picking the right architecture, and paying specific
+    attention to the APIs you might implement.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提供可靠的服务很难。让模型对数百万用户可用，同时保持毫秒级延迟和99.99%的正常运行时间是非常具有挑战性的。建立后端基础设施，以便在出现问题时通知合适的人员，并找出问题所在，也很难。但我们可以通过多种方式成功应对这种复杂性，包括在开始时对系统提出正确的问题，选择正确的架构，并特别关注您可能实现的API。
+- en: Serving isn’t a one-time activity either, of course. Once we’re serving, we
+    then need to monitor and measure success (and availability) constantly. There
+    are multiple ways to measure the ML model and product impact over the business,
+    including input from key stakeholders, customers, and employees, and actual ROI
+    as measured in revenue, or some other organizationally relevant metric. Hints
+    on this, and other topics in deployment, logging, debugging, and experimentation
+    are to be found in [Chapter 9](ch09.xhtml#monitoring_and_observability_for_models),
+    while there is a much more complete coverage of measuring models in [Chapter 5](ch05.xhtml#evaluating_model_validity_and_quality).
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务并非一次性活动。一旦开始服务，我们就需要持续监控和评估成功（和可用性）。有多种方法来衡量ML模型和产品对业务的影响，包括来自关键利益相关者、客户和员工的反馈，以及以收入或其他组织相关度量标准衡量的实际ROI。有关此内容以及部署、日志记录、调试和实验的其他主题的提示，请参阅[第9章](ch09.xhtml#monitoring_and_observability_for_models)，而在[第5章](ch05.xhtml#evaluating_model_validity_and_quality)中有更完整的模型衡量覆盖。
+- en: ^([1](ch08.xhtml#ch01fn86-marker)) In some cases, however, your choices about
+    how to arrange computation are fixed and cannot be changed. Models that must be
+    served on a device are one such example. Say we are deploying a model within a
+    mobile app that uses image recognition to identify knitting patterns for sweaters
+    from pictures taken with a mobile camera phone. We might choose to implement that
+    image recognition directly on the mobile device, and by avoiding sending pictures
+    to servers elsewhere, we’ll improve latency and reliability, and potentially even
+    privacy—though for mobile devices, ML computation is generally battery-expensive.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch08.xhtml#ch01fn86-marker)) 然而，在某些情况下，您关于如何安排计算的选择是固定的，无法更改。必须在设备上提供服务的模型就是一个例子。假设我们正在部署一个模型，用于在移动应用程序中使用图像识别从手机摄像头拍摄的图片中识别毛衣的编织图案。我们可以选择在移动设备上直接实现图像识别，避免将图片发送到其他服务器，这样可以改善延迟和可靠性，甚至可能改善隐私保护——尽管对于移动设备来说，ML计算通常会消耗电池电量。
+- en: ^([2](ch08.xhtml#ch01fn87-marker)) *Tail latency* refers to the longest latencies
+    of the total distribution of latencies observed when querying a model. If we query
+    a model many times and order the latency it takes to get a response from shortest
+    to longest, we might find a distribution for which the median response time is
+    quite fast. But in some cases we have a long tail of much, much longer responses.
+    This is the tail, and the durations are the tail latencies. See [“The Tail at
+    Scale”](https://research.google/pubs/pub40801) by Jeffrey Dean and Luiz André
+    Barroso for more.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch08.xhtml#ch01fn87-marker)) *尾延迟* 指的是查询模型时观察到的延迟分布的最长延迟。如果我们多次查询模型并按照响应时间从短到长排序，我们可能会发现一个分布，其中中位数响应时间非常快。但在某些情况下，我们可能会遇到一长串长得多的响应时间。这就是尾部，而这些持续时间就是尾延迟。更多详情请参阅Jeffrey
+    Dean和Luiz André Barroso的[《规模尾部》](https://research.google/pubs/pub40801)。
+- en: ^([3](ch08.xhtml#ch01fn88-marker)) Think millions or billions of individual
+    arithmetic operations for one prediction from a deep neural network.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch08.xhtml#ch01fn88-marker)) 想象一下，为了从深度神经网络进行一次预测，可能需要进行数百万或数十亿个单独的算术操作。
+- en: ^([4](ch08.xhtml#ch01fn89-marker)) While GPUs are by far the most common type
+    of ML hardware accelerator used in training and serving, many other specialized
+    accelerator architectures are designed specifically for ML. Companies like Google,
+    Apple, Facebook, Amazon, Qualcomm, and Samsung Electronics all have ML accelerator
+    products or projects. This space is changing rapidly.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch08.xhtml#ch01fn89-marker)) 虽然GPU在训练和服务中是最常见的ML硬件加速器类型，但许多其他专用加速器架构专门为ML设计。像谷歌、苹果、Facebook、亚马逊、高通和三星电子这样的公司都有ML加速器产品或项目。这个领域正在快速变化。
+- en: ^([5](ch08.xhtml#ch01fn90-marker)) Indeed, GPUs are *so* good at computation
+    that they are often bottlenecked not on their ability to do the matrix multiplications,
+    but instead on bandwidth for getting data in and out of the chip. Batching requests
+    together to amortize the input and output costs can be an extremely effective
+    strategy, in many cases allowing us to process hundreds of requests with the same
+    wall-clock latency as a single request. The only problem with batching is that
+    we may be slower waiting for enough requests to come in to create a batch of sufficient
+    size, but in environments with high load, this is not usually an issue.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch08.xhtml#ch01fn90-marker)) 实际上，GPU在计算方面非常出色，以至于它们通常不是在执行矩阵乘法时成为瓶颈，而是在于获取和输出数据的带宽。将请求批处理以摊销输入和输出成本可以是一种非常有效的策略，在许多情况下，这样做可以使我们处理数百个请求与处理单个请求具有相同的墙钟延迟。批处理的唯一问题是，我们可能会因等待足够的请求组成足够大的批次而变慢，但在高负载环境中，这通常不是问题。
+- en: ^([6](ch08.xhtml#ch01fn91-marker)) [gRPC](https://grpc.io) is an open source
+    RPC system initially developed by Google. Representational State Transfer (REST)
+    is a widely used pattern for APIs that developers follow when they create web
+    APIs.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch08.xhtml#ch01fn91-marker)) [gRPC](https://grpc.io)是一种由Google最初开发的开源RPC系统。当开发者创建Web
+    API时，表现状态转移（REST）是一种广泛使用的模式。
+- en: ^([7](ch08.xhtml#ch01fn92-marker)) Federated learning is an approach that trains
+    a model across multiple disconnected edge devices. Read more at [TensorFlow](https://oreil.ly/dYqeC).
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch08.xhtml#ch01fn92-marker)) 联邦学习是一种方法，通过多个断开的边缘设备训练模型。详细内容请查看[TensorFlow](https://oreil.ly/dYqeC)。
+- en: ^([8](ch08.xhtml#ch01fn93-marker)) Resource-oriented architectures (as compared
+    to service-oriented architecture) extend the REST pattern for web API building.
+    A resource is an entity that has a state that can be assigned to a uniform resource
+    locator (URL). See [“An Overview of Resource-Oriented Architectures”](https://oreil.ly/qzVwx)
+    by Joydip Kanjilal for an overview.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch08.xhtml#ch01fn93-marker)) 资源导向的架构（与面向服务的架构相比）扩展了用于构建Web API的REST模式。资源是具有可以分配给统一资源定位符（URL）的状态的实体。关于这方面的概述，请参阅Joydip
+    Kanjilal的《“An Overview of Resource-Oriented Architectures”》。
+- en: ^([9](ch08.xhtml#ch01fn94-marker)) Similarly, service-oriented architecture
+    is an approach whereby an application is decomposed into a series of services.
+    It’s a somewhat overused term that often means different things to different people
+    in the industry (as is reflected in [“Service-Oriented Architecture”](https://oreil.ly/e5GzU)
+    by Cesar de la Torre et al.)
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch08.xhtml#ch01fn94-marker)) 类似地，面向服务的架构是一种方法，通过该方法将应用程序分解为一系列服务。这是一个有些被过度使用的术语，在业界通常代表不同的含义（正如Cesar
+    de la Torre等人在《“Service-Oriented Architecture”》中反映的那样）。
+- en: '^([10](ch08.xhtml#ch01fn95-marker)) SLOs are thoroughly introduced in *Site
+    Reliability Engineering: How Google Runs Production Systems*, and even more thoroughly
+    covered in *Implementing Service Level Objectives* by Alex Hidalgo (O’Reilly,
+    2020).'
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([10](ch08.xhtml#ch01fn95-marker)) SLO（服务级别目标）在《*Site Reliability Engineering:
+    How Google Runs Production Systems*》中有详细介绍，并且在《*Implementing Service Level Objectives*》（Alex
+    Hidalgo著，O’Reilly出版，2020年）中有更详细的覆盖。'

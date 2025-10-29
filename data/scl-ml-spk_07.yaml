@@ -1,0 +1,1288 @@
+- en: Chapter 7\. Bridging Spark and Deep Learning Frameworks
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第七章。连接Spark和深度学习框架
+- en: So far, the main focus of this book has been on leveraging Spark’s capabilities
+    for scaling machine learning workloads. But Spark is often a natural choice for
+    scalable analytics workloads, and in many organizations, data scientists can take
+    advantage of the existing teams supporting it. In this scenario, data scientists,
+    data engineers, machine learning engineers, and analytics engineers are all consumers
+    and/or creators of the data and share responsibility for the machine learning
+    infrastructure. Using a scalable, multipurpose, generic tool such as Apache Spark
+    facilitates this collaborative work.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，本书的主要重点是利用Spark在扩展机器学习工作负载方面的能力。但是Spark通常是可扩展分析工作负载的自然选择，在许多组织中，数据科学家可以利用支持它的现有团队。在这种情况下，数据科学家、数据工程师、机器学习工程师和分析工程师都是数据的消费者和/或创建者，并共同承担机器学习基础设施的责任。使用像Apache
+    Spark这样的可扩展、多用途、通用工具有助于促进这种协作工作。
+- en: 'But while Spark is a powerful general-purpose engine with rich capabilities,
+    it lacks some critical features needed to fully support scalable deep learning
+    workflows. This is the natural curse of development frameworks: in the distributed
+    world, every framework needs to make decisions at the infrastructure level that
+    later limit the possibilities of the API and constrain its performance. Spark’s
+    limitations are mostly bound to its underlying premise that all algorithm implementations
+    must be able to scale without limit, which requires the model to be able to perform
+    its learning process at scale, with each step/iteration distributed across multiple
+    machines. This is in keeping with the Spark framework’s philosophy that *the size
+    of the cluster changes the duration of the job, not its capacity to run an algorithm*.
+    This implies that partial training must be implemented in a monoid fashion, which
+    means that the operations on the dataset are a closed set that implement the rules
+    of associative binary operation—which is not always easy to ensure, especially
+    with deep learning algorithms.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是尽管Spark是一个功能强大的通用引擎，具有丰富的功能，但它缺乏一些完全支持可扩展深度学习工作流所需的关键特性。这是开发框架的自然诅咒：在分布式世界中，每个框架都需要在基础设施级别做出决策，这些决策后来限制了API的可能性并限制了其性能。Spark的限制主要与其基础前提相关，即所有算法实现必须能够无限扩展，这要求模型能够在规模上执行其学习过程，使每个步骤/迭代分布在多台机器上。这与Spark框架的哲学一致，即*集群的大小改变作业的持续时间，而不是运行算法的能力*。这意味着部分训练必须以幺半群的方式实现，这意味着数据集上的操作是一个封闭集，实现了结合二元操作的规则，这在特别是深度学习算法中并不总是容易保证。
+- en: With deep learning algorithms, it can be hard to break each learning step into
+    subtasks that can be aggregated afterward following the traditional MapReduce
+    paradigm Spark is built upon. These algorithms are not easily distributable because
+    their activation function needs to see the whole dataset, or accept a degree of
+    imprecision. This can sometimes make it hard for data scientists working on deep
+    learning applications (such as natural language processing and image processing)
+    to fully take advantage of Spark. These systems can also be trained on large datasets
+    with various technologies, which means that it is likely that to effectively develop
+    deep learning models, you will have to rely on a broader range of algorithms.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于深度学习算法来说，很难将每个学习步骤分解为可以后续聚合的子任务，这是传统的MapReduce范式Spark构建的难点。这些算法不容易分布，因为它们的激活函数需要看到整个数据集，或者接受一定程度的不精确性。这有时会使在深度学习应用（如自然语言处理和图像处理）上工作的数据科学家难以充分利用Spark的优势。这些系统也可以使用各种技术对大型数据集进行训练，这意味着为了有效地开发深度学习模型，您可能必须依赖更广泛的算法。
+- en: This chapter will discuss how to bridge from Spark to deep learning frameworks,
+    rather than completely using other tools. Why? In organizations, when there is
+    a well-supported distributed system for processing and digesting data, it is a
+    best practice to work with what exists and take full advantage of it, rather than
+    introducing new complex frameworks. Introducing a new distributed framework can
+    take months or even years, depending on the team size, the workloads, the importance
+    of the task to the business goals, and short-term versus long-term investment
+    efforts. If Spark is already used in your organization, you can leverage familiarity
+    with that tool to get a solution up and running much faster.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章将讨论如何从Spark框架过渡到深度学习框架，而不是完全使用其他工具。为什么呢？在组织中，当存在一个良好支持的分布式系统来处理和消化数据时，最佳实践是利用已有的工具并充分利用它，而不是引入新的复杂框架。引入一个新的分布式框架可能需要几个月甚至几年的时间，这取决于团队规模、工作负载、任务对业务目标的重要性以及短期与长期投入的努力。如果你的组织已经在使用Spark，你可以利用对该工具的熟悉程度更快地实现解决方案运行起来。
+- en: Google’s article [“Hidden Technical Debt in Machine Learning Systems”](https://oreil.ly/E2NBJ)
+    taught us that training machine learning models is only one piece of the puzzle—and
+    a relatively small one at that. [Figure 7-1](#the_required_surrounding_infrastructure),
+    based on this article, shows the relationship between the machine learning/training
+    code itself and the various other parts of the system that it relies on for support.
+    The functionality of all of those elements influences the viability of the machine
+    learning code; bugs in any of those components will, at some point in time, affect
+    the machine learning code as well. For example, if my data collection process
+    is flawed and provides a dataset with a completely different schema than the machine
+    learning code expects, I will run into problems when trying to train the model.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 谷歌的文章[“机器学习系统中的隐藏技术债务”](https://oreil.ly/E2NBJ)告诉我们，训练机器学习模型只是问题的一部分，而且相对较小。基于这篇文章的[图7-1](#the_required_surrounding_infrastructure)，展示了机器学习/训练代码本身与系统的各个其他部分之间的关系，它们为支持提供了依赖。所有这些元素的功能影响机器学习代码的可行性；这些组件中的任何错误都会在某个时刻影响机器学习代码。例如，如果我的数据收集过程存在缺陷，并提供了与机器学习代码期望的完全不同的模式的数据集，那么在尝试训练模型时就会遇到问题。
+- en: '![](assets/smls_0701.png)'
+  id: totrans-6
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0701.png)'
+- en: Figure 7-1\. The required surrounding infrastructure for machine learning code
+  id: totrans-7
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-1\. 机器学习代码所需的周边基础设施
+- en: Ensuring all of the individual parts of a machine learning system are in good
+    shape and will work well together requires more engineers, more frameworks, and
+    more overall organizational investment than simply developing the model itself.
+    The challenge of gaining the engineering support required to implement distributed
+    clusters can more easily be overcome if you leverage tools that are already in
+    use in your organization rather than increasing complexity by trying to introduce
+    new ones. In our case, we can use Apache Spark for data collection, verification,
+    feature extraction, analysis, and more, then bridge into other frameworks just
+    for the capabilities that Spark does not provide, enabling us take advantage of
+    algorithms that exist in those frameworks while more easily securing buy-in from
+    the rest of the organization.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保机器学习系统的所有单独部分状态良好，并且能够良好协同工作，需要更多的工程师、更多的框架和更多的整体组织投资，而不仅仅是开发模型本身。通过利用已在您的组织中使用的工具，而不是通过引入新的工具来增加复杂性，可以更容易地克服实现分布式集群所需的工程支持的挑战。在我们的案例中，我们可以使用Apache
+    Spark进行数据收集、验证、特征提取、分析等工作，然后再过渡到其他框架，只是为了Spark无法提供的功能，从而利用这些框架中存在的算法，同时更容易获得整个组织的支持。
+- en: 'Now that you have a better understanding of the why, let’s explore some of
+    the technologies that enable us to execute a distributed training workflow. I’ll
+    focus here on two tools that have good industry traction and are trusted by reputable
+    organizations: PyTorch and TensorFlow. Off the shelf, both provide capabilities
+    to ingest and preprocess large datasets, but this is often trickier to achieve
+    than with Spark, and the team you are working with may not have experience with
+    these dedicated machine learning-focused frameworks.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你对为什么这么做有了更好的理解，让我们探讨一些使我们能够执行分布式训练工作流的技术。我在这里重点介绍两个在行业中有良好影响力并受到可靠组织信任的工具：PyTorch和TensorFlow。这两者提供了摄入和预处理大型数据集的能力，但与Spark相比，这通常更难实现，而你所合作的团队可能没有这些专用于机器学习的框架的经验。
+- en: Even if your team agreed to put in the time and effort required to get up to
+    speed with one of these tools, asking peer teams to shift their data ingestion,
+    data processing, feature extraction, and other processes to a new framework would
+    require a massive change in the infrastructure for the rest of the workloads,
+    which would impact your ability to execute on the task at hand. A more efficient
+    solution is to figure out how to combine the tools we’re already using for the
+    majority of our work with tools that provide the additional capabilities we need
+    to address our deep learning requirements, taking advantage of just that subset
+    of their functionality. This lowers the learning curve and keeps things simpler.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使你的团队同意投入时间和精力来学习这些工具，要求同行团队将其数据摄入、数据处理、特征提取等过程转移到新框架，需要对其余工作负载的基础设施进行重大改变，这将影响你执行手头任务的能力。更高效的解决方案是找出如何将我们已经在大部分工作中使用的工具与提供我们需要解决深度学习要求的额外功能的工具结合起来，充分利用它们功能的子集。这降低了学习曲线，使事情保持简单。
+- en: 'To help you achieve this goal, this chapter covers the following topics:'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了帮助你实现这一目标，本章涵盖以下主题：
+- en: Data and the two clusters approach
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据和两个集群方法
+- en: What a data access layer is and why and when to use it
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据访问层是什么，为什么以及何时使用它。
+- en: An introduction to and examples of using Petastorm
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Petastorm的介绍和使用示例
+- en: Spark’s Project Hydrogen and barrier execution mode
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Spark的Project Hydrogen和障碍执行模式
+- en: A brief introduction to the Horovod Estimator API
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Horovod估算器API简介
+- en: The Two Clusters Approach
+  id: totrans-17
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 两个集群方法
+- en: When your application calls for deep learning algorithms that are not implemented
+    in MLlib, the *two clusters approach* can come in handy. As the name suggests,
+    with this approach you maintain a dedicated cluster for running all your Spark
+    workloads, such as data cleansing, preprocessing, processing, and feature engineering.
+    As shown in [Figure 7-2](#the_two_clusters_approach_a_dedicated_c), the data is
+    later saved into a distributed filesystem (such as Hadoop) or object store (such
+    as S3 or Azure Blob) and is available for the second cluster—the dedicated deep
+    learning cluster—to load it and use it for building and testing models.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你的应用需要使用在MLlib中未实现的深度学习算法时，“两个集群方法”会非常有用。正如其名称所示，采用这种方法可以保持一个专用于运行所有Spark工作负载（如数据清洗、预处理、处理和特征工程）的集群。如[图7-2](#the_two_clusters_approach_a_dedicated_c)所示，数据随后保存到分布式文件系统（如Hadoop）或对象存储（如S3或Azure
+    Blob），并可供第二个集群——专用的深度学习集群加载并用于构建和测试模型。
+- en: '![](assets/smls_0702.png)'
+  id: totrans-19
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0702.png)'
+- en: 'Figure 7-2\. The two clusters approach: a dedicated cluster for Spark and a
+    dedicated cluster for PyTorch and/or TensorFlow, with a distributed storage layer
+    to save the data to'
+  id: totrans-20
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-2\. 两个集群方法：一个专用于Spark，一个专用于PyTorch和/或TensorFlow，带有分布式存储层来保存数据。
+- en: TensorFlow (TF) has a dedicated Data API that allows you to create a `Dataset`
+    object and tell it where to get the data from when ingesting data into a TF cluster.
+    It can read text files (such as CSV files), binary files with fixed-size records,
+    and a dedicated TFRecord format for records of varying size. These are all row-oriented
+    formats; TFRecords are the default data format for TensorFlow and are optimized
+    using Google’s Protocol Buffers.^([1](ch07.xhtml#ch01fn15)) It is possible to
+    read and write TFRecord data from Spark, but with Spark, the best practice is
+    to work with a columnar format. When working with TFRecords, it’s often best to
+    stick with TensorFlow.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow（TF）具有专用的数据 API，允许您创建一个`Dataset`对象，并告诉它在TF集群中摄取数据时数据的来源。它可以读取文本文件（如CSV文件）、具有固定大小记录的二进制文件，以及专用的TFRecord格式，用于记录大小不同的数据。这些都是面向行的格式；TFRecords是TensorFlow的默认数据格式，并使用Google的Protocol
+    Buffers进行了优化。^([1](ch07.xhtml#ch01fn15)) 从Spark中读取和写入TFRecord数据是可能的，但在Spark中，最佳实践是使用列格式。在使用TFRecords时，最好还是坚持使用TensorFlow。
+- en: This brings us back to the question of when it is appropriate or necessary to
+    work with multiple machine learning tools. Would just TensorFlow be enough for
+    your needs? Would PyTorch be better? What happens if, as a data scientist, you
+    need to implement algorithms from another library?
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这让我们回到一个问题：在何时适当或必要时使用多个机器学习工具。仅仅TensorFlow就足够满足您的需求吗？PyTorch会更好吗？作为数据科学家，如果您需要从另一个库实现算法会发生什么？
+- en: To work with multiple platforms, we need to rethink our data formats and adjust
+    them to fit each platform independently. Moreover, we’ll need to adjust the data
+    types. As you learned in [Chapter 4](ch04.xhtml#data_ingestioncomma_preprocessingcomma),
+    Spark has dedicated MLlib data types. When bridging to either PyTorch or TensorFlow—for
+    example, saving an MLlib sparse vector into Parquet and later trying to load it
+    directly into the PyTorch equivalent data type—we might experience type and format
+    mismatches. While we can overcome issues like this with Apache Arrow’s `pyarrow.parquet`^([2](ch07.xhtml#ch01fn16))
+    and build our own translation layer, doing so will require us to understand how
+    Arrow works, define the batches, and handle it ourselves. This process is error-prone
+    and can rapidly become grueling. Instead, we should consider introducing an independent
+    translation/data access layer that supports Parquet and will simplify data management^([3](ch07.xhtml#ch01fn17))
+    by unifying file formats across different types of machine learning frameworks.
+    We’ll look at that next.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在多个平台上工作，我们需要重新思考我们的数据格式，并调整它们以适应每个平台的独立需求。此外，我们需要调整数据类型。正如您在[第四章](ch04.xhtml#data_ingestioncomma_preprocessingcomma)中学到的，Spark具有专用的MLlib数据类型。当与PyTorch或TensorFlow进行桥接时，例如，将MLlib的稀疏向量保存到Parquet中，然后尝试直接加载到PyTorch等价数据类型中，我们可能会遇到类型和格式不匹配的问题。虽然我们可以通过Apache
+    Arrow的`pyarrow.parquet`^([2](ch07.xhtml#ch01fn16))克服这类问题，并构建我们自己的翻译层，但这将要求我们了解Arrow的工作原理，定义批处理并自行处理。这个过程容易出错，并且可能变得非常繁琐。相反，我们应考虑引入一个独立的翻译/数据访问层，支持Parquet，并通过统一不同类型的机器学习框架的文件格式来简化数据管理。我们将在下面详细讨论这个问题。
+- en: Implementing a Dedicated Data Access Layer
+  id: totrans-24
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实施专用数据访问层
+- en: A data access layer (DAL) is a dedicated layer in an application, separate from
+    the business logic and presentation layer, that provides simplified access to
+    data stored in some kind of persistent storage. The concept was introduced by
+    Microsoft, but it can be used outside of Microsoft environments as well. The actual
+    storage can vary, and a DAL can support multiple storage connectors in addition
+    to providing features such as data translation, caching, etc.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据访问层（DAL）是应用程序中的一个专用层，独立于业务逻辑和表示层，提供对存储在某种持久存储中的数据的简化访问。这个概念由微软引入，但也可以在微软环境之外使用。实际存储可以各不相同，DAL可以支持多个存储连接器，并提供诸如数据转换、缓存等功能。
+- en: A DAL is not responsible for the *reliability* of the storage itself but only
+    the *accessibility*—i.e., making the data available for different apps to consume.
+    It provides a level of abstraction that makes it easier for us to consume data
+    that was written with other tools. When working with multiple machine learning
+    training platforms, it can help us close the gaps in data types, formats, access
+    control, etc. We don’t see the complexity of the underlying data store, because
+    the DAL hides it.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据访问层并不负责存储本身的*可靠性*，而仅负责*可访问性*——即使不同应用程序也能访问数据。它提供了一个抽象层，使我们更容易消费使用其他工具写入的数据。在与多个机器学习训练平台一起工作时，它可以帮助我们弥合数据类型、格式、访问控制等方面的差距。我们不需要关注底层数据存储的复杂性，因为DAL将其隐藏起来。
+- en: Features of a DAL
+  id: totrans-27
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: DAL的特点
+- en: Our DAL should be scalable and support distributed systems—which is to say,
+    it should be able to save data to distributed storage and also leverage existing
+    distributed server architecture to write and read data in a distributed manner.
+    It should support the various data types needed to bridge the gap between Spark
+    and other distributed machine learning frameworks, and ideally it should have
+    a rich software ecosystem capable of supporting emerging machine learning frameworks.
+    Additionally, there should be some notion of caching the data, since machine learning
+    algorithms iterate over data multiple times to improve the model’s accuracy and
+    reduce loss (we’ll talk more about caching in the next section, when we discuss
+    Petastorm).
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的数据访问层（DAL）应具备可扩展性并支持分布式系统——也就是说，它应能够将数据保存到分布式存储中，并利用现有的分布式服务器架构以分布方式写入和读取数据。它应支持各种数据类型，以填补Spark与其他分布式机器学习框架之间的差距，并且理想情况下，它应具备支持新兴机器学习框架的丰富软件生态系统。另外，应考虑到对数据进行缓存，因为机器学习算法会多次迭代数据以提高模型的准确性和降低损失（我们将在下一节讨论Petastorm时详细讨论缓存）。
+- en: Another great benefit of having a dedicated DAL is *discoverability*. The DAL
+    should have a dedicated data catalog with information about the data it stores.
+    This enables multiple teams to find and interact with the data easily and independently.
+    One well-known and often, used data catalog is Hive Metastore. Sometimes referred
+    to as a *metadata catalog*, meaning it holds data about the data, Hive Metastore
+    is essentially a central repository of all the Hive tables; it includes information
+    about their schemas, location, partitions, and so on, to enable users to access
+    the data efficiently.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 拥有专门的DAL的另一个巨大好处是*可发现性*。DAL应具有专用的数据目录，包含其存储的数据信息。这使得多个团队能够轻松独立地发现和与数据交互。一个众所周知且经常使用的数据目录是Hive
+    Metastore。有时被称为*元数据目录*，它保存有关数据的数据，Hive Metastore实质上是所有Hive表的中央仓库；它包括有关它们的模式、位置、分区等信息，以便用户能够高效访问数据。
+- en: 'Regardless of what kind of data storage solution we use, our data access layer
+    should act the same way: it should serve as a centralized repository of metadata
+    that enables us to access and gain visibility into our data. With machine learning
+    this is critical, since we often work collaboratively and need to find creative
+    ways to enrich our training data and develop new features that may reside in other
+    datasets. Similarly, after preprocessing and feature engineering, we need our
+    data to be indexed and saved in a way that will speed up the learning process.
+    For example, if we filter on specific fields in our machine learning experiments,
+    our DAL should be able to support *columnar formats*. This enables us to create
+    a single table for everyone to use, and to execute various experiments while filtering
+    only with the desired columns for each experiment. Autonomous driving datasets
+    are a good example, where data is coupled with information from sensors (such
+    as radar and LiDAR sensors) that actively project signals and measure their responses.
+    We might not want to load sensor information for every training iteration, and
+    columnar support allows us to be more efficient.'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论我们使用何种数据存储解决方案，我们的数据访问层应该都应该是一致的：它应该作为一个集中的元数据仓库，使我们能够访问和了解我们的数据。在机器学习中，这一点至关重要，因为我们经常需要协作工作，并且需要找到丰富我们的训练数据和开发可能存储在其他数据集中的新特性的创造性方法。类似地，在预处理和特征工程之后，我们需要我们的数据以一种能够加速学习过程的方式进行索引和保存。例如，如果我们在机器学习实验中对特定字段进行过滤，我们的DAL应该能够支持*列式格式*。这使我们能够创建一个供所有人使用的单一表，并在每个实验中仅使用所需的列进行过滤。自动驾驶数据集就是一个很好的例子，其中数据与来自传感器（如雷达和激光雷达传感器）的信息耦合，这些传感器主动发射信号并测量其响应。我们可能不希望在每次训练迭代中加载传感器信息，而列支持使我们能够更加高效。
+- en: If we use machine learning algorithms that sample the data during training cycles,
+    our DAL should allow for *row filtering* as well. Some machine learning algorithms
+    sample the data multiple times during training cycles and don’t read it all at
+    once. An example is long short-term memory (LSTM), a deep learning algorithm used
+    for time series forecasting. With LSTM, a model is required to learn from a series
+    of past observations to predict the next value in the sequence. Here, it might
+    be necessary to filter the rows in each iteration based on time steps in the time
+    series. You can think about it like a sliding window over a timeline, where each
+    step computes a window of observed values bounded by a time range, learns from
+    it, and tries to predict the next value. It will then update the loss function
+    based on the success of the prediction.. This requires us to design our data in
+    such a way that the model can pull information about a time window relatively
+    fast. One option is to make this part of the actual file hierarchy. We can achieve
+    that by integrating the time step as part of the file path, as in *../table_name/ts=1342428418/partition-...*,
+    where *ts=* stands for the time step this folder holds information for.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们使用在训练周期中对数据进行采样的机器学习算法，我们的DAL还应该支持*行过滤*。一些机器学习算法在训练周期中多次对数据进行采样，并不一次性读取所有数据。例如，长短期记忆（LSTM）是一种用于时间序列预测的深度学习算法。在LSTM中，模型需要从一系列过去的观察中学习，以预测序列中的下一个值。在这里，可能需要根据时间序列中的时间步骤在每次迭代中过滤行。可以将其想象为在时间线上滑动窗口，每个步骤计算由时间范围界定的观察值窗口，并尝试预测下一个值。然后根据预测的成功程度更新损失函数。这要求我们设计我们的数据以便模型能够相对快速地提取时间窗口的信息。一种选择是将这一部分作为实际文件层次结构的一部分。我们可以通过将时间步骤集成为文件路径的一部分来实现这一点，例如*../table_name/ts=1342428418/partition-...*，其中*ts=*代表此文件夹保存的时间步骤。
+- en: Another feature that our DAL should enable is *data versioning*. As discussed
+    in [Chapter 3](ch03.xhtml#managing_the_ml_experiment_lifecycle_wi), one of the
+    requirements of producing machine learning-driven applications is that it must
+    be possible to reproduce the model-building experiment. For that, our DAL needs
+    to be able to support access to various versions of the data over time.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的DAL应该支持的另一个特性是*数据版本控制*。如在[第3章](ch03.xhtml#managing_the_ml_experiment_lifecycle_wi)中所讨论的，生成基于机器学习的应用程序的要求之一是能够重现模型构建实验。为此，我们的DAL需要能够支持随时间访问各个数据版本的能力。
+- en: 'To sum up, here’s a recap of the key features that a DAL should support:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 综上所述，以下是我们的数据访问层（DAL）应该支持的关键特性回顾：
+- en: Distributed systems
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式系统
+- en: It should be able to leverage existing systems to enable scaling.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它应该能够利用现有系统来实现扩展。
+- en: Rich software ecosystem
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 丰富的软件生态系统
+- en: This allows it to grow to encompass new machine learning frameworks and ensures
+    that it will continue to be supported, bugs will be fixed, and new features will
+    be developed.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这使得它可以不断发展，包括新的机器学习框架的整合和确保持续支持、修复错误和开发新功能。
+- en: Columnar file formats
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列式文件格式
+- en: Columnar file formats store data by column, not by row, which allows greater
+    efficiency when filtering on specific fields during the training and testing process.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列式文件格式按列而非行存储数据，这样在训练和测试过程中针对特定字段进行过滤时可以实现更高效率。
+- en: Row filtering
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 行过滤
+- en: Some machine learning algorithms require sampling specific rows, so we need
+    a mechanism to filter on rows, not only on columns.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些机器学习算法需要对特定行进行抽样，因此我们需要一种机制来对行进行过滤，而不仅仅是对列进行过滤。
+- en: Data versioning
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据版本管理
+- en: It should be possible to travel back in time, to support reproducibility of
+    experiments.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应该可以回溯到过去，以支持实验的可重现性。
+- en: Selecting a DAL
+  id: totrans-44
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 选择数据访问层（DAL）
+- en: So now that we know we need a DAL, how do we pick one? There are a range of
+    solutions available, both proprietary and open source. You will need to do some
+    research to understand your specific requirements, prioritize them, and then compare
+    the various options to figure out which ones might work best for you. Before choosing
+    a DAL, if you are planning on implementing it for work, make sure that you test
+    it out on your real workloads. One of the big mistakes people often make is running
+    only the benchmarks the vendor provides and not validating the tool on their own
+    workloads, which might be quite different. Also remember to calculate potential
+    risk and costs.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们知道我们需要一个数据访问层，那么我们如何选择呢？有多种解决方案可供选择，包括专有和开源的。您需要进行一些研究来了解您的具体需求，优先考虑它们，然后比较各种选项，找出哪些可能最适合您。在选择数据访问层之前，如果您计划将其用于工作，请确保在真实工作负载上进行测试。人们经常犯的一个大错误是仅运行供应商提供的基准测试，而不验证工具在他们自己的工作负载上的表现，这可能会有很大不同。还要记住计算潜在风险和成本。
+- en: In this book, I focus solely on open source solutions. There are many such solutions
+    that come to mind that support bridging, from Spark to TensorFlow or PyTorch,
+    to enrich the capabilities of our machine learning algorithms. We’ll take a look
+    at the one I’ve chosen to cover here, Petastorm, in the next section.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书中，我专注于开源解决方案。有许多这样的解决方案，比如从 Spark 到 TensorFlow 或 PyTorch 的支持桥接，以丰富我们的机器学习算法的功能。我们将在下一节中介绍的
+    Petastorm 是其中之一。
+- en: What Is Petastorm?
+  id: totrans-47
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 什么是 Petastorm？
+- en: Petastorm is an open source data access library developed by Uber ATG that allows
+    us to train and evaluate deep learning models directly using multiterabyte datasets
+    in Apache Parquet format. It does this by enabling us to read and write Parquet
+    files with TensorFlow, PyTorch, and other Python-based machine learning training
+    frameworks. Several features of Petastorm support the training of deep learning
+    algorithms, including efficient implementations of row filtering, data sharding,
+    and shuffling and the ability to access a subset of fields and handle time series
+    data. [Figure 7-3](#architecture_diagram_with_petastorm_dat) shows how it fits
+    into the overall architecture of a machine learning system.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Petastorm 是由 Uber ATG 开发的开源数据访问库，允许我们直接使用 Apache Parquet 格式的多 TB 数据集进行深度学习模型的训练和评估。它通过使我们能够使用
+    TensorFlow、PyTorch 和其他基于 Python 的机器学习训练框架读写 Parquet 文件来实现这一点。Petastorm 的几个功能支持深度学习算法的训练，包括高效的行过滤、数据分片、洗牌和访问子集字段以及处理时间序列数据。[图 7-3](#architecture_diagram_with_petastorm_dat)
+    展示了它如何融入机器学习系统的整体架构中。
+- en: '![](assets/smls_0703.png)'
+  id: totrans-49
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0703.png)'
+- en: Figure 7-3\. Architecture diagram with Petastorm dataset as the bridge
+  id: totrans-50
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-3\. 使用 Petastorm 数据集的架构图
+- en: 'This figure actually tells the story of two processes: dataset generation and
+    training/evaluation. Basically, we have a producer and a consumer of data (a common
+    pattern in many machine learning workloads). Data from various sources is combined
+    and processed with PySpark, then made available in Parquet columnar format to
+    distributed training frameworks such as PyTorch and TensorFlow, which can use
+    it as many times as needed for model training and evaluation.'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个图实际上讲述了两个过程的故事：数据集生成和训练/评估。基本上，我们有数据的生产者和消费者（这是许多机器学习工作负载中常见的模式）。来自各种来源的数据通过
+    PySpark 组合和处理，然后以 Parquet 列格式提供给分布式训练框架，如 PyTorch 和 TensorFlow，在模型训练和评估中可以多次使用。
+- en: Figures [7-4](#using_petastorm_as_a_converter) and [7-5](#using_petastorm_as_a_dedicated_store_wi),
+    in the following sections, demonstrate two different options for how to use Petastorm.
+    The first one is to leverage Petastorm simply as a converter or translator and
+    keep the data in strict Parquet format. The second approach is to integrate the
+    Petastorm format with the Apache Parquet store; this leverages the translator
+    and saves the data into a dedicated Petastorm dataset.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图[7-4](#using_petastorm_as_a_converter)和图[7-5](#using_petastorm_as_a_dedicated_store_wi)，在接下来的几节中，展示了如何使用Petastorm的两种不同选项。第一种是简单地利用Petastorm作为转换器或翻译器，并将数据保留在严格的Parquet格式中。第二种方法是将Petastorm格式集成到Apache
+    Parquet存储中；这利用了翻译器，并将数据保存到专用的Petastorm数据集中。
+- en: Warning
+  id: totrans-53
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: As of v.0.12.0, Petastorm only supports converting/translating and saving uniformly
+    sized images. It cannot handle any variance in image size. Therefore, it’s important
+    to take image size into consideration as part of the preprocessing when working
+    with this type of data.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 截至v.0.12.0，Petastorm仅支持转换/翻译和保存大小统一的图像。它不能处理图像大小的任何变化。因此，在处理此类数据时，考虑图像大小是非常重要的预处理部分。
+- en: 'Depending on how we use the dataset, both options can be useful. Choosing between
+    them depends on how complex our system is: if the only frameworks we’re using
+    are TensorFlow, PyTorch, and Spark, having Petastorm as a store might make sense,
+    but if our data system is more complex, it might be best to keep the data in a
+    non-Petastorm store and just leverage Petastorm as a converter/translator.'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据我们如何使用数据集，这两个选项都可能很有用。在选择它们之间时，取决于我们的系统有多复杂：如果我们只使用TensorFlow、PyTorch和Spark框架，那么使用Petastorm作为存储可能是有意义的；但如果我们的数据系统更复杂，最好将数据保留在非Petastorm存储中，并仅利用Petastorm作为转换器/翻译器。
+- en: Let’s examine the first approach of training a model from an existing non-Petastorm
+    Parquet store using Petastorm’s `SparkDatasetConverter`.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们来看看使用Petastorm的`SparkDatasetConverter`从现有的非Petastorm Parquet存储中训练模型的第一种方法。
+- en: SparkDatasetConverter
+  id: totrans-57
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: SparkDatasetConverter
+- en: '`SparkDatasetConverter` is an API that can do the “boring” work for us of saving,
+    loading, and parsing the intermediate files, so we can focus on the unique part
+    of the deep learning project. How does it work? Imagine the data was previously
+    processed using a Spark DataFrame. It’s stored in memory and is not yet saved
+    in any specific offline store or files. We can take advantage of that and save
+    it to a dedicated store, or intermediate files, which Petastorm manages. Interestingly
+    enough, Petastorm itself has a caching mechanism, where it persists the data into
+    a staging store. When the DataFrame is converted using Petastorm’s `SparkDatasetConverter`,
+    for each access to it, Petastorm will check if the data is already in the cache
+    and persisted in the distributed filesystem. If so, it will read it from the cache,
+    and if not, it will persist it in Parquet file format. The converter will then
+    load the persisted file into a TensorFlow dataset or PyTorch data loader, as shown
+    in [Figure 7-4](#using_petastorm_as_a_converter).'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`SparkDatasetConverter`是一个API，可以为我们完成保存、加载和解析中间文件的“乏味”工作，这样我们就可以专注于深度学习项目的独特部分。它是如何工作的呢？想象一下，数据之前是使用Spark
+    DataFrame处理的。它存储在内存中，尚未保存在任何特定的离线存储或文件中。我们可以利用这一点，将其保存到专用存储或中间文件中，Petastorm管理这些文件。有趣的是，Petastorm本身具有缓存机制，它将数据持久化到暂存存储中。当使用Petastorm的`SparkDatasetConverter`转换DataFrame时，每次访问数据时，Petastorm将检查数据是否已经存在缓存并持久化到分布式文件系统中。如果是，它将从缓存中读取；如果不是，它将持久化到Parquet文件格式中。然后，转换器将加载持久化的文件到TensorFlow数据集或PyTorch数据加载器中，如图[7-4](#using_petastorm_as_a_converter)所示。'
+- en: '![](assets/smls_0704.png)'
+  id: totrans-59
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0704.png)'
+- en: Figure 7-4\. Using Petastorm as a converter
+  id: totrans-60
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-4. 使用Petastorm作为转换器
+- en: 'To achieve this in practice, we first need to define the cache path (a `cache_path`
+    instance of type `String`) to specify the directory path for the intermediate
+    files:'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现这一点，在实践中，我们首先需要定义缓存路径（一个`cache_path`类型为`String`的实例），以指定中间文件的目录路径：
+- en: '[PRE0]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Later, `SparkDatasetConverter` (on its own) is able to recognize whether a
+    DataFrame was cached or not by analyzing Spark’s DataFrame query plan. At the
+    end, the data will be persisted in the path with this directory format:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 后来，`SparkDatasetConverter`（独立）能够通过分析Spark的DataFrame查询计划来识别DataFrame是否已缓存。最终，数据将以这种目录格式持久化在路径中：
+- en: '[PRE1]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'To read the file paths in the cache directory, you will need to understand
+    what each of these elements indicates:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要读取缓存目录中的文件路径，您需要理解每个元素表示什么：
+- en: '`*{datetime}*` is a string of the shape `’%Y%m%d%H%M%S’` that represents the
+    time of DataFrame materialization (when the DataFrame was processed).'
+  id: totrans-66
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`*{datetime}*` 是一个形如`’%Y%m%d%H%M%S’`的字符串，表示DataFrame物化的时间（DataFrame被处理的时间）。'
+- en: '`*{appid}*` is the application ID.'
+  id: totrans-67
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`*{appid}*` 是应用程序ID。'
+- en: '`*{spark_application_id}*` is the Spark application ID. We can pull this directly
+    from the running Spark session with `.sparkContext.applicationId`.'
+  id: totrans-68
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`*{spark_application_id}*` 是Spark应用程序ID。我们可以通过`.sparkContext.applicationId`直接从运行中的Spark会话中获取这个信息。'
+- en: '`*{uuid4}*` is a random number that serves as a unique identifier.'
+  id: totrans-69
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`*{uuid4}*` 是一个随机数，用作唯一标识符。'
+- en: Using Petastorm as a converter has many benefits. It caches intermediate files
+    and cleans out the cache when the program exits. Additionally, it automatically
+    converts Spark’s unique MLlib vector into 1D arrays. This approach provides the
+    decoupling that removes the necessity to use Spark and specifically MLlib for
+    training machine learning models.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Petastorm作为转换器具有许多好处。它缓存中间文件，并在程序退出时清除缓存。此外，它还自动将Spark独特的MLlib向量转换为1D数组。这种方法提供了解耦，消除了必须使用特定于MLlib的Spark来训练机器学习模型的必要性。
+- en: Warning
+  id: totrans-71
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: In the event that the caching functionality fails, you will have to manage the
+    ephemeral persisted files that may remain after a failed operation. Ensure that
+    all created files and directories have been validated, deleted, or safely stored
+    somewhere else before writing again.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果缓存功能失败，您需要管理可能在操作失败后仍然存在的短暂持久化文件。在再次写入之前，请确保所有创建的文件和目录已被验证、删除或安全存储在其他位置。
+- en: 'After setting up the cache, it’s time to create a simple converter. The converter’s
+    input is as follows:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设置缓存后，现在是创建简单转换器的时候。转换器的输入如下：
+- en: '`parquet_row_group_size_bytes`'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`parquet_row_group_size_bytes`'
+- en: 'This is a critical component that defines the performance of the converter
+    itself (i.e., how fast it operates) and also can help prevent out-of-memory errors.
+    It is of type `Int` and defines the size in bytes of a row group in Parquet after
+    materialization. The official Parquet documentation recommends a row group size
+    of 512 to 1,024 MB on HDFS. The optimal block size will depend on what type of
+    data you have and whether you’re using cloud or on-prem storage. On cloud storage
+    like Amazon S3 or Azure Blob, the object sizes themselves are often optimized
+    for a smaller block: with Azure it’s between 64 KB and 100 MB, and with S3 it’s
+    between about 5 MB and 100 MB (these numbers are subject to change, and it is
+    always a good practice to check with the cloud providers which sizes they are
+    optimizing for). With images, for instance, you’ll want to figure out how much
+    space they take up on disk. Remember that this parameter is in bytes, so optimizing
+    for HDFS with 512 MB is equal to 512 * 1,024 * 1,024 = 536,870,912 bytes. If we
+    ran our example in the cloud, we might want to use 1,000,000 bytes, or 1 MB, as
+    this size works nicely with our Caltech image dataset.'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是定义转换器性能的关键组件（即其操作速度），也可以帮助防止内存溢出错误。它是`Int`类型，并定义了Parquet中物化后的行组大小，单位为字节。官方Parquet文档建议在HDFS上使用512到1,024
+    MB的行组大小。最佳块大小取决于您拥有的数据类型以及您是使用云存储还是本地存储。在像Amazon S3或Azure Blob这样的云存储中，对象大小通常会针对较小的块进行优化：Azure为64
+    KB到100 MB之间，S3为大约5 MB到100 MB之间（这些数字可能会变化，建议始终与云服务提供商核实）。例如，对于图像，您需要计算它们在磁盘上占用多少空间。请记住，此参数的单位为字节，因此在HDFS上优化为512
+    MB等同于512 * 1,024 * 1,024 = 536,870,912字节。如果我们在云中运行示例，则可能希望使用1,000,000字节或1 MB，因为这个大小与我们的Caltech图像数据集很好地配合。
+- en: '`compression_codec`'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`compression_codec`'
+- en: As discussed in [Chapter 4](ch04.xhtml#data_ingestioncomma_preprocessingcomma),
+    Parquet supports multiple compression codecs, and since Petastorm works with Parquet,
+    it allows us to define the codec as well. The default is `None`. Don’t mistake
+    the image data compression codec (JPEG, PNG) with the `compression_codec` used
+    as part of the Spark converter’s functionality; the latter refers to Parquet compression.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如在[第四章](ch04.xhtml#data_ingestioncomma_preprocessingcomma)中讨论的，Parquet支持多种压缩编解码器，由于Petastorm与Parquet一起工作，允许我们也定义编解码器。默认值为`None`。不要将图像数据压缩编解码器（JPEG、PNG）与Spark转换器功能的`compression_codec`混淆；后者指的是Parquet压缩。
+- en: '`dtype`'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`dtype`'
+- en: This defines the precision of the floating-point elements in our data. In machine
+    learning, when we convert data from one state to another, there is always a risk
+    of losing information. This is especially the case if we convert strings to numbers
+    and later round them up or change their representation again. The converter allows
+    us to be very specific with this definition as well; the default type is `float32`.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这定义了我们数据中浮点元素的精度。在机器学习中，当我们将数据从一种状态转换为另一种状态时，总会有信息丢失的风险。特别是当我们将字符串转换为数字并稍后四舍五入或再次更改其表示时。转换器允许我们对此定义非常具体；默认类型为`float32`。
+- en: Tip
+  id: totrans-80
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: All of these configurations should be in global variables, so it’s easier for
+    you to remember them and easier for teams to collaborate. You can define a separate
+    configuration file for defining data types across operations and transformations.
+    They can also be defined as part of the Spark configuration or *.env* files when
+    necessary.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些配置应该是全局变量，这样你可以更容易记住它们，团队也更容易合作。您可以定义一个单独的配置文件来定义操作和转换中的数据类型。在必要时，它们也可以作为Spark配置或*.env*文件的一部分定义。
+- en: 'Once you understand the configuration options, the code itself is straightforward:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您理解了配置选项，代码本身就很简单：
+- en: '[PRE2]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: At this stage, the DataFrame is materialized.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个阶段，DataFrame被实现。
+- en: 'Petastorm enables us to define additional preprocessing functions using `TransformSpec`.
+    All the transformations we define here are going to be applied to each row processed
+    by the Spark workers. We need to pay attention to the columns we want to keep,
+    their data types, the order of the columns, and the final schema. The following
+    code example illustrates defining the `TransformSpec`:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Petastorm使我们能够使用`TransformSpec`定义额外的预处理函数。我们在这里定义的所有转换都将应用于Spark工作者处理的每一行。我们需要注意我们想要保留的列，它们的数据类型，列的顺序以及最终模式。以下代码示例说明了如何定义`TransformSpec`：
+- en: '[PRE3]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: In this code snippet, we define a function that is going to operate in the Spark
+    workers, named `transform_row`. This callable function performs the transformation
+    of the *pre-transform-schema* dataset into the *post-transform-schema* dataset.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此代码片段中，我们定义了一个将在Spark工作者中运行的函数，名为`transform_row`。这个可调用函数执行*pre-transform-schema*数据集到*post-transform-schema*数据集的转换。
+- en: 'Here, we use this function to prepare the data to be injected into a dedicated
+    TensorFlow MobileNetV2 neural network (more on MobileNetV2 in [Chapter 8](ch08.xhtml#tensorflow_distributed_ml_approach)):'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们使用这个函数准备要注入到专用TensorFlow MobileNetV2神经网络中的数据（有关MobileNetV2的更多信息请参见[第8章](ch08.xhtml#tensorflow_distributed_ml_approach)）：
+- en: '[PRE4]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'Using Python’s mapping functionality, `transform_row` goes over the data in
+    the `con​tent` column and translates it into processed image data with the size
+    and preprocessing requested by MobileNetV2\. Although this is the case for our
+    example, `transform_​row` doesn’t have to take a pandas DataFrame as input; it
+    can be any other type. If you recall, in [Chapter 5](ch05.xhtml#feature_engineering)
+    we used Spark’s pandas APIs to batch rows from a Spark DataFrame into a pandas
+    DataFrame to iterate on them and extract features. That was where I first introduced
+    the pandas DataFrame instance. This is an example of what we can do with those
+    APIs, using them to transform the rows. It’s also a good example of how the machine
+    learning algorithm we use can have an effect: this algorithm doesn’t allow any
+    missing values, and resizing the images is necessary since their sizes in the
+    original dataset vary and the algorithm requires a uniform size and shape (as
+    do most). We can handle both of those requirements at once by running `transform_row`.'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Python的映射功能，`transform_row`遍历`content`列中的数据，并将其转换为MobileNetV2请求的处理图像数据。虽然这在我们的示例中是这样，但`transform_row`不必以pandas
+    DataFrame作为输入；它可以是任何其他类型。如果您还记得，在[第5章](ch05.xhtml#feature_engineering)中，我们使用了Spark的pandas
+    API将Spark DataFrame的行批量转换为pandas DataFrame以对其进行迭代并提取特征。那是我首次介绍pandas DataFrame实例的地方。这是我们可以使用这些API做的事情的一个例子，使用它们来转换行。这也是我们使用的机器学习算法可能产生影响的一个很好的例子：这个算法不允许有任何缺失值，并且调整图像的大小是必要的，因为原始数据集中的图像尺寸不同，并且算法要求统一的大小和形状（大多数情况下也是如此）。我们可以通过运行`transform_row`同时处理这两个要求。
+- en: 'If `transform_row` is not defined correctly, during the actual transformation
+    we might encounter the following error:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果未正确定义`transform_row`，在实际转换过程中我们可能会遇到以下错误：
+- en: '[PRE5]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: This error won’t show up until we run the converter and create the desired datasets.
+    That means we need to decide which training framework we want to use and convert
+    the data to the desired instance type.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 直到我们运行转换器并创建所需的数据集时，这个错误都不会显示出来。这意味着我们需要决定要使用哪种训练框架，并将数据转换为所需的实例类型。
+- en: Note the Pythonic way in which we handle the pandas DataFrame. We process the
+    rows into *tuples*,^([4](ch07.xhtml#ch01fn18)) not *namedtuples*,^([5](ch07.xhtml#ch01fn19))
+    since this is what TensorFlow expects in our scenario.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意我们处理 pandas DataFrame 的 Python 风格。我们将行处理成 *tuples*，^([4](ch07.xhtml#ch01fn18))
+    而不是 *namedtuples*，^([5](ch07.xhtml#ch01fn19)) 因为这是 TensorFlow 在我们的场景中预期的方式。
+- en: Last, the `selected_fields` parameter (`selected_fields=['features', 'label_​index'])`
+    dictates the order and names of the columns.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，`selected_fields` 参数 (`selected_fields=['features', 'label_​index'])` 决定了列的顺序和名称。
+- en: 'Next, let’s see how to connect these together with TensorFlow. Here is a code
+    snippet that demonstrates how we make the actual TensorFlow dataset by calling
+    the `make_tf_dataset` function and providing it with the `transform_spec_fn` and
+    `batch_size` described earlier:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们看看如何将它们与 TensorFlow 连接在一起。以下是一个代码片段，演示了通过调用 `make_tf_dataset` 函数并提供先前描述的
+    `transform_spec_fn` 和 `batch_size` 来创建实际的 TensorFlow 数据集：
+- en: '[PRE6]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: This code snippet creates `train_dataset` and `val_dataset` in TF dataset format,
+    which can be used downstream with Keras and TensorFlow. We will dive into the
+    possibilities of training using this data loading approach in [Chapter 8](ch08.xhtml#tensorflow_distributed_ml_approach).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码片段创建了以 TF 数据集格式表示的 `train_dataset` 和 `val_dataset`，可以在后续与 Keras 和 TensorFlow
+    一起使用。我们将深入探讨在 [第 8 章](ch08.xhtml#tensorflow_distributed_ml_approach) 中使用此数据加载方法进行训练的可能性。
+- en: Petastorm as a Parquet Store
+  id: totrans-99
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Petastorm 作为 Parquet 存储
+- en: The second option, rather than using Petastorm only as a converter, is to build
+    a Petastorm store with Parquet as the data format. This is the classic variation
+    of the DAL. It requires us to introduce Petastorm code in all our services, and
+    it couples using Petastorm with all the data consumers, as shown in [Figure 7-5](#using_petastorm_as_a_dedicated_store_wi).
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与仅使用 Petastorm 作为转换器不同的第二个选项是，使用 Petastorm 作为 Parquet 数据格式的存储构建 Petastorm 存储。这是
+    DAL 的经典变体。它要求我们在所有服务中引入 Petastorm 代码，并将使用 Petastorm 与所有数据使用者耦合在一起，正如 [图 7-5](#using_petastorm_as_a_dedicated_store_wi)
+    所示。
+- en: '![](assets/smls_0705.png)'
+  id: totrans-101
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0705.png)'
+- en: Figure 7-5\. Using Petastorm as a dedicated store with metadata on top of the
+    Parquet store
+  id: totrans-102
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-5\. 使用 Petastorm 作为 Parquet 存储的专用存储，其顶部带有元数据
+- en: 'Petastorm on its own is not a complete store. It enables support for storing
+    tensors (arrays) that were stored in Parquet format by saving additional metadata
+    about the fields translated into NumPy data types. To create a Petastorm store,
+    you can define a new schema by creating a Petastorm `Unischema` instance with
+    dedicated fields and leveraging the `dict_to_spark_row` function:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Petastorm 本身并不是一个完整的存储系统。它通过保存关于字段的额外元数据来支持存储以 Parquet 格式存储的张量（数组），这些字段被转换为
+    NumPy 数据类型。要创建 Petastorm 存储，您可以通过创建一个具有专用字段的 Petastorm `Unischema` 实例，并利用 `dict_to_spark_row`
+    函数来定义一个新的模式：
+- en: '[PRE7]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: '`UnischemaField` is a type used to describe a single immutable field in the
+    schema. You must provide it with the name, `numpy_dtype`, and shape. As you can
+    see from this example, you can also specify a codec. Petastorm supports various
+    codec types for images, scalar data, etc., such as `ScalarCodec` (encodes a scalar
+    into a Spark DataFrame field), `NdarrayCodec` (encodes/decodes a NumPy `ndarray`
+    into/from a Spark DataFrame field), `CompressedImageCodec` (compresses/decompresses
+    images), and more. Generally speaking, all codecs define the encoding/decoding
+    processes to use during serialization. Sometimes Petastorm can determine the codec
+    needed on its own, as is the case for the `content` field in this example, but
+    sometimes it will need your help, like for the `label_index` field.'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`UnischemaField` 是用于描述模式中单个不可变字段的类型。您必须为其提供名称、`numpy_dtype` 和形状。正如您从此示例中看到的那样，您还可以指定编解码器。Petastorm
+    支持各种编解码器类型，用于图像、标量数据等，如 `ScalarCodec`（将标量编码为 Spark DataFrame 字段）、`NdarrayCodec`（将
+    NumPy `ndarray` 编码/解码为 Spark DataFrame 字段）、`CompressedImageCodec`（压缩/解压缩图像）等。总的来说，所有编解码器定义了在序列化过程中使用的编码/解码过程。有时
+    Petastorm 可以自行确定所需的编解码器，就像本例中的 `content` 字段一样，但有时它会需要您的帮助，例如 `label_index` 字段。'
+- en: Let’s take a deeper look at our fields. The `content` field is of Spark SQL
+    type `BinaryType`, and the `label_index` field is of type `LongType`. While mapping
+    the latter to a `numpy_dtype` is straightforward, for the first one, it isn’t.
+    `BinaryType` in Spark is implemented as a Scala byte array. When choosing a `numpy_dtype`,
+    we need to go back and assess the origin of the data. The `content` field is based
+    on images. Their numeric representation range is `[0,255]`. For that range, `np.uint8`
+    is a good fit. `uint` stands for *unsigned integer*, and this type can only hold
+    positive numbers.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们深入了解我们的字段。`content`字段是Spark SQL的`BinaryType`类型，`label_index`字段是`LongType`类型。尽管将后者映射到`numpy_dtype`很简单，但对于第一个字段来说却不是这样。在Spark中，`BinaryType`被实现为Scala字节数组。选择`numpy_dtype`时，我们需要回顾并评估数据的来源。`content`字段基于图像。它们的数值表示范围是`[0,255]`。对于这个范围，`np.uint8`非常合适。`uint`代表*无符号整数*，这种类型只能容纳正数。
+- en: After defining the schema, you can leverage the `dict_to_spark_row` function
+    with the Spark RDD to verify that the data conforms with the `Unischema` definition’s
+    types and encodes the data using the codec specified. In our example, we provided
+    a `ScalarCodec`. Later, we can write the data into the store with the `spark.write`
+    function.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在定义架构后，您可以利用`dict_to_spark_row`函数与Spark RDD验证数据是否符合`Unischema`定义的类型，并使用指定的编解码器对数据进行编码。在我们的示例中，我们提供了一个`ScalarCodec`。稍后，我们可以使用`spark.write`函数将数据写入存储。
+- en: 'This section was dense: you learned about caching, what Petastorm is, and how
+    to leverage it to use processed Spark data with TensorFlow and PyTorch and improve
+    accessibility. The next section will discuss Project Hydrogen, which aims to facilitate
+    connecting Spark with other frameworks by enabling scheduling more suitable for
+    machine learning. Let’s jump right in!'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节内容密集：您了解了缓存是什么，Petastorm是什么，以及如何利用它将处理过的Spark数据与TensorFlow和PyTorch结合使用，从而提高可访问性。接下来的部分将讨论Hydrogen项目，旨在通过启用更适合机器学习的调度来促进Spark与其他框架的连接。让我们直接开始吧！
+- en: Project Hydrogen
+  id: totrans-109
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Hydrogen项目
+- en: Project Hydrogen is a community-driven project to improve Apache Spark’s support
+    for deep learning/neural network distributed training. Earlier, we discussed the
+    two clusters approach, where we have separate dedicated clusters for processing
+    data with Spark and for deep learning. The reason for this setup is that the Spark
+    MapReduce scheduler’s approach isn’t always suited to deep learning training with
+    a cyclic training process. The algorithm’s tasks must be coordinated and optimized
+    for communication and support backpropagation and forward propagation. For that,
+    Project Hydrogen offers another scheduling primitive called the Gang scheduler
+    as part of its barrier execution mode as well as accelerator-aware scheduling
+    (which is critical for deep learning training performance).
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Hydrogen项目是一个由社区驱动的项目，旨在改善Apache Spark对深度学习/神经网络分布式训练的支持。之前，我们讨论了两个集群方法，即使用Spark处理数据和进行深度学习的专用集群。设置这种方式的原因是Spark
+    MapReduce调度程序的方法并不总是适合具有周期性训练过程的深度学习。算法的任务必须进行协调和优化，以支持反向传播和正向传播。为此，Hydrogen项目作为其障碍执行模式的一部分提供了另一种调度原语，称为Gang调度程序，以及支持加速器的调度（对于深度学习训练性能至关重要）。
+- en: Barrier Execution Mode
+  id: totrans-111
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 执行障碍模式
+- en: In a neural network, *backpropagation* means “backward propagation of errors.”
+    In every iteration over a subset of the data, the neural network calculates the
+    gradient of a loss function with respect to the weights in the network. Later,
+    it propagates the error back into the previous network layer and adjusts the parameters
+    of that layer, aiming to improve the accuracy of the predictions. The backpropagation
+    occurs from the output layer all the way back to the input layer. The opposite
+    behavior happens with forward propagation (sometimes referred to as *feed-forward*),
+    where the calculated gradient of a loss function propagates to the layer that
+    comes after it.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在神经网络中，*反向传播*意味着“错误的向后传播”。在对数据子集进行每次迭代时，神经网络计算损失函数相对于网络中权重的梯度。随后，它将误差传播回上一层网络，并调整该层的参数，旨在提高预测的准确性。反向传播从输出层一直传播到输入层。与之相反的是前向传播（有时称为*前馈*），在这种情况下，损失函数的计算梯度传播到其后的层。
+- en: Note
+  id: totrans-113
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: These are complex topics that I can only brush the surface of in this book;
+    check out Josh Patterson and Adam Gibson’s [*Deep Learning*](https://oreil.ly/dp-learn)
+    (O’Reilly) to learn more about the mathematics and behavior of deep learning.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些是复杂的话题，我在这本书中只能浅尝辄止；要深入了解深度学习的数学和行为，请查阅 Josh Patterson 和 Adam Gibson 的[*Deep
+    Learning*](https://oreil.ly/dp-learn)（O’Reilly）。
+- en: To better understand the scheduler challenge, take a look at [Figure 7-6](#linearsolidusparallel_execution_versus).
+    At the top, there is a depiction of the parallel execution model that Spark follows.
+    While there might be dependencies among tasks, because of the nature of Spark
+    and its use of monoids, breaking the tasks down into associative operations of
+    the same type, the tasks are linear and Spark executes them in parallel. In distributed
+    training, on the other hand, the tasks’ dependency tree is more complex, and we
+    can’t necessarily execute them in parallel. For example, task 3 in the distributed
+    training process may depend on tasks 2, 1, and *n*, while task *n* depends on
+    task 5, which depends on task 3\. That means we have a circle of operations here,
+    and there is no one directed graph anymore. We need to support all of these dependencies
+    and decide how and when to compute each.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要更好地理解调度器的挑战，请看 [Figure 7-6](#linearsolidusparallel_execution_versus)。顶部显示了
+    Spark 遵循的并行执行模型。虽然任务之间可能存在依赖关系，但由于 Spark 的特性及其使用单子操作的关联操作，任务是线性的，并且 Spark 在并行执行它们。另一方面，在分布式训练中，任务的依赖树更加复杂，不能保证并行执行。例如，在分布式训练过程中，任务
+    3 可能依赖于任务 2、1 和 *n*，而任务 *n* 则依赖于任务 5，任务 5 又依赖于任务 3。这意味着这里存在一圈操作，不再是一个有向图了。我们需要支持所有这些依赖关系，并决定何时以及如何计算每个任务。
+- en: '![](assets/smls_0706.png)'
+  id: totrans-116
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/smls_0706.png)'
+- en: Figure 7-6\. Linear/parallel execution versus distributed training
+  id: totrans-117
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-6\. 线性/并行执行与分布式训练
+- en: To solve the scheduler challenge, Project Hydrogen introduced *barrier execution
+    mode*. This allows us to define a specific code block where barrier execution
+    is being used. The barrier model enables us to create gates, or barriers, between
+    sets of operations and makes the operations across barriers sequential. This means
+    that each set of operations can be performed in parallel and that the whole process
+    can operate as one directed graph, without circles. By establishing a fixed sequence
+    of operations across barriers, this model also allows us to carry information
+    over to dependent tasks.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决调度器的挑战，Project Hydrogen 引入了*障碍执行模式*。这允许我们定义一个特定的代码块，在这里使用障碍执行。障碍模型使我们能够在操作集之间创建门或障碍，并使跨障碍的操作变成顺序执行。这意味着每组操作可以并行执行，并且整个过程可以作为一个有向图运行，没有循环。通过建立跨障碍操作的固定顺序，该模型还允许我们将信息传递给依赖任务。
+- en: 'In order to work with barrier execution mode, we need to use a barrier RDD
+    with a barrier context and Spark’s RDD functions, such as `mapPartitions`. Using
+    a barrier RDD signals that all tasks performed on this RDD are going to run with
+    a barrier context. The barrier context within the task enables us to decide which
+    operations should be coordinated. First, we define the stage logic itself with
+    `BarrierTaskContext`:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使用障碍执行模式，我们需要使用带有障碍上下文和 Spark 的 RDD 函数，比如`mapPartitions`来操作障碍 RDD。使用障碍 RDD
+    表示在这个 RDD 上执行的所有任务将使用障碍上下文运行。任务内的障碍上下文使我们能够决定哪些操作应该进行协调。首先，我们使用`BarrierTaskContext`定义阶段逻辑本身：
+- en: '[PRE8]'
+  id: totrans-120
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'Then we define the barrier RDD and call `stage_logic` with `mapPartitions`:'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们定义障碍 RDD，并使用`mapPartitions`调用`stage_logic`：
+- en: '[PRE9]'
+  id: totrans-122
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: That’s it. All the functionality we defined in the stage logic up until the
+    `context​.bar⁠rier` call will take place in the barrier execution mode. This mode
+    leverages the MPI programming model discussed in [Chapter 1](ch01.xhtml#distributed_machine_learning_terminolog)
+    to allow for better communication and a coordinated cyclic training process over
+    the Spark cluster.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就这样。直到`context​.bar⁠rier`调用之前我们在阶段逻辑中定义的所有功能都将在障碍执行模式下执行。这种模式利用了在[第 1 章](ch01.xhtml#distributed_machine_learning_terminolog)中讨论的
+    MPI 编程模型，以允许更好的通信和在 Spark 集群上协调循环训练过程。
+- en: Now that we are able to define stages and barriers, let’s level up and take
+    a look at the next challenge Project Hydrogen aims to solve.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们能够定义阶段和障碍，让我们升级一下，看看 Project Hydrogen 所要解决的下一个挑战。
+- en: Accelerator-Aware Scheduling
+  id: totrans-125
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 加速器感知调度
+- en: The goal of accelerator-aware scheduling is to validate that the distributed
+    system scheduler, responsible for managing the operations and available resources,
+    is aware of the availability of GPUs for hardware acceleration. Essentially, it’s
+    a feature that allows us to expose the cluster’s GPU addresses so that Spark can
+    take advantage of them. We already know that data executors that run on CPUs are
+    sufficient for preprocessing, whereas for training we often need GPUs. To find
+    the GPUs programmatically, we must configure Spark properties with the number
+    of GPUs and provide discovery scripts. [Table 7-1](#configuration_for_gpu_scheduling_awaren)
+    demonstrates some of the configuration options available to us with Spark to enable
+    accelerator-aware scheduling.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加速器感知调度的目标是验证分布式系统调度程序是否意识到可用资源和操作的管理，并了解GPU的可用性以进行硬件加速。基本上，这是一个功能，允许我们公开集群的GPU地址，以便Spark可以利用它们。我们已经知道在预处理时运行在CPU上的数据执行程序足够了，而在训练时我们通常需要GPU。为了以编程方式找到GPU，我们必须配置Spark属性以及提供发现脚本。表[7-1](#configuration_for_gpu_scheduling_awaren)演示了启用Spark加速器感知调度的一些配置选项。
+- en: Table 7-1\. Configuration for GPU scheduling awareness
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表7-1\. GPU调度感知配置
+- en: '| Configuration key | Configuration value example |'
+  id: totrans-128
+  prefs: []
+  type: TYPE_TB
+  zh: '| 配置键 | 配置值示例 |'
+- en: '| --- | --- |'
+  id: totrans-129
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `spark.executor.resource.gpu.amount` | `5` |'
+  id: totrans-130
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.executor.resource.gpu.amount` | `5` |'
+- en: '| `spark.executor.resource.gpu. discoveryScript` | `/home/ubuntu/ getGpusResources.sh`
+    |'
+  id: totrans-131
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.executor.resource.gpu.discoveryScript` | `/home/ubuntu/getGpusResources.sh`
+    |'
+- en: '| `spark.driver.resource.gpu.amount` | `1` |'
+  id: totrans-132
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.driver.resource.gpu.amount` | `1` |'
+- en: '| `spark.driver.resource.gpu. discoveryScript` | `/home/ubuntu/ getGpusResourcesDriver.sh`
+    |'
+  id: totrans-133
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.driver.resource.gpu.discoveryScript` | `/home/ubuntu/getGpusResourcesDriver.sh`
+    |'
+- en: '| `spark.task.resource.gpu.amount` | `1` |'
+  id: totrans-134
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.task.resource.gpu.amount` | `1` |'
+- en: The discovery script can also be used to configure NVIDIA’s RAPIDS Accelerator
+    for Apache Spark as a plug-in/add-on (to learn more, check out the [tutorial](https://oreil.ly/FFO_R)
+    in the docs). RAPIDS provides better performance for operations such as joins,
+    aggregations, etc. Essentially, making Spark aware of RAPIDS will allow it to
+    replace certain SQL operations with GPU-accelerated versions. While it’s an important
+    piece of the puzzle, its role is actually about optimizing the hardware itself,
+    not the operations. Note also that Kubernetes clusters might behave differently
+    from clusters where the resources are controlled by YARN or standalone clusters.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 发现脚本也可以用于将NVIDIA的RAPIDS加速器配置为Apache Spark的插件/附加组件（要了解更多，请查看[教程](https://oreil.ly/FFO_R)中的文档）。RAPIDS为诸如连接、聚合等操作提供了更好的性能。基本上，让Spark意识到RAPIDS将允许它用GPU加速版本替换某些SQL操作。虽然这是解决方案中的一个重要部分，但其角色实际上是优化硬件本身，而不是操作。还要注意，Kubernetes集群的行为可能与由YARN或独立集群控制资源的集群不同。
+- en: 'With accelerator-aware scheduling, we source the GPU addresses from within
+    a task that runs in an executor using [`TaskContext`](https://oreil.ly/FBPpI):'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用加速器感知调度，我们从执行器中运行的任务中获取GPU地址，使用[`TaskContext`](https://oreil.ly/FBPpI)：
+- en: '[PRE10]'
+  id: totrans-137
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'From the driver, we can leverage the `SparkContext` with similar logic to before:'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从驱动程序中，我们可以利用`SparkContext`以前类似的逻辑：
+- en: '[PRE11]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: We’ve seen how we can source the GPUs addresses themselves; now we can feed
+    them into a TensorFlow or other AI program.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到了如何获取GPU地址本身；现在我们可以将它们提供给TensorFlow或其他AI程序。
+- en: We’ve only covered the basics here; for further tips on optimizing resources,
+    check out the [“Resource Management”](https://oreil.ly/t_dRI) section of the Spark
+    documentation.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里我们只覆盖了基础知识；有关优化资源的进一步提示，请查看Spark文档中的[“资源管理”](https://oreil.ly/t_dRI)部分。
+- en: A Brief Introduction to the Horovod Estimator API
+  id: totrans-142
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Horovod估算器API简介
+- en: As with most aspects of machine learning, the tools and resources we have at
+    our disposal today may change tomorrow. So this section will walk through some
+    criteria that will help you assess which dedicated management platform may work
+    best for you today to stitch your software and hardware together for scale—and
+    prepare you for tomorrow. For this, we need our software to act as a layer between
+    the software designed for training and the software designed for tuning the hardware.
+    This means that as well as supporting that software, it also needs to be able
+    to support the hardware we’re using currently and any hardware we might want to
+    integrate in the future.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与机器学习的大多数方面一样，我们今天可以使用的工具和资源明天可能会发生变化。因此，本节将介绍一些标准，帮助您评估哪种专用管理平台能够最适合您，以便将软件和硬件有效地集成以适应规模，并为未来做好准备。为此，我们需要我们的软件充当一个层，在训练设计的软件和调整硬件的软件之间起到桥梁作用。这意味着除了支持该软件外，还需要支持我们目前正在使用的硬件以及未来可能想要集成的任何硬件。
+- en: To tie together the tools we’re using in this book in an automated way, we can
+    leverage *Horovod*. Horovod, similar to Petastorm, is an open source framework
+    for distributed deep learning training. It was also developed by Uber and later
+    donated to Linux’s [LF AI & Data Foundation](https://lfdl.io). Horovod’s core
+    goal is to allow for single-GPU training to be distributed across multiple GPUs.
+    Because of Uber’s heavy use of Spark, the engineers also introduced the *Estimator
+    API*. The Horovod Estimator hides the complexity of gluing Spark DataFrames to
+    a deep learning training script. This is yet another tool that helps us to read
+    in our data in a format interpretable by the training framework, and we can then
+    distribute the training itself using Horovod. As users, we need to provide a TensorFlow,
+    Keras, or PyTorch model, and the Estimator does the work of fitting it to the
+    DataFrame. After training the model, the Estimator returns an instance of a Spark
+    `Transformer` representing the trained model. Later, this can be used like any
+    Spark machine learning transformer to make predictions on an input DataFrame,
+    as discussed in [Chapter 6](ch06.xhtml#training_models_with_spark_mllib).
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了以自动化方式将本书中使用的工具整合在一起，我们可以利用*Horovod*。Horovod与Petastorm类似，是一个用于分布式深度学习训练的开源框架。它也是由Uber开发，并后来捐赠给Linux的[LF
+    AI & Data Foundation](https://lfdl.io)。Horovod的核心目标是允许单GPU训练在多个GPU上进行分布式训练。由于Uber广泛使用Spark，工程师们还引入了*Estimator
+    API*。Horovod Estimator隐藏了将Spark DataFrames与深度学习训练脚本粘合在一起的复杂性。这是另一个帮助我们按照训练框架可解释的格式读取数据，并且我们可以使用Horovod分布训练的工具。作为用户，我们需要提供一个TensorFlow、Keras或PyTorch模型，而Estimator则负责将其适配到DataFrame上。训练模型后，Estimator返回一个表示已训练模型的Spark
+    `Transformer`实例。稍后，这可以像任何Spark机器学习转换器一样用于对输入DataFrame进行预测，如[第6章](ch06.xhtml#training_models_with_spark_mllib)所讨论的。
+- en: Horovod helps us configure GPUs and define a distributed training strategy.
+    It also takes care of Spark’s broadcast mechanism using the `BroadcastGlobalVariablesHook`,
+    which supports initializing a dedicated value on all processes before computation
+    starts. This enables consistency when we want to start with random weights for
+    training that are the same across processes. Working with Horovod (even as an
+    exercise) requires dedicated hardware that goes beyond the scope of this book;
+    if this is something you would like to explore further, check out the [Horovod
+    documentation](https://oreil.ly/p9PS3).
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Horovod帮助我们配置GPU并定义分布式训练策略。它还通过`BroadcastGlobalVariablesHook`处理Spark的广播机制，支持在计算开始之前在所有进程上初始化专用值。这使得当我们希望从相同的随机权重开始训练时，能够保持一致性。与Horovod一起工作（即使只是作为练习）需要超出本书范围的专用硬件；如果您希望进一步探索这一点，请查阅[Horovod文档](https://oreil.ly/p9PS3)。
+- en: Summary
+  id: totrans-146
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: The goal of this chapter was to show you a creative way to bridge the gap between
+    technologies such as Spark and TensorFlow/PyTorch and start thinking outside the
+    box about what is possible. We discussed leveraging data in a Spark DataFrame
+    saved in Parquet format and how to create a bridge to manage and load it into
+    TensorFlow and PyTorch. We covered the two clusters approach, using a dedicated
+    data access layer, Petastorm, and other tools you may want to have in your arsenal
+    to bridge Spark and deep learning clusters. We also discussed combining hardware
+    and software to a degree where the software is aware of the hardware, as well
+    as an example of how to configure it.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的目标是展示一种创造性的方法，以弥合诸如Spark和TensorFlow/PyTorch之间的技术差距，并开始思考可能实现的新方式。我们讨论了如何利用Spark
+    DataFrame中保存的Parquet格式数据以及如何创建一个桥接来管理和加载到TensorFlow和PyTorch中。我们涵盖了双集群方法，使用专用数据访问层Petastorm和其他可能有助于桥接Spark和深度学习集群的工具。我们还讨论了如何将硬件和软件组合到软件意识到硬件的程度，以及如何配置的示例。
+- en: It’s important to remember that this world is still evolving and is going through
+    a massive transformation. There is no one approach that fits all scenarios, and
+    every organization will have slightly different requirements. The basic concepts
+    and needs will stay the same, but the technology itself may change; so it’s essential
+    to assess your own specific criteria for a dedicated data management platform.
+    Even though this book won’t get into every aspect of data management and the hardware
+    environment, it’s essential to remember that code + data + environment go hand
+    in hand.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，这个世界仍在发展，并正在经历一场巨大的变革。没有一种方法适用于所有场景，每个组织都会有稍微不同的要求。基本的概念和需求将保持不变，但技术本身可能会发生变化；因此，评估您自己的专用数据管理平台的具体标准非常重要。即使这本书不会涉及数据管理和硬件环境的每一个方面，也要记住代码、数据和环境是密不可分的。
+- en: This chapter should also have prepared you for [Chapter 8](ch08.xhtml#tensorflow_distributed_ml_approach),
+    where you will learn about distributed training with TensorFlow—we’ll start with
+    the basics, the various patterns and architecture that are unique to TensorFlow,
+    and will finish up with a step-by-step tutorial that uses Petastorm to process
+    Parquet data and run a distributed training job.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章还应该为您准备好[第8章](ch08.xhtml#tensorflow_distributed_ml_approach)，在那里您将学习使用TensorFlow进行分布式训练——我们将从基础知识开始，介绍TensorFlow独特的各种模式和架构，最后以使用Petastorm处理Parquet数据和运行分布式训练作业的逐步教程结束。
+- en: ^([1](ch07.xhtml#ch01fn15-marker)) Protocol Buffers, also known as Protobufs,
+    is an open source, language- and platform-neutral extensible mechanism for serializing
+    structured data, similar to JSON.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch07.xhtml#ch01fn15-marker)) Protocol Buffers，也称为Protobufs，是一种开源的、语言和平台中立的可扩展机制，用于序列化结构化数据，类似于JSON。
+- en: ^([2](ch07.xhtml#ch01fn16-marker)) Spark leverages Arrow heavily, but it is
+    abstracted, and we rarely work directly with it.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch07.xhtml#ch01fn16-marker)) Spark大量利用Arrow，但它是抽象的，我们很少直接与其一起工作。
+- en: ^([3](ch07.xhtml#ch01fn17-marker)) *Data management* refers to the process of
+    inputting, storing, organizing, and maintaining the data that an organization
+    creates and collects.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch07.xhtml#ch01fn17-marker)) *数据管理*指的是输入、存储、组织和维护组织创建和收集的数据的过程。
+- en: ^([4](ch07.xhtml#ch01fn18-marker)) *Tuples* are one of four Python data types
+    used to store collections of data. The data is stored in a fixed, immutable order,
+    and duplicate values are allowed.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch07.xhtml#ch01fn18-marker)) *元组*是Python用于存储数据集合的四种数据类型之一。数据以固定的、不可变的顺序存储，允许重复的值。
+- en: ^([5](ch07.xhtml#ch01fn19-marker)) A *namedtuple* in Python is a tuple with
+    named fields, where the data is stored as keys and values. To learn more about
+    this collection type, check out the [Python docs](https://oreil.ly/nFcKA).
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch07.xhtml#ch01fn19-marker)) Python中的*命名元组*是带有命名字段的元组，其中数据存储为键和值。要了解更多关于这种集合类型的信息，请查阅[Python文档](https://oreil.ly/nFcKA)。

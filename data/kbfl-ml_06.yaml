@@ -1,0 +1,1409 @@
+- en: Chapter 5\. Data and Feature Preparation
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第5章。数据和特征准备
+- en: Machine learning algorithms are only as good as their training data. Getting
+    good data for training involves data and feature preparation.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习算法的好坏取决于它们的训练数据。获取用于训练的良好数据涉及数据和特征准备。
+- en: '*Data preparation* is the process of sourcing the data and making sure it’s
+    valid. This is a multistep process^([1](ch05.xhtml#idm45831177513800)) that can
+    include data collection, augmentation, statistics calculation, schema validation,
+    outlier pruning, and various validation techniques. Not having enough data can
+    lead to overfitting, missing significant correlations, and more. Putting in the
+    effort to collect more records and information about each sample during data preparation
+    can considerably improve the model.^([2](ch05.xhtml#idm45831177510760))'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*数据准备* 是获取数据并确保其有效性的过程。这是一个多步骤的过程^([1](ch05.xhtml#idm45831177513800))，可以包括数据收集、增强、统计计算、模式验证、异常值修剪以及各种验证技术。数据量不足可能导致过拟合，错过重要的相关性等问题。在数据准备阶段投入更多精力收集更多的记录和每个样本的信息可以显著提高模型的效果。^([2](ch05.xhtml#idm45831177510760))'
+- en: '*Feature preparation* (sometimes called *feature engineering*) refers to transforming
+    the raw input data into features that the machine learning model can use.^([3](ch05.xhtml#idm45831177504856))
+    Poor feature preparation can lead to losing out on important relations, such as
+    a linear model with nonlinear terms not expanded, or a deep learning model with
+    inconsistent image orientation.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*特征准备*（有时称为*特征工程*）是将原始输入数据转换为机器学习模型可以使用的特征的过程。^([3](ch05.xhtml#idm45831177504856))
+    糟糕的特征准备可能会导致丢失重要的关系，例如线性模型未展开非线性项，或者深度学习模型中图像方向不一致。'
+- en: Small changes in data and feature preparation can lead to significantly different
+    model outputs. The iterative approach is the best for both feature and data preparation,
+    revisiting them as your understanding of the problem and model changes. Kubeflow
+    Pipelines makes it easier for us to iterate our data and feature preparation.
+    We will explore how to use hyperparameter tuning to iterate in [Chapter 10](ch10.xhtml#hyperparameter_tuning).
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据和特征准备的微小变化可能导致显著不同的模型输出。迭代方法对于特征和数据准备都是最佳选择，随着对问题和模型理解的深入，需要重新访问它们。Kubeflow
+    Pipelines使我们能够更容易地迭代我们的数据和特征准备。我们将探讨如何使用超参数调整在[第10章](ch10.xhtml#hyperparameter_tuning)中迭代。
+- en: In this chapter, we will cover different approaches to data and feature preparation
+    and demonstrate how to make them repeatable by using pipelines. We assume you
+    are already familiar with local tools. As such, we’ll start by covering how to
+    structure our local code for pipelines, and then move on to more scalable distributed
+    tools. Once we’ve explored the tools, we’ll put them together in a pipeline, using
+    the examples from [“Introducing Our Case Studies”](ch01.xhtml#case_studies).
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将涵盖数据和特征准备的不同方法，并演示如何通过使用流水线使它们可重复。我们假设您已经熟悉本地工具。因此，我们将从如何为流水线构建本地代码开始，并转向更可扩展的分布式工具。一旦我们探索了这些工具，我们将根据[“介绍我们的案例研究”](ch01.xhtml#case_studies)中的示例将它们组合成一个流水线。
+- en: Deciding on the Correct Tooling
+  id: totrans-6
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 决定正确的工具
+- en: There are a wide variety of data and feature preparation tools.^([4](ch05.xhtml#idm45831177496600))
+    We can categorize them into distributed and local. Local tools run on a single
+    machine and offer a great amount of flexibility. Distributed tools run on many
+    machines so they can handle larger and more complex tasks. With two very distinct
+    paths of tooling, making the wrong decision here can require substantial changes
+    in code later.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有各种各样的数据和特征准备工具。^([4](ch05.xhtml#idm45831177496600)) 我们可以将它们分类为分布式和本地工具。本地工具在单台机器上运行，并提供很大的灵活性。分布式工具在多台机器上运行，因此可以处理更大更复杂的任务。在工具选择上做出错误决策可能需要后续大幅修改代码。
+- en: If the input data size is relatively small, a single machine offers you all
+    of the tools you are used to. Larger data sizes tend to require distributed tools
+    for the entire pipeline or just as a sampling stage. Even with smaller datasets,
+    distributed systems, like Apache Spark, Dask, or TFX with Beam, can be faster
+    but may require learning new tools.^([5](ch05.xhtml#idm45831177492744))
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果输入数据规模相对较小，单台机器可以提供你所需要的所有工具。更大的数据规模往往需要整个流水线或仅作为抽样阶段的分布式工具。即使是对于较小的数据集，像Apache
+    Spark、Dask或TFX with Beam这样的分布式系统也可能更快，但可能需要学习新的工具。^([5](ch05.xhtml#idm45831177492744))
+- en: Using the same tool for all of the data and feature preparation activities is
+    not necessary. Using multiple tools is especially common when working with different
+    datasets where using the same tools would be inconvenient. Kubeflow Pipelines
+    allows you to split the implementation into multiple steps and connect them (even
+    if they use different languages) into a cohesive system.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不必为所有数据和特征准备活动使用相同的工具。在处理使用相同工具会很不方便的不同数据集时，使用多个工具尤为常见。Kubeflow Pipelines允许您将实现拆分为多个步骤并连接它们（即使它们使用不同的语言），形成一个连贯的系统。
+- en: Local Data and Feature Preparation
+  id: totrans-10
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 本地数据和特征准备
+- en: Working locally limits the scale of data but offers the most comprehensive range
+    of tools. A common way to implement data and feature preparation is with Jupyter
+    notebooks. In [Chapter 4](ch04.xhtml#pipelines_ch), we covered how to turn parts
+    of the notebook into a pipeline, and here we’ll look at how to structure our data
+    and feature prep code to make this easy.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本地工作限制了数据的规模，但提供了最全面的工具范围。实施数据和特征准备的常见方法是使用Jupyter笔记本。在[第4章](ch04.xhtml#pipelines_ch)中，我们介绍了如何将笔记本的部分转换为管道，这里我们将看看如何结构化我们的数据和特征准备代码，使其变得简单易行。
+- en: Using notebooks for data preparation can be a great way to start exploring the
+    data. Notebooks can be especially useful at this stage since we often have the
+    least amount of understanding, and because using visualizations to understand
+    our data can be quite beneficial.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用笔记本进行数据准备可以是开始探索数据的好方法。笔记本在这个阶段特别有用，因为我们通常对数据了解最少，而使用可视化工具来理解我们的数据可能非常有益。
+- en: Fetching the Data
+  id: totrans-13
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 获取数据
+- en: For our mailing list example, we use data from public archives on the internet.
+    Ideally, you want to connect to a database, stream, or other data repository.
+    However, even in production, fetching web data can be necessary. First, we’ll
+    implement our data-fetching algorithm, which takes an Apache Software Foundation
+    (ASF) project’s email list location along with the year from which to fetch messages.
+    [Example 5-1](#scrape_mailing_list) returns the path to the records it fetches
+    so we can use that as the input to the next pipeline stage.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的邮件列表示例，我们使用来自互联网公共档案的数据。理想情况下，您希望连接到数据库、流或其他数据存储库。然而，即使在生产中，获取网络数据也可能是必要的。首先，我们将实现我们的数据获取算法，该算法获取Apache软件基金会（ASF）项目的电子邮件列表位置以及要获取消息的年份。[示例 5-1](#scrape_mailing_list)
+    返回所获取记录的路径，因此我们可以将其用作下一个管道阶段的输入。
+- en: Note
+  id: totrans-15
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The function downloads at *most* one year of data, and it sleeps between calls.
+    This is to prevent overwhelming the ASF mail archive servers. The ASF is a charity;
+    please be mindful of that when downloading data and do not abuse this service.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 函数下载至多一年的数据，并在调用之间休眠。这是为了防止过度使用ASF邮件存档服务器。ASF是一家慈善组织，请在下载数据时注意这一点，不要滥用此服务。
+- en: Example 5-1\. Downloading the mailing list data
+  id: totrans-17
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-1\. 下载邮件列表数据
+- en: '[PRE0]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: This code downloads all of the mailing list data for a given year and saves
+    it to a known path. In this example, a persistent volume needs to be mounted there
+    to allow this data to move between stages, when we make our pipeline.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码下载给定年份的所有邮件列表数据，并将其保存到已知路径。在本例中，需要挂载持久卷，以便在制作管道时使数据在各个阶段之间流动。
+- en: You may have a data dump as part of the machine learning pipeline, or a different
+    system or team may provide one. For data on GCS or a PV, you can use the built-in
+    components `google-cloud/storage/download` or `filesystem/get_subdirectory` to
+    load the data instead of writing a custom function.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为机器学习管道的一部分，您可能会有数据转储，或者可能会由不同的系统或团队提供。对于GCS或PV上的数据，您可以使用内置组件 `google-cloud/storage/download`
+    或 `filesystem/get_subdirectory` 来加载数据，而不是编写自定义函数。
+- en: 'Data Cleaning: Filtering Out the Junk'
+  id: totrans-21
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据清理：过滤掉垃圾
+- en: Now that we’ve loaded our data, it’s time to do some simple data cleaning. Local
+    tools are more common, so we’ll focus on them first. While data cleaning often
+    depends on domain expertise, there are standard tools to assist with common tasks.
+    A first step can be validating input records by checking the schema. That is to
+    say, we check to see if the fields are present and are the right type.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们加载了数据，是时候进行一些简单的数据清理了。本地工具更为常见，因此我们将首先专注于它们。尽管数据清理通常取决于领域专业知识，但也有标准工具可用于协助常见任务。首先的步骤可以是通过检查模式验证输入记录。也就是说，我们检查字段是否存在并且类型正确。
+- en: To check the schema in the mailing list example, we ensure a sender, subject,
+    and body all exist. To convert this into an independent component, we’ll make
+    our function take a parameter for the input path and return the file path to the
+    cleaned records. The amount of code it takes to do this is relatively small, shown
+    in [Example 5-2](#clean_single_machine_ml).
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要检查邮件列表示例中的模式，我们确保发送者、主题和正文都存在。为了将其转换为独立组件，我们将使我们的函数接受输入路径的参数，并返回已清理记录的文件路径。实现这个功能所需的代码量相对较小，如[示例 5-2](#clean_single_machine_ml)所示。
+- en: Example 5-2\. Data cleaning
+  id: totrans-24
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-2\. 数据清理
+- en: '[PRE1]'
+  id: totrans-25
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: There are many other standard data quality techniques besides dropping missing
+    fields. Two of the more popular ones are imputing missing data^([6](ch05.xhtml#idm45831177195672))
+    and analyzing and removing outliers that may be the result of incorrect measurements.
+    Regardless of which additional general techniques you decide to perform, you can
+    simply add them to your data-cleaning function.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了丢弃缺失字段之外，还有许多其他标准数据质量技术。其中两种较受欢迎的是补全缺失数据^([6](ch05.xhtml#idm45831177195672))和分析并移除可能是不正确测量结果的离群值。无论您决定执行哪些附加的通用技术，您都可以简单地将它们添加到您的数据清理函数中。
+- en: Domain specific data cleaning tools can also be beneficial. In the mailing list
+    example, one potential source of noise in our data could be spam messages. One
+    way to solve this would be by using SpamAssassin. We can add this package to our
+    container as shown in [Example 5-3](#install_spamassassin). Adding system software,
+    not managed by pip, on top of the notebook images is a bit more complicated because
+    of permissions. Most containers run as root, making it simple to install new system
+    packages. However, because of Jupyter, the notebook containers run as a less privileged
+    user. Installing new packages like this requires switching to the root user and
+    back, which is not common in other Dockerfiles.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 领域特定的数据清理工具也可能是有益的。在邮件列表示例中，我们数据中的一个潜在噪声来源可能是垃圾邮件。解决此问题的一种方法是使用 SpamAssassin。我们可以像[示例 5-3](#install_spamassassin)中所示那样将此包添加到我们的容器中。在笔记本镜像之上添加不由
+    pip 管理的系统软件有点更加复杂，因为权限问题。大多数容器以 root 用户身份运行，可以简单地安装新的系统软件包。然而，由于 Jupyter，笔记本容器以较低权限用户身份运行。像这样安装新包需要切换到
+    root 用户然后再切换回去，这在其他 Dockerfile 中并不常见。
+- en: Example 5-3\. Installing SpamAssassin
+  id: totrans-28
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-3\. 安装 SpamAssassin
+- en: '[PRE2]'
+  id: totrans-29
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: After you created this Dockerfile, you’ll want to build it and push the resulting
+    image somewhere that the Kubeflow cluster can access, as in [Example 2-8](ch02.xhtml#trivial_build_and_push).
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建完这个 Dockerfile 后，你会希望构建并将生成的镜像推送到 Kubeflow 集群可以访问的某个地方，例如[示例 2-8](ch02.xhtml#trivial_build_and_push)。
+- en: Pushing a new container is not enough to let Kubeflow know that we want to use
+    it. When constructing a pipeline stage with `func_to_container_op`, you then need
+    to specify the `base_image` parameter to the `func_to_container_op` function call.
+    We’ll show this when we bring the example together as a pipeline in [Example 5-35](#use_spamassassin).
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 推送一个新的容器还不足以让 Kubeflow 知道我们想要使用它。当使用 `func_to_container_op` 构建管道阶段时，您需要在 `func_to_container_op`
+    函数调用中指定 `base_image` 参数。我们将在[示例 5-35](#use_spamassassin)中将此示例作为管道展示。
+- en: Here we see the power of containers again. You can add the tools we need on
+    top of the building blocks provided by Kubeflow rather than making everything
+    from scratch.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里我们再次看到容器的强大。您可以在 Kubeflow 提供的基础上添加我们需要的工具，而不是从头开始制作一切。
+- en: Once the data is cleaned, it’s time to make sure you have enough of it, or if
+    not, explore augmenting your data.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据清理完成后，就该确保数据充足，或者如果不充足，探索增加数据。
+- en: Formatting the Data
+  id: totrans-34
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 格式化数据
+- en: The correct format depends on which tool you’re using to do the feature preparation.
+    If you’re sticking with the same tool you used for data preparation, an output
+    can be the same as input. Otherwise, you might find this a good place to change
+    formats. For example, when using Spark for data prep and TensorFlow for training,
+    we often implement conversion to TFRecords here.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正确的格式取决于您用于特征准备的工具。如果您继续使用用于数据准备的同一工具，则输出可以与输入相同。否则，您可能会发现这是更改格式的好地方。例如，当使用
+    Spark 进行数据准备并使用 TensorFlow 进行训练时，我们经常在这里实现转换为 TFRecords。
+- en: Feature Preparation
+  id: totrans-36
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 特征准备
+- en: How to do feature preparation depends on the problem. With the mailing list
+    example, we can write all kinds of text-processing functions and combine them
+    into features, as shown in [Example 5-4](#local_mailing_list_feature_prep_fun).
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何进行特征准备取决于问题的性质。在邮件列表示例中，我们可以编写各种文本处理函数，并将它们组合成特征，如[示例 5-4](#local_mailing_list_feature_prep_fun)所示。
+- en: Example 5-4\. Writing and combining text-processing functions into features
+  id: totrans-38
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-4\. 将文本处理函数编写并组合为特征
+- en: '[PRE3]'
+  id: totrans-39
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: So far, the example code is structured to allow you to turn each function into
+    a separate pipeline stage; however, other options exist. We’ll examine how to
+    use the entire notebook as a pipeline stage in [“Putting It Together in a Pipeline”](#putting_it_in_a_pipeline).
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，示例代码结构使您可以将每个函数转换为单独的管道阶段；然而，还有其他选项。我们将查看如何将整个笔记本作为管道阶段使用，在[“将其放入管道中”](#putting_it_in_a_pipeline)中。
+- en: There are data preparation tools beyond notebooks and Python, of course. Notebooks
+    are not always the best tool as they can have difficulty with version control.
+    Python doesn’t always have the libraries (or performance) you need. So we’ll now
+    look at how to use other available tools.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，除了笔记本和Python之外还有其他数据准备工具。笔记本并不总是最好的工具，因为它们在版本控制方面可能存在困难。Python并不总是具有您所需的库（或性能）。因此，我们现在将看看如何使用其他可用工具。
+- en: Custom Containers
+  id: totrans-42
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 定制容器
+- en: Pipelines are not just limited to notebooks or even to specific languages.^([7](ch05.xhtml#idm45831177067768))
+    Depending on the project, you may have a regular Python project, custom tooling,
+    Python 2, or even FORTRAN code as an essential component.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管道不仅仅限于笔记本，甚至不限于特定语言。^([7](ch05.xhtml#idm45831177067768)) 根据项目的不同，您可能有一个常规的Python项目、定制工具、Python
+    2，甚至是FORTRAN代码作为一个重要组成部分。
+- en: For instance, in [Chapter 9](ch09.xhtml#beyond_tf) we will use Scala to perform
+    one step in our pipeline. Also, in [“Using RStats”](ch09.xhtml#Use_rstats), we
+    discuss how to get started with an RStats container.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，在[第9章](ch09.xhtml#beyond_tf)中，我们将使用Scala来执行管道中的一个步骤。此外，在[“使用RStats”](ch09.xhtml#Use_rstats)中，我们讨论如何开始使用一个RStats容器。
+- en: Sometimes you won’t be able to find a container that so closely matches your
+    needs as we did here. In these cases, you can take a generic base image and build
+    on top of it, which we look at more in [Chapter 9](ch09.xhtml#beyond_tf).
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时候您可能无法找到一个与我们这里所需如此相符的容器。在这些情况下，您可以采用一个通用的基础镜像并在其上构建，我们将在[第9章](ch09.xhtml#beyond_tf)中更详细地讨论这一点。
+- en: Beyond the need for custom containers, another reason you might choose to move
+    beyond notebooks is to explore distributed tools.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了需要定制容器之外，您可能选择放弃笔记本的另一个原因是探索分布式工具。
+- en: Distributed Tooling
+  id: totrans-47
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 分布式工具
+- en: Using a distributed platform makes it possible to work with large datasets (beyond
+    a single machine memory) and can provide significantly better performance. Often
+    the time when we need to start using distributed tooling is when our problem has
+    out-grown our initial notebook solution.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用分布式平台可以处理大型数据集（超出单个机器内存）并可以提供显著更好的性能。通常，当我们的问题已经超出初始笔记本解决方案时，我们需要开始使用分布式工具。
+- en: The two main data-parallel distributed systems in Kubeflow are Apache Spark
+    and Google’s Dataflow (via Apache Beam). Apache Spark has a larger install base
+    and variety of formats and libraries supported. Apache Beam supports TensorFlow
+    Extended (TFX), an end-to-end ML tool, which integrates smoothly into TFServing
+    for model inference. As it’s the most tightly integrated, we’ll start with exploring
+    TFX on Apache Beam and then continue to the more standard Apache Spark.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow中的两个主要数据并行分布式系统是Apache Spark和Google的Dataflow（通过Apache Beam）。Apache Spark拥有更大的安装基础和支持的格式和库的种类。Apache
+    Beam支持TensorFlow Extended（TFX），这是一个端到端的ML工具，可以与TFServing集成以进行模型推断。由于其集成性最强，我们将首先探索在Apache
+    Beam上使用TFX，然后继续使用更标准的Apache Spark。
+- en: TensorFlow Extended
+  id: totrans-50
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: TensorFlow Extended
+- en: The TensorFlow community has created an excellent set of integrated tools for
+    everything from data validation to model serving. At present, TFX’s data tools
+    are all built on top of Apache Beam, which has the most support for distributed
+    processing on Google Cloud. If you want to use Kubeflow’s TFX components, you
+    are limited to a single node; this may change in future versions.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow社区为从数据验证到模型服务的一切创建了一套优秀的集成工具。目前，TFX的数据工具都是基于Apache Beam构建的，这是Google
+    Cloud上分布式处理支持最多的工具。如果您想使用Kubeflow的TFX组件，目前仅限于单节点；这在未来的版本中可能会改变。
+- en: Note
+  id: totrans-52
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Apache Beam’s Python support outside of Google Cloud’s Dataflow is not as mature.
+    TFX is a Python tool, so scaling it depends on Apache Beam’s Python support. You
+    can scale the job by using the GCP only Dataflow component. As Apache Beam’s support
+    for Apache Flink and Spark improves, support may be added for scaling the TFX
+    components in a portable manner.^([8](ch05.xhtml#idm45831177011608))
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Beam在Google Cloud Dataflow之外的Python支持尚不成熟。TFX是一个Python工具，因此其扩展取决于Apache
+    Beam的Python支持。您可以通过使用仅GCP的Dataflow组件来扩展作业。随着Apache Beam对Apache Flink和Spark的支持改进，可能会添加对可移植方式扩展TFX组件的支持。^([8](ch05.xhtml#idm45831177011608))
+- en: Kubeflow includes many of the TFX components in its pipeline system. TFX also
+    has its own concept of pipelines. These are separate from Kubeflow pipelines,
+    and in some cases TFX can be an alternative to Kubeflow. Here we will focus on
+    the data and feature preparation components, since those are the simplest to be
+    used with the rest of the Kubeflow ecosystem.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow在其管道系统中包含许多TFX组件。TFX还有其自己的管道概念。这些与Kubeflow管道是分开的，在某些情况下，TFX可以作为Kubeflow的替代方案。在这里，我们将重点放在数据和特征准备组件上，因为这些是与Kubeflow生态系统的其他部分最简单配合使用的组件。
+- en: 'Keeping your data quality: TensorFlow data validation'
+  id: totrans-55
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 保持数据质量：TensorFlow数据验证
+- en: It’s crucial to make sure data quality doesn’t decline over time. Data validation
+    allows us to ensure that the schema and distribution of our data are only evolving
+    in expected ways and catch data quality issues before they become production issues.
+    TensorFlow Data Validation (TFDV) gives us the ability to validate our data.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保数据质量不会随时间而下降至关重要。数据验证允许我们确保数据的架构和分布仅以预期的方式发展，并在它们变成生产问题之前捕捉数据质量问题。TensorFlow数据验证（TFDV）使我们能够验证我们的数据。
+- en: To make the development process more straightforward, you should install TFX
+    and TFDV locally. While the code can be evaluated inside of Kubeflow only, having
+    the library locally will speed up your development work. Installing TFX and TFDV
+    is a simple pip install, shown in [Example 5-5](#install_tfx).^([9](ch05.xhtml#idm45831176990920))
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使开发过程更加简单，您应该在本地安装TFX和TFDV。虽然代码可以在Kubeflow内部评估，但在本地拥有库会加快开发工作的速度。安装TFX和TFDV只需使用pip
+    install命令，如[Example 5-5](#install_tfx)所示。
+- en: Example 5-5\. Installing TFX and TFDV
+  id: totrans-58
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 5-5\. 安装TFX和TFDV
+- en: '[PRE4]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'Now let’s look at how to use TFX and TFDV in Kubeflow’s pipelines. The first
+    step is loading the relevant components that we want to use. As we discussed in
+    the previous chapter, while Kubeflow does have a `load_component` function, it
+    automatically resolves on master making it unsuitable for production use cases.
+    So we’ll use `load_component_from_file` along with a local copy of Kubeflow components
+    from [Example 4-15](ch04.xhtml#dl_pipeline_release) to load our TFDV components.
+    The basic components we need to load are: an example generator (think data loader),
+    schema, statistics generators, and the validator itself. Loading the components
+    is illustrated in [Example 5-6](#load_tfdv_components).'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们看看如何在Kubeflow的管道中使用TFX和TFDV。第一步是加载我们想要使用的相关组件。正如我们在前一章中讨论的，虽然Kubeflow确实有一个`load_component`函数，但它自动解析在主分支上，因此不适合生产用例。因此，我们将使用`load_component_from_file`以及从[Example 4-15](ch04.xhtml#dl_pipeline_release)下载的Kubeflow组件的本地副本来加载我们的TFDV组件。我们需要加载的基本组件包括：示例生成器（即数据加载器）、模式、统计生成器和验证器本身。加载组件的示例如[Example 5-6](#load_tfdv_components)所示。
+- en: Example 5-6\. Loading the components
+  id: totrans-61
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 5-6\. 加载组件
+- en: '[PRE5]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: In addition to the components, we also need our data. The current TFX components
+    pass data between pipeline stages using Kubeflow’s file_output mechanism. This
+    places the output into MinIO, automatically tracking the artifacts related to
+    the pipeline. To use TFDV on the recommender example’s input, we first download
+    it using a standard container operation, as in [Example 5-7](#dl_recommender_data).
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了组件之外，我们还需要我们的数据。当前的TFX组件通过Kubeflow的文件输出机制在管道阶段之间传递数据。这将输出放入MinIO，自动跟踪与管道相关的工件。为了在推荐示例的输入上使用TFDV，我们首先使用标准容器操作下载它，就像在[Example 5-7](#dl_recommender_data)中所示。
+- en: Example 5-7\. Download recommender data
+  id: totrans-64
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 5-7\. 下载推荐数据
+- en: '[PRE6]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Tip
+  id: totrans-66
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Tip
+- en: If we had the data on a persistent volume (say, data fetched in a previous stage),
+    we could then use the `filesystem/get_file` component.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们的数据在持久卷上（比如说，在之前的阶段获取的数据），我们可以使用`filesystem/get_file`组件。
+- en: Once you have the data loaded, TFX has a set of tools called example generators
+    that ingest data. These support a few different formats, including CSV and TFRecord.
+    There are also example generators for other systems, including Google’s BigQuery.
+    There is not the same wide variety of formats supported by Spark or Pandas, so
+    you may find a need to preprocess the records with another tool.^([10](ch05.xhtml#idm45831176824360))
+    In our recommender example, we use the CSV component, as shown in [Example 5-8](#use_csv_examples).
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦数据加载完成，TFX有一组称为示例生成器的工具来摄取数据。这些支持几种不同的格式，包括CSV和TFRecord。还有其他系统的示例生成器，包括Google的BigQuery。与Spark或Pandas支持的各种格式不同，可能需要使用另一工具预处理记录。^([10](ch05.xhtml#idm45831176824360))
+    在我们的推荐示例中，我们使用了CSV组件，如[示例 5-8](#use_csv_examples)所示。
+- en: Example 5-8\. Using CSV component
+  id: totrans-69
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-8\. 使用CSV组件
+- en: '[PRE7]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Now that we have a channel of examples, we can use this as one of the inputs
+    for TFDV. The recommended approach for creating a schema is to use TFDV to infer
+    the schema. To be able to infer the schema, TFDV first needs to compute some summary
+    statistics of our data. [Example 5-9](#make_schema) illustrates the pipeline stages
+    for both of these steps.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了示例的通道，可以将其作为TFDV的输入之一。创建模式的推荐方法是使用TFDV推断模式。为了能够推断模式，TFDV首先需要计算数据的一些摘要统计信息。[示例 5-9](#make_schema)展示了这两个步骤的管道阶段。
+- en: Example 5-9\. Creating the schema
+  id: totrans-72
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-9\. 创建模式
+- en: '[PRE8]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: If we infer the schema each time, we are unlikely to catch schema changes. Instead,
+    you should save the schema and reuse it in future runs for validation. The pipeline’s
+    run web page has a link to the schema in MinIO, and you can either fetch it or
+    copy it somewhere using another component or container operation.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果每次都推断模式，我们可能无法捕捉模式变化。相反，你应该保存模式，并在将来的运行中重复使用它进行验证。流水线的运行网页有指向MinIO中模式的链接，你可以使用另一个组件或容器操作，获取或复制它到其他地方。
+- en: Regardless of where you persist the schema, you should inspect it. To inspect
+    the schema, you need to import the TFDV library, as shown in [Example 5-10](#import_tfdv).
+    Before you start using a schema to validate data, you should inspect the schema.
+    To inspect the schema, download the schema locally (or onto your notebook) and
+    use the `display_schema` function from TFDV, as shown in [Example 5-11](#display_tfdv_schema).
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不管你将模式持久化到何处，你都应该检查它。要检查模式，你需要导入TFDV库，如[示例 5-10](#import_tfdv)所示。在开始使用模式验证数据之前，你应该先检查模式。要检查模式，请在本地下载模式（或者笔记本上）并使用TFDV的`display_schema`函数，如[示例 5-11](#display_tfdv_schema)所示。
+- en: Example 5-10\. Download the schema locally
+  id: totrans-76
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-10\. 在本地下载模式
+- en: '[PRE9]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: Example 5-11\. Display the schema
+  id: totrans-78
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-11\. 显示模式
+- en: '[PRE10]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: If needed, the `schema_util.py` script (downloadble from the [TensorFlow GitHub
+    repo](https://oreil.ly/qjHeI)) provides the tools to modify your schema (be it
+    for evolution or incorrect inference).
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果需要，可以从[TensorFlow GitHub repo](https://oreil.ly/qjHeI)下载`schema_util.py`脚本，提供修改模式的工具（不论是为了演化或者纠正推断错误）。
+- en: Now that we know we’re using the right schema, let’s validate our data. The
+    validate component takes in both the schema and the statistics we’ve generated,
+    as shown in [Example 5-12](#tfdv_validate). You should replace the schema and
+    statistics generation components with downloads of their outputs at production
+    time.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们知道我们正在使用正确的模式，让我们验证我们的数据。验证组件接受我们生成的模式和统计数据，如[示例 5-12](#tfdv_validate)所示。在生产时，你应该用它们的输出替换模式和统计生成组件。
+- en: Example 5-12\. Validating the data
+  id: totrans-82
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-12\. 验证数据
+- en: '[PRE11]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: Tip
+  id: totrans-84
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Check the size of the rejected records before pushing to production. You may
+    find that the data format has changed, and you need to use the schema evolution
+    guide and possibly update the rest of the pipeline.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在推送到生产之前，检查被拒绝记录的大小。你可能会发现数据格式已经改变，需要使用模式演化指南，并可能更新其余的流水线。
+- en: TensorFlow Transform, with TensorFlow Extended on Beam
+  id: totrans-86
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: TensorFlow Transform，与TensorFlow Extended一起使用Beam
+- en: The TFX program for doing feature preparation is called TensorFlow Transform
+    (TFT) and integrates into the TensorFlow and Kubeflow ecosystems. As with TFDV,
+    Kubeflow’s TensorFlow Transform component currently does not scale beyond single
+    node processing. The best benefit of TFT is its integration into the TensorFlow
+    Model Analysis tool, simplifying feature preparation during inference.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于进行特征准备的TFX程序称为TensorFlow Transform（TFT），并集成到TensorFlow和Kubeflow生态系统中。与TFDV一样，Kubeflow的TensorFlow
+    Transform组件目前无法扩展到单节点处理之外。TFT的最大好处是其集成到TensorFlow模型分析工具中，简化了推断过程中的特征准备。
+- en: We need to specify what transformations we want TFT to apply. Our TFT program
+    should be in a file separate from the pipeline definition, although it is possible
+    to inline it as a string. To start with, we need some standard TFT imports, as
+    shown in [Example 5-13](#tft_imports).
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要指定TFT要应用的转换。我们的TFT程序应该在一个与管道定义分离的文件中，虽然也可以作为字符串内联。首先，我们需要一些标准的TFT导入，如[示例 5-13](#tft_imports)所示。
+- en: Example 5-13\. TFT imports
+  id: totrans-89
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-13\. TFT导入
+- en: '[PRE12]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Now that we’ve got the imports, it’s time to create the entry point into our
+    code for the component, shown in [Example 5-14](#tft_entry).
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经导入了所需的模块，是时候为组件创建入口点了，如[示例 5-14](#tft_entry)所示。
+- en: Example 5-14\. Creating the entry point
+  id: totrans-92
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-14\. 创建入口点
+- en: '[PRE13]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Inside this function is where we do our data transformations to produce our
+    features. Not all features need to be transformed, which is why there is also
+    a copy method to mirror the input to the output if you’re only adding features.
+    With our mailing list example, we can compute the vocabulary, as shown in [Example 5-15](#tft_logic).
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个函数内部，我们进行数据转换以生成我们的特征。并非所有特征都需要转换，这就是为什么还有一个复制方法来将输入镜像到输出，如果你只是添加特征的话。在我们的邮件列表示例中，我们可以计算词汇表，如[示例 5-15](#tft_logic)所示。
+- en: Example 5-15\. Compute the vocabulary
+  id: totrans-95
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-15\. 计算词汇表
+- en: '[PRE14]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: This function does not support arbitrary python code. All transformations must
+    be expressed as TensorFlow or TensorFlow Transform operations. TensorFlow operations
+    operate on one tensor at a time, but in data preparation we often want to compute
+    something over all of our input data, and TensorFlow Transform’s operations give
+    us this ability. See the [TFT Python docs](https://oreil.ly/4j0mv) or call `help(tft)`
+    to see some starting operations.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此函数不支持任意的Python代码。所有的转换必须表达为TensorFlow或TensorFlow Transform操作。TensorFlow操作一次操作一个张量，但在数据准备中，我们通常希望对所有输入数据进行某些计算，而TensorFlow
+    Transform的操作使我们能够实现这一点。请参阅[TFT Python文档](https://oreil.ly/4j0mv)或调用`help(tft)`以查看一些起始操作。
+- en: Once you’ve written the desired transformations, it is time to add them to the
+    pipeline. The simplest way to do this is with Kubeflow’s `tfx/Transform` component.
+    Loading the component is the same as the other TFX components, illustrated in
+    [Example 5-6](#load_tfdv_components). Using this component is unique in requiring
+    the transformation code to be passed in as a file uploaded to either S3 or GCS.
+    It also needs the data, and you can use the output from TFDV (if you used it)
+    or load the examples as we did for TFDV. Using the TFT component is illustrated
+    in [Example 5-16](#use_tft).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您编写了所需的转换，就可以将它们添加到管道中了。这样做的最简单方法是使用Kubeflow的`tfx/Transform`组件。加载该组件与其他TFX组件相同，如[示例 5-6](#load_tfdv_components)所示。使用此组件的独特之处在于需要将转换代码作为上传到S3或GCS的文件传递给它。它还需要数据，您可以使用TFDV的输出（如果使用了TFDV），或者像我们为TFDV所做的那样加载示例。使用TFT组件的示例如[示例 5-16](#use_tft)所示。
+- en: Example 5-16\. Using the TFT component
+  id: totrans-99
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-16\. 使用TFT组件
+- en: '[PRE15]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: Now you have a machine learning pipeline that has feature preparation along
+    with a critical artifact to transform requests at serving time. The close integration
+    of TensorFlow Transform can make model serving much less complicated. TensorFlow
+    Transform with Kubeflow components doesn’t have the power for all projects, so
+    we’ll look at distributed feature preparation next.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，您拥有一个包含特征准备及在服务时间转换请求的机器学习管道的关键工件。TensorFlow Transform的紧密集成可以使模型服务变得不那么复杂。TensorFlow
+    Transform与Kubeflow组件结合使用并不能为所有项目提供足够的能力，因此我们将在接下来看看分布式特征准备。
+- en: Distributed Data Using Apache Spark
+  id: totrans-102
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用Apache Spark进行分布式数据处理
+- en: 'Apache Spark is an open source distributed data processing tool that can run
+    on a variety of clusters. Kubeflow supports Apache Spark through a few different
+    components so you can access cloud-specific features. Since you may not be familiar
+    with Spark we’ll briefly introduce Spark’s Dataset/Dataframe APIs in the context
+    of data and feature preparation. If you want to go beyond the basics, we recommend
+    [*Learning Spark*](https://learning.oreilly.com/library/view/learning-spark/9781449359034),
+    [*Spark: The Definitive Guide*](https://learning.oreilly.com/library/view/spark-the-definitive/9781491912201),
+    or [*High Performance Spark*](https://learning.oreilly.com/library/view/high-performance-spark/9781491943199)
+    as resources to improve your Spark skills.'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'Apache Spark 是一个开源的分布式数据处理工具，可以在各种集群上运行。Kubeflow 通过几个不同的组件支持 Apache Spark，以便您可以访问特定于云的功能。由于您可能对
+    Spark 不太熟悉，我们将在数据和特征准备的背景下简要介绍 Spark 的 Dataset/Dataframe API。如果想要超越基础知识，我们推荐[*Learning
+    Spark*](https://learning.oreilly.com/library/view/learning-spark/9781449359034)、[*Spark:
+    The Definitive Guide*](https://learning.oreilly.com/library/view/spark-the-definitive/9781491912201)或[*High
+    Performance Spark*](https://learning.oreilly.com/library/view/high-performance-spark/9781491943199)作为提升
+    Spark 技能的资源。'
+- en: Note
+  id: totrans-104
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Here our code is structured to go in as a single stage for all of the feature
+    and data preparation, since once you’re at scale, writing and loading the data
+    between steps is costly.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的代码中，为了进行所有特征和数据准备，我们将其结构化为单一阶段，因为一旦达到规模，写入和加载数据之间的步骤是昂贵的。
+- en: Spark operators in Kubeflow
+  id: totrans-106
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Kubeflow 中的 Spark 操作者
+- en: Using Kubeflow’s native Spark operator EMR, or Dataproc is best once you’ve
+    moved beyond the experimental phase. The most portable operator is the native
+    Spark operator, which does not depend on any specific cloud. To use any of the
+    operators, you need to package the Spark program and store it on either a distributed
+    filesystem (such as GCS, S3, and so on) or put it inside a container.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您超越了实验阶段，使用 Kubeflow 的本地 Spark operator EMR 或 Dataproc 是最佳选择。最具可移植性的操作者是本地
+    Spark operator，它不依赖于任何特定的云。要使用任何操作者，您需要打包 Spark 程序并将其存储在分布式文件系统（如 GCS、S3 等）中或将其放入容器中。
+- en: If you’re working in Python or R, we recommend building a Spark container so
+    you can install your dependencies. With Scala or Java code, this is less critical.
+    If you put the application inside of a container, you can reference it with `local:///`.
+    You can use the gcr.io/spark-operator/spark-py:v2.4.5 container as the base or
+    build your own container—follow Spark on Kubernetes instructions, or see [Chapter 9](ch09.xhtml#beyond_tf).
+    [Example 5-19](#install_pyapp_and_deps) shows how to install any requirements
+    and copy the application. If you decide to update the application, you can still
+    use the container, just configure the main resource with a distributed filesystem.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您使用 Python 或 R，我们建议构建一个 Spark 容器以便安装依赖项。对于 Scala 或 Java 代码来说，这不那么关键。如果将应用程序放入容器中，可以使用`local:///`来引用它。您可以使用
+    gcr.io/spark-operator/spark-py:v2.4.5 容器作为基础，或者构建您自己的容器——遵循 Spark 在 Kubernetes
+    上的说明，或查看[第9章](ch09.xhtml#beyond_tf)。[示例 5-19](#install_pyapp_and_deps)展示了如何安装任何依赖项并复制应用程序。如果决定更新应用程序，仍可以使用容器，只需配置主资源为分布式文件系统。
+- en: We cover building custom containers additionally in [Chapter 9](ch09.xhtml#beyond_tf).
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在[第9章](ch09.xhtml#beyond_tf)中还涵盖了如何构建自定义容器。
+- en: Example 5-19\. Installing requirements and copying the application
+  id: totrans-110
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-19\. 安装要求并复制应用程序
+- en: '[PRE16]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Two cloud-specific options for running Spark are the Amazon EMR and Google Dataproc
+    components in Kubeflow. However, they each take different parameters, meaning
+    that you will need to translate your pipeline.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Kubeflow 中运行 Spark 的两个特定于云的选项是 Amazon EMR 和 Google Dataproc 组件。然而，它们各自接受不同的参数，这意味着您需要调整您的流水线。
+- en: The EMR components allow you to set up clusters, submit jobs, and clean up the
+    clusters. The two cluster task components are `aws/emr/create_cluster` for the
+    start and `aws/emr/delete_cluster`. The component for running a PySpark job is
+    `aws/emr/submit_pyspark_job`. If you are not reusing an external cluster, it’s
+    important to trigger the delete component regardless whether the submit_pyspark_job
+    component succeeds.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: EMR 组件允许您设置集群、提交作业以及清理集群。两个集群任务组件分别是`aws/emr/create_cluster`用于启动和`aws/emr/delete_cluster`用于删除。用于运行
+    PySpark 作业的组件是`aws/emr/submit_pyspark_job`。如果您不是在重用外部集群，则无论 submit_pyspark_job
+    组件是否成功，触发删除组件都非常重要。
+- en: While they have different parameters, the workflow for Dataproc clusters mirrors
+    that of EMR. The components are similarly named, with `gcp/dataproc/create_cluster/`
+    and `gcp/dataproc/delete_cluster/` for the life cycle and `gcp/dataproc/submit_pyspark_job/`
+    for running our job.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管它们具有不同的参数，但 Dataproc 集群的工作流程与 EMR 类似。组件的命名类似，使用 `gcp/dataproc/create_cluster/`
+    和 `gcp/dataproc/delete_cluster/` 来管理生命周期，并使用 `gcp/dataproc/submit_pyspark_job/`
+    运行我们的作业。
+- en: Unlike the EMR and Dataproc components, the Spark operator does not have a component.
+    For Kubernetes operators without components, you can use the dsl.ResourceOp to
+    call them. [Example 5-20](#launch_spark_with_operator) illustrates using the ResourceOp
+    to launch a Spark job.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 EMR 和 Dataproc 组件不同，Spark 运算符没有组件。对于没有组件的 Kubernetes 运算符，您可以使用 `dsl.ResourceOp`
+    调用它们。[示例 5-20](#launch_spark_with_operator) 展示了使用 ResourceOp 启动 Spark 作业。
+- en: Example 5-20\. Using the ResourceOp to launch a Spark job
+  id: totrans-116
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-20\. 使用 ResourceOp 启动 Spark 作业
+- en: '[PRE17]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Warning
+  id: totrans-118
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Kubeflow doesn’t apply any validation to ResourceOp requests. For example, in
+    Spark, the job name must be able to be used as the start of a valid DNS name,
+    and while in container ops container names are rewritten, ResourceOps just directly
+    passes through requests.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow 对 ResourceOp 请求不执行任何验证。例如，在 Spark 中，作业名称必须能够用作有效 DNS 名称的开头，而在容器操作中，容器名称会被重写，但
+    ResourceOps 只是直接通过请求。
+- en: Reading the input data
+  id: totrans-120
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 读取输入数据
+- en: 'Spark supports a wide variety of data sources, including (but not limited to):
+    Parquet, JSON, JDBC, ORC, JSON, Hive, CSV, ElasticSearch, MongoDB, Neo4j, Cassandra,
+    Snowflake, Redis, Riak Time Series, etc.^([11](ch05.xhtml#idm45831175808232))
+    Loading data is very straightforward, and often all that is needed is specifying
+    the format. For instance, in our mailing list example, reading the Parquet-formatted
+    output of our data preparation stage is done as in [Example 5-25](#ex_load_parquet).'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark 支持多种数据源，包括（但不限于）：Parquet、JSON、JDBC、ORC、JSON、Hive、CSV、ElasticSearch、MongoDB、Neo4j、Cassandra、Snowflake、Redis、Riak
+    Time Series 等^([11](ch05.xhtml#idm45831175808232))。加载数据非常简单，通常只需要指定格式。例如，在我们的邮件列表示例中，读取我们数据准备阶段的
+    Parquet 格式输出就像 [示例 5-25](#ex_load_parquet) 中所示。
+- en: Example 5-25\. Reading our data’s Parquet-formatted output
+  id: totrans-122
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-25\. 读取我们数据的 Parquet 格式输出
+- en: '[PRE18]'
+  id: totrans-123
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: If this had instead been formatted as JSON, we would only have to change “parquet”
+    to “JSON.”^([12](ch05.xhtml#idm45831175711608))
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果它被格式化为 JSON，我们只需要将 “parquet” 更改为 “JSON”^([12](ch05.xhtml#idm45831175711608))。
+- en: Validating the schema
+  id: totrans-125
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 验证架构的有效性
+- en: We often believe we know the fields and types of our data. Spark can quickly
+    discover the schema when our data is in a self-describing format like Parquet.
+    In other formats, like JSON, the schema isn’t known until Spark reads the records.
+    Regardless of the data format, it is good practice to specify the schema and ensure
+    the data matches it, as shown in [Example 5-26](#ex_load_parquet_schema). Errors
+    during data load are easier to debug than errors during model deployment.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们通常认为我们了解数据的字段和类型。Spark 可以快速发现数据的架构，当我们的数据是自描述格式（如 Parquet）时。在其他格式（如 JSON）中，直到
+    Spark 读取记录时，架构才会知道。无论数据格式如何，指定架构并确保数据匹配是良好的做法，如 [示例 5-26](#ex_load_parquet_schema)
+    中所示。与在模型部署期间出现的错误相比，数据加载期间的错误更容易调试。
+- en: Example 5-26\. Specifying the schema
+  id: totrans-127
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-26\. 指定架构
+- en: '[PRE19]'
+  id: totrans-128
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: You can configure Spark to handle corrupted and nonconforming records by dropping
+    them, keeping them, or stopping the process (i.e., failing the job). The default
+    is permissive, which keeps the invalid records while setting the fields to null,
+    allowing us to handle schema mismatch with the same techniques for missing fields.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以配置 Spark 处理损坏和不符合规范的记录，通过删除它们、保留它们或停止过程（即失败作业）。默认为宽容模式，保留无效记录同时设置字段为空，允许我们使用相同的技术处理缺失字段来处理架构不匹配。
+- en: Handling missing fields
+  id: totrans-130
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 处理缺失字段
+- en: In many situations, some of our data is missing. You can choose to drop records
+    with missing fields, fall back to secondary fields, impute averages, or leave
+    as is. Spark’s built-in tools for these tasks are inside `DataFrameNaFunctions`.
+    The correct solution depends on both your data and the algorithm you end up using.
+    The most common is to drop records and make sure that we have not filtered out
+    too many records, illustrated using the mailing list data in [Example 5-27](#drop_na_spark).
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多情况下，我们的数据中会有一些缺失。您可以选择删除缺少字段的记录，回退到次要字段，填充平均值，或者保持原样。Spark 的内置工具用于这些任务在 `DataFrameNaFunctions`
+    中。正确的解决方案取决于您的数据和最终使用的算法。最常见的是删除记录并确保我们没有过多地筛选记录，这在邮件列表数据中使用 [示例 5-27](#drop_na_spark)
+    进行了说明。
+- en: Example 5-27\. Dropping records
+  id: totrans-132
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-27\. 删除记录
+- en: '[PRE20]'
+  id: totrans-133
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Filtering out bad data
+  id: totrans-134
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 过滤掉坏数据
+- en: Detecting incorrect data can be challenging. However, without performing at
+    least some data cleaning, the model may train on noise. Often, determining bad
+    data depends on the practitioner’s domain knowledge of the problem.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检测不正确的数据可能是具有挑战性的。然而，如果不进行至少一些数据清洗，模型可能会在噪声中训练。通常，确定坏数据取决于从业者对问题的领域知识。
+- en: A common technique supported in Spark is outlier removal. However, naively applying
+    this can remove valid records. Using your domain experience, you can write a custom
+    validation function and remove any records that do not match it using Spark’s
+    `filter` function, as illustrated with our mailing list example in [Example 5-28](#filter_junk_spark).
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Spark中支持的常见技术是异常值移除。然而，简单应用这一技术可能会移除有效记录。利用你的领域经验，你可以编写自定义验证函数，并使用Spark的`filter`函数删除任何不符合条件的记录，就像我们在[示例 5-28](#filter_junk_spark)中的邮件列表示例中所示。
+- en: Example 5-28\. Filtering out bad data
+  id: totrans-137
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-28\. 过滤掉坏数据
+- en: '[PRE21]'
+  id: totrans-138
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: Saving the output
+  id: totrans-139
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 保存输出
+- en: Once you have the data ready, it’s time to save the output. If you’re going
+    to use Apache Spark to do feature preparation, you can skip this step for now.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当数据准备好后，是时候保存输出了。如果你将使用Apache Spark进行特征准备，现在可以跳过此步骤。
+- en: If you want to go back to single-machine tools, it’s often simplest to save
+    to a persistent volume. To do this, bring the data back to the main program by
+    calling `toPandas()`, as shown in [Example 5-30](#spark_to_pandas). Now you can
+    save the data in whatever format the next tool expects.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想返回到单机工具，将数据保存到持久存储通常是最简单的。为此，通过调用`toPandas()`将数据带回主程序，就像在[示例 5-30](#spark_to_pandas)中展示的那样。现在你可以按照下一个工具期望的格式保存数据了。
+- en: Example 5-30\. Saving to a persistent volume
+  id: totrans-142
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-30\. 保存到持久存储
+- en: '[PRE22]'
+  id: totrans-143
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: If the data is large, or you otherwise want to use an object store, Spark can
+    write to many different formats (just as it can load from many different formats).
+    The correct format depends on the tool you intend to use for feature preparation.
+    Writing to Parquet is shown in [Example 5-31](#write_big_data).
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果数据量大，或者你想使用对象存储，Spark可以写入多种不同的格式（就像它可以从多种不同的格式加载一样）。正确的格式取决于你打算用于特征准备的工具。在[示例 5-31](#write_big_data)中展示了写入Parquet格式的方法。
+- en: Example 5-31\. Writing to Parquet
+  id: totrans-145
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-31\. 写入Parquet格式
+- en: '[PRE23]'
+  id: totrans-146
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: Now you’ve seen a variety of different tools you can use to source and clean
+    the data. We’ve looked at the flexibility of local tools, the scalability of distributed
+    tools, and the integration from TensorFlow Extended. With the data in shape, let’s
+    now make sure the right features are available and get them in a usable format
+    for the machine learning model.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经看到了各种可以用来获取和清理数据的工具。我们已经看到了本地工具的灵活性，分布式工具的可扩展性以及来自TensorFlow Extended的集成。数据形状已经到位，现在让我们确保正确的特征可用，并以可用于机器学习模型的格式获取它们。
+- en: Distributed Feature Preparation Using Apache Spark
+  id: totrans-148
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用Apache Spark进行分布式特征准备
+- en: Apache Spark has a large number of built-in feature preparation tools, in `pyspark.ml.feature`,
+    that you can use to generate features. You can use Spark in the same way as you
+    did during data preparation. You may find using Spark’s own ML pipeline an easy
+    way to put together multiple feature preparation stages.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Spark拥有大量内置的特征准备工具，在`pyspark.ml.feature`中，你可以使用这些工具生成特征。你可以像在数据准备阶段一样使用Spark。你可能会发现使用Spark自带的ML管道是将多个特征准备阶段组合在一起的一种简便方法。
+- en: For the Spark mailing list example, we have textual input data. To allow us
+    to train a variety of models, converting this into word vectors is our preferred
+    form of feature prep. Doing so involves first tokenizing the data with Spark’s
+    Tokenizer. Once we have the tokens, we can train a Word2Vec model and produce
+    our word vectors. [Example 5-32](#ex_spark_feature_prep) illustrates how to prepare
+    features for the mailing list example using Spark.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于Spark邮件列表示例，我们有文本输入数据。为了能够训练多种模型，将其转换为词向量是我们首选的特征准备形式。这涉及首先使用Spark的分词器对数据进行分词。一旦有了这些标记，我们可以训练一个Word2Vec模型并生成我们的词向量。[示例 5-32](#ex_spark_feature_prep)展示了如何使用Spark为邮件列表示例准备特征。
+- en: Example 5-32\. Preparing features for the mailing list
+  id: totrans-151
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-32\. 准备邮件列表的特征
+- en: '[PRE24]'
+  id: totrans-152
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: With this final distributed feature preparation example, you’re ready to scale
+    up to handle larger data sizes if they ever come your way. If you’re working with
+    smaller data, you’ve seen how you can use the same simple techniques of containerization
+    to continue to work with your favorite tools. Either way, you’re almost ready
+    for the next stage in the machine learning pipeline.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这个最终的分布式特征准备示例，你可以准备好扩展以处理更大的数据量（如果它们碰巧出现）。如果你处理的是更小的数据，你已经看到了如何使用容器化的简单技术继续使用你喜欢的工具。无论哪种方式，你几乎准备好进入机器学习管道的下一阶段。
+- en: Putting It Together in a Pipeline
+  id: totrans-154
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在管道中将它放在一起
+- en: We have shown how to solve individual problems in data and feature preparation,
+    but now we need to bring it all together. In our local example, we wrote our functions
+    with the types and returned parameters to make it easy to put into a pipeline.
+    Since we return the path of where our output is in each stage, we can use the
+    function outputs to create the dependency graph for us. Putting these functions
+    together into a pipeline is illustrated in [Example 5-33](#single_machine_pipeline).
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经展示了如何解决数据和特征准备中的个别问题，但现在我们需要把它们整合起来。在我们的本地示例中，我们编写了带有类型和返回参数的函数，以便轻松地放入管道中。由于我们在每个阶段返回输出路径，我们可以使用函数输出来为我们创建依赖关系图。将这些函数放入管道中的示例在
+    [示例 5-33](#single_machine_pipeline) 中说明。
+- en: Example 5-33\. Putting the functions together
+  id: totrans-156
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-33\. 将函数放在一起
+- en: '[PRE25]'
+  id: totrans-157
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: You can see that the feature preparation step here follows the same general
+    pattern of all of the local components. However, the libraries that we need for
+    our feature preparation are a bit different, so we’ve changed the `packages_to_install`
+    value to install Scikit-learn, as shown in [Example 5-34](#Instal_Scikit_learn).
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以看到这里的特征准备步骤遵循了所有本地组件的相同一般模式。然而，我们用于特征准备的库有些不同，所以我们已经将 `packages_to_install`
+    的值更改为安装 Scikit-learn，如 [示例 5-34](#Instal_Scikit_learn) 所示。
+- en: Example 5-34\. Installing Scikit-learn
+  id: totrans-159
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-34\. 安装 Scikit-learn
+- en: '[PRE26]'
+  id: totrans-160
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: Tip
+  id: totrans-161
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: When you start exploring a new dataset, you may find it easier to use a notebook
+    as usual, without the pipeline components. When possible following the same general
+    structure you would with pipelines will make it easier to productionize your exploratory
+    work.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你开始探索一个新的数据集时，你可能会发现，像往常一样使用笔记本会更容易，而不使用管道组件。在可能的情况下，遵循与管道相同的一般结构将使得将你的探索工作投入到生产中更加容易。
+- en: These steps don’t specify the container to use. For the container with SpamAssassin
+    you’ve just built, you write it as in [Example 5-35](#use_spamassassin).
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些步骤没有指定要使用的容器。对于你刚刚构建的 SpamAssassin 容器，你可以按照 [示例 5-35](#use_spamassassin) 的方式编写。
+- en: Example 5-35\. Specifying a container
+  id: totrans-164
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-35\. 指定一个容器
+- en: '[PRE27]'
+  id: totrans-165
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: Sometimes the cost of writing our data out in between stages is too expensive.
+    In our recommender example, unlike in the mailing list example, we’ve chosen to
+    put data and feature prep together into a single pipeline stage. In our distributed
+    mailing list example, we build one single Spark job as well. In these cases, our
+    entire work so far is just one stage. Using a single stage allows us to avoid
+    having to write the file out in between, but can complicate debugging.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时候，在各个阶段之间写入数据的成本太高。在我们的推荐系统示例中，与邮件列表示例不同，我们选择将数据和特征准备放在一个单一的管道阶段中。在我们的分布式邮件列表示例中，我们也构建了一个单一的
+    Spark 作业。在这些情况下，我们迄今为止的整个工作只是一个阶段。使用单一阶段可以避免在中间写文件，但可能会增加调试的复杂性。
+- en: Using an Entire Notebook as a Data Preparation Pipeline Stage
+  id: totrans-167
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 将整个笔记本作为数据准备管道阶段
+- en: If you don’t want to turn the individual parts of the data preparation notebook
+    into a pipeline, you can use the entire notebook as one stage. You can use the
+    same containers used by JupyterHub to run the notebook programmatically.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你不想将数据准备笔记本的各个部分转换为管道，你可以将整个笔记本作为一个阶段。你可以使用 JupyterHub 使用的相同容器来以编程方式运行笔记本。
+- en: To do this, you’ll need to make a new `Dockerfile`, specify that it is based
+    on top of another container using `FROM`, and then add a `COPY` directive to package
+    the notebook inside the new container. Since the census data example has a preexisting
+    notebook, that’s the approach we’ve taken in [Example 5-36](#dockerfile_run_nb).
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要做到这一点，您需要制作一个新的 `Dockerfile`，指定它基于另一个容器使用 `FROM`，然后添加一个 `COPY` 指令将笔记本打包到新容器中。由于人口普查数据示例中有一个现成的笔记本，这就是我们在
+    [示例 5-36](#dockerfile_run_nb) 中采取的方法。
+- en: Example 5-36\. Using an entire notebook as data preparation
+  id: totrans-170
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-36\. 将整个笔记本作为数据准备
+- en: '[PRE28]'
+  id: totrans-171
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: If you require additional Python dependencies, you can use the `RUN` directive
+    to install them. Putting the dependencies in the container can help speed up the
+    pipeline, especially for complicated packages. For our mailing list example, the
+    Dockerfile would look like [Example 5-37](#add_py_deps_nb).
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您需要额外的Python依赖项，可以使用`RUN`指令来安装它们。将依赖项放入容器可以加快流水线速度，特别是对于复杂的包。对于我们的邮件列表示例，Dockerfile将如[示例 5-37](#add_py_deps_nb)所示。
+- en: Example 5-37\. Using RUN to add Python dependencies to the container
+  id: totrans-173
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 5-37\. 使用RUN命令将Python依赖项添加到容器中
+- en: '[PRE29]'
+  id: totrans-174
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: We can use this container like any other in the pipeline with `dsl.ContainerOp`,
+    as we did with the recommender example in [Chapter 4](ch04.xhtml#pipelines_ch).
+    Now you have two ways to use notebooks in Kubeflow, and we’ll cover options beyond
+    notebooks next.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以像在[第4章](ch04.xhtml#pipelines_ch)中的推荐器示例中一样，在流水线中使用`dsl.ContainerOp`处理此容器。现在你有两种方法可以在Kubeflow中使用笔记本，接下来我们将介绍笔记本以外的选项。
+- en: Tip
+  id: totrans-176
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Does the notebook need GPU resources? When specifying the `dsl.ContainerOp`,
+    add a call to `set_gpu_limit` and specify either `nvidia` or `amd` depending on
+    the desired GPU type.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 笔记本是否需要GPU资源？在指定`dsl.ContainerOp`时，调用`set_gpu_limit`并指定所需的GPU类型，可以满足您的需求。
+- en: Conclusion
+  id: totrans-178
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: Now you have your data ready to train a model. We’ve seen how there is no one-size-fits-all
+    approach to feature and data preparation; our different examples needed different
+    tooling. We’ve also seen how the methods can require changing within the same
+    problem, like when we expanded the scope of the mailing list example to include
+    more data. The amount and quality of the features, and the data to produce them,
+    are critical to the success of the machine learning projects. You can test this
+    by running the examples with smaller data sizes and comparing the models.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经准备好数据来训练模型。我们已经看到，在特征和数据准备方面，没有一种适合所有情况的方法；我们的不同示例需要不同的工具支持。我们还看到了如何在同一个问题中可能需要修改方法，例如我们在扩展邮件列表示例的范围以包含更多数据时。特征的数量和质量，以及产生它们的数据，对机器学习项目的成功至关重要。您可以通过使用较小的数据集运行示例并比较模型来测试这一点。
+- en: It’s also important to remember that data and feature preparation is not a one-and-done
+    activity, and you may want to revisit this step as you develop this model. You
+    may find that there is a feature you wish you had, or that a feature you thought
+    would perform well isn’t suggesting data quality issues. In the coming chapters,
+    as we train our models and serve them, feel free to revisit the data and feature
+    preparation.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还要记住，数据和特征准备不是一劳永逸的活动，您可能希望在开发模型时重新审视此步骤。您可能会发现有些功能是您希望拥有的，或者您认为性能良好的功能实际上暗示了数据质量问题。在接下来的章节中，当我们训练和服务模型时，请随时重新审视数据和特征准备的重要性。
+- en: ^([1](ch05.xhtml#idm45831177513800-marker)) See the [TFX documentation](https://www.tensorflow.org/tfx)
+    for a good summary if you are new to data preparation.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch05.xhtml#idm45831177513800-marker)) 如果您对数据准备还不熟悉，可以参考[TFX文档](https://www.tensorflow.org/tfx)进行详细了解。
+- en: '^([2](ch05.xhtml#idm45831177510760-marker)) The positive impact of using more
+    data in training is made clear in A. Halevy et al., “The Unreasonable Effectiveness
+    of Data,” IEEE Intelligent Systems 24, no. 2 (March/April 2009): 8-12, [*https://oreil.ly/YI820*](https://oreil.ly/YI820),
+    and T. Schnoebelen, “More Data Beats Better Algorithms,” Data Science Central,
+    September 23, 2016, [*https://oreil.ly/oLe1R*](https://oreil.ly/oLe1R).'
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch05.xhtml#idm45831177510760-marker)) 使用更多数据进行训练的积极影响在A. Halevy等人的文章“数据的非合理有效性”中已经清晰地表现出来，《IEEE智能系统》24卷2期（2009年3-4月）：8-12页，[*https://oreil.ly/YI820*](https://oreil.ly/YI820)，以及T.
+    Schnoebelen的“更多数据胜过更好的算法”，Data Science Central，2016年9月23日，[*https://oreil.ly/oLe1R*](https://oreil.ly/oLe1R)。
+- en: ^([3](ch05.xhtml#idm45831177504856-marker)) For the formal definition, see [“Six
+    Steps to Master Machine Learning with Data Preparation”](https://oreil.ly/qyKTT).
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch05.xhtml#idm45831177504856-marker)) 更多详细定义，请参见[“使用数据准备掌握机器学习的六个步骤”](https://oreil.ly/qyKTT)。
+- en: ^([4](ch05.xhtml#idm45831177496600-marker)) There are too many tools to cover
+    here, but this [blog post](https://oreil.ly/Iv9xi) includes many.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch05.xhtml#idm45831177496600-marker)) 这里涵盖了太多工具，但这篇[博文](https://oreil.ly/Iv9xi)包含了很多信息。
+- en: ^([5](ch05.xhtml#idm45831177492744-marker)) Datasets tend to grow over time
+    rather than shrinking, so starting with distributed tooling can help you scale
+    your work.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch05.xhtml#idm45831177492744-marker)) 数据集往往随着时间增长而不是减少，因此从分布式工具开始可以帮助您扩展工作规模。
+- en: ^([6](ch05.xhtml#idm45831177195672-marker)) See this [blog post](https://oreil.ly/t5xal)
+    on some common techniques for imputing missing data.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch05.xhtml#idm45831177195672-marker)) 查看这篇关于缺失数据填充的[博客文章](https://oreil.ly/t5xal)。
+- en: ^([7](ch05.xhtml#idm45831177067768-marker)) Have some VB6 code you really need
+    to run? Check out [Chapter 9](ch09.xhtml#beyond_tf), on going beyond TensorFlow,
+    and make a small sacrifice of wine.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch05.xhtml#idm45831177067768-marker)) 有一些 VB6 代码需要运行吗？查看[第 9 章](ch09.xhtml#beyond_tf)，探索超越
+    TensorFlow 的内容，并做出一点点放弃红酒的牺牲。
+- en: ^([8](ch05.xhtml#idm45831177011608-marker)) There is a compatibility matrix
+    available on [this Apache page](https://oreil.ly/bD1vf), although currently Beam’s
+    Python support requires launching an additional Docker container, making support
+    on Kubernetes more complicated.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch05.xhtml#idm45831177011608-marker)) 在[此 Apache 页面](https://oreil.ly/bD1vf)上有一个兼容性矩阵，尽管目前
+    Beam 的 Python 支持需要启动额外的 Docker 容器，使得在 Kubernetes 上的支持更加复杂。
+- en: ^([9](ch05.xhtml#idm45831176990920-marker)) While TFX automatically installs
+    TFDV, if you have an old installation and you don’t specify `tensorflow-data-validation`,
+    you may get an error of `Could not find a version that satisfies the requirement`
+    so we illustrate explicitly installing both here.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch05.xhtml#idm45831176990920-marker)) 虽然 TFX 自动安装了 TFDV，但如果你使用的是旧版本且没有指定`tensorflow-data-validation`，可能会出现`Could
+    not find a version that satisfies the requirement`的错误，因此我们在这里明确说明需要同时安装两者。
+- en: ^([10](ch05.xhtml#idm45831176824360-marker)) While technically not a file format,
+    since TFX can accept Pandas dataframes, a common pattern is to load with Pandas
+    first.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([10](ch05.xhtml#idm45831176824360-marker)) 虽然严格来说不是文件格式，由于 TFX 可以接受 Pandas
+    数据帧，常见的模式是首先使用 Pandas 加载数据。
+- en: ^([11](ch05.xhtml#idm45831175808232-marker)) There is no definitive list, although
+    many vendors list their formats on [this Spark page](https://spark-packages.org).
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([11](ch05.xhtml#idm45831175808232-marker)) 虽然没有明确的列表，但许多供应商在[此 Spark 页面](https://spark-packages.org)上列出了它们的格式。
+- en: ^([12](ch05.xhtml#idm45831175711608-marker)) Of course, since most formats have
+    slight variations, they have configuration options if the defaults don’t work.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([12](ch05.xhtml#idm45831175711608-marker)) 当然，由于大多数格式存在轻微差异，如果默认设置不起作用，它们具有配置选项。

@@ -1,0 +1,1492 @@
+- en: Chapter 9\. Model Predictions
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 9 章\. 模型预测
+- en: The primary purpose of training machine learning models is to be able to use
+    them to make predictions. In this chapter, we will take a deep dive into several
+    considerations and design choices involved in deploying trained ML models and
+    using them to make predictions.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练机器学习模型的主要目的是能够使用它们进行预测。在本章中，我们将深入探讨部署训练过的 ML 模型并使用它们进行预测涉及的多个考虑因素和设计选择。
+- en: Tip
+  id: totrans-2
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: The code for this chapter is in the *09_deploying* folder of the book’s [GitHub
+    repository](https://github.com/GoogleCloudPlatform/practical-ml-vision-book).
+    We will provide file names for code samples and notebooks where applicable.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的代码位于书的 [GitHub 代码库](https://github.com/GoogleCloudPlatform/practical-ml-vision-book)
+    的 *09_deploying* 文件夹中。适用时，我们将为代码示例和笔记本提供文件名。
+- en: Making Predictions
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 预测
+- en: To *invoke* a trained model—i.e., to use it to make predictions—we have to load
+    the model from the directory into which it was exported and call the serving signature.
+    In this section, we will look at how to do this. We will also look at how to improve
+    the maintainability and performance of invoked models.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要 *调用* 训练过的模型——即使用它进行预测——我们必须从导出到的目录中加载模型，并调用服务签名。在本节中，我们将看看如何实现这一点。我们还将探讨如何改进被调用模型的可维护性和性能。
+- en: Exporting the Model
+  id: totrans-6
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 导出模型
+- en: 'To obtain a serving signature to invoke, we must export our trained model.
+    Let’s quickly recap these two topics—exporting and model signatures—which were
+    covered in much greater detail in [“Saving Model State”](ch07.xhtml#saving_model_state)
+    in [Chapter 7](ch07.xhtml#training_pipeline). Recall that a Keras model can be
+    exported (see the notebook [*07c_export.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/07_training/07c_export.ipynb))
+    using code like this:'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要获得调用的服务签名，我们必须导出我们训练过的模型。让我们快速回顾一下这两个主题——导出和模型签名——在 [“保存模型状态”](ch07.xhtml#saving_model_state)
+    中有更详细的讨论，该主题在 [第 7 章](ch07.xhtml#training_pipeline) 中有所涵盖。回想一下，可以使用类似下面这样的代码导出
+    Keras 模型（请参阅 GitHub 上的笔记本 [*07c_export.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/07_training/07c_export.ipynb)）：
+- en: '[PRE0]'
+  id: totrans-8
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'This saves the model in TensorFlow SavedModel format. We discussed examining
+    the signature of the prediction function using the command-line tool `saved_model_cli`.
+    By default the signature matches the input layer of the Keras model that was saved,
+    but it is possible to export the model with a different function by explicitly
+    specifying it (see [Figure 9-1](#exporting_a_model_creates_a_savedmodel_t)):'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将以 TensorFlow SavedModel 格式保存模型。我们讨论了如何使用命令行工具 `saved_model_cli` 检查预测函数的签名。默认情况下，签名与保存的
+    Keras 模型的输入层匹配，但可以通过显式指定不同的函数来导出模型（参见 [图 9-1](#exporting_a_model_creates_a_savedmodel_t)）：
+- en: '[PRE1]'
+  id: totrans-10
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: '![](Images/pmlc_0901.png)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0901.png)'
+- en: Figure 9-1\. Exporting a model creates a SavedModel that has a default signature
+    for serving predictions. In this case, the model on the left is the Python object
+    in memory, and the SavedModel is what is persisted to disk.
+  id: totrans-12
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-1\. 导出模型会创建一个 SavedModel，其中包含用于服务预测的默认签名。在这种情况下，左侧的模型是内存中的 Python 对象，而 SavedModel
+    是持久化到磁盘上的内容。
+- en: 'The `predict_flower_type()` function carries a `@tf.function` annotation, as
+    explained in [“Signature of a TensorFlow Function”](ch07.xhtml#signature_of_a_tensorflow_function)
+    in [Chapter 7](ch07.xhtml#training_pipeline):'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`predict_flower_type()` 函数带有 `@tf.function` 注解，详细信息请参阅 [“TensorFlow 函数的签名”](ch07.xhtml#signature_of_a_tensorflow_function)
+    在 [第 7 章](ch07.xhtml#training_pipeline) 中：'
+- en: '[PRE2]'
+  id: totrans-14
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Suppose, for the examples in the first part of this chapter, that we have exported
+    the model with the `predict_flower_type()` function as its default serving function.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设，在本章第一部分的示例中，我们已经导出了具有 `predict_flower_type()` 函数作为默认服务函数的模型。
+- en: Using In-Memory Models
+  id: totrans-16
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用内存中的模型
+- en: 'Imagine we are programming a client that needs to call this model and obtain
+    predictions from it for some input. The client could be a Python program from
+    which we wish to invoke the model. We would then load the model into our program
+    and obtain the default serving function as follows (full code in [*09a_inmemory.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/09_deploying/09a_inmemory.ipynb)):'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们正在编写一个需要调用此模型并获取其预测的客户端程序。客户端可以是我们希望从中调用模型的 Python 程序。然后，我们将模型加载到我们的程序中，并获取默认的服务函数如下（完整代码见
+    GitHub 上的 [*09a_inmemory.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/09_deploying/09a_inmemory.ipynb)）：
+- en: '[PRE3]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'If we pass in a set of filenames to the serving function, we obtain the corresponding
+    predictions:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们向服务函数传递一组文件名，我们将获得相应的预测结果：
+- en: '[PRE4]'
+  id: totrans-20
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'The result is a dictionary. The maximum likelihood prediction can be obtained
+    from the tensor by looking in the dictionary for the specific key and calling
+    `.numpy()`:'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果是一个字典。可以通过查找字典中特定键并调用 `.numpy()` 来从张量中获取最大似然预测：
+- en: '[PRE5]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: In this prediction situation, the model was loaded and invoked directly within
+    the client program (see [Figure 9-2](#a_client_program_written_in_python_loads)).
+    The input to the model had to be a tensor, and so the client program had to create
+    a tensor out of the filename strings. Because the output of the model was also
+    a tensor, the client program had to obtain a normal Python object using `.numpy()`.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种预测情况下，模型是直接在客户端程序中加载和调用的（请参见 [Figure 9-2](#a_client_program_written_in_python_loads)）。模型的输入必须是张量，因此客户端程序必须将文件名字符串创建为张量。因为模型的输出也是张量，所以客户端程序必须使用
+    `.numpy()` 获取正常的 Python 对象。
+- en: '![](Images/pmlc_0902.png)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0902.png)'
+- en: Figure 9-2\. A client program written in Python loads the SavedModel into its
+    memory, sends a tensor containing filenames to the in-memory model, and receives
+    a tensor containing the predicted labels.
+  id: totrans-25
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-2\. 一个用 Python 编写的客户端程序将 SavedModel 加载到内存中，将包含文件名的张量发送到内存中的模型，并接收包含预测标签的张量。
+- en: A few input images and their predictions are shown in [Figure 9-3](Images/#a_selection_of_images_and_their_correspo).
+    Note that because of the care we took in Chapters [5](ch05.xhtml#creating_vision_datasets)
+    and [7](ch07.xhtml#training_pipeline) to replicate the preprocessing operations
+    in the serving function, clients can send us images of any size—the server will
+    resize the images to what the model requires.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [Figure 9-3](Images/#a_selection_of_images_and_their_correspo) 中展示了一些输入图像及其预测结果。请注意，由于我们在第
+    [5](ch05.xhtml#creating_vision_datasets) 章和第 [7](ch07.xhtml#training_pipeline)
+    章中复制了预处理操作以在服务函数中进行操作，客户端可以发送任何大小的图像给我们——服务器将会将图像调整为模型所需的大小。
+- en: '![](Images/pmlc_0903.png)'
+  id: totrans-27
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0903.png)'
+- en: Figure 9-3\. A selection of images and their corresponding predictions.
+  id: totrans-28
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-3\. 一组图像及其对应的预测结果。
+- en: 'There are, nevertheless, two key problems with this in-memory approach: abstraction
+    and performance. Let’s look at what these problems are and how to address them.'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这种内存中方法存在两个关键问题：抽象和性能。让我们看看这些问题是什么以及如何解决它们。
+- en: Improving Abstraction
+  id: totrans-30
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 改进抽象
+- en: It is usually the case that the machine learning engineers and data scientists
+    who develop an ML model have different tools and skills at their disposal than
+    the application developers who are integrating the ML predictions into user-facing
+    applications. You want the ML prediction API to be such that it can be used by
+    someone without any knowledge of TensorFlow or programming in React, Swift, or
+    Kotlin. This is why abstraction is necessary.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，开发 ML 模型的机器学习工程师和数据科学家拥有的工具和技能与将 ML 预测集成到用户界面应用程序中的应用程序开发人员不同。您希望 ML 预测
+    API 能够被那些不了解 TensorFlow 或 React、Swift 或 Kotlin 编程的人使用。这就是为什么抽象是必要的。
+- en: 'We have abstracted away the model’s details to some extent—the client doesn’t
+    need to know the required size of the images (indeed, note in [Figure 9-3](Images/#a_selection_of_images_and_their_correspo)
+    that the images are all of different sizes) or the architecture of the ML model
+    being used for classification. However, the abstraction is not complete. We do
+    have some requirements for the client programmer:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在某种程度上抽象了模型的细节——客户端不需要知道图像的必需大小（确实，请注意 [Figure 9-3](Images/#a_selection_of_images_and_their_correspo)
+    中图像大小都不同）或用于分类的 ML 模型的架构。但这种抽象并不完全。我们确实对客户端程序员有一些要求：
+- en: The client machine will need to have the TensorFlow libraries installed.
+  id: totrans-33
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 客户端机器需要安装 TensorFlow 库。
+- en: At the time of writing, TensorFlow APIs are callable only from Python, [C](https://oreil.ly/H4zVq),
+    [Java](https://oreil.ly/WOP0O), [Go](https://oreil.ly/bRhdh), and [JavaScript](https://oreil.ly/vvODq).
+    Therefore, the client will have to be written in one of those languages.
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在撰写本文时，TensorFlow API 仅能从 Python、[C](https://oreil.ly/H4zVq)、[Java](https://oreil.ly/WOP0O)、[Go](https://oreil.ly/bRhdh)
+    和 [JavaScript](https://oreil.ly/vvODq) 中调用。因此，客户端必须使用其中一种语言编写。
+- en: Because the client programmer has to call functions like `tf.convert_to_tensor()`
+    and `.numpy()`, they must understand concepts like tensor shapes and eager execution.
+  id: totrans-35
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 因为客户端程序员必须调用像 `tf.convert_to_tensor()` 和 `.numpy()` 这样的函数，所以他们必须理解张量形状和即时执行等概念。
+- en: To improve the abstraction, it would be better if we could invoke the model
+    using a protocol such as HTTPS that can be used from many languages and environments.
+    Also, it would be better if we could supply the inputs in a generic format such
+    as JSON, and obtain the results in the same format.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了提高抽象性，最好能够使用诸如HTTPS之类的协议调用模型，这样可以从多种语言和环境中使用。此外，最好能够以JSON等通用格式提供输入，并以相同的格式获取结果。
+- en: Improving Efficiency
+  id: totrans-37
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 提高效率
+- en: 'In the in-memory approach, the model is loaded and invoked directly within
+    the client program. So, the client will need:'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在内存中的方法中，模型直接加载并在客户端程序中调用。因此，客户端需要：
+- en: Considerable on-board memory, since image models tend to be quite large
+  id: totrans-39
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 考虑到板载内存，因为图像模型往往非常庞大
+- en: Accelerators such as GPUs or TPUs, as otherwise the computation will be quite
+    slow
+  id: totrans-40
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 加速器如GPU或TPU，否则计算速度将会非常慢
+- en: As long as we make sure to run the client code on machines with enough memory
+    and with accelerators attached, are we OK? Not quite.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只要确保在具有足够内存和加速器的机器上运行客户端代码，我们就可以了吗？并不完全是。
+- en: 'Performance problems tend to manifest themselves in four scenarios:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 性能问题通常会在以下四种场景中显现：
+- en: Online prediction
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在线预测
+- en: We may have many concurrent clients that need the predictions in near real time.
+    This is the case if we are building interactive tools, such as one that offers
+    the ability to load product photographs onto an ecommerce website. Since there
+    may be many thousands of simultaneous users, we need to ensure that the predictions
+    are carried out at a low latency for all these concurrent users.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可能有许多并发客户端需要几乎实时的预测结果。这种情况出现在我们构建交互工具时，比如一个允许将产品照片加载到电子商务网站上的工具。由于可能存在成千上万的同时用户，我们需要确保所有这些并发用户的预测结果以低延迟完成。
+- en: Batch prediction
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量预测
+- en: We might need to carry out inference on a large dataset of images. If each image
+    takes 300 ms to process, the inference on 10,000 images will take nearly an hour.
+    We might need the results faster.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可能需要在一个大型图像数据集上进行推理。如果每张图像处理需要300毫秒，那么对10000张图像的推理将花费将近一个小时。我们可能需要更快的结果。
+- en: Stream prediction
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流式预测
+- en: We might need to carry out inference on images as they stream into our system.
+    If we receive around 10 images a second, and it takes 100 ms to process each image,
+    we will barely be able to keep up with the incoming stream, so any traffic spikes
+    will cause the system to start falling behind.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可能需要在图像流进入系统时进行推理。如果我们每秒接收大约10张图像，并且每张图像处理需要100毫秒，我们几乎无法跟上传入流量，因此任何流量突增都会导致系统开始落后。
+- en: Edge prediction
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 边缘预测
+- en: Low-connectivity clients might need the predictions in near real time. For example,
+    we might need to identify defects in the parts on a factory conveyor belt even
+    as it is moving. For this to happen, we need the image of the belt to get processed
+    as quickly as possible. We may not have the network bandwidth to send that image
+    to a powerful machine in the cloud and get the results back within the time budget
+    imposed by the moving conveyor belt. This is also the situation in cases where
+    an app on a mobile phone needs to make a decision based on what the phone camera
+    is being pointed at. Because the factory or mobile phone sits on the edge of the
+    network, where network bandwidth isn’t as high as it would be between two machines
+    in a cloud data center, this is called *edge prediction*.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 低连通性客户端可能需要几乎实时的预测结果。例如，我们可能需要在工厂传送带上的零件中识别缺陷，即使它在移动。为了实现这一点，我们需要尽快处理传送带的图像。我们可能没有网络带宽将该图像发送到云中强大的机器并在移动传送带所规定的时间预算内获取结果。在手机应用程序根据手机摄像头所对准的物体做出决策时也是如此。因为工厂或手机位于网络边缘，网络带宽不如云数据中心中两台机器之间的高，这称为*边缘预测*。
+- en: In the following sections, we’ll dive into each of these scenarios and look
+    at techniques for dealing with them.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的几节中，我们将深入探讨每种场景，并探讨处理它们的技术。
+- en: Online Prediction
+  id: totrans-52
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在线预测
+- en: For online prediction, we require a microservices architecture—model inference
+    will need to be carried out on powerful servers with accelerators attached. Clients
+    will request model inference by sending HTTP requests and receiving HTTP responses.
+    Using accelerators and autoscaling infrastructure addresses the performance problem,
+    while using HTTP requests and responses addresses the abstraction problem.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于在线预测，我们需要一个微服务架构——模型推断需要在配备加速器的强大服务器上进行。客户端将通过发送 HTTP 请求并接收 HTTP 响应来请求模型推断。使用加速器和自动扩展基础设施解决了性能问题，而使用
+    HTTP 请求和响应解决了抽象问题。
+- en: TensorFlow Serving
+  id: totrans-54
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: TensorFlow Serving
+- en: The recommended approach for online prediction is to deploy the model using
+    TensorFlow Serving as a web microservice that responds to POST requests. The request
+    and response will not be tensors, but abstracted into a web-native message format
+    such as JSON.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在线预测的推荐方法是使用 TensorFlow Serving 部署模型作为响应 POST 请求的 Web 微服务。请求和响应将不是张量，而是抽象为诸如
+    JSON 之类的 Web 原生消息格式。
+- en: Deploying the model
+  id: totrans-56
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 部署模型
+- en: TensorFlow Serving is just software, so we also need some infrastructure. User
+    requests will have to be dynamically routed to different servers, which will need
+    to autoscale to deal with traffic peaks. You can run TensorFlow Serving on managed
+    services like Google Cloud’s Vertex AI, Amazon SageMaker, or Azure ML (see [Figure 9-4](#online_model_predictions_served_through)).
+    Acceleration on these platforms is available both via GPUs and through custom-built
+    accelerators like AWS Inferentia and Azure FPGA. Although you can install the
+    TensorFlow Serving module or Docker container into your favorite web application
+    framework, we don’t recommend this approach since you won’t get the benefits of
+    the optimized ML serving systems and infrastructure management that the cloud
+    providers’ ML platforms offer.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow Serving 只是软件，因此我们还需要一些基础设施。用户请求将动态路由到不同的服务器，并且需要自动扩展以处理流量峰值。您可以在像
+    Google Cloud 的 Vertex AI、Amazon SageMaker 或 Azure ML 这样的托管服务上运行 TensorFlow Serving，这些平台通过
+    GPU 和 AWS Inferentia、Azure FPGA 等自定义加速器提供加速。尽管您可以将 TensorFlow Serving 模块或 Docker
+    容器安装到您喜欢的 Web 应用程序框架中，但我们不建议此方法，因为您将无法获得云提供商 ML 平台优化的 ML 服务系统和基础设施管理的好处。
+- en: To deploy the SavedModel as a web service on Google Cloud, we’d point `gcloud`
+    at the Google Cloud Storage location to which the model was exported and deploy
+    the resulting model to a Vertex AI endpoint. Please see the code in GitHub for
+    details.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在 Google Cloud 上将 SavedModel 部署为 Web 服务，我们需要指向模型导出到的 Google Cloud 存储位置，并将生成的模型部署到
+    Vertex AI 端点。详情请参阅 GitHub 上的代码。
+- en: When deploying the model, we can also specify the machine type, type of accelerators,
+    and minimum and maximum replica counts.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在部署模型时，我们还可以指定机器类型、加速器类型以及最小和最大副本数。
+- en: '![](Images/pmlc_0904.png)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0904.png)'
+- en: Figure 9-4\. Online model predictions served through a REST API.
+  id: totrans-61
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-4\. 通过 REST API 提供的在线模型预测。
+- en: Making predictions
+  id: totrans-62
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 进行预测
+- en: Predictions can be obtained from any machine that is capable of making an HTTPS
+    call to the server on which the model is deployed (see [Figure 9-4](#online_model_predictions_served_through)).
+    The data is sent back and forth as JSON messages, and TensorFlow Serving converts
+    the JSON into tensors to send to the SavedModel.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以从任何能够向部署模型的服务器发出 HTTPS 调用的计算机获取预测结果（参见 [图 9-4](#online_model_predictions_served_through)）。数据来回传递为
+    JSON 消息，并且 TensorFlow Serving 将 JSON 转换为张量以发送到 SavedModel。
+- en: 'We can try out the deployed model by creating a JSON request:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过创建一个 JSON 请求来测试部署的模型：
+- en: '[PRE6]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'and sending it to the server using `gcloud`:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并使用 `gcloud` 将其发送到服务器：
+- en: '[PRE7]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'One key thing to note is that the JSON request consists of a set of instances,
+    each of which is a dictionary. The items in the dictionary correspond to the inputs
+    specified in the model signature. We can view the model signature by running the
+    command-line tool `saved_model_cli` on the SavedModel:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个关键的注意事项是，JSON 请求由一组实例组成，每个实例都是一个字典。字典中的项目对应于模型签名中指定的输入。我们可以通过在 SavedModel
+    上运行命令行工具 `saved_model_cli` 来查看模型签名：
+- en: '[PRE8]'
+  id: totrans-69
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'In the case of the flowers model, this returns:'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于花卉模型，返回如下：
+- en: '[PRE9]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: That’s how we knew that each instance in the JSON needed a string element called
+    `filenames`.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是我们知道 JSON 中每个实例需要一个名为 `filenames` 的字符串元素的方式。
+- en: 'Because this is just a REST API, it can be invoked from any programming language
+    that is capable of sending an HTTPS POST request. Here’s how to do it in Python:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为这只是一个REST API，可以从任何能发送HTTPS POST请求的编程语言中调用它。以下是在Python中的操作方法：
+- en: '[PRE10]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'The header contains the client’s authentication token. This can be retrieved
+    programmatically using:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标头包含客户端的身份验证令牌。可以使用以下方法以编程方式检索：
+- en: '[PRE11]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: We have seen how to deploy the model and obtain predictions from it, but the
+    API is whatever signature the model was exported with. Next, let’s look at how
+    to change this.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到如何部署模型并从中获取预测结果，但API是与模型导出时的签名一致的。接下来，让我们看看如何更改这一点。
+- en: Modifying the Serving Function
+  id: totrans-78
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 修改服务函数
+- en: Currently, the flowers model has been exported so that it takes a filename as
+    input and returns a dictionary consisting of the most likely class (e.g., daisy),
+    the index of this class (e.g., 2), and the probability associated with this class
+    (e.g., 0.3). Suppose we wish to change the signature so that we also return the
+    filename that the prediction is associated with.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前，flowers模型已经导出，以便它接受文件名作为输入，并返回由最可能的类（例如daisy）、这个类的索引（例如2）以及与这个类相关的概率（例如0.3）组成的字典。假设我们希望更改签名，以便我们还返回与预测相关联的文件名。
+- en: This sort of scenario is quite common because it is impossible to anticipate
+    the exact signature that we will need in production when a model is exported.
+    In this case, we want to pass input parameters from the client through to the
+    response. A need for such *pass-through parameters* is quite common, and different
+    clients will want to pass through different things.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种情况非常常见，因为在导出模型时，我们无法预料到在生产中会需要确切的签名。在这种情况下，我们希望将客户端的输入参数传递到响应中。这种*透传参数*的需求非常普遍，不同的客户端将想要传递不同的内容。
+- en: While it is possible to go back, change the trainer program, retrain the model,
+    and re-export the model with the desired signature, it is more convenient to simply
+    change the signature of the exported model.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然可以返回，更改训练程序，重新训练模型，并重新导出具有所需签名的模型，但简单地更改导出模型的签名更为便捷。
+- en: Changing the default signature
+  id: totrans-82
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 更改默认签名
+- en: 'To change the signature, first we load the exported model:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要更改签名，首先我们加载导出的模型：
+- en: '[PRE12]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'Then we define a function with the desired new signature, making sure to invoke
+    the old signature on the model from within the new function:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们定义一个带有所需新签名的函数，确保在新函数内部调用模型的旧签名：
+- en: '[PRE13]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'If the client instead wanted to supply a sequence number and asked us to pass
+    this through in the response, we could do that as follows:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果客户端希望提供一个序列号，并要求我们在响应中透传此序列号，我们可以按以下方式操作：
+- en: '[PRE14]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Finally, we export the model with our new function as the serving default:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们将带有新函数的模型导出为服务默认：
+- en: '[PRE15]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'We can verify the resulting signature using `saved_model_cli` and ensure that
+    the filename is included in the output:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用`saved_model_cli`验证生成的签名，并确保文件名包含在输出中：
+- en: '[PRE16]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Multiple signatures
+  id: totrans-93
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 多个签名
+- en: What if you have multiple clients, and each of them wants a different signature?
+    TensorFlow Serving allows you to have multiple signatures in a model (although
+    only one of them will be the serving default).
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你有多个客户，并且每个客户都想要不同的签名？TensorFlow Serving允许在模型中拥有多个签名（尽管其中只有一个将成为服务默认）。
+- en: 'For example, suppose we want to support both the original signature and the
+    pass-through version. In this case, we can export the model with two signatures
+    (see [Figure 9-5](#exporting_a_model_with_multiple_signatur)):'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设我们想支持原始签名和透传版本。在这种情况下，我们可以导出带有两个签名的模型（见[图 9-5](#exporting_a_model_with_multiple_signatur)）：
+- en: '[PRE17]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'where `old_fn` is the original serving signature that is obtained via:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中`old_fn`是通过以下方式获取的原始服务签名：
+- en: '[PRE18]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: '![](Images/pmlc_0905.png)'
+  id: totrans-99
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0905.png)'
+- en: Figure 9-5\. Exporting a model with multiple signatures.
+  id: totrans-100
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-5\. 导出带有多个签名的模型。
+- en: 'Clients who wish to invoke the nondefault serving signature will have to specifically
+    include a signature name in their requests:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 客户希望调用非默认服务签名的，需要在他们的请求中明确包含一个签名名称：
+- en: '[PRE19]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Others will get the response corresponding to the default serving function.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他人将获得对应于默认服务函数的响应。
+- en: Handling Image Bytes
+  id: totrans-104
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 处理图像字节
+- en: We have, so far, been sending a filename to the service and asking for the classification
+    result. This works well for images that have been uploaded to the cloud already,
+    but can introduce friction if that’s not the case. If the image is not already
+    in the cloud, it would be ideal for the client code to send us the JPEG bytes
+    corresponding to the file contents. That way, we can avoid an intermediate step
+    of uploading the image data to the cloud before invoking the prediction model.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们一直在向服务发送文件名，并请求分类结果。这对已经上传到云中的图像效果很好，但如果情况不是这样，可能会增加摩擦。如果图像尚未在云中，客户端代码最好将
+    JPEG 字节发送给我们，而不是文件内容。这样，我们可以避免在调用预测模型之前上传图像数据到云的中间步骤。
+- en: Loading the model
+  id: totrans-106
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 加载模型
+- en: 'To change the model in this situation, we could load the exported model and
+    change the input signature to be:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下改变模型，我们可以加载导出的模型，并更改输入签名为：
+- en: '[PRE20]'
+  id: totrans-108
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: But what would this implementation do? In order to invoke the existing model
+    signature, we will need the user’s file to be available to the server. So, we’d
+    have to take the incoming image bytes, write them to a temporary Cloud Storage
+    location, and then send it to the model. The model would then read this temporary
+    file back into memory. This is pretty wasteful—how can we get the model to directly
+    use the bytes we are sending it?
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是这种实现会做什么呢？为了调用现有的模型签名，我们需要用户的文件能够在服务器上可用。因此，我们需要获取传入的图像字节，将其写入临时的云存储位置，然后发送到模型。然后模型将再次读取这个临时文件到内存中。这是相当浪费的
+    —— 我们如何让模型直接使用我们发送的字节呢？
+- en: 'To do this, we need to decode the JPEG bytes, preprocess them the same way
+    that we did during model training, and then invoke `model.predict()`. For that,
+    we need to load the last (or best) checkpoint saved during model training:'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为此，我们需要解码 JPEG 字节，以与模型训练期间相同的方式预处理它们，然后调用 `model.predict()`。为此，我们需要加载在模型训练期间保存的最后（或最佳）检查点：
+- en: '[PRE21]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'We can also load the exported model using the same API:'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们也可以使用相同的 API 加载导出的模型：
+- en: '[PRE22]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: Adding a prediction signature
+  id: totrans-114
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 添加预测签名
+- en: 'Having loaded the model, we use this model to implement the prediction function:'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加载模型后，我们使用此模型来实现预测函数：
+- en: '[PRE23]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'In that code snippet, note that we need to get access to the preprocessing
+    functions used in training, perhaps by importing a Python module. The preprocessing
+    function has to be the same as what was used in training:'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在那段代码片段中，请注意我们需要获取训练中使用的预处理函数的访问权，可能通过导入一个 Python 模块。预处理函数必须与训练时使用的相同：
+- en: '[PRE24]'
+  id: totrans-118
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 'We might as well also implement another method to predict from the filename:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可能也要实现另一种方法来根据文件名预测：
+- en: '[PRE25]'
+  id: totrans-120
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: This function simply reads in the file (using `tf.io.read_file()`) and then
+    invokes the other prediction method.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此函数简单地读取文件（使用 `tf.io.read_file()`），然后调用另一个预测方法。
+- en: Exporting signatures
+  id: totrans-122
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 导出签名
+- en: 'Both of these functions can be exported, so that clients have the choice of
+    supplying either the filename or the byte contents:'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两个函数都可以导出，以便客户可以选择提供文件名或字节内容：
+- en: '[PRE26]'
+  id: totrans-124
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: Base64 encoding
+  id: totrans-125
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Base64 编码
+- en: 'In order to provide the contents of a local image file to the web service,
+    we read the file contents into memory and send them over the wire. Because it
+    is very possible that the JPEG files will contain special characters that will
+    confuse the JSON parser on the server side, it is necessary to base64-encode the
+    file contents before sending them (the full code is available in [*09d_bytes.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/09_deploying/09d_bytes.ipynb)):'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了将本地图像文件的内容提供给 Web 服务，我们将文件内容读入内存，并通过网络发送。因为 JPEG 文件很可能包含会混淆服务器端 JSON 解析器的特殊字符，所以在发送之前有必要对文件内容进行
+    base64 编码（完整代码在 GitHub 上的 [*09d_bytes.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/09_deploying/09d_bytes.ipynb)
+    可以找到）：
+- en: '[PRE27]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'The base64-encoded data can then be incorporated into the JSON message that
+    is sent as follows:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将 base64 编码的数据包含在以下发送的 JSON 消息中：
+- en: '[PRE28]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: Note the use of the special `b64` element to denote base64 encoding. TensorFlow
+    Serving understands this and decodes the data on the other end.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意使用特殊的 `b64` 元素来表示 base64 编码。TensorFlow Serving 理解这一点，并在另一端解码数据。
+- en: Batch and Stream Prediction
+  id: totrans-131
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 批处理和流式预测
+- en: Doing batch prediction one image at a time is unacceptably slow. A better solution
+    is to carry out the predictions in parallel. Batch prediction is an embarrassingly
+    parallel problem—predictions on two images can be performed entirely in parallel
+    because there is no data to transfer between the two prediction routines. However,
+    attempts to parallelize the batch prediction code on a single machine with many
+    GPUs often run into memory issues because each of the threads will need to have
+    its own copy of the model. Using Apache Beam, Apache Spark, or any other big data
+    processing technology that allows us to distribute data processing across many
+    machines is a good way to improve batch prediction performance.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 逐个图像进行批量预测速度太慢了。更好的解决方案是并行进行预测。批量预测是一个尴尬的并行问题 —— 两个图像的预测可以完全并行执行，因为两个预测过程之间没有数据传输。然而，尝试在单机上使用多个
+    GPU 并行化批量预测代码通常会遇到内存问题，因为每个线程都需要拥有模型的独立副本。使用 Apache Beam、Apache Spark 或任何其他允许我们跨多台机器分布数据处理的大数据处理技术是提高批量预测性能的好方法。
+- en: We also need multiple machines for streaming prediction (such as in response
+    to a clickstream of events through Apache Kafka, Amazon Kinesis, or Google Cloud
+    Pub/Sub), for the same reasons that we require them for batch prediction—to carry
+    out inference on the images as they arrive in parallel without causing out-of-memory
+    problems. However, because streaming workloads tend to be spiky, we also require
+    this infrastructure to autoscale—we should provision more machines at traffic
+    peaks and scale down to a minimal number of machines at traffic lows. Apache Beam
+    on Cloud Dataflow provides this capability. Therefore, we suggest using Beam for
+    improving the performance of streaming prediction. Happily, the same code that
+    is used for batch prediction in Beam will also work unchanged for streaming prediction.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于流式预测同样需要多台机器（例如响应通过 Apache Kafka、Amazon Kinesis 或 Google Cloud Pub/Sub 的点击流事件），原因与批量预测相同
+    —— 在图像到达时并行执行推断而不引起内存问题。然而，由于流式工作负载往往是突发的，我们还需要这种基础设施能够自动扩展 —— 在流量高峰时提供更多机器，在流量低谷时缩减到最少机器数量。Apache
+    Beam 在 Cloud Dataflow 上提供了这种能力。因此，我们建议使用 Beam 来提高流式预测的性能。令人高兴的是，Beam 中用于批量预测的相同代码也能够无需修改地用于流式预测。
+- en: The Apache Beam Pipeline
+  id: totrans-134
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Apache Beam 管道
+- en: 'The solution to both batch and streaming prediction involves Apache Beam. We
+    can write a Beam transform to carry out inference as part of the pipeline:'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量和流式预测的解决方案都涉及 Apache Beam。我们可以编写一个 Beam 转换来作为管道的一部分执行推断：
+- en: '[PRE29]'
+  id: totrans-136
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'We can reuse the model prediction code that we used in in-memory prediction
+    by loading the serving function from the exported model:'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过加载从导出模型中导入的服务函数来重用内存预测中使用的模型预测代码：
+- en: '[PRE30]'
+  id: totrans-138
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: However, there are two issues with this code. First, we are processing the files
+    one at a time. TensorFlow graph operations are faster if we can carry them out
+    in batches, so we’ll want to batch up the filenames. Second, we are loading the
+    model for each element. Ideally, we’d load the model once and reuse it. Because
+    Beam is a distributed system, however, we actually have to load the model once
+    *on each worker* (see [Figure 9-6](#batch_prediction_uses_distributed_worker)).
+    To do that, we must use a shared *handle* (essentially a shared connection to
+    the service) that is acquired by each worker. This handle has to be acquired through
+    a weak reference so that if a worker is decommissioned (due to low traffic) and
+    then reactivated (due to a traffic peak), Beam does the right thing and reloads
+    the model in that worker.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这段代码存在两个问题。首先，我们是逐个处理文件。如果能够批量处理文件，TensorFlow 图操作将更快，因此我们希望能够批量处理文件名。其次，我们为每个元素加载模型。理想情况下，我们只需加载模型一次并重复使用。然而，由于
+    Beam 是一个分布式系统，实际上我们必须在每个工作器上加载模型 *一次*（参见 [图 9-6](#batch_prediction_uses_distributed_worker)）。为此，我们必须通过弱引用获取一个共享
+    *句柄*（实质上是与服务的共享连接）。这个句柄必须通过弱引用获取，以便在工作器由于低流量而下线后重新激活（由于流量峰值）时，Beam 能够执行正确的操作并重新加载该工作器上的模型。
+- en: '![](Images/pmlc_0906.png)'
+  id: totrans-140
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0906.png)'
+- en: Figure 9-6\. Batch prediction uses distributed workers to process the input
+    data in parallel. This architecture also works for stream prediction.
+  id: totrans-141
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-6\. 批量预测使用分布式工作器并行处理输入数据。这种架构也适用于流式预测。
+- en: 'To use the shared handle, we modify the model prediction code as follows:'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用共享句柄，我们需要修改模型预测代码如下：
+- en: '[PRE31]'
+  id: totrans-143
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'The shared handle, whose capability is provided by Apache Beam, ensures that
+    connections are reused within a worker and reacquired after passivation. In the
+    pipeline, we create the shared handle and make sure to batch the elements before
+    calling model prediction (you can see the full code in [*09a_inmemory.ipynb* on
+    GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/09_deploying/09a_inmemory.ipynb)):'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由 Apache Beam 提供的共享句柄确保在工作器内重复使用连接，并在休眠后重新获取。在管道中，我们创建共享句柄，并确保在调用模型预测之前对元素进行批处理（你可以在
+    GitHub 上的 [*09a_inmemory.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/09_deploying/09a_inmemory.ipynb)
+    中查看完整代码）：
+- en: '[PRE32]'
+  id: totrans-145
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: The same code works for both batch and streaming predictions.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相同的代码适用于批处理和流式预测。
+- en: Note
+  id: totrans-147
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'If you are grouping the images, then the groups are already a batch of images
+    and so there is no need to explicitly batch them:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果正在对图像进行分组，则这些组已经是图像的批处理，因此无需显式对它们进行批处理：
+- en: '[PRE33]'
+  id: totrans-149
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: We can run the Apache Beam code at scale using Cloud Dataflow.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用 Cloud Dataflow 对 Apache Beam 代码进行大规模运行。
+- en: Managed Service for Batch Prediction
+  id: totrans-151
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 批量预测的托管服务
+- en: 'If we have deployed the model as a web service to support online prediction,
+    then an alternative to using the Beam on Dataflow batch pipeline is to also use
+    Vertex AI to carry out batch prediction:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们已将模型部署为支持在线预测的 Web 服务，那么除了使用 Dataflow 批处理管道中的 Beam 外，还可以使用 Vertex AI 进行批量预测：
+- en: '[PRE34]'
+  id: totrans-153
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: Performance-wise, the best approach depends on the accelerators that are available
+    in your online prediction infrastructure versus what is available in your big
+    data infrastructure. Since online prediction infrastructure can use custom ML
+    chips, this approach tends to be better. Also, Vertex AI batch prediction is easier
+    to use because we don’t have to write code to handle batched requests.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在性能方面，最佳方法取决于在线预测基础设施中可用的加速器与大数据基础设施中可用的加速器。由于在线预测基础设施可以使用自定义 ML 芯片，这种方法往往更好。此外，Vertex
+    AI 批量预测更易于使用，因为我们不必编写处理批处理请求的代码。
+- en: Invoking Online Prediction
+  id: totrans-155
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 调用在线预测
+- en: Writing our own batch prediction pipeline in Apache Beam is more flexible because
+    we can do additional transformations in our pipeline. Wouldn’t it be great if
+    we could combine the Beam and REST API approaches?
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Apache Beam 中编写自己的批量预测管道更加灵活，因为我们可以在管道中进行额外的转换。如果我们能够将 Beam 和 REST API 方法结合起来，那将是非常好的事情。
+- en: 'We can do this by invoking the deployed REST endpoint from the Beam pipeline
+    instead of invoking the model that is in memory (the full code is in [*09b_rest.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/09_deploying/09b_rest.ipynb)):'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过从 Beam 管道中调用部署的 REST 端点而不是调用内存中的模型来实现这一点（完整代码在 GitHub 上的 [*09b_rest.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/09_deploying/09b_rest.ipynb)
+    中）：
+- en: '[PRE35]'
+  id: totrans-158
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: 'If we combine the Beam approach with the REST API approach as shown here, we
+    will be able to support streaming predictions (something the managed service doesn’t
+    do). We also gain a couple of performance advantages:'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果按照这里显示的方法将 Beam 方法与 REST API 方法结合起来，我们将能够支持流式预测（这是托管服务不支持的）。我们还能获得一些性能优势：
+- en: A deployed online model can be scaled according to the computational needs of
+    the model. Meanwhile, the Beam pipeline can be scaled on the data rate. This ability
+    to independently scale the two parts can lead to cost savings.
+  id: totrans-160
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 部署的在线模型可以根据模型的计算需求进行扩展。同时，Beam 管道可以根据数据速率进行扩展。这种独立扩展两个部分的能力可以节省成本。
+- en: A deployed online model can make more effective use of GPUs because the entire
+    model code is on the TensorFlow graph. Although you can run the Dataflow pipeline
+    on GPUs, GPU use is less effective because the Dataflow pipeline does many other
+    things (like reading data, grouping keys, etc.) that do not benefit from GPU acceleration.
+  id: totrans-161
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 部署的在线模型可以更有效地利用 GPU，因为整个模型代码都在 TensorFlow 图上。虽然可以在 GPU 上运行 Dataflow 管道，但 GPU
+    使用效果较低，因为 Dataflow 管道执行许多其他任务（如读取数据、分组键等），这些任务并不受 GPU 加速的益处。
+- en: These two performance benefits have to be balanced against the increased networking
+    overhead, however—using an online model adds a network call from the Beam pipeline
+    to the deployed model. Measure the performance to determine whether the in-memory
+    model is better for your needs than the REST model. In practice, we have observed
+    that the larger the model is, and the more instances there are in the batch, the
+    greater are the performance advantages of invoking the online model from Beam
+    rather than hosting the model in memory.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这两个性能优点必须与增加的网络开销平衡——使用在线模型会从Beam管道向部署的模型发起网络调用。通过测量性能来确定内存模型对您的需求是否比REST模型更好。实际上，我们观察到，模型越大，批次中的实例越多，使用Beam从在线模型调用而不是在内存中托管模型的性能优势就越大。
+- en: Edge ML
+  id: totrans-163
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Edge ML
+- en: Edge ML is becoming increasingly important because the number of devices with
+    computational capabilities has been growing dramatically in recent years. These
+    include smartphones, connected appliances in homes and factories, and instruments
+    placed outdoors. If these edge devices have a camera, then they are candidates
+    for machine learning use cases on images.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Edge ML因为近年来具有计算能力的设备数量急剧增长而变得越来越重要。这些设备包括智能手机、家庭和工厂中的连接设备，以及户外放置的仪器。如果这些边缘设备有摄像头，那么它们就是图像机器学习用例的候选者。
+- en: Constraints and Optimizations
+  id: totrans-165
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 约束与优化
+- en: 'Edge devices tend to have a few constraints:'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 边缘设备往往有一些限制：
+- en: They may have no connectivity to the internet, and even if they do have connectivity,
+    the connection might be spotty and have low bandwidth. It is, therefore, necessary
+    to carry out ML model inference on the device itself so that we do not wait for
+    the duration of a round trip to the cloud.
+  id: totrans-167
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它们可能没有连接到互联网，即使有连接，连接也可能不稳定且带宽较低。因此，有必要在设备上执行ML模型推理，这样我们就不必等待云端的往返时间。
+- en: There may be privacy constraints, and it may be desired that image data never
+    leaves the device.
+  id: totrans-168
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可能存在隐私约束，并且可能希望图像数据永远不离开设备。
+- en: Edge devices tend to have limited memory, storage, and computing power (at least
+    compared to typical desktop or cloud machines). Therefore, the model inference
+    has to be done in an efficient way.
+  id: totrans-169
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 边缘设备往往具有有限的内存、存储和计算能力（至少与典型的台式机或云计算机相比）。因此，模型推理必须以高效的方式完成。
+- en: The use case often requires that the device have low cost, be small, use very
+    little power, and not get too hot.
+  id: totrans-170
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在使用案例中，设备通常需要低成本、小尺寸、极低功耗，并且不会过热。
+- en: For edge prediction, therefore, we need a low-cost, efficient, on-device ML
+    accelerator. In some cases, the accelerator will already be built in. For example,
+    modern mobile phones tend to have an on-board GPU. In other cases, we will have
+    to incorporate an accelerator into the design of the instrument. We can buy edge
+    accelerators to attach or incorporate into instruments (such as cameras and X-ray
+    scanners) when they are being built.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，对于边缘预测，我们需要一种低成本、高效的设备内ML加速器。在某些情况下，加速器已经内置。例如，现代手机通常有内置GPU。在其他情况下，我们将不得不在仪器的设计中集成加速器。我们可以购买边缘加速器，将其附加或集成到正在构建的仪器（如摄像头和X射线扫描仪）中。
+- en: In conjunction with selecting fast hardware, we also need to ensure that we
+    do not overtax the device. We can do that by taking advantage of approaches that
+    reduce the computational requirements of image models so that they operate efficiently
+    on the edge.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与选择快速硬件一起，我们还需要确保不过度使用设备。我们可以利用减少图像模型计算要求的方法，以便它们在边缘上高效运行。
+- en: TensorFlow Lite
+  id: totrans-173
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: TensorFlow Lite
+- en: TensorFlow Lite is a software framework for carrying out TensorFlow model inference
+    on edge devices. Note that TensorFlow Lite is not a version of TensorFlow—we cannot
+    train models using TensorFlow Lite. Instead, we train a model using regular TensorFlow,
+    and then convert the SavedModel into an efficient form for use on edge devices
+    (see [Figure 9-7](#creating_an_edge-runnable_ml_modeldot)).
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow Lite是一个在边缘设备上执行TensorFlow模型推理的软件框架。请注意，TensorFlow Lite不是TensorFlow的一个版本——我们不能使用TensorFlow
+    Lite训练模型。相反，我们使用常规TensorFlow训练模型，然后将SavedModel转换为适用于边缘设备的高效形式（参见[图9-7](#creating_an_edge-runnable_ml_modeldot)）。
+- en: '![](Images/pmlc_0907.png)'
+  id: totrans-175
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0907.png)'
+- en: Figure 9-7\. Creating an edge-runnable ML model.
+  id: totrans-176
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-7 创建一个可在边缘运行的ML模型。
+- en: 'To convert a SavedModel file into a TensorFlow Lite file, we need to use the
+    `tf.lite` converter tool. We can do so from Python as follows:'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将一个SavedModel文件转换成TensorFlow Lite文件，我们需要使用`tf.lite`转换器工具。我们可以在Python中这样做：
+- en: '[PRE36]'
+  id: totrans-178
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: In order to get efficient edge predictions, we need to do two things. First,
+    we should make sure to use an [edge-optimized](https://oreil.ly/0GYY0) model such
+    as MobileNet. MobileNet tends to be about 40x faster than models like Inception
+    thanks to optimizations such as pruning connections during training and using
+    a piecewise linear approximation of the activation function (see [Chapter 3](ch03.xhtml#image_vision)).
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了获得高效的边缘预测，我们需要做两件事。首先，我们应该确保使用类似 MobileNet 这样的[边缘优化](https://oreil.ly/0GYY0)模型。由于在训练期间修剪连接并使用分段线性逼近激活函数等优化措施，MobileNet
+    的速度大约是 Inception 等模型的 40 倍。
+- en: 'Second, we should carefully select how to quantize the model weights. The appropriate
+    choice for quantization depends on the device to which we are deploying the model.
+    For example, the Coral Edge TPU works best if we quantize the model weights to
+    integers. We can do quantization to integers by specifying some options on the
+    converter:'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，我们应仔细选择如何量化模型权重。量化的适当选择取决于我们部署模型的设备。例如，Coral Edge TPU 在将模型权重量化为整数时效果最佳。我们可以通过在转换器上指定一些选项来进行整数量化：
+- en: '[PRE37]'
+  id: totrans-181
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: In this code, we ask the optimizer to look at one hundred representative images
+    (or whatever the model input is) from our training dataset to determine how best
+    to quantize the weights without losing the model’s predictive power. We also ask
+    the conversion process to use only int8 arithmetic, and specify that the input
+    and output types for the model will be int8.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此代码中，我们要求优化器查看我们训练数据集中的一百个代表性图像（或者模型输入是什么），以确定如何最佳地量化权重而不损失模型的预测能力。我们还要求转换过程仅使用
+    int8 算术，并指定模型的输入和输出类型将是 int8。
+- en: Quantizing the model weights from float32 to int8 allows the Edge TPU to use
+    one-fourth the memory and to accelerate the arithmetic by carrying it out on integers,
+    which is an order of magnitude faster than using floats. Quantization tends to
+    incur about a 0.2 to 0.5% loss in accuracy, although this depends on the model
+    and dataset.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将模型权重从 float32 量化为 int8，使 Edge TPU 能够使用四分之一的内存，并通过在整数上执行算术加速运算，比使用浮点数快一个数量级。量化通常会导致精度损失约为
+    0.2% 到 0.5%，尽管这取决于模型和数据集。
+- en: Once we have a TensorFlow Lite model file, we download the file to the edge
+    device or package the model file with the application that is installed onto the
+    device.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们拥有了 TensorFlow Lite 模型文件，我们将文件下载到边缘设备上，或者将模型文件打包到安装在设备上的应用程序中。
+- en: Running TensorFlow Lite
+  id: totrans-185
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 运行 TensorFlow Lite
+- en: 'To obtain predictions from the model, the edge devices need to run a TensorFlow
+    Lite interpreter. Android comes with an interpreter written in Java. To do inference
+    from within an Android program, we can do:'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要从模型获取预测结果，边缘设备需要运行 TensorFlow Lite 解释器。Android 自带一个用 Java 编写的解释器。要从 Android
+    程序中进行推断，我们可以：
+- en: '[PRE38]'
+  id: totrans-187
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: Similar interpreters for iOS are available in Swift and Objective-C.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: iOS 上类似的解释器可用 Swift 和 Objective-C 编写。
+- en: Tip
+  id: totrans-189
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: The [ML Kit framework](https://oreil.ly/9c3xb) supports many common edge uses,
+    like text recognition, barcode scanning, face detection, and object detection.
+    ML Kit is well integrated with Firebase, a popular software development kit (SDK)
+    for mobile applications. Before you roll your own ML solution, check that it is
+    not already available in ML Kit.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[ML Kit 框架](https://oreil.ly/9c3xb)支持许多常见的边缘用途，如文本识别、条形码扫描、人脸检测和物体检测。ML Kit
+    与 Firebase（一种流行的移动应用程序软件开发工具包（SDK））集成良好。在自己开发 ML 解决方案之前，请检查 ML Kit 中是否已经提供了相应功能。'
+- en: 'For non-phone devices, use the Coral Edge TPU. At the time of writing, the
+    Coral Edge TPU is available in three forms:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于非手机设备，请使用 Coral Edge TPU。在撰写本文时，Coral Edge TPU 有三种形式可用：
+- en: A dongle that can be attached via USB3 to an edge device such as a Raspberry
+    Pi
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一种可以通过 USB3 连接到边缘设备（如 Raspberry Pi）的插件
+- en: A baseboard with Linux and Bluetooth
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 带有 Linux 和蓝牙的基板
+- en: A standalone chip that is small enough to be soldered onto an existing board
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以焊接到现有板上的小型独立芯片
+- en: The Edge TPU tends to provide a 30–50x speedup over a CPU.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Edge TPU 较 CPU 提供的加速大约为 30–50 倍。
+- en: 'Using the TensorFlow Lite interpreter on Coral involves setting and retrieving
+    the interpreter state:'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 TensorFlow Lite 解释器在 Coral 上涉及设置和检索解释器状态：
+- en: '[PRE39]'
+  id: totrans-197
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: Note
+  id: totrans-198
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: To run models on microcontrollers like Arduino, use [TinyML](https://learning.oreilly.com/library/view/tinyml/9781492052036/),^([1](ch09.xhtml#idm46511246839752))
+    not TensorFlow Lite. A microcontroller is a small computer on a single circuit
+    board and does not require any operating system. TinyML provides a [customized
+    TensorFlow library](https://oreil.ly/lppxk) designed to run on embedded devices
+    without an operating system and only tens of kilobytes of memory. TensorFlow Lite,
+    on the other hand, is a set of tools that optimize ML models to run on edge devices
+    that do have an operating system.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在像 Arduino 这样的微控制器上运行模型，请使用[TinyML](https://learning.oreilly.com/library/view/tinyml/9781492052036/)，^([1](ch09.xhtml#idm46511246839752))而不是
+    TensorFlow Lite。微控制器是一种在单一电路板上的小型计算机，不需要任何操作系统。TinyML提供了一个[定制的 TensorFlow 库](https://oreil.ly/lppxk)，旨在在嵌入式设备上运行，这些设备没有操作系统，只有几十千字节的内存。另一方面，TensorFlow
+    Lite 是一组工具，用于优化在具有操作系统的边缘设备上运行的 ML 模型。
+- en: Processing the Image Buffer
+  id: totrans-200
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 处理图像缓冲区
+- en: 'On the edge device we will have to process the image in the camera buffer directly,
+    so we will be processing only one image at a time. Let’s change the serving signature
+    appropriately (full code in [*09e_tflite.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/09_deploying/09e_tflite.ipynb)):'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在边缘设备上，我们将直接在摄像头缓冲区中处理图像，因此我们一次只处理一张图片。让我们适当地更改服务签名（完整代码在[*09e_tflite.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/09_deploying/09e_tflite.ipynb)）：
+- en: '[PRE40]'
+  id: totrans-202
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: 'We then export it:'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们将其导出：
+- en: '[PRE41]'
+  id: totrans-204
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: and convert this model to TensorFlow Lite.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并将此模型转换为 TensorFlow Lite 格式。
+- en: Federated Learning
+  id: totrans-206
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 联邦学习
+- en: With TensorFlow Lite, we trained the model on the cloud and converted the cloud-trained
+    model to a file format that was copied over to the edge device. Once the model
+    is on the edge device, it is no longer retrained. However, data drift and model
+    drift will occur on edge ML models just as they do on cloud models. Therefore,
+    we will have to plan on saving at least a sample of the images to a disk on the
+    device, and periodically retrieving the images to a centralized location.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 TensorFlow Lite，我们在云上训练了模型并将云训练的模型转换为适合复制到边缘设备的文件格式。一旦模型位于边缘设备上，它就不再被重新训练。然而，在边缘
+    ML 模型上，数据漂移和模型漂移会发生，就像在云模型上一样。因此，我们需要计划将至少一部分图像样本保存到设备上的磁盘，并定期将这些图像检索到集中位置。
+- en: Recall, though, that one of the reasons to carry out inference on the edge is
+    to support privacy-sensitive use cases. What if we don’t want the image data to
+    ever leave the device?
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，进行边缘推理的一个原因是支持涉及隐私的用例。如果我们不希望图像数据离开设备怎么办？
+- en: One solution to this privacy concern is *federated learning*. In federated learning,
+    devices collaboratively learn a shared prediction model while each of the devices
+    keeps its training data on-device. Essentially, each device computes a gradient
+    update and shares only the gradient (not the original image) with its neighbors,
+    or *federation*. The gradient updates across multiple devices are averaged by
+    one or more members of the federation, and only the aggregate is sent to the cloud.
+    It is also possible for a device to further fine-tune the shared prediction model
+    based on interactions that happen on the device (see [Figure 9-8](#in_federated_learningcomma_the_model_on)).
+    This allows for privacy-sensitive personalization to happen on each device.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决这一隐私问题的一种解决方案是*联邦学习*。在联邦学习中，设备共同学习一个共享的预测模型，而每个设备都将其训练数据保留在设备上。实质上，每个设备计算一个梯度更新，并仅与其邻居共享梯度（而不是原始图像）或*联邦化*。联邦中的一个或多个成员对多个设备的梯度更新进行平均，并且只有聚合结果发送到云端。设备也可以基于在设备上发生的交互进一步微调共享的预测模型（参见[图9-8](#in_federated_learningcomma_the_model_on)）。这允许在每个设备上进行隐私敏感的个性化。
+- en: '![](Images/pmlc_0908.png)'
+  id: totrans-210
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_0908.png)'
+- en: Figure 9-8\. In federated learning, the model on the device (A) is improved
+    based on both its own interactions and data from many other devices, but data
+    never leaves the device. Many users’ updates are aggregated (B) to form a consensus
+    change (C) to the shared model, after which the procedure is repeated. Image courtesy
+    of the [Google AI Blog](https://oreil.ly/tBoB0).
+  id: totrans-211
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-8。在联邦学习中，设备上的模型（A）基于其自身的互动和来自许多其他设备的数据进行改进，但数据永远不会离开设备。许多用户的更新被聚合（B）以形成对共享模型的共识变更（C），之后该过程被重复。图像由[Google
+    AI Blog](https://oreil.ly/tBoB0)提供。
+- en: Even with this approach, model attacks could still extract some sensitive information
+    out of the trained model. To further boost privacy protection, federated learning
+    can be combined with [*differential privacy*](https://arxiv.org/abs/1412.7584).
+    An open source framework to implement federated learning is available in the [TensorFlow
+    repository](https://oreil.ly/D5UQC).
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使采用这种方法，模型攻击仍然可能从训练好的模型中提取出一些敏感信息。为了进一步增强隐私保护，可以将联邦学习与[*差分隐私*](https://arxiv.org/abs/1412.7584)结合起来。在[TensorFlow代码库](https://oreil.ly/D5UQC)中提供了一个开源框架来实现联邦学习。
+- en: Summary
+  id: totrans-213
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: In this chapter, we looked at how to invoke a trained model. We improved the
+    abstraction provided by the prediction API and discussed how to improve the inference
+    performance. For batch predictions, we suggested using a big data tool like Apache
+    Beam and distributing the predictions over many machines.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们看了如何调用一个训练好的模型。我们改进了预测API提供的抽象层，并讨论了如何提高推理性能。对于批量预测，我们建议使用像Apache Beam这样的大数据工具，并在多台机器上分发预测任务。
+- en: For scaled concurrent, real-time predictions, we suggested deploying the model
+    as a microservice using TensorFlow Serving. We also discussed how to change the
+    signature of the model to support multiple requirements, and to accept image byte
+    data sent directly over the wire. We also demonstrated making the model more efficient
+    for deploying to the edge using TensorFlow Lite.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于大规模并发的实时预测，我们建议将模型部署为一个使用TensorFlow Serving的微服务。我们还讨论了如何更改模型的签名以支持多种需求，并接受直接通过网络发送的图像字节数据。我们还演示了如何使用TensorFlow
+    Lite使模型更有效地部署到边缘设备。
+- en: At this point, we have covered all the steps of the typical machine learning
+    pipeline, from dataset creation to deployment for predictions. In the next chapter,
+    we will look at a way to tie them all together into a pipeline.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经涵盖了典型机器学习流水线的所有步骤，从数据集创建到部署用于预测。在下一章中，我们将探讨如何将它们整合成一个流水线的方法。
+- en: ^([1](ch09.xhtml#idm46511246839752-marker)) Pete Warden and Daniel Situnayake,
+    *TinyML* (O’Reilly, 2019).
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch09.xhtml#idm46511246839752-marker)) Pete Warden 和 Daniel Situnayake，《TinyML》（O’Reilly，2019）。

@@ -1,0 +1,1866 @@
+- en: Chapter 4\. Effective Dependency Management in Practice
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第四章。实践中的有效依赖管理
+- en: In the previous chapter, we laid out the principles for effective dependency
+    management—can you recall the four principles?—and supporting tools. In this chapter,
+    let’s have some fun and put them into practice.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前一章中，我们阐述了有效的依赖管理原则——你能回忆起这四个原则吗？——以及支持工具。在本章中，让我们玩得开心，把它们付诸实践。
+- en: 'In this chapter, you will learn:'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你将学到：
+- en: What “check out and go” looks like in practice
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在实践中，“检出并运行”是什么样子的
+- en: How to use Docker, batect, and Poetry to create consistent, reproducible, and
+    production-like runtime environments in each step of the ML delivery lifecycle
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何使用 Docker、batect 和 Poetry 在 ML 交付生命周期的每个步骤中创建一致、可复制和类似生产的运行时环境
+- en: How to automatically detect security vulnerabilities in your dependencies and
+    automate dependency updates
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何自动检测依赖项中的安全漏洞，并自动更新依赖项
+- en: The techniques in this chapter are what we use in our real-world projects to
+    create reproducible, consistent, isolated, production-like runtime environments
+    for our ML code. They help us effectively and securely manage dependencies and
+    avoid dependency hell.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章中的技术是我们在实际项目中使用的，用于创建可复制、一致、隔离、类似生产环境的 ML 代码运行时环境。它们帮助我们有效地和安全地管理依赖项，避免依赖地狱。
+- en: Let’s begin!
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们开始吧！
+- en: 'In Context: ML Development Workflow'
+  id: totrans-8
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 背景：ML 开发工作流
+- en: 'In this section, you will see “check out and go” in action. In the code exercise,
+    we’ll run through the following steps with the goal of training and serving a
+    model that predicts the likelihood of a loan default:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，你将看到“检出并运行”的实际操作。在代码练习中，我们将按以下步骤进行，目标是训练和提供一个模型，用于预测贷款违约的可能性：
+- en: Run a go script to install prerequisite dependencies on our host machine.
+  id: totrans-10
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行一个 go 脚本，在我们的主机上安装先决条件依赖。
+- en: Create a Dockerized local development environment.
+  id: totrans-11
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个基于 Docker 的本地开发环境。
+- en: Configure our code editor to understand the project’s virtual environment, so
+    that we can have a helpful coding assistant.
+  id: totrans-12
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 配置我们的代码编辑器以理解项目的虚拟环境，以便我们拥有一个有用的编码助手。
+- en: Run common tasks in the ML development lifecycle (e.g., train models, run tests,
+    start API).
+  id: totrans-13
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行 ML 开发生命周期中的常见任务（例如，训练模型，运行测试，启动 API）。
+- en: Train and deploy the model on the cloud.
+  id: totrans-14
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在云上训练和部署模型。
+- en: To make the most of this chapter, fork, clone, and code along in [the hands-on
+    exercise](https://oreil.ly/enuv7), where we’ll train and test a classifier to
+    predict the likelihood of loan defaults. We encourage you to fork the repository,
+    as it’ll allow you to see Docker and batect at work on the GitHub Actions CI pipeline
+    of your forked repository as you commit and push your changes.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要充分利用本章内容，请在 [实践练习](https://oreil.ly/enuv7) 中 fork、clone 并跟着编码，我们将训练和测试一个分类器，以预测贷款违约的可能性。我们鼓励您
+    fork 该存储库，这样在您提交和推送更改时，您就可以在 GitHub Actions CI pipeline 的 forked 存储库中看到 Docker
+    和 batect 的工作。
+- en: Before we turn to the code, let’s paint a clear picture of what we’re containerizing
+    in a typical ML workflow.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们转向代码之前，让我们清楚地描述一下我们在典型的 ML 工作流中正在容器化的内容。
+- en: Identifying What to Containerize
+  id: totrans-17
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 确定容器化的内容
+- en: The first and most important step in Dockerizing a project is to disambiguate
+    exactly *what* we are containerizing. This can confuse some ML practitioners and
+    can lead to conflated and shared states. For example, if we share an image between
+    the two distinct tasks of *developing* an ML model and *serving* an ML model,
+    we may find unnecessary development dependencies (e.g., Jupyter, Pylint) in a
+    production container (e.g., a model web API). This lengthens container build and
+    start times unnecessarily and also enlarges the attack surface of our API.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Docker 化项目的第一步，也是最重要的步骤是明确“我们”究竟容器化了什么。这可能会使一些 ML 从业者感到困惑，并导致混淆和共享状态。例如，如果我们在两个不同任务——开发
+    ML 模型和提供 ML 模型服务——之间共享一个镜像，我们可能会在生产容器（例如模型 Web API）中找到不必要的开发依赖项（例如 Jupyter、Pylint）。这不必要地延长了容器构建和启动时间，同时也增大了
+    API 的攻击面。
+- en: 'In software development, the most common thing that we’re containerizing is
+    a web application or web API—which is simply a long-lived process that starts
+    after you run a command (e.g., `python manage.py runserver`). In ML, we can also
+    use a containerized web application to serve model predictions (inference) via
+    an API. However, we typically find ourselves running more than just a web application.
+    For example, here are some common ML tasks and processes that we would run when
+    creating ML solutions:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在软件开发中，我们最常见的容器化是 Web 应用程序或 Web API——这只是在运行命令后启动的长期运行过程（例如，`python manage.py
+    runserver`）。在机器学习中，我们也可以使用容器化的 Web 应用程序通过 API 提供模型预测（推断）。然而，我们通常会运行更多不仅仅是 Web
+    应用程序。例如，以下是我们在创建机器学习解决方案时可能运行的一些常见机器学习任务和流程：
+- en: Training a model
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练模型
+- en: Serving the model as a web API
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将模型作为 Web API 提供
+- en: Starting a notebook server
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 启动笔记本服务器
+- en: Running deployments (of ML training jobs, model API, etc.)
+  id: totrans-23
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 运行部署（例如 ML 训练作业、模型 API 等）
+- en: Starting a dashboard or an experiment tracking service (we won’t cover this
+    in this chapter, as running dashboards as a web server is well-documented and
+    [relatively straightforward](https://oreil.ly/U3luV) with tools such as Streamlit
+    and Docker)
+  id: totrans-24
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 启动仪表板或实验跟踪服务（本章不涵盖此内容，因为运行仪表板作为 Web 服务器是有详细文档的，例如使用 Streamlit 和 Docker 这样的工具是比较直接的）
+- en: In this chapter’s example, we have identified four distinct sets of dependencies
+    for running four different sets of tasks (see [Table 4-1](#components_that_we_are_containerizing)).
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的示例中，我们已经确定了四组不同的任务依赖项，用于运行四组不同的任务（参见 [表 4-1](#components_that_we_are_containerizing)）。
+- en: Table 4-1\. Components that we are containerizing
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 4-1\. 我们正在容器化的组件
+- en: '| Image | Examples of tasks that we can run | Examples of OS-level dependencies
+    | Examples of application-level dependencies |'
+  id: totrans-27
+  prefs: []
+  type: TYPE_TB
+  zh: '| 镜像 | 我们可以运行的任务示例 | 操作系统级别的依赖项示例 | 应用程序级别的依赖项示例 |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-28
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| **1\. Development image** |'
+  id: totrans-29
+  prefs: []
+  type: TYPE_TB
+  zh: '| **1\. 开发镜像** |'
+- en: Train ML model
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练 ML 模型
+- en: Feature engineering
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 特征工程
+- en: Run automated tests
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 运行自动化测试
+- en: Start API server locally
+  id: totrans-33
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 本地启动 API 服务器
+- en: Start Jupyter notebook server
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 启动 Jupyter 笔记本服务器
+- en: '|'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: Python 3.10
+  id: totrans-36
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Python 3.10
+- en: gcc
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: gcc
+- en: tensorflow-model-server
+  id: totrans-38
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: tensorflow-model-server
+- en: '| Production dependencies:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '| 生产依赖：'
+- en: pandas
+  id: totrans-40
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: pandas
+- en: scikit-learn
+  id: totrans-41
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: scikit-learn
+- en: 'Development dependencies:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开发依赖：
+- en: Jupyter
+  id: totrans-43
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Jupyter
+- en: Pytest
+  id: totrans-44
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pytest
+- en: Pylint
+  id: totrans-45
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pylint
+- en: '|'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| **2\. Production API image** |'
+  id: totrans-47
+  prefs: []
+  type: TYPE_TB
+  zh: '| **2\. 生产 API 镜像** |'
+- en: Start API server on the cloud
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在云上启动 API 服务器
+- en: '|'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: Python 3.10
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Python 3.10
+- en: gcc
+  id: totrans-51
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: gcc
+- en: tensorflow-model-server
+  id: totrans-52
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: tensorflow-model-server
+- en: '| Production dependencies:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '| 生产依赖：'
+- en: pandas
+  id: totrans-54
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: pandas
+- en: scikit-learn
+  id: totrans-55
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: scikit-learn
+- en: '|'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| **3\. Deployment image—model training pipeline** |'
+  id: totrans-57
+  prefs: []
+  type: TYPE_TB
+  zh: '| **3\. 部署镜像——模型训练流水线** |'
+- en: Deploy model training pipeline to the cloud
+  id: totrans-58
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在云上部署模型训练流水线
+- en: Execute model training
+  id: totrans-59
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 执行模型训练
+- en: '| The specific dependency will depend on what tool or platform we use to train
+    our model on the cloud. For example, it could be one of the following:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '| 具体的依赖项将取决于我们在云上使用的工具或平台来训练模型。例如，可能是以下之一：'
+- en: aws-cdk (AWS)
+  id: totrans-61
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: aws-cdk (AWS)
+- en: gcloud (GCP)
+  id: totrans-62
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: gcloud (GCP)
+- en: azure-cli (Azure)
+  id: totrans-63
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: azure-cli (Azure)
+- en: Metaflow
+  id: totrans-64
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Metaflow
+- en: Kubeflow
+  id: totrans-65
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubeflow
+- en: Terraform
+  id: totrans-66
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Terraform
+- en: etc.
+  id: totrans-67
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 等等。
+- en: '|'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| **4\. Deployment image—model web service** |'
+  id: totrans-69
+  prefs: []
+  type: TYPE_TB
+  zh: '| **4\. 部署镜像——模型 Web 服务** |'
+- en: Deploy model image to a model hosting service or container hosting service
+  id: totrans-70
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 部署模型镜像到模型托管服务或容器托管服务
+- en: '| The specific dependency will depend on what tool or platform we use to deploy
+    our web service on the cloud. For example, it could be one of the following:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '| 具体的依赖项将取决于我们在云上部署 Web 服务时使用的工具或平台。例如，可能是以下之一：'
+- en: aws-cdk (AWS)
+  id: totrans-72
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: aws-cdk (AWS)
+- en: gcloud (GCP)
+  id: totrans-73
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: gcloud (GCP)
+- en: azure-cli (Azure)
+  id: totrans-74
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: azure-cli (Azure)
+- en: Terraform
+  id: totrans-75
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Terraform
+- en: etc.
+  id: totrans-76
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 等等。
+- en: '|'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '[Figure 4-1](#common_ml_development_tasks_and_their_a) visualizes each task,
+    which, as you know by now, is nothing but a *containerized process* and the respective
+    images they use. This figure is a visual representation of [Table 4-1](#components_that_we_are_containerizing).'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 4-1](#common_ml_development_tasks_and_their_a) 展示了每个任务，正如你现在所知，这只是一个*容器化进程*和它们使用的相应镜像的视觉表达。这个图是
+    [表 4-1](#components_that_we_are_containerizing) 的视觉表示。'
+- en: '![](assets/emlt_0401.png)'
+  id: totrans-79
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0401.png)'
+- en: Figure 4-1\. Common ML development tasks and their associated images
+  id: totrans-80
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 4-1\. 常见的机器学习开发任务及其相关镜像
+- en: The specific slicing and differentiation of images will vary depending on the
+    project’s needs. If the slicing is too coarse-grained—e.g., one image for running
+    all tasks and containers—the monolithic image might become too heavy. Recall our
+    earlier discussion on the costs of carrying unnecessary dependencies. If the slicing
+    is too fine-grained—e.g., one image for each task or container—we can bear unnecessary
+    costs in terms of the code we have to maintain and image build times for each
+    task.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据项目需求，图像的具体切片和区分将有所不同。如果切片过粗略——例如，一个图像用于运行所有任务和容器——那么单一的图像可能会变得过重。回顾我们先前讨论的承载不必要依赖项的成本。如果切片过于精细——例如，每个任务或容器一个图像——那么我们在维护代码和每个任务的图像构建时间方面可能会承担不必要的成本。
+- en: One helpful heuristic for determining how images are sliced is to think about
+    “sharedness” and “distinctness” of dependencies. In this example, development
+    tasks share an image because they share the same dependencies, such as Jupyter
+    or scikit-learn. Deployment tasks are carved out into another image because they
+    don’t need any of these dependencies—instead, they need dependencies like gcloud,
+    aws-cli, azure-cli, or Terraform.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确定图像如何切片的一个有用的启发法是思考依赖项的“共享性”和“独特性”。在此示例中，开发任务共享一个图像，因为它们共享相同的依赖项，如Jupyter或scikit-learn。部署任务被划分到另一个图像中，因为它们不需要这些依赖项，而是需要像gcloud、aws-cli、azure-cli或Terraform这样的依赖项。
+- en: With this mental framework in our head, we are ready to dive into the hands-on
+    exercise!
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的头脑中有了这种思维框架之后，我们就可以开始动手练习了！
+- en: 'Hands-On Exercise: Reproducible Development Environments, Aided by Containers'
+  id: totrans-84
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 动手练习：可复现开发环境，通过容器辅助
+- en: 'Let’s step through how we would create and use development environments in
+    our ML development lifecycle:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们逐步了解如何在ML开发生命周期中创建和使用开发环境：
+- en: '1\. Check out and go: install prerequisite OS-level dependencies.'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 1\. 检查并进行go：安装先决的操作系统级依赖项。
+- en: Run the go script for your operating system.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行go脚本以适配您的操作系统。
+- en: 2\. Create local development environment (i.e., build image).
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 2\. 创建本地开发环境（即构建镜像）。
+- en: 'Ensure Docker runtime is started (either via Docker Desktop or colima), and
+    run the following command to install dependencies in your local dev image:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保已启动Docker运行时（通过Docker Desktop或colima），并运行以下命令在本地开发镜像中安装依赖项：
+- en: '[PRE0]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 3\. Start local development environment (i.e., run container).
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 3\. 启动本地开发环境（即运行容器）。
+- en: 'Start the container:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 启动容器：
+- en: '[PRE1]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'Then test that everything works by running model training smoke tests:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后通过运行模型训练冒烟测试来测试一切是否正常工作：
+- en: '[PRE2]'
+  id: totrans-95
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Finally, exit the container by entering `exit` in the terminal or pressing Ctrl
+    + D.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，通过在终端中输入`exit`或按下Ctrl + D退出容器。
+- en: 4\. Serve the ML model locally as a web API.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 4\. 将ML模型作为Web API本地运行。
+- en: 'Start the API in development mode:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在开发模式下启动API：
+- en: '[PRE3]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'Then send requests to the API locally by running the following command from
+    another terminal outside the Docker container (it uses curl, which we haven’t
+    installed):'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后通过从另一个终端运行以下命令发送请求到本地API来测试一切是否正常工作（它使用curl，我们尚未安装）：
+- en: '[PRE4]'
+  id: totrans-101
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 5\. Configure your IDE to use the Python virtual environment created by the
+    go scripts.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 5\. 配置您的IDE以使用go脚本创建的Python虚拟环境。
+- en: 'Instructions are available online for the IDEs we recommend for this exercise:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于我们推荐用于此练习的IDE的在线说明：
+- en: '[PyCharm instructions](https://oreil.ly/udir0)'
+  id: totrans-104
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[PyCharm说明](https://oreil.ly/udir0)'
+- en: '[VS Code instructions](https://oreil.ly/Lg-o6)'
+  id: totrans-105
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[VS Code说明](https://oreil.ly/Lg-o6)'
+- en: 6\. Train model on the cloud.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6\. 在云端训练模型。
+- en: 'This step, along with step #7, is done on the CI/CD pipeline. We’ll cover that
+    later in this section.'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一步，与第7步一起，在CI/CD流水线上完成。我们将在本节后面讨论这一点。
+- en: 7\. Deploy model web API.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 7\. 部署模型Web API。
+- en: 'Along with step #6, done on the CI/CD pipeline.'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与第6步一起，在CI/CD流水线上完成。
+- en: For the impatient, these steps are summarized at a glance in the repository’s
+    [README](https://oreil.ly/uzBvF). Having these steps in a succinct README is a
+    good habit to allow code contributors to easily set up their local environment
+    and execute common ML development tasks. We recommend that you execute these steps
+    now, in the project that you’ve cloned, to get a feel for the end-to-end flow.
+    In the remainder of this section, we’ll go through each of the steps in detail,
+    so that you can understand each component of our development environment setup
+    and adapt it for your own project.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于急于完成的人士，这些步骤在存储库的[README](https://oreil.ly/uzBvF)中简要总结。在简洁的README中列出这些步骤是一个良好的习惯，可以帮助代码贡献者轻松设置他们的本地环境并执行常见的ML开发任务。我们建议您现在在您克隆的项目中执行这些步骤，以了解整个流程。在本节的其余部分，我们将详细介绍每个步骤，以便您理解我们开发环境设置的每个组成部分，并为您自己的项目进行调整。
+- en: '1\. Check out and go: Install prerequisite dependencies'
+  id: totrans-111
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 1\. 检出并运行：安装先决依赖项
+- en: 'The first step in setting up our local development environment is running the
+    go script to install host-level prerequisite dependencies. To begin, clone your
+    forked repository:'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设置本地开发环境的第一步是运行go脚本以安装主机级先决依赖项。首先，克隆您的分支存储库：
+- en: '[PRE5]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Alternatively, you can clone the original repository, but you won’t be able
+    to see your code changes running on GitHub Actions when you push your changes:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，您可以克隆原始存储库，但在推送更改后，无法在GitHub Actions上查看代码更改的运行情况：
+- en: '[PRE6]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'Readers working on Mac or Linux machines can now run the go script. This might
+    take a while if you’re installing some of the OS-level dependencies for the first
+    time, so make yourself a nice drink while you wait:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Mac或Linux计算机上工作的读者现在可以运行go脚本。如果您首次安装某些操作系统级依赖项，这可能需要一段时间，请在等待时候自备一杯饮料：
+- en: '[PRE7]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'At this stage, Windows users should follow these steps:'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此阶段，Windows用户应按照以下步骤操作：
+- en: Download and install [Python3](https://oreil.ly/U9ML-) if not already installed.
+    During installation, when prompted, select Add Python to PATH.
+  id: totrans-119
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果尚未安装，请下载并安装[Python3](https://oreil.ly/U9ML-)。在安装过程中，当提示时，请选择将Python添加到PATH。
+- en: In Windows explorer/search, go to Manage App Execution Aliases and turn off
+    App Installer for Python. This resolves the issue where the `python` executable
+    is not found in the PATH.
+  id: totrans-120
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在Windows资源管理器/搜索中，转到“管理应用程序执行别名”，并关闭Python的应用安装程序。这样可以解决在PATH中找不到`python`可执行文件的问题。
+- en: 'Run the following go script in the PowerShell or command prompt terminal:'
+  id: totrans-121
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在PowerShell或命令提示符终端中运行以下go脚本：
+- en: '[PRE8]'
+  id: totrans-122
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: If you see an HTTPSConnectionPool `read timed out` error, just run this command
+    a few more times until `poetry install` succeeds.
+  id: totrans-123
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 如果看到HTTPSConnectionPool的`read timed out`错误，请多次运行此命令，直到`poetry install`成功为止。
+- en: The next step, regardless of which operating system you’re on, is to install
+    Docker Desktop, if it’s not already installed. While this can be done in one line
+    as part of the go script for Mac and Linux (see [example go script for Mac](https://oreil.ly/RdOks)),
+    it was too complicated to automate in the Windows go script. As such, we’ve decided
+    to keep this as a manual step outside of the go script for symmetry. Follow Docker’s
+    online [installation steps](https://oreil.ly/0dDT8).
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论您使用的操作系统是哪个，下一步都是安装Docker Desktop（如果尚未安装）。虽然这可以在Mac和Linux的go脚本中作为一行完成（参见[Mac示例go脚本](https://oreil.ly/RdOks)），但对于Windows的go脚本来说，这个过程太复杂，无法自动化。因此，我们决定将其作为go脚本之外的手动步骤保留，以保持对称性。请按照Docker在线的[安装步骤](https://oreil.ly/0dDT8)进行操作。
+- en: It’s important that we keep these go scripts succinct and avoid installing too
+    many host-level dependencies. Otherwise, it will be hard to maintain these scripts
+    over time for multiple operating systems. We want to keep as many of our dependencies
+    in Docker as possible.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是我们保持这些go脚本简洁，并避免安装过多的主机级依赖项。否则，随着时间的推移，为多个操作系统维护这些脚本将变得困难。我们希望尽可能多地将依赖项保留在Docker中。
+- en: 2\. Create our local development environment
+  id: totrans-126
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2\. 创建我们的本地开发环境
+- en: 'Next, we’ll install all the OS-level and application-level dependencies needed
+    for developing the ML model locally. We’ll do that in one command: `./batect setup`.
+    As promised earlier, this is where we explain *how* batect works. [Figure 4-2](#what_happens_when_you_run_a_batect_task)
+    explains the three steps that are happening behind the scenes.'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将安装开发ML模型所需的所有操作系统级和应用程序级依赖项。我们将在一个命令中执行这些操作：`./batect setup`。正如之前承诺的那样，这里解释了*batect*的工作原理。[图 4-2](#what_happens_when_you_run_a_batect_task)解释了幕后发生的三个步骤。
+- en: '![](assets/emlt_0402.png)'
+  id: totrans-128
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/emlt_0402.png)'
+- en: Figure 4-2\. What happens when you run a batect task
+  id: totrans-129
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 4-2\. 运行 batect 任务时发生的情况
+- en: 'As visualized in [Figure 4-2](#what_happens_when_you_run_a_batect_task), when
+    we run `./batect setup`, batect executes the `setup` task, which we defined in
+    *batect.yml*. The `setup` task is simply defined as: run `./scripts/setup.sh`
+    in the `dev` container. Let’s look at how this is defined in *batect.yml*:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如图 [Figure 4-2](#what_happens_when_you_run_a_batect_task) 所示，当我们运行 `./batect
+    setup` 时，batect 执行 `setup` 任务，该任务在 *batect.yml* 中定义。`setup` 任务的定义很简单：在 `dev` 容器中运行
+    `./scripts/setup.sh`。现在我们来看看在 *batect.yml* 中如何定义这个任务：
+- en: '[PRE9]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: '[PRE10]'
+  id: totrans-132
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: '[![](assets/1.png)](#code_id_4_1)'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_4_1)'
+- en: This is how we execute a batect task (e.g., `setup`). The [`--output=all` option](https://oreil.ly/JkNcK)
+    shows us the logs of the task while it’s executing. This provides visual feedback,
+    which is especially useful for long-running tasks like dependency installation
+    and model training.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是我们执行 batect 任务（例如 `setup`）的方式。[`--output=all` 选项](https://oreil.ly/JkNcK)
+    在任务执行时显示任务日志。这提供了视觉反馈，对于类似依赖安装和模型训练这样的长时间运行任务尤其有用。
+- en: '[![](assets/2.png)](#code_id_4_2)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/2.png)](#code_id_4_2)'
+- en: This container block defines our `dev` image. This is where we specify Docker
+    build-time and runtime configurations, such as volumes or folders to mount, the
+    path to the Dockerfile*—*i.e., `build_directory`—and build targets for multistage
+    Dockerfiles like ours. Once batect builds this dev image, it will be reused by
+    any subsequent batect tasks that specify this image (e.g., `smoke-test-model-training`,
+    `api-test`, and `start-api-locally`). As such, we won’t need to wait for lengthy
+    rebuilds.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个容器块定义了我们的 `dev` 镜像。在这里，我们指定了 Docker 构建和运行时的配置，例如要挂载的卷或文件夹，Dockerfile 的路径——即
+    `build_directory`——以及多阶段 Dockerfile 的构建目标。一旦 batect 构建了这个 dev 镜像，任何后续指定了该镜像的 batect
+    任务（例如 `smoke-test-model-training`、`api-test` 和 `start-api-locally`）都将重复使用它。因此，我们不需要等待漫长的重建过程。
+- en: '[![](assets/3.png)](#code_id_4_3)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/3.png)](#code_id_4_3)'
+- en: 'This task block defines our `setup` task, which consists of two simple parts:
+    what `command` to run and what `container` to use when running the command. We
+    can also specify additional [Docker runtime configuration options](https://oreil.ly/a-E_k),
+    such as volumes and ports.'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此任务块定义了我们的 `setup` 任务，包括两个简单的部分：要运行的 `command` 和运行命令时要使用的 `container`。我们还可以指定其他
+    [Docker 运行时配置选项](https://oreil.ly/a-E_k)，例如卷和端口。
+- en: 'Let’s look a little deeper into the second step, and see how we’ve configured
+    our Dockerfile:'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们深入了解第二步，并查看我们如何配置我们的 Dockerfile：
+- en: '[PRE11]'
+  id: totrans-140
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: '[![](assets/1.png)](#code_id_4_4)'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_4_4)'
+- en: We specify the base image that will form the base layer of our own image. The
+    `python:3.10-slim-bookworm` image is 145 MB, as opposed to python:3.10, which
+    is 915 MB. At the end of this chapter, we will describe the benefits of using
+    small images.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们指定了将构成我们自己镜像基础层的基础镜像。`python:3.10-slim-bookworm` 镜像大小为 145 MB，而 `python:3.10`
+    则为 915 MB。在本章末尾，我们将描述使用小型镜像的好处。
+- en: '[![](assets/2.png)](#code_id_4_5)'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/2.png)](#code_id_4_5)'
+- en: The `WORKDIR` instruction sets a default working directory for any subsequent
+    `RUN`, `CMD`, `ENTRYPOINT`, `COPY`, and `ADD` instructions in the Dockerfile.
+    It is also the default starting directory when we start the container. You can
+    set it to be any directory you’d like, as long as you’re consistent. In this example,
+    we set */code* as our working directory and that’s where we will place our code
+    when we start our container in the next step.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`WORKDIR` 指令为 Dockerfile 中任何后续的 `RUN`、`CMD`、`ENTRYPOINT`、`COPY` 和 `ADD` 指令设置了默认的工作目录。它也是启动容器时的默认起始目录。你可以将它设置为任何目录，只要保持一致即可。在这个例子中，我们将
+    */code* 设置为我们的工作目录，这也是我们在下一步启动容器时将代码放置的位置。'
+- en: '[![](assets/3.png)](#code_id_4_6)'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/3.png)](#code_id_4_6)'
+- en: We install gcc (GNU Compiler Collection) to handle the scenario where maintainers
+    of a particular Python library neglect to publish a wheel for a given CPU instruction.
+    With gcc, even if a Python package has wheels for one type of CPU (e.g., Intel
+    processor) but the maintainers neglected to publish wheels for another type (e.g.,
+    M1 processors), we can ensure that we can build the wheels from source in this
+    step.^([1](ch04.html#ch01fn22))
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们安装 gcc（GNU 编译器集合）来处理特定 Python 库的维护者忽略为给定 CPU 指令发布 wheel 的情况。有了 gcc，即使一个 Python
+    包对某种类型的 CPU（例如 Intel 处理器）有 wheel，但维护者忽略了为另一种类型（例如 M1 处理器）发布 wheel，我们也可以确保在这一步从源代码构建
+    wheel。^([1](ch04.html#ch01fn22))
+- en: '[![](assets/4.png)](#code_id_4_7)'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/4.png)](#code_id_4_7)'
+- en: In this block, we install and configure Poetry. We tell Poetry to install the
+    virtual environment in the project directory (*/opt/.venv*) and add the path to
+    the virtual environment to the `PATH` environment variable, so that we can run
+    Python commands in containers without needing to activate the virtual environment
+    (e.g., using `poetry shell`, or `poetry run ...`).
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个区块中，我们安装并配置 Poetry。我们告诉 Poetry 在项目目录（*/opt/.venv*）安装虚拟环境，并将虚拟环境的路径添加到`PATH`环境变量中，这样我们可以在容器中运行
+    Python 命令而无需激活虚拟环境（例如使用`poetry shell`或`poetry run ...`）。
+- en: '[![](assets/5.png)](#code_id_4_8)'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/5.png)](#code_id_4_8)'
+- en: Finally, the `CMD` instruction provides a default command to execute when we
+    start a container. In this example, when our Docker image runs as a container,
+    it will start a bash shell for us to run our development tasks. This is just a
+    default and we can override this command when we run our containers later on.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，`CMD` 指令提供了启动容器时要执行的默认命令。在本例中，当我们的 Docker 镜像作为容器运行时，它将为我们启动一个 bash shell，用于运行我们的开发任务。这只是一个默认设置，我们稍后可以在运行容器时覆盖此命令。
+- en: 'One of the great things about Docker is that there is no magic: You state step
+    by step in Dockerfile what you want in the Docker image, and `docker build` will
+    run each instruction and “bake” in an image based on the “recipe” (Dockerfile)
+    you provide.'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Docker 的一个伟大之处在于没有魔法：您在 Dockerfile 中逐步声明您想要在 Docker 镜像中的每个步骤，`docker build`
+    将运行每个指令并基于提供的“配方”（Dockerfile）生成一个镜像。
+- en: 3\. Start our local development environment
+  id: totrans-152
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3\. 启动我们的本地开发环境
+- en: 'Now, we can get into our local development environment by starting the container:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以通过启动容器进入我们的本地开发环境：
+- en: '[PRE12]'
+  id: totrans-154
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: '[![](assets/1.png)](#code_id_4_9)'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_4_9)'
+- en: This batect task runs our dev container (i.e., a containerized bash shell that
+    forms our development environment). The Docker runtime parameters are encapsulated
+    in the batect task, as defined in *batect.yml*, so we can run the task without
+    carrying the heavy implementation details you see in the `docker run` version
+    of the same task.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此 batect 任务运行我们的开发容器（即一个容器化的 bash shell，形成我们的开发环境）。 Docker 运行时参数封装在 batect 任务中，如
+    *batect.yml* 中定义的那样，因此我们可以运行任务而不必携带在`docker run`版本中看到的繁重实现细节。
+- en: '[![](assets/2.png)](#code_id_4_10)'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/2.png)](#code_id_4_10)'
+- en: '`-it` is short for `-i` (`--interactive`) and `-t` (`--tty`, TeleTYpewriter)
+    and allows you to *interact* (i.e., write commands and/or read outputs) with the
+    running container via the *terminal*.'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`-it` 是 `-i`（*--interactive*）和 `-t`（*--tty*，TeleTYpewriter）的缩写，允许您通过*终端*与运行中的容器进行*交互*（即写入命令和/或读取输出）。'
+- en: '[![](assets/3.png)](#code_id_4_11)'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/3.png)](#code_id_4_11)'
+- en: '`--rm` tells Docker to automatically remove the container and file system when
+    the container exits. This is a good habit to prevent lingering container file
+    systems from piling up on the host.'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`--rm` 告诉 Docker 在容器退出时自动删除容器和文件系统。这是一个良好的习惯，可以防止主机上残留的容器文件系统堆积。'
+- en: '[![](assets/4.png)](#code_id_4_12)'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/4.png)](#code_id_4_12)'
+- en: '`-v $(pwd):/code` tells the container to mount a directory (or *volume*) from
+    the host (`$(pwd)` returns the path of the current working directory) onto a target
+    directory (*/code*) in the container. This mounted volume is kept in sync, so
+    that any changes you make inside or outside the container are kept in sync.'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`-v $(pwd):/code` 告诉容器从主机挂载一个目录（或*卷*）（`$(pwd)`返回当前工作目录的路径）到容器中的目标目录（*/code*）。这个挂载的卷是同步的，因此在容器内外进行的任何更改都将保持同步。'
+- en: '[![](assets/5.png)](#code_id_4_13)'
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/5.png)](#code_id_4_13)'
+- en: '`-p X:Y` tells Docker to *publish* port X in the Docker container onto port
+    Y on the host. This allows you to send requests from outside the container to
+    a server running inside the container on port 80.'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`-p X:Y` 告诉 Docker *发布* Docker 容器中端口 X 到主机上端口 Y。这允许您将请求从容器外部发送到运行在容器内部的服务器的
+    80 端口。'
+- en: '[![](assets/6.png)](#code_id_4_14)'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/6.png)](#code_id_4_14)'
+- en: This is the image that we want to use to start the container. Because we have
+    specified the default command to run in our Dockerfile (`CMD ["bash"]`), the resulting
+    container is a bash process, which we will use to run our development commands.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是我们要用来启动容器的镜像。因为我们在 Dockerfile 中指定了默认的运行命令 (`CMD ["bash"]`)，所以生成的容器是一个 bash
+    进程，我们将用它来运行我们的开发命令。
+- en: 'Inside of our development container, we can now run tasks or commands that
+    we typically use when developing ML models. To keep these commands readable and
+    simple, we’ve kept the implementation details in short bash scripts, which you
+    can read if you’d like:'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的开发容器内，我们现在可以运行通常用于开发 ML 模型时使用的任务或命令。为了使这些命令可读性强且简单，我们将实现细节保留在短的 bash 脚本中，如果你愿意，可以阅读：
+- en: '[PRE13]'
+  id: totrans-168
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'Alternatively, you could also run these commands from the host, using batect.
+    Thanks to Docker’s caching mechanism, running these tasks is equally fast regardless
+    of whether you run them from inside a container, or start a fresh container each
+    time from the host. These batect tasks make it easy to define tasks on our CI
+    pipeline and make it easy to reproduce CI failures locally. This is how you can
+    run common ML development tasks using batect:'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，你也可以从主机上使用 batect 运行这些命令。由于 Docker 的缓存机制，无论是从容器内部运行还是每次从主机上启动一个新的容器运行，运行这些任务的速度都是一样快的。这些
+    batect 任务可以轻松定义在我们的 CI 管道上，并且可以轻松地在本地复现 CI 失败。这是如何使用 batect 运行常见的 ML 开发任务：
+- en: '[PRE14]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 4\. Serve the ML model locally as a web API
+  id: totrans-171
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4\. 在本地作为 web API 提供 ML 模型服务。
+- en: In this step, we will start our web API locally. The API encapsulates our ML
+    model, delegates prediction requests to the model, and returns the model’s prediction
+    for the given request. The ability to start the API locally for manual testing
+    or automated testing saves us from falling into the antipattern of “pushing to
+    know if something works.” This antipattern is a bad habit that lengthens feedback
+    cycles (from seconds to several minutes) while we wait for tests and deployments
+    to run on the CI/CD pipeline in order to test a change in even a single line of
+    code.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此步骤中，我们将在本地启动我们的 web API。该 API 封装了我们的 ML 模型，将预测请求委托给模型，并返回给定请求的模型预测。在手动测试或自动化测试中本地启动
+    API 的能力，可以避免我们陷入“推动以查看是否工作”的反模式。这种反模式会延长反馈周期（从几秒到几分钟），因为我们必须等待测试和部署在 CI/CD 管道上运行，以便测试代码中的甚至一行更改。
+- en: 'This is how you can start our web API locally and interact with it:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是如何在本地启动我们的 web API 并与其交互的方法：
+- en: '[PRE15]'
+  id: totrans-174
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 5\. Configure our code editor
+  id: totrans-175
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5\. 配置我们的代码编辑器。
+- en: An essential step in dependency management is configuring our code editor to
+    use the project’s virtual environment, so that it can help us write code more
+    efficiently. When the code editor has been configured to use a given virtual environment,
+    it becomes a very powerful tool and can provide sensible hints and suggestions
+    as you type.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 依赖管理中一个重要的步骤是配置我们的代码编辑器以使用项目的虚拟环境，以便帮助我们更高效地编写代码。当代码编辑器配置为使用特定的虚拟环境时，它变得非常强大，并且在你输入时可以提供明智的提示和建议。
+- en: 'In [Chapter 7](ch07.html#supercharging_your_code_editor_with_sim), we describe
+    how you can achieve this in two simple steps:'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第 7 章](ch07.html#supercharging_your_code_editor_with_sim)中，我们描述了如何通过两个简单步骤来实现这一点：
+- en: Specify the virtual environment in our code editor. See instructions for [PyCharm](https://oreil.ly/OeAQy)
+    and [VS Code](https://oreil.ly/h8p1j), or take a peek at the steps in [Chapter 7](ch07.html#supercharging_your_code_editor_with_sim)—it
+    should take only a few minutes.
+  id: totrans-178
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在代码编辑器中指定虚拟环境。查看[PyCharm](https://oreil.ly/OeAQy)和[VS Code](https://oreil.ly/h8p1j)的说明，或者看看[第
+    7 章](ch07.html#supercharging_your_code_editor_with_sim)中的步骤——应该只需要几分钟。
+- en: Leverage code editor commands and corresponding keyboard shortcuts to do amazing
+    things (e.g., code completion, parameter info, inline documentation, refactoring,
+    and much more). We’ll go through these shortcuts in detail in [Chapter 7](ch07.html#supercharging_your_code_editor_with_sim).
+  id: totrans-179
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 利用代码编辑器命令和对应的键盘快捷键来做一些惊人的事情（例如，代码补全、参数信息、内联文档、重构等等）。我们将在[第 7 章](ch07.html#supercharging_your_code_editor_with_sim)详细介绍这些快捷方式。
+- en: 'For step 1, you can use the path to the virtual environment installed by the
+    go script on the host. The go script displays this as its last step. You can also
+    retrieve the path by running the following command in the project directory outside
+    the container:'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第 1 步，你可以使用 go 脚本在主机上安装的虚拟环境路径。go 脚本在最后一步显示此路径。你也可以在项目目录外的容器中运行以下命令来检索路径：
+- en: '[PRE16]'
+  id: totrans-181
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: This is a second—and duplicate—virtual environment outside of the container
+    because configuring a containerized Python interpreter for PyCharm is a [paid
+    feature](https://oreil.ly/EWL8n), and is not exactly straightforward for [VS Code](https://oreil.ly/yOc9U).
+    Yes, this is a deviation from containers! In practice, we would pay for the PyCharm
+    professional license because it’s simple and relatively low-cost, and we would
+    continue to use a single containerized virtual environment for each project. However,
+    we didn’t want the price to be a barrier to our readers. So, we came up with this
+    workaround so that anyone can follow along.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是第二个——也是重复的——虚拟环境，与容器外的另一个虚拟环境不同，因为为 PyCharm 配置容器化的 Python 解释器是一个[付费功能](https://oreil.ly/EWL8n)，并且对于[VS
+    Code](https://oreil.ly/yOc9U)来说也并不简单。是的，这是与容器不同的偏离！实际上，我们可能会购买 PyCharm 专业许可证，因为它简单且成本相对较低，我们将继续为每个项目使用单个容器化虚拟环境。然而，我们不希望价格成为读者的障碍。因此，我们想出了这个解决方案，以便任何人都能跟随操作。
+- en: 6\. Train model on the cloud
+  id: totrans-183
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6\. 在云上训练模型
+- en: 'There are many options for training ML models on the cloud. They can range
+    from open source and self-hosted ML platforms—such as [Metaflow](https://oreil.ly/j-A2k),
+    [Kubeflow](https://oreil.ly/F9FoB), and [Ray](https://oreil.ly/x9ogr)—to managed
+    services such as [AWS SageMaker](https://oreil.ly/miohg), [Google Vertex AI](https://oreil.ly/79rjA),
+    and [Azure Machine Learning](https://oreil.ly/4FH3A), among many others. To keep
+    this example simple and generalizable, we’ve opted for the simplest possible option:
+    train the model on a CI compute instance using GitHub Actions. Training our model
+    on the CI pipeline may not provide the many affordances or compute resources that
+    an ML platform provides, but it will suffice for the purposes of this exercise.'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在云上训练 ML 模型有许多选择。它们可以从开源和自托管的 ML 平台——如[Metaflow](https://oreil.ly/j-A2k)、[Kubeflow](https://oreil.ly/F9FoB)和[Ray](https://oreil.ly/x9ogr)——到托管服务，如[AWS
+    SageMaker](https://oreil.ly/miohg)、[Google Vertex AI](https://oreil.ly/79rjA)和[Azure
+    Machine Learning](https://oreil.ly/4FH3A)，等等。为了使这个示例简单和通用化，我们选择了最简单的选项：使用 GitHub
+    Actions 在 CI 计算实例上训练模型。在 CI 流水线上训练我们的模型可能不会提供许多 ML 平台提供的便利或计算资源，但对于本练习的目的来说已经足够了。
+- en: 'Training our model on a CI pipeline is similar to training it using these ML
+    services in one regard: we are training a model on ephemeral compute instances
+    on the cloud. As such, we can use Docker to install and configure the necessary
+    dependencies on a fresh instance. You will likely choose a different technology,
+    especially if you’re doing large-scale training. Most, if not all, of these ML
+    platforms support, and have supporting documentation for, running model training
+    in containers.'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 CI 流水线上训练我们的模型，在某种意义上与使用这些 ML 服务训练模型类似：我们正在云上的临时计算实例上训练模型。因此，我们可以使用 Docker
+    在新实例上安装和配置必要的依赖项。您可能会选择不同的技术，尤其是在进行大规模训练时。大多数（如果不是全部）这些 ML 平台都支持在容器中运行模型训练，并有相关的文档支持。
+- en: 'In our example, we deploy our model training code simply by pushing our code
+    to the repository.^([2](ch04.html#ch01fn23)) The following code sample will create
+    a CI/CD pipeline using GitHub Actions to run a Docker command to train our model,
+    which you can see via the GitHub Actions tab on your forked repo. This runs model
+    training on a CI/CD server instance without us needing to fiddle with shell scripts
+    to install OS-level dependencies—such as Python 3.x, Python dev tools, or gcc—on
+    the fresh CI instance. *This is where Docker really shines*: Docker abstracts
+    away most “bare metal” concerns of running code on a remote compute instance and
+    allows us to easily reproduce consistent runtime environments.'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例中，我们通过将代码推送到代码库来简单部署我们的模型训练代码。^([2](ch04.html#ch01fn23)) 下面的代码示例将使用 GitHub
+    Actions 创建一个 CI/CD 流水线，以运行 Docker 命令来训练我们的模型，您可以通过分支库上的 GitHub Actions 标签查看。这将在
+    CI/CD 服务器实例上运行模型训练，而我们无需操作安装操作系统级依赖项（如 Python 3.x、Python 开发工具或 gcc）。*这就是 Docker
+    的真正优势*：Docker 抽象了在远程计算实例上运行代码时的大部分“裸金属”问题，并允许我们轻松复制一致的运行时环境。
+- en: '[PRE17]'
+  id: totrans-187
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: '[![](assets/1.png)](#code_id_4_15)'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_4_15)'
+- en: This defines a step in our CI pipeline to run the batect task, `./batect train-model`.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这定义了我们 CI 流水线中的一个步骤，运行 batect 任务，`./batect train-model`。
+- en: 7\. Deploy model web API
+  id: totrans-190
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7\. 部署模型 Web API
+- en: 'In this step, we will: (i) publish our model API image to a container registry
+    and (ii) run a command to tell our cloud service provider to deploy an image with
+    a specific tag. At this stage, the only dependency we need is infrastructure related—e.g.,
+    aws-cdk (AWS), gcloud (GCP), azure-cli (Azure), Terraform. We do not need any
+    of the dependencies from our development container, so it’s best that we specify
+    a separate image for the purpose of deploying an image as a web service.'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一步中，我们将：(i) 将我们的模型 API 映像发布到容器注册表，并且 (ii) 运行一个命令告诉我们的云服务提供商部署带有特定标签的映像。在这个阶段，我们唯一需要的依赖是与基础设施相关的，例如
+    aws-cdk（AWS）、gcloud（GCP）、azure-cli（Azure）、Terraform。我们不需要开发容器中的任何依赖项，因此最好指定一个单独的映像来部署映像作为
+    Web 服务的目的。
+- en: 'To make this code sample simple and generalizable regardless of which cloud
+    provider you are using, we have opted to illustrate this step with pseudo-code:'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使这个代码示例简单且通用，不论您使用哪个云提供商，我们选择用伪代码来说明这一步骤：
+- en: '[PRE18]'
+  id: totrans-193
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: '[![](assets/1.png)](#code_id_4_16)'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_4_16)'
+- en: 'Pseudo-code for: (i) pushing our image from our CI/CD pipeline to a Docker
+    registry and (ii) deploying this image as an API. We would typically need to retag
+    the image to include the specific Docker image registry, but we have left out
+    this detail to keep the example simple.'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于：(i) 将我们的映像从 CI/CD 流水线推送到 Docker 注册表，并且 (ii) 将此映像部署为 API 的伪代码。通常我们需要重新标记映像以包含特定的
+    Docker 映像注册表，但为了保持示例简单，我们省略了这些细节。
+- en: '[![](assets/2.png)](#code_id_4_17)'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/2.png)](#code_id_4_17)'
+- en: For the deployment step, we didn’t need any of the dependencies from our model
+    training and serving, but we do need a dependency (e.g., gcloud, aws-cli, azure-cli,
+    Terraform) that helps us deploy our image to a container hosting service. Did
+    you notice how we didn’t need to specify another Dockerfile? That is because batect
+    allows us to define tasks with prebuilt images using the `image` option. Thanks
+    to containers and batect, we can run this task in the same way on CI or on our
+    local machine, simply by running `./batect deploy-api`.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于部署步骤，我们不需要模型训练和服务中的任何依赖项，但我们确实需要一个依赖项（例如 gcloud、aws-cli、azure-cli、Terraform），帮助我们将映像部署到容器托管服务。您是否注意到我们没有需要指定另一个
+    Dockerfile？这是因为 batect 允许我们使用 `image` 选项来定义使用预构建映像的任务。由于容器和 batect 的存在，我们可以通过在
+    CI 或本地机器上运行 `./batect deploy-api` 来简单地运行此任务。
+- en: '[![](assets/3.png)](#code_id_4_18)'
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/3.png)](#code_id_4_18)'
+- en: Pseudo-code for deploying a Docker image to a container hosting technology.
+    You would replace this with the corresponding command for the cloud provider that
+    you are using (e.g., AWS, Azure, GCP, Terraform).
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署 Docker 映像到容器托管技术的伪代码。您可以使用适用于您正在使用的云提供商的相应命令（例如 AWS、Azure、GCP、Terraform）替换此内容。
+- en: In the preceding paragraph, we’re referencing several new concepts such as the
+    container registry and cloud container hosting services. If this sounds overwhelming,
+    fret not—we will describe these building blocks in an ML model’s path to production
+    in [Chapter 9](ch09.html#mlops_and_continuous_delivery_for_ml_le).
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上文中，我们提到了几个新概念，如容器注册表和云容器托管服务。如果听起来令人不知所措，不用担心——我们将在第 9 章中描述这些组成部分，以了解机器学习模型进入生产的路径。
+- en: Well done! By this stage, you have learned how to reliably create consistent
+    environments for developing and deploying ML models. The principles, practices,
+    and patterns in this code repository are what we use in real-world projects to
+    bootstrap a new ML project repository with good practices baked in.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 干得好！到了这个阶段，你已经学会了如何可靠地创建一致的环境来开发和部署机器学习模型。该代码仓库中的原则、实践和模式是我们在实际项目中使用的，以便在新的机器学习项目仓库中使用内建的良好实践。
+- en: Next, let’s look at two other essential practices that can help you securely
+    manage dependencies in your projects.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们看看另外两个重要的实践，可以帮助您在项目中安全地管理依赖项。
+- en: Secure Dependency Management
+  id: totrans-203
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 安全依赖管理
+- en: In 2017, attackers [hacked Equifax](https://oreil.ly/1QImF)—a credit monitoring
+    company—by exploiting a vulnerability in an outdated dependency (Apache Struts)
+    to infiltrate their system. This exposed the personal details of 143 million Americans
+    and cost the company US$380 million. By the time Equifax was hacked, the maintainers
+    of Apache Struts had actually already found, disclosed, and fixed the vulnerability
+    in a newer version of Apache Struts. However, Equifax was still using an older
+    version with the vulnerability and essentially had a ticking time bomb in their
+    infrastructure.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 2017年，攻击者通过利用一个过时依赖（Apache Struts）中的漏洞来入侵其系统，[黑客入侵了Equifax](https://oreil.ly/1QImF)——一家信用监控公司。这导致1430万美国人的个人信息曝光，并使该公司损失了3.8亿美元。在Equifax被黑之时，Apache
+    Struts的维护者实际上已经发现、披露并修复了这个漏洞，发布了一个更新版本。然而，Equifax仍在使用旧版本存在漏洞的Apache Struts，实际上他们的基础设施中就像是一颗定时炸弹。
+- en: Did you know that there are Python dependencies that have been found to [allow
+    your cloud credentials to be siphoned](https://oreil.ly/KYmTz), or [allow arbitrary
+    code execution](https://oreil.ly/H_5ms)? Do you know if your current projects
+    are exposed to any of these or other vulnerabilities? Well, if we don’t check
+    our dependencies for vulnerabilities, we won’t know.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您知道有Python依赖项已经被发现[允许窃取云凭证](https://oreil.ly/KYmTz)，或者[允许任意代码执行](https://oreil.ly/H_5ms)吗？您知道您当前的项目是否存在这些或其他漏洞吗？如果我们不检查我们的依赖项是否存在漏洞，我们就无法知道。
+- en: Keeping dependencies up-to-date and free of security vulnerabilities can be
+    prohibitively tedious if we do them manually. The good news is that the technology
+    to detect and resolve vulnerabilities in our dependencies has advanced significantly
+    in recent years, and we can easily implement them in our projects without too
+    much effort.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们手动维护依赖项，使其保持最新且没有安全漏洞，可能会非常繁琐。好消息是，近年来检测和解决依赖项中漏洞的技术取得了显著进展，我们可以在项目中轻松实现它们，几乎不费吹灰之力。
+- en: 'In this section, we will describe two practices that can help us mitigate these
+    security risks:'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将描述两种实践，这些实践可以帮助我们减轻这些安全风险：
+- en: Removing unnecessary dependencies
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 移除不必要的依赖项
+- en: Automating checks and updates for dependencies
+  id: totrans-209
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对依赖项进行自动化检查和更新
+- en: When complemented with the foundational knowledge in the preceding section,
+    these practices will help you create production-ready and secure ML pipelines
+    and applications.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当这些实践与前一节的基础知识结合时，它们将帮助您创建适用于生产的安全ML流水线和应用程序。
+- en: 'With that in mind, let’s look at the first practice: removing unnecessary dependencies.'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到这一点，让我们来看看第一个实践：移除不必要的依赖项。
+- en: Remove Unnecessary Dependencies
+  id: totrans-212
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 移除不必要的依赖项
+- en: Unnecessary dependencies—in the form of unnecessarily large base images and
+    unused application-level dependencies—can create several problems. First and foremost,
+    they enlarge the attack surface area of your project and make it more vulnerable
+    to malicious attackers.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不必要的依赖项——例如不必要的大基础镜像和未使用的应用级依赖项——可能会引发多个问题。首先，它们扩大了项目的攻击面，并使其更容易受到恶意攻击者的攻击。
+- en: Second, they increase the time needed to build, publish, and pull your images.
+    Not only does this lengthen the feedback cycle on your CI/CD pipeline, it also
+    can impede your ability to autoscale quickly in response to unexpected spikes
+    in production traffic, if you are handling large traffic volumes.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，增加了构建、发布和拉取镜像所需的时间。这不仅延长了CI/CD流水线上的反馈周期，还可能阻碍您在生产流量意外激增时快速自动扩展的能力，尤其是在处理大流量时。
+- en: Finally, stray dependencies that are installed but never used can make the project
+    confusing and hard to maintain. Even if the dependencies are not used, its transitive
+    dependencies—i.e., grandchildren dependencies—can exert an influence (such as
+    version constraints and installation failures due to version incompatibility)
+    on other dependencies and transitive dependencies that are actually needed.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，安装但从未使用的杂散依赖项可能会使项目变得混乱且难以维护。即使这些依赖项未被使用，它们的传递依赖关系——即孙依赖项——也可能对其他实际所需的依赖项和传递依赖项施加影响（例如版本约束和由于版本不兼容而导致的安装失败）。
+- en: 'As a rule of thumb, we should:'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为一个经验法则，我们应该：
+- en: Start with base images that are as small as possible—e.g., we could use *python:3.10-slim-bookworm*
+    image (145 MB) as opposed to *python:3.10* (1 GB, almost seven times larger!)
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从尽可能小的基础镜像开始——例如，我们可以使用*python:3.10-slim-bookworm*镜像（145 MB），而不是*python:3.10*（1
+    GB，几乎大约七倍的大小！）
+- en: Remove dependencies that are not used from *pyproject.toml*
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从 *pyproject.toml* 中移除未使用的依赖项
+- en: Exclude development dependencies from the production image
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从生产镜像中排除开发依赖项
+- en: On the third point, here is an example of how you can use [Docker multistage
+    builds](https://docs.docker.com/build/building/multi-stage/) to exclude development
+    dependencies from your production image. The code sample below helps us reduce
+    the size of the Docker image from 1.3 GB (dev image) to 545 MB (production API
+    image):^([3](ch04.html#ch01fn24))
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第三点中，这里有一个示例展示如何使用[Docker 多阶段构建](https://docs.docker.com/build/building/multi-stage/)来从生产镜像中排除开发依赖项。下面的代码示例帮助我们将
+    Docker 镜像的大小从 1.3 GB（开发镜像）减小到 545 MB（生产 API 镜像）：^([3](ch04.html#ch01fn24))
+- en: '[PRE19]'
+  id: totrans-221
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: '[![](assets/1.png)](#code_id_4_19)'
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_4_19)'
+- en: The first stage (`dev`) will create a dev image that batect will use when running
+    `./batect setup`. After batect installs all the development dependencies, the
+    container becomes 1.3 GB. The code for this stage is the same as what you’ve seen
+    in preceding Dockerfile code samples.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一阶段（`dev`）将创建一个开发镜像，当运行 `./batect setup` 时 batect 将使用此镜像。在 batect 安装所有开发依赖项后，容器的大小为
+    1.3 GB。此阶段的代码与您在前面 Dockerfile 代码示例中看到的代码相同。
+- en: '[![](assets/2.png)](#code_id_4_20)'
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/2.png)](#code_id_4_20)'
+- en: The second stage (`builder`) is an intermediate stage where we generate a *requirements.txt*
+    file using `poetry export`. This file will help us in the next and final stage
+    to keep the production image as small as possible, which we will explain in the
+    next point.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二阶段（`builder`）是一个中间阶段，在此阶段我们使用 `poetry export` 生成 *requirements.txt* 文件。这个文件将帮助我们在下一个也是最后一个阶段尽可能地减小生产镜像的大小，我们将在接下来的点中解释。
+- en: '[![](assets/3.png)](#code_id_4_21)'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/3.png)](#code_id_4_21)'
+- en: In the third stage (`prod`), we install only what we need for the production
+    API. We start afresh (`FROM python:3.10-slim-bookworm`) and copy only the code
+    and artifacts we need to start the API. We install the production dependencies
+    using pip and the *requirements.txt* file generated by Poetry so that we don’t
+    have to install Poetry—a development dependency—in a production image.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第三阶段（`prod`），我们只安装了生产 API 所需的内容。我们从头开始（`FROM python:3.10-slim-bookworm`），只复制启动
+    API 所需的代码和工件。我们使用 pip 安装生产依赖项，并使用 Poetry 生成的 *requirements.txt* 文件，这样我们就不必在生产镜像中安装
+    Poetry—一个开发依赖项。
+- en: 'To build the production image, we can run the following command. We specify
+    the target stage (`prod`) when we build the image:'
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要构建生产镜像，我们可以运行以下命令。在构建镜像时，我们指定目标阶段（`prod`）：
+- en: '[PRE20]'
+  id: totrans-229
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: With that, we have now excluded development dependencies from our production
+    API image, which makes our deployment artifact more secure and speeds up the pushing
+    and pulling of this image.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经将开发依赖项从生产 API 镜像中排除，这使得我们的部署工件更加安全，并加快了推送和拉取此镜像的速度。
+- en: Automate Checks for Security Vulnerabilities
+  id: totrans-231
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 自动化检测安全漏洞
+- en: 'The second and most important practice for securing our application is to automate
+    checks for security vulnerabilities in our dependencies. There are three components
+    to this:'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保护我们应用程序的第二个也是最重要的实践是自动化检测我们依赖项中的安全漏洞。这包括以下三个组成部分：
+- en: Automating checks for OS-level security vulnerabilities, through Docker image
+    scanning
+  id: totrans-233
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 自动化检测操作系统级安全漏洞，通过 Docker 镜像扫描
+- en: Automating checks for application-level security vulnerabilities, through dependency
+    checking
+  id: totrans-234
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 自动化检测应用程序级安全漏洞，通过依赖检查
+- en: Automating updates of OS-level and application-level dependencies
+  id: totrans-235
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 自动化更新操作系统级和应用程序级依赖项
+- en: If you are using GitHub, you can do all of the above with [Dependabot](https://oreil.ly/nBlxY),
+    a vulnerability scanning service that’s integrated with GitHub. If you’re not
+    using GitHub, you can still implement the same functionality using other open
+    source Software Composition Analysis (SCA) tools. For example, you can use [Trivy](https://oreil.ly/7EHEn)
+    to [scan Docker images](https://oreil.ly/2VKU5) and [Python dependencies](https://oreil.ly/efTGG),
+    [Snyk](https://oreil.ly/gesE2) or [Safety](https://oreil.ly/QJdl4) to check for
+    vulnerable Python dependencies, and [Renovate](https://oreil.ly/2NPRI) to automate
+    dependency updates.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你在使用 GitHub，你可以通过[Dependabot](https://oreil.ly/nBlxY)完成上述所有操作，这是一个与 GitHub
+    集成的漏洞扫描服务。如果你不使用 GitHub，你仍然可以使用其他开源的软件组成分析（SCA）工具来实现相同的功能。例如，你可以使用[Trivy](https://oreil.ly/7EHEn)来[扫描
+    Docker 镜像](https://oreil.ly/2VKU5)和[Python 依赖项](https://oreil.ly/efTGG)，使用[Snyk](https://oreil.ly/gesE2)或者[Safety](https://oreil.ly/QJdl4)来检查
+    Python 的易受攻击的依赖项，以及使用[Renovate](https://oreil.ly/2NPRI)来自动更新依赖关系。
+- en: 'SCA tools generally use a similar approach: They check your dependencies for
+    known vulnerabilities, or Common Vulnerabilities and Exposures (CVE), by referencing
+    a global vulnerability database, such as the National Vulnerability Database ([*nvd.nist.gov*](https://oreil.ly/skErW)).
+    Dependabot or Renovate also go on to create PRs in your project when it detects
+    that a newer version of a given dependency is available.'
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SCA工具通常采用类似的方法：它们通过参考全球漏洞数据库（例如国家漏洞数据库 [*nvd.nist.gov*](https://oreil.ly/skErW)）来检查您的依赖项中已知的漏洞或公共漏洞和曝光（CVE）。当依赖项的新版本可用时，Dependabot或Renovate还会在您的项目中创建PR。
+- en: Note
+  id: totrans-238
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: While dependency vulnerability scanning and automated dependency updates help
+    us significantly reduce our risk to vulnerable dependencies, there can be scenarios
+    where dependencies have been flagged in public vulnerability databases, but fixes
+    have yet to be released. When a new vulnerability is found, there is naturally
+    some amount of time required before the maintainers release a fix to address the
+    vulnerability. Until a fix is found, these vulnerabilities are known as [“zero-day
+    vulnerabilities”](https://oreil.ly/f1PdG), because zero days have passed since
+    the fix was published.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然依赖性漏洞扫描和自动依赖性更新帮助我们显著降低了对易受攻击依赖性的风险，但可能存在这样的情况：依赖项在公共漏洞数据库中已被标记，但修复尚未发布。当发现新漏洞时，自然需要一定时间才能找到维护者发布修复。在找到修复方案之前，这些漏洞被称为[“零日漏洞”](https://oreil.ly/f1PdG)，因为修复发布的时间为零天。
+- en: To manage this risk, you would need to consult security specialists in your
+    organization to assess the severity of the vulnerabilities in your context, prioritize
+    them accordingly, and identify measures to mitigate this risk.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要管理这种风险，您需要咨询您组织中的安全专家，评估上下文中漏洞的严重程度，相应地对其进行优先排序，并确定缓解此风险的措施。
+- en: 'Let’s take a look at how we can set this up in three steps on our GitHub repository
+    using Dependabot. Dependabot can raise pull requests for two types of updates:
+    (i) Dependabot *security updates* are automated pull requests that help you update
+    dependencies with known vulnerabilities, and (ii) Dependabot *version updates*
+    are automated pull requests that keep your dependencies updated, even when they
+    don’t have any vulnerabilities.'
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看如何在我们的GitHub仓库中使用Dependabot的三个步骤来设置这一过程。Dependabot可以为两种类型的更新创建PR：（i）Dependabot的*安全更新*是自动创建的PR，帮助您更新具有已知漏洞的依赖项；（ii）Dependabot的*版本更新*是自动创建的PR，即使没有已知的安全漏洞，也会保持依赖项更新。
+- en: For this exercise, we’ll use Dependabot version updates because the pull requests
+    will be created immediately as long as there is an old dependency, even if there
+    are no known security vulnerabilities. This will make it easier for you to follow
+    along and see the intended result after completing each step.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本次练习中，我们将使用Dependabot版本更新，因为只要旧依赖项存在，即使没有已知的安全漏洞，也会立即创建PR。这将使您更容易跟随并在完成每个步骤后看到预期的结果。
+- en: The first step is to enable Dependabot for your repository or organization.
+    You can do so by following the steps in GitHub’s official documentation to [enable
+    Dependabot version updates](https://oreil.ly/ZbB_o).
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一步是为您的仓库或组织启用Dependabot。您可以按照GitHub官方文档中的步骤来[启用Dependabot版本更新](https://oreil.ly/ZbB_o)。
+- en: 'Second, when you’ve completed the steps on the official documentation to enable
+    Dependabot version updates, you’ll be prompted to check in a *dependabot.yml*
+    file in the .*github* directory:'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二，在您完成了官方文档中启用Dependabot版本更新的步骤后，您将被提示将*dependabot.yml*文件检入到.*github*目录中：
+- en: '[PRE21]'
+  id: totrans-245
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: '[![](assets/1.png)](#code_id_4_22)'
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![](assets/1.png)](#code_id_4_22)'
+- en: We specify the package ecosystem and the directory that contains the package
+    file. The official documentation states that we should specify `pip`, even if
+    we are using Poetry. We also specify whether Dependabot should check for updates
+    daily, weekly, or monthly.
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们指定了包生态系统和包文件所在的目录。官方文档指出，即使我们使用Poetry，我们也应该指定`pip`。我们还指定Dependabot应该每天、每周或每月检查更新。
+- en: Note
+  id: totrans-248
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: While it’s easy and tempting to also add a second update block here for `"docker"`,
+    in practice it can be challenging as updating Python versions (e.g., from Python
+    3.10 to 3.12) can cause a cascade of changes in versions of dependencies and transitive
+    dependencies.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然在这里添加一个第二个更新块用于`"docker"`也很容易和诱人，但实际操作中可能会有挑战，因为更新Python版本（例如从Python 3.10到3.12）可能会导致依赖项及其传递依赖项版本的级联更改。
+- en: Nevertheless, we still recommend keeping the Python version of your ML system
+    up to date, when you can ascertain that your application and dependency stack
+    is compatible with newer versions of Python. Such a change should be easy to implement
+    and test with the automated tests and containerized setup that we introduce in
+    this book.
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管如此，我们仍建议在能够确保你的应用和依赖栈与较新 Python 版本兼容时，保持你的 ML 系统的 Python 版本更新。这样的变更应该很容易通过我们在本书中介绍的自动化测试和容器化设置来实现和测试。
+- en: 'The third step is to configure our GitHub repository to allow PRs to merge
+    only if tests pass on CI. This is an essential step to test that the dependency
+    changes do not degrade the quality of our software. Different CI technologies
+    will have different ways of doing this, and you can look up the respective documentation
+    for your given toolchain. In our example, we are using GitHub Actions and, at
+    the time of writing, the sequence of actions are:'
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三步是配置我们的 GitHub 仓库，只允许 PR 在 CI 测试通过后才能合并。这是一个关键步骤，用于测试依赖变更不会降低软件质量。不同的 CI 技术有不同的实现方式，你可以查阅相应的工具链文档。在我们的示例中，我们使用
+    GitHub Actions，在撰写本文时，操作顺序如下：
+- en: Allow auto-merge. Under your repository name, click Settings. On the Settings
+    page, under Pull Requests, select “Allow auto-merge.” (You can also refer to the
+    [GitHub documentation on enabling auto-merge](https://oreil.ly/0wQGg) for up-to-date
+    instructions for doing this.)
+  id: totrans-252
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 允许自动合并。在你的仓库名称下，点击设置。在设置页面中，选择“允许自动合并”（你也可以参考 [GitHub 启用自动合并的文档](https://oreil.ly/0wQGg)
+    获取最新的操作说明）。
+- en: 'We’ll define a GitHub Actions job to automatically merge PRs created by Dependabot.
+    See [GitHub documentation on adding auto-merge configuration for PRs created by
+    Dependabot](https://oreil.ly/mec0w) and the code sample below, which is also available
+    in the demo repo in the *.github* directory:'
+  id: totrans-253
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们将定义一个 GitHub Actions 作业，用于自动合并 Dependabot 创建的 PR。详见 [GitHub 为 Dependabot 创建的
+    PR 添加自动合并配置的文档](https://oreil.ly/mec0w) 和下面的代码示例，该示例也可在 *.github* 目录的演示存储库中找到：
+- en: '[PRE22]'
+  id: totrans-254
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: Finally, under Settings > Branches, add a branch protection rule by checking
+    the box “Require status checks to pass before merging,” specifying the name of
+    your branch (e.g., main), and search for the name of your test CI job. In this
+    example, our job is `train-model`, which runs after `run-tests`. See [GitHub documentation
+    on adding a branch protection rule](https://oreil.ly/6M2Jm).
+  id: totrans-255
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最后，在设置 > 分支下，通过勾选“要求合并前检查状态”，指定你的分支名称（例如，main），并搜索你的测试 CI 作业名称。在本例中，我们的作业是 `train-model`，在
+    `run-tests` 之后运行。详见 [GitHub 添加分支保护规则的文档](https://oreil.ly/6M2Jm)。
+- en: When these steps are done, your project will have its dependencies regularly
+    and automatically updated, tested, and merged. Huzzah! A big leap toward more
+    secure software.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当完成这些步骤后，你的项目将定期和自动地更新、测试和合并其依赖项。太棒了！这是迈向更安全软件的一大步。
+- en: Note
+  id: totrans-257
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: After completing these steps, you’ll notice that you can’t push your local commits
+    on the main branch anymore, because we’ve enabled branch protection.
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完成这些步骤后，你会注意到不能再推送本地提交到主分支了，因为我们已启用了分支保护。
+- en: For those accustomed to trunk-based development, fret not—you can add your team
+    to the bypass list (see the [GitHub documentation on bypassing branch protections](https://oreil.ly/cr-EW)).
+    Your team can continue to enjoy the fast feedback of CI/CD and trunk-based development
+    while Dependabot’s changes go through pull requests.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于习惯于基于主干的开发的人，不要担心——你可以将你的团队添加到绕过列表中（参见 [GitHub 绕过分支保护的文档](https://oreil.ly/cr-EW)）。你的团队可以继续享受
+    CI/CD 和基于主干的开发的快速反馈，而 Dependabot 的变更则通过拉取请求进行。
+- en: Please note that bypassing branch protections can only be done on repositories
+    belonging to an organization.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，只能在属于组织的存储库上绕过分支保护。
+- en: Give yourself several pats on your back! You have just applied the principles
+    and practices we use in real-world projects to help us effectively manage dependencies
+    in ML projects and create reproducible, production-ready, and secure ML pipelines
+    and applications.
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为自己的成果鼓个掌吧！你刚刚应用了我们在真实项目中使用的原则和实践，帮助我们有效管理 ML 项目中的依赖关系，创建可复现、生产就绪和安全的 ML 流水线和应用。
+- en: Conclusion
+  id: totrans-262
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: 'To recap, in this chapter, we covered:'
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结一下，在本章中，我们涵盖了：
+- en: What “check out and go” looks and feels like in practice
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: “检出和运行”在实践中的表现和感觉
+- en: How to use Docker, batect, and Poetry to create consistent, reproducible, and
+    production-like runtime environments in each step of the ML delivery lifecycle
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何利用Docker、batect和Poetry在机器学习交付生命周期的每个步骤中创建一致、可重复和类似于生产的运行时环境
+- en: How to detect security vulnerabilities in your dependencies, and how to automatically
+    keep dependencies up-to-date
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何检测依赖项中的安全漏洞，并如何自动保持依赖项的最新状态
+- en: The unique challenges of the ML ecosystem—e.g., large and varied dependencies,
+    large models—can stress-test how far we can take the practice of containerizing
+    our software. In our experience, container technologies continue to be useful,
+    but in the context of ML, it must be complemented with advanced techniques—e.g.,
+    Docker cache volumes, batect, automated security updates—so that we can continue
+    to manage our dependencies effectively, securely, and with short feedback cycles.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习生态系统的独特挑战——如大量和多样化的依赖项、大型模型——可以对我们容器化软件实践的推进程度进行压力测试。根据我们的经验，容器技术仍然很有用，但在机器学习的背景下，必须配合高级技术——例如Docker缓存卷、batect、自动安全更新——以便我们可以继续有效、安全地管理我们的依赖项，并实现快速反馈循环。
+- en: Chapters [3](ch03.html#effective_dependency_management_princip) and [4](#effective_dependency_management_in_prac)
+    are our attempt to make these principles and practices clear and easy to implement
+    so that we can rapidly and reliably set up our dependencies and spend time on
+    solving the problems that we want to solve, not waste time in dependency hell.
+    Proper dependency management is a low-hanging fruit that ML teams can harvest
+    today and enjoy the benefits in terms of time, effort, reliability, and security.
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 章节[3](ch03.html#effective_dependency_management_princip)和[4](#effective_dependency_management_in_prac)是我们试图澄清这些原则和实践，以便我们可以快速、可靠地设置我们的依赖项，并花时间解决我们想要解决的问题，而不是浪费时间在依赖地狱中。正确的依赖管理是机器学习团队今天可以收获的低
+    hanging fruit，并享受在时间、精力、可靠性和安全性方面的好处。
+- en: 'In the next chapter, we will explore another powerful, foundational practice
+    of effective ML teams: automated testing.'
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，我们将探讨有效的机器学习团队的另一个强大而基础的实践：自动化测试。
+- en: '^([1](ch04.html#ch01fn22-marker)) As mentioned in [“Complicating the picture:
+    Differing CPU chips and instruction sets”](ch03.html#complicating_the_picture_differing_cpu),
+    the article [“Why New Macs Break Your Docker Build, and How to Fix It”](https://oreil.ly/NIMLR)
+    explains why this happens and why it is especially common with new Macs with M1
+    chips.'
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch04.html#ch01fn22-marker)) 正如在[“复杂化图像：不同的CPU芯片和指令集”](ch03.html#complicating_the_picture_differing_cpu)中提到的，文章[“为什么新的Mac会破坏您的Docker构建，并如何修复”](https://oreil.ly/NIMLR)解释了为什么这种情况会发生，以及为什么在新款搭载M1芯片的Mac上特别普遍。
+- en: ^([2](ch04.html#ch01fn23-marker)) “Deploy” may sound like a big scary word,
+    but it simply means the act of moving code or an application from a source repository
+    to a target runtime environment.
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch04.html#ch01fn23-marker)) “部署”听起来可能是个可怕的大词，但它简单地意味着将代码或应用程序从源代码库移动到目标运行时环境。
+- en: ^([3](ch04.html#ch01fn24-marker)) Running `docker history <image>` on our production
+    image (545 MB) shows that Python dependencies account for 430 MB. Looking into
+    the site-packages directory, we found that the top three contributors were scikit-learn
+    (116 MB), SciPy (83MB), and pandas (61MB).
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch04.html#ch01fn24-marker)) 运行`docker history <image>`在我们的生产镜像（545 MB）上显示，Python依赖占了430
+    MB。查看site-packages目录，我们发现前三大贡献者分别是scikit-learn（116 MB）、SciPy（83MB）和pandas（61MB）。

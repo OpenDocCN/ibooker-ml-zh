@@ -1,0 +1,3172 @@
+- en: Chapter 12\. Image and Text Generation
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 12 章\. 图像与文本生成
+- en: So far in this book, we have focused on computer vision methods that act on
+    images. In this chapter, we will look at vision methods that can *generate* images.
+    Before we get to image generation, though, we have to learn how to train a model
+    to understand what’s in an image so that it knows what to generate. We will also
+    look at the problem of generating text (captions) based on the content of an image.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，在本书中，我们专注于处理图像的计算机视觉方法。在本章中，我们将研究能够生成图像的视觉方法。不过，在讨论图像生成之前，我们必须学习如何训练模型以理解图像中发生的事情，以便知道该生成什么。我们还将讨论基于图像内容生成文本（标题）的问题。
+- en: Tip
+  id: totrans-2
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: The code for this chapter is in the *12_generation* folder of the book’s [GitHub
+    repository](https://github.com/GoogleCloudPlatform/practical-ml-vision-book).
+    We will provide file names for code samples and notebooks where applicable.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的代码位于书籍的 *12_generation* 文件夹中的 [GitHub 仓库](https://github.com/GoogleCloudPlatform/practical-ml-vision-book)
+    中。我们将在适当的地方提供代码示例和笔记本文件名。
+- en: Image Understanding
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 图像理解
+- en: It’s one thing to know what components are in an image, but it’s quite another
+    to actually understand what is happening in the image and to use that information
+    for other tasks. In this section, we will quickly recap embeddings and then look
+    at various methods (autoencoders and variational autoencoders) to encode an image
+    and learn about its properties.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 知道图像中有哪些组件是一回事，但实际理解图像中发生了什么并利用该信息进行其他任务是完全不同的。在本节中，我们将快速回顾嵌入，然后看看各种方法（自编码器和变分自编码器）来对图像进行编码并了解其属性。
+- en: Embeddings
+  id: totrans-6
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 嵌入
+- en: A common problem with deep learning use cases is lack of sufficient data, or
+    data of high enough quality. In [Chapter 3](ch03.xhtml#image_vision) we discussed
+    transfer learning, which provides a way to extract embeddings that were learned
+    from a model trained on a larger dataset, and apply that knowledge to train an
+    effective model on a smaller dataset.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 深度学习用例的一个常见问题是缺乏足够的数据或高质量的数据。在[第 3 章](ch03.xhtml#image_vision)中，我们讨论了迁移学习，它提供了一种方法来提取从一个训练在更大数据集上的模型中学到的嵌入，并将这些知识应用到在较小数据集上训练有效模型的过程中。
+- en: With transfer learning, the embeddings we use were created by training the model
+    on the same task, such as image classification. For instance, suppose we have
+    a ResNet50 model that was trained on the ImageNet dataset, as shown in [Figure 12-1](#training_a_resnet_model_to_classify_imag).
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用迁移学习时，我们使用的嵌入是通过在相同任务上训练模型创建的，例如图像分类。例如，假设我们有一个在 ImageNet 数据集上训练的 ResNet50
+    模型，如[图 12-1](#training_a_resnet_model_to_classify_imag)所示。
+- en: '![](Images/pmlc_1201.png)'
+  id: totrans-9
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1201.png)'
+- en: Figure 12-1\. Training a ResNet model to classify images.
+  id: totrans-10
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-1\. 训练 ResNet 模型以分类图像。
+- en: To extract the learned image embeddings, we would choose one of the model’s
+    intermediate layers—usually the last hidden layer—as the numerical representation
+    of the input image (see [Figure 12-2](#feature_extraction_from_trained_resnet_m)).
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要提取学到的图像嵌入，我们会选择模型的一个中间层——通常是最后一个隐藏层——作为输入图像的数值表示（见[图 12-2](#feature_extraction_from_trained_resnet_m)）。
+- en: '![](Images/pmlc_1202.png)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1202.png)'
+- en: Figure 12-2\. Feature extraction from trained ResNet model to obtain image embeddings.
+  id: totrans-13
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-2\. 从训练好的 ResNet 模型中进行特征提取以获取图像嵌入。
+- en: 'There are two problems with this approach of creating embeddings by training
+    a classification model and using its penultimate layer:'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用训练分类模型并使用其倒数第二层创建嵌入的方法存在两个问题：
+- en: To create these embeddings, we need a large, labeled dataset of images. In this
+    example, we trained a ResNet50 on ImageNet to get the image embeddings. However,
+    these embeddings will work well only for the types of images found in ImageNet—photographs
+    found on the internet. If you have a different type of image (such as diagrams
+    of machine parts, scanned book pages, architectural drawings, or satellite imagery),
+    the embeddings learned from the ImageNet dataset may not work so well.
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要创建这些嵌入，我们需要一个大型的、带标签的图像数据集。在这个例子中，我们在 ImageNet 上训练了一个 ResNet50 以获取图像嵌入。然而，这些嵌入只对
+    ImageNet 中的图像类型（例如互联网上的照片）有效。如果您有不同类型的图像（例如机器部件的图表、扫描书页、建筑图纸或卫星图像），那么从 ImageNet
+    数据集中学到的嵌入可能效果不佳。
+- en: The embeddings reflect the information that is relevant to determining the label
+    of the image. By definition, therefore, many of the details of the input images
+    that are not relevant to this specific classification task may not be captured
+    in the embeddings.
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这些嵌入反映了确定图像标签相关信息。因此，许多与特定分类任务无关的输入图像细节可能不会在嵌入中被捕捉到。
+- en: What if you want an embedding that works well for images other than photographs,
+    you don’t have a large labeled dataset of such images, and you want to capture
+    as much of the information content in the image as possible?
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您希望获得一个对于非照片类图像效果良好的嵌入，并且没有大规模标记的此类图像数据集，并且希望尽可能捕捉图像中的信息内容，该怎么办？
+- en: Auxiliary Learning Tasks
+  id: totrans-18
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 辅助学习任务
+- en: Another way to create embeddings is to use an *auxiliary learning task.* An
+    auxiliary task is a task other than the actual supervised learning problem we
+    are trying to solve. This task should be one for which large amounts of data are
+    readily available. For example, in the case of text classification we can create
+    the text embeddings using an unrelated problem, such as predicting the next word
+    of a sentence, for which there is already copious and readily available training
+    data. The weight values of some intermediate layer can then be extracted from
+    the auxiliary model and used to represent text for various other unrelated tasks.
+    [Figure 12-3](#word_embeddings_created_by_training_a_mo) shows an example of this
+    kind of text or word embedding where a model is trained to predict the next word
+    in a sentence. Using the words “the cat sat” as input, such a model would be trained
+    to predict the word “on.” The input words are first one-hot encoded, but the penultimate
+    layer of the prediction model, if it has four nodes, will learn to represent the
+    input words as a four-dimensional embedding.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种创建嵌入的方法是使用*辅助学习任务*。辅助任务是指除了我们试图解决的实际监督学习问题之外的任务。这个任务应该是有大量数据可用的。例如，在文本分类的情况下，我们可以使用一个无关的问题，比如预测句子中的下一个单词，来创建文本嵌入，因为这种问题已经有大量且易于获取的训练数据。然后可以从辅助模型中提取某些中间层的权重值，并用于表示各种其他无关任务的文本。[图12-3](#word_embeddings_created_by_training_a_mo)展示了这种文本或单词嵌入的例子，其中模型被训练用于预测句子中的下一个单词。使用“the
+    cat sat”作为输入词语，这样的模型将被训练来预测“on”这个单词。输入词语首先进行了独热编码，但是如果预测模型的倒数第二层有四个节点，它将学会将输入词语表示为一个四维嵌入。
+- en: '![](Images/pmlc_1203.png)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1203.png)'
+- en: Figure 12-3\. Word embeddings created by training a model to predict the next
+    word in a sentence can be used for an unrelated task, such as text classification.
+    The illustration shows the word encoding before (left) and after (right) the auxiliary
+    task.
+  id: totrans-21
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-3\. 通过训练模型预测句子中的下一个单词创建的词嵌入，可以用于无关任务，例如文本分类。图示显示了辅助任务之前（左）和之后（右）的单词编码。
+- en: '*Autoencoders* take advantage of an auxiliary learning task for images, similar
+    to the predict-the-next-word model in the case of text. We’ll look at these next.'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*自编码器*利用了图像的辅助学习任务，类似于文本中的预测下一个单词模型。我们接下来将介绍这些内容。'
+- en: Autoencoders
+  id: totrans-23
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 自编码器
+- en: A great auxiliary learning task to learn image embeddings is to use autoencoders.
+    With an autoencoder, we take the image data and pass it through a network that
+    bottlenecks it into a smaller internal vector, and then expands it back out into
+    the dimensionality of the original image. When we train the autoencoder, the input
+    image itself functions as its own label. This way we are essentially learning
+    *lossy compression*, or how to recover the original image despite squeezing the
+    information through a constrained network. The hope is that we are squeezing out
+    the noise from the data and learning an efficient map of the signal.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于学习图像嵌入的一个很好的辅助学习任务是使用自编码器。通过自编码器，我们将图像数据传入一个网络，将其压缩成一个更小的内部向量，然后再扩展回到原始图像的维度。当我们训练自编码器时，输入图像本身就充当其自身的标签。这样，我们基本上是在学习*有损压缩*，即通过一个受限制的网络恢复原始图像的能力。希望通过这种方式，我们能够将数据中的噪音挤压出去，并学习到信号的有效映射。
+- en: With embeddings that are trained through a supervised task, any information
+    in the inputs that isn’t useful or related to the label usually gets pruned out
+    with the noise. On the other hand, with autoencoders, since the “label” is the
+    entire input image, every part of the input is relevant to the output, and therefore
+    hopefully much more of the information is retained from the inputs. Because autoencoders
+    are self-supervised (we don’t need a separate step to label the images), we can
+    train on much more data and get a greatly improved encoding.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过受监督任务训练的嵌入，输入中与标签无关或无用的信息通常会随着噪声被剪除。另一方面，对于自编码器而言，由于“标签”是整个输入图像，输入的每个部分都与输出相关，因此希望从输入中保留更多的信息。因为自编码器是自监督的（我们不需要单独的步骤来标记图像），我们可以在更多的数据上训练，并获得大大改进的编码。
+- en: Typically, the encoder and decoder form an hourglass shape as each progressive
+    layer in the encoder shrinks in dimensionality and each progressive layer in the
+    decoder expands in dimensionality, as seen in [Figure 12-4](#an_autoencoder_takes_an_image_as_input_a).
+    With the shrinking dimensionality in the encoder and the expanding dimensionality
+    in the decoder, at some point the dimensionality reaches a minimum size at the
+    end of the encoder and the start of the decoder, represented by the two-pixel,
+    single-channel block in the middle of [Figure 12-4](#an_autoencoder_takes_an_image_as_input_a).
+    This latent vector is a concise representation of the inputs, where the data is
+    being forced through a bottleneck.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，编码器和解码器形成一个沙漏形状，因为编码器中的每个渐进层的维度缩小，解码器中的每个渐进层的维度扩展，如[图12-4](#an_autoencoder_takes_an_image_as_input_a)所示。随着编码器中维度的缩小和解码器中维度的扩展，某个时刻维度达到最小值，在编码器末端和解码器开头，由[图12-4](#an_autoencoder_takes_an_image_as_input_a)中中间的两个像素单通道块表示。这个潜在向量是输入的简明表示，数据被迫通过一个瓶颈。
+- en: '![](Images/pmlc_1204.png)'
+  id: totrans-27
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1204.png)'
+- en: Figure 12-4\. An autoencoder takes an image as input and produces the reconstructed
+    image as output.
+  id: totrans-28
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-4\. 自编码器将图像作为输入并生成重建的图像作为输出。
+- en: So, how big should the latent dimension be? As with other types of embeddings,
+    there is a trade-off between compression and expressivity. If the dimensionality
+    of the latent space is too small, there won’t be enough expressive power to fully
+    represent the original data—some of the signal will be lost. When this representation
+    is decompressed back to the original size, too much information will be missing
+    to get the desired outputs. Conversely, if the dimensionality of the latent space
+    is too large, then even though there will be ample space to store all of the desired
+    information there will also be space to encode some of the unwanted information
+    (i.e., the noise). The ideal size for the latent dimension is thus something to
+    tune through experimentation. Typical values are 128, 256, or 512, though of course
+    this depends on the sizes of the layers of the encoder and the decoder.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，潜在维度应该有多大呢？与其他类型的嵌入一样，存在压缩和表达能力之间的权衡。如果潜在空间的维度太小，将没有足够的表达力来完全表示原始数据，部分信号将会丢失。当这种表示被解压缩回原始大小时，将会丢失太多信息，无法获得所需的输出。相反，如果潜在空间的维度太大，尽管有充足的空间来存储所有所需的信息，但也会有空间来编码一些不需要的信息（即噪声）。因此，潜在维度的理想大小是通过实验调整的。典型的值是128、256或512，当然这取决于编码器和解码器层的大小。
+- en: Next we’ll look at implementing an autoencoder, starting with its architecture.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将看一下实现自编码器的过程，从其架构开始。
+- en: Architecture
+  id: totrans-31
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 架构
+- en: To simplify our discussion and analysis of the autoencoder architecture, we’ll
+    pick a simple dataset of handwritten digits called [MNIST](https://oreil.ly/nia0l)
+    to apply the autoencoder to (the full code is in [*12a_autoencoder.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/12_generation/12a_autoencoder.ipynb)).
+    The input images are of size 28x28 and consist of a single grayscale channel.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了简化我们对自编码器架构的讨论和分析，我们将选择一个名为[MNIST](https://oreil.ly/nia0l)的简单手写数字数据集应用自编码器（完整代码在GitHub上的[*12a_autoencoder.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/12_generation/12a_autoencoder.ipynb)中）。输入图像大小为28x28，包含单通道灰度。
+- en: 'The encoder starts with these 28x28 inputs and then progressively squeezes
+    the information into fewer and fewer dimensions by passing the inputs through
+    convolutional layers to end up at a latent dimension of size 2:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 编码器从这些28x28的输入开始，然后通过卷积层逐步将信息压缩到越来越少的维度，最终达到大小为2的潜在维度：
+- en: '[PRE0]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'The decoder will have to reverse these steps using `Conv2DTranspose` layers
+    (also known as deconvolution layers, covered in [Chapter 4](ch04.xhtml#object_detection_and_image_segmentation))
+    wherever the encoder has a `Conv2D` (convolution) layer:'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解码器将不得不使用`Conv2DTranspose`层（也称为反卷积层，在[第4章](ch04.xhtml#object_detection_and_image_segmentation)中讨论过）反转编码器具有`Conv2D`（卷积）层的步骤：
+- en: '[PRE1]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Once we have the encoder and decoder blocks, we can tie them together to form
+    a model that can be trained.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们有了编码器和解码器模块，我们可以将它们结合在一起形成一个可以训练的模型。
+- en: Training
+  id: totrans-38
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 训练
+- en: 'The model to be trained consists of the encoder and decoder blocks chained
+    together:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要训练的模型由编码器和解码器模块连接在一起构成：
+- en: '[PRE2]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'The model has to be trained to minimize the reconstruction error between the
+    input and output images—for example, we could compute the mean squared error between
+    the input and output images and use that as the loss function. This loss function
+    can be used in backpropagation to calculate the gradients and update the weights
+    of the encoder and decoder subnetworks:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型必须经过训练，以最小化输入和输出图像之间的重建误差。例如，我们可以计算输入和输出图像之间的均方误差，并将其用作损失函数。这种损失函数可以在反向传播中使用，以计算梯度并更新编码器和解码器子网络的权重：
+- en: '[PRE3]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Latent vectors
+  id: totrans-43
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 潜在向量
+- en: 'Once the model is trained, we can drop the decoder and use the encoder to convert
+    images into latent vectors:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦模型训练完成，我们可以舍弃解码器，使用编码器将图像转换为潜在向量：
+- en: '[PRE4]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: If the autoencoder has successfully learned how to reconstruct the image, the
+    latent vectors for similar images will tend to cluster, as shown in [Figure 12-5](Images/#the_encoder_compresses_input_images_into).
+    Notice that the 1s, 2s, and 0s occupy different parts of the latent vector space.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果自编码器成功学会了如何重建图像，相似图像的潜在向量将倾向于聚类，如[图 12-5](Images/#the_encoder_compresses_input_images_into)所示。请注意，1、2和0占据潜在向量空间的不同部分。
+- en: '![](Images/pmlc_1205.png)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1205.png)'
+- en: Figure 12-5\. The encoder compresses input images into the latent representation.
+    The latent representations for specific digits cluster together. We are able to
+    represent the latent representations as points on a 2D graph because each latent
+    representation is two numbers (x, y).
+  id: totrans-48
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-5\. 编码器将输入图像压缩为潜在表示。特定数字的潜在表示聚集在一起。我们能够将潜在表示呈现为2D图中的点，因为每个潜在表示是两个数字（x，y）。
+- en: Because the entire information content of the input image has to flow through
+    the bottleneck layer, the bottleneck layer after training will retain enough information
+    for the decoder to be able to reconstruct a close facsimile of the input image.
+    Therefore, we can train autoencoders for dimensionality reduction. The idea, as
+    in [Figure 12-5](Images/#the_encoder_compresses_input_images_into), is to drop
+    the decoder and use the encoder to convert images into latent vectors. These latent
+    vectors can then be used for downstream tasks such as classification and clustering,
+    and the results may be better than those achieved with classical dimensionality
+    reduction techniques like principal component analysis. If the autoencoder uses
+    nonlinear activations, the encoding can capture nonlinear relationships between
+    the input features, unlike PCA, which is solely a linear method.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为整个输入图像的信息内容必须通过瓶颈层流动，所以训练后的瓶颈层将保留足够的信息，使得解码器能够重建接近输入图像的复制品。因此，我们可以训练自编码器进行降维。其思想，如[图 12-5](Images/#the_encoder_compresses_input_images_into)中所示，是舍弃解码器，使用编码器将图像转换为潜在向量。这些潜在向量随后可以用于分类和聚类等下游任务，并且其结果可能优于像主成分分析（PCA）这样的传统降维技术。如果自编码器使用非线性激活函数，则编码可以捕捉输入特征之间的非线性关系，这与PCA不同，后者仅是一种线性方法。
+- en: A different application might be to use the decoder to turn latent vectors provided
+    not by an encoded image but by a user into generated images, as shown in [Figure 12-6](#the_decoder_decompressing_a_latent_repre).
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种应用可能是使用解码器将用户提供的潜在向量转换成生成的图像，如[图 12-6](#the_decoder_decompressing_a_latent_repre)所示。
+- en: '![](Images/pmlc_1206.png)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1206.png)'
+- en: Figure 12-6\. The decoder decompressing a latent representation back into an
+    image.
+  id: totrans-52
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-6\. 解码器将潜在表示解压缩回图像。
+- en: While this works tolerably well for the very simple MNIST dataset, it doesn’t
+    work in practice on more complex images. Indeed, in [Figure 12-7](Images/#reconstructed_images_for_the_latent_spac)
+    we can see some of the shortcomings even on the handwritten digits in MNIST—while
+    the digits look realistic in some parts of the latent space, in other places they
+    are unlike any digits that we know. For example, look at the center left of the
+    image, where 2s and 8s have been interpolated into something nonexistent. The
+    reconstructed images are completely meaningless. Notice also that there is a preponderance
+    of 0s and 2s, but not as many 1s as one would expect looking at the overlapping
+    clusters in [Figure 12-5](Images/#the_encoder_compresses_input_images_into). While
+    it will be relatively easy to generate 0s and 2s, it will be quite difficult to
+    generate 1s—we’d have to get the latent vector just right to get a 1 that doesn’t
+    look like a 2 or a 5!
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管这对于非常简单的MNIST数据集效果尚可，但在实践中对更复杂的图像并不适用。实际上，在[图 12-7](Images/#reconstructed_images_for_the_latent_spac)中，我们可以看到即使在MNIST手写数字中也存在一些缺陷——尽管在潜在空间的某些部分数字看起来逼真，但在其他地方却不像我们知道的任何数字。例如，看一下图像左侧中心，2和8已经插入到不存在的东西中。重建的图像完全毫无意义。还要注意，0和2的数量明显较多，但1的数量却没有像在[图 12-5](Images/#the_encoder_compresses_input_images_into)中看到的重叠聚类那样多。虽然生成0和2相对容易，但生成1却非常困难——我们必须精确地调整潜在向量才能得到一个看起来不像2或5的1！
+- en: '![](Images/pmlc_1207.png)'
+  id: totrans-54
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1207.png)'
+- en: Figure 12-7\. Reconstructed images for the latent space between [–2,-3] and
+    [3,3].
+  id: totrans-55
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-7\. 潜在空间在[–2,-3]和[3,3]之间的重建图像。
+- en: What could be the matter? There are vast regions of the latent space (note the
+    whitespace in [Figure 12-5](Images/#the_encoder_compresses_input_images_into))
+    that do not correspond to valid digits. The training task does not care about
+    the whitespace at all, but has no incentive for minimizing it. The trained model
+    does a great job when using both the encoder and decoder together, which is the
+    original task we asked the autoencoder to learn. We passed images into the encoder
+    subnetwork, which compressed the data down into vectors (the learned latent representations
+    of those images). We then decompressed those representations with the decoder
+    subnetwork to reconstruct the original images. The encoder has learned a mapping
+    from image to latent space using a highly nonlinear combination of perhaps millions
+    of parameter weights. If we naively try to create our own latent vector, it won’t
+    conform to the more nuanced latent space that the encoder has created. Therefore,
+    without the encoder, our randomly chosen latent vector isn’t very likely to result
+    in a good encoding that the decoder can use to generate a quality image.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到底是怎么回事呢？潜在空间有广泛的区域（注意[图 12-5](Images/#the_encoder_compresses_input_images_into)中的空白区域）不对应有效的数字。训练任务根本不关心这些空白区域，也没有减少它们的动机。当使用编码器和解码器一起时，经过训练的模型表现出色，这也是我们最初要求自编码器学习的原始任务。我们将图像传入编码器子网络，该子网络将数据压缩成向量（这些图像的学习潜在表示）。然后我们使用解码器子网络解压这些表示以重建原始图像。编码器已经学会使用可能包含数百万参数权重的高度非线性组合从图像到潜在空间的映射。如果我们尝试简单地创建自己的潜在向量，它不太可能符合编码器创建的更加微妙的潜在空间。因此，没有编码器，我们随机选择的潜在向量很可能不能生成解码器用于生成高质量图像的良好编码。
+- en: 'We’ve seen now that we can use autoencoders to reconstruct images by using
+    their two subnetworks: the encoder and decoder. Furthermore, by dropping the decoder
+    and using only the encoder, we now can encode images nonlinearly into latent vectors
+    that we can then use as embeddings in a different task. However, we’ve also seen
+    that naively trying the converse of dropping the encoder and using the decoder
+    to generate an image from a user-provided latent vector doesn’t work.'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经看到，我们可以使用自编码器通过其两个子网络：编码器和解码器来重建图像。此外，通过丢弃解码器仅使用编码器，我们可以将图像非线性地编码成潜在向量，然后在不同的任务中使用它们作为嵌入。然而，我们也看到，简单地尝试相反的操作——丢弃编码器并使用解码器从用户提供的潜在向量生成图像并不奏效。
+- en: 'If we truly want to use the decoder of an autoencoder-type structure to generate
+    images, then we need to develop a way to organize or regularize the latent space.
+    This can be achieved by mapping points that are close in latent space to points
+    that are close in image space and filling the latent space map so that all points
+    make something sensical rather than creating small islands of reasonable outputs
+    in an ocean of unmapped noise. This way we can generate our own latent vectors,
+    and the decoder will be able to use those to make quality images. This forces
+    us to leave classic autoencoders behind and takes us to the next evolution: the
+    variational autoencoder.'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们真的想要使用自编码器类型结构的解码器来生成图像，那么我们需要开发一种方法来组织或规范潜空间。这可以通过将在潜空间中接近的点映射到在图像空间中接近的点，并填充潜空间地图以使所有点都变得有意义，而不是在未映射的噪声海洋中创建合理输出的小岛。这样我们就可以生成自己的潜向量，解码器将能够使用这些向量生成高质量的图像。这迫使我们离开经典的自编码器，走向下一个进化阶段：变分自编码器。
+- en: Variational Autoencoders
+  id: totrans-59
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 变分自编码器
+- en: Without an appropriately organized latent space, there are usually two main
+    problems with using autoencoder-type architectures for image generation. First,
+    if we were to generate two points that are close in the latent space, we would
+    expect the outputs corresponding to those points to be similar to each other after
+    they’ve been passed through the decoder. For instance, as [Figure 12-8](#two_close_points_in_threed_latent_space)
+    depicts, if we have trained our autoencoder on geometric shapes such as circles,
+    squares, and triangles, if we create two points that are close in the latent space
+    we assume they should both be latent representations of either circles, squares,
+    triangles, or some interpolation in between. However, since the latent space hasn’t
+    been explicitly regularized, one of the latent points might generate a triangle
+    whereas the other latent point might generate a circle.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果没有适当组织的潜空间，使用自编码器类型架构进行图像生成通常会出现两个主要问题。首先，如果我们在潜空间中生成两个接近的点，我们期望经过解码器后，这些点对应的输出应该相似。例如，正如[图 12-8](#two_close_points_in_threed_latent_space)所示，如果我们训练我们的自编码器来处理几何形状如圆、正方形和三角形，如果我们创建两个在潜空间中接近的点，我们假设它们应该是圆形、正方形或者它们之间的某种插值的潜在表示。然而，由于潜空间没有明确规范，其中一个潜在点可能生成一个三角形，而另一个潜在点可能生成一个圆形。
+- en: '![](Images/pmlc_1208.png)'
+  id: totrans-61
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1208.png)'
+- en: Figure 12-8\. Two close points in 3D latent space may be decoded into very different
+    images.
+  id: totrans-62
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-8\. 在 3D 潜空间中接近的两个点可能被解码为非常不同的图像。
+- en: Second, after training an autoencoder for a long time and observing good reconstructions,
+    we would expect that the encoder will have learned where each archetype of our
+    images (for instance, circles or squares in the shapes dataset) best fits within
+    the latent space, creating *n*-dimensional subdomains for each archetype that
+    can overlap with other subdomains. For example, there may be a region of the latent
+    space where the square-type images mostly reside, and another region of the latent
+    space where circle-like images have been organized. Furthermore, where they overlap,
+    we’ll get shapes that lie somewhere in between on some square–circle spectrum.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，在训练自编码器长时间并观察到良好重建之后，我们期望编码器已经学会了每个图像原型（例如形状数据集中的圆形或正方形）在潜空间中最佳位置，为每个原型创建了一个*n*维子域，这些子域可以与其他子域重叠。例如，可能存在一个潜空间区域，其中主要是方形类型的图像，以及另一个潜空间区域，其中类似圆形的图像已经被组织起来。此外，在它们重叠的地方，我们将得到某种在方形-圆形光谱上介于两者之间的形状。
+- en: Yet, because the latent space is not explicitly organized in autoencoders, random
+    points in the latent space can return completely meaningless, unrecognizable images
+    after being passed through the decoder, as shown in [Figure 12-9](#a_random_point_in_the_latent_space_decod).
+    Instead of the imagined vast overlapping spheres of influence, small isolated
+    islands are formed.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，由于自编码器中的潜空间没有明确的组织，潜空间中的随机点经过解码器后可能会返回完全毫无意义、不可识别的图像，如[图 12-9](#a_random_point_in_the_latent_space_decod)所示。与想象中的广阔重叠影响球相反，形成了小而孤立的岛屿。
+- en: '![](Images/pmlc_1209.png)'
+  id: totrans-65
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1209.png)'
+- en: Figure 12-9\. A random point in the latent space decoded into a meaningless,
+    nonsense image.
+  id: totrans-66
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-9\. 在潜空间中的随机点解码为一个毫无意义的、荒谬的图像。
+- en: Now, we can’t blame autoencoders too much. They are doing exactly what they
+    were designed to do, namely reconstructing their inputs with the goal of minimizing
+    a reconstruction loss function. If having small isolated islands achieves that,
+    then that is what they’ll learn to do.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们不能责怪自编码器太多。它们正在做它们被设计来做的事情，即通过最小化重构损失函数来重构它们的输入。如果通过拥有小的孤立岛来实现这一目标，那么它们将学会做到这一点。
+- en: '*Variational autoencoders* (VAEs) were developed in response to classic autoencoders
+    being unable to use their decoders to generate quality images from user-generated
+    latent vectors.'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*变分自编码器*（VAEs）是响应经典自编码器无法使用其解码器从用户生成的潜在向量生成高质量图像而开发的。'
+- en: VAEs are generative models that can be used when, instead of just wanting to
+    discriminate between classes, such as in a classification task where we create
+    a decision boundary in a latent space (possibly satisfied with barely separating
+    classes), we want to create *n*-dimensional bubbles that encompass similar training
+    examples. This distinction is visualized in [Figure 12-10](#discriminative_model_conditional_versus).
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: VAEs是生成模型，可以用于当我们不仅仅想要区分类别时使用，例如在分类任务中我们在潜在空间创建决策边界（可能仅满足于简单地分离类别），我们希望创建*n*维的气泡，这些气泡包含类似的训练样本。这一区别在[图12-10](#discriminative_model_conditional_versus)中得到了可视化。
+- en: '![](Images/pmlc_1210.png)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1210.png)'
+- en: Figure 12-10\. Discriminative model conditional versus generative model joint
+    probability distributions.
+  id: totrans-71
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-10。判别模型条件概率与生成模型联合概率分布对比。
+- en: Discriminative models, including popular image ML models for tasks such as classification
+    and object detection, learn a conditional probability distribution that models
+    the decision boundary between the classes. Generative models, on the other hand,
+    learn a joint probability distribution that explicitly models the distribution
+    of each class. The conditional probability distribution isn’t lost—we can still
+    do classification using Bayes’ theorem, for example.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 判别模型，包括用于分类和物体检测等任务的流行图像机器学习模型，学习一个条件概率分布，该分布建模类之间的决策边界。而生成模型则学习一个联合概率分布，明确地建模每个类的分布。条件概率分布并没有丢失——我们仍然可以使用贝叶斯定理进行分类，例如。
+- en: 'Fortunately, most of the architecture of variational autoencoders is the same
+    as that of classic autoencoders: the hourglass shape, reconstruction loss, etc.
+    However, the few additional complexities allow VAEs to do what autoencoders can’t:
+    image generation.'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，变分自编码器的大部分架构与经典自编码器相同：沙漏形状、重构损失等。然而，少数额外的复杂性使得VAEs能够做到自编码器无法做到的事情：图像生成。
+- en: This is illustrated in [Figure 12-11](#both_problems_have_been_solved_with_an_o),
+    which shows that both of our latent space regularity problems have been solved.
+    The first problem of close latent points generating very different decoded images
+    has been fixed, and now we are able to create similar images that smoothly interpolate
+    through the latent space. The second problem of points in the latent space generating
+    meaningless, nonsense images has also been fixed, and now we can generate plausible
+    images. Remember, these images may not actually be exactly like the images the
+    model was trained on, but may be in between some of the main archetypes because
+    of the smooth overlapping regions within the learned organized latent space.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这在[图12-11](#both_problems_have_been_solved_with_an_o)中有所展示，显示出我们的潜在空间正则性问题已经解决。第一个问题是接近的潜在点生成非常不同的解码图像已经被修复，现在我们能够创建通过潜在空间平滑插值的类似图像。第二个问题是在潜在空间中的点生成毫无意义、无意义的图像也已经被解决，现在我们可以生成可信的图像。请记住，这些图像实际上可能并不完全像模型训练的图像，但可能处于一些主要原型之间，因为在学习的有序潜在空间内存在平滑重叠的区域。
+- en: '![](Images/pmlc_1211.png)'
+  id: totrans-75
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1211.png)'
+- en: Figure 12-11\. Both problems have been solved with an organized, regularized
+    latent space.
+  id: totrans-76
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-11。这两个问题都已经在一个有组织的、正则化的潜在空间中得到解决。
+- en: Rather than having just a latent vector in between the encoder and decoder networks,
+    which is essentially a point within the latent space, variational autoencoders
+    train the encoder to produce parameters of a probability distribution and make
+    the decoder randomly sample using them. The encoder no longer outputs a vector
+    that describes a point within the latent space, but the parameters of a probability
+    distribution. We can then sample from that distribution and pass those sampled
+    points to our decoder to decompress them back into images.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不再只是在编码器和解码器网络之间有一个潜在向量，这本质上是潜在空间中的一个点，变分自编码器训练编码器产生概率分布的参数，并使解码器随机地使用这些参数进行采样。编码器不再输出描述潜在空间内点的向量，而是概率分布的参数。然后我们可以从该分布中采样，并将这些采样点传递给解码器，以将它们解压缩回图像。
+- en: In practice, the probability distribution is a standard normal distribution.
+    This is because a mean close to zero will help prevent encoded distributions being
+    too far apart and appearing as isolated islands. Also, a covariance close to the
+    identity helps prevent the encoded distributions from being too narrow. The left
+    side of [Figure 12-12](#what_weapostrophere_trying_to_avoid_left) shows what we
+    are trying to avoid, with small, isolated distributions surrounded by voids of
+    meaningless nonsense.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实践中，概率分布是一个标准正态分布。这是因为接近零的均值有助于防止编码分布之间距离过大，看起来像是孤立的岛屿。此外，接近单位矩阵的协方差有助于防止编码分布太窄。图 12-12左侧展示了我们试图避免的情况，即被毫无意义的空白所包围的小而孤立的分布。
+- en: '![](Images/pmlc_1212.png)'
+  id: totrans-79
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1212.png)'
+- en: Figure 12-12\. What we’re trying to avoid (left) and what we’re trying to achieve
+    (right). We don’t want small, isolated island distributions surrounded by vast
+    voids of nonsense; we want the entire space covered by n-dimensional bubbles,
+    as shown on the right. The goal is to have smoothly overlapping distributions
+    without large gaps.
+  id: totrans-80
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-12\. 我们试图避免的情况（左）和我们试图实现的情况（右）。我们不希望被毫无意义的空白所包围的小而孤立的岛屿分布；我们希望整个空间被n维泡泡覆盖，如右侧所示。目标是具有平滑重叠的分布而没有大的间隙。
+- en: The image on the right in [Figure 12-12](#what_weapostrophere_trying_to_avoid_left)
+    shows smoothly overlapping distributions without large gaps, which is exactly
+    what we want for great image generation. Notice the interpolation where two distributions
+    intersect. There is in fact a smooth gradient encoded over the latent space. For
+    instance, we could start at the deep heart of the triangle distribution and move
+    directly toward the circle distribution. We would begin with a perfect triangle,
+    and with every step we took toward the circle distribution our triangle would
+    get rounder and rounder until we reached the deep heart of the circle distribution,
+    where we would now have a perfect circle.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 右侧的图像在[图 12-12](#what_weapostrophere_trying_to_avoid_left)中展示了平滑重叠的分布，没有大的间隙，这正是我们在优秀图像生成中所追求的。请注意两个分布相交处的插值。事实上，潜在空间中编码了一个平滑的梯度。例如，我们可以从三角分布的深处直接移向圆形分布。我们将从一个完美的三角形开始，随着每一步朝向圆形分布，我们的三角形会变得越来越圆，直到达到圆形分布的深处，那时我们将拥有一个完美的圆。
+- en: To be able to sample from these distributions, we need both the mean vector
+    and the covariance matrix. Therefore, the encoder network will output a vector
+    for the distribution’s mean and a vector for the distribution’s covariance. To
+    simplify things, we assume that these are independent. Therefore, the covariance
+    matrix is diagonal, and we can simply use that instead of having an *n*²-long
+    vector of mostly zeros.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要能够从这些分布中进行采样，我们需要均值向量和协方差矩阵。因此，编码器网络将输出分布的均值向量和协方差向量。为了简化问题，我们假设这些是独立的。因此，协方差矩阵是对角线的，我们可以简单地使用它，而不是一个*n*²长的大部分为零的向量。
+- en: Now let’s look at how to implement a VAE, starting with its architecture.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们看看如何实现VAE，从其架构开始。
+- en: Architecture
+  id: totrans-84
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 架构
+- en: 'In TensorFlow, a VAE encoder has the same structure as in a classic autoencoder,
+    except instead of a single latent vector we now have a vector with two components,
+    mean and variance (the full code is in [*12b_vae.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/12_generation/12b_vae.ipynb)):'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TensorFlow中，VAE编码器的结构与经典自编码器相同，唯一的区别是我们不再只有一个潜在向量，而是一个具有两个分量（均值和方差）的向量（完整的代码在[*12b_vae.ipynb*
+    on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/12_generation/12b_vae.ipynb)中）。
+- en: '[PRE5]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'However, in addition to the `z_mean`, we need two additional outputs from the
+    encoder. And because our model now has multiple outputs, we can no longer use
+    the Keras Sequential API; instead, we have to use the Functional API. The Keras
+    Functional API is more like standard TensorFlow, where inputs are passed into
+    a layer and the layer’s outputs are passed to another layer as its inputs. Any
+    arbitrarily complex directed acyclic graph can be made using the Keras Functional
+    API:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，除了 `z_mean` 外，我们还需要从编码器中得到两个额外的输出。由于我们的模型现在具有多个输出，我们不能再使用 Keras 顺序 API；而是必须使用功能
+    API。Keras 功能 API 更像标准的 TensorFlow，其中输入被传递到一层，层的输出被传递到另一层作为其输入。可以使用 Keras 功能 API
+    制作任意复杂的有向无环图：
+- en: '[PRE6]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'The sampling layer needs to sample from a normal distribution parameterized
+    by the outputs of our encoder layers rather than using a vector from the final
+    encoder layer as in non-variational autoencoders. The code for the sampling layer
+    in TensorFlow looks like this:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 采样层需要从由编码器层的输出参数化的正态分布中采样，而不是像非变分自编码器中那样使用来自最终编码器层的向量。TensorFlow 中采样层的代码如下：
+- en: '[PRE7]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'The VAE decoder is identical to that in a non-variational autoencoder—it takes
+    the latent vector `z` produced by the encoder and decodes it into an image (specifically,
+    the reconstruction of the original image input):'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: VAE 解码器与非变分自编码器中的解码器完全相同——它接收由编码器产生的潜变量 `z`，并将其解码为图像（具体来说，是原始图像输入的重构）：
+- en: '[PRE8]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Loss
+  id: totrans-93
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 损失
+- en: 'A variational autoencoder’s loss function contains an image reconstruction
+    term, but we cannot just use the mean squared error (MSE). In addition to the
+    reconstruction error, the loss function also contains a regularization term called
+    the Kullback–Leibler divergence, which is essentially a penalty for the encoder’s
+    normal distribution (parameterized by mean μ and standard deviation σ) not being
+    a perfect standard normal distribution (with mean 0 and a standard deviation of
+    identity):'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 变分自编码器的损失函数包含图像重构项，但我们不能仅仅使用均方误差（MSE）。除了重构误差外，损失函数还包含了称为 Kullback–Leibler 散度的正则化项，它实质上是对编码器的正态分布（由均值
+    μ 和标准差 σ 参数化）不是完美标准正态分布（均值为 0，标准差为单位矩阵）的一种惩罚：
+- en: <math><mrow><mrow><mi>L</mi><mo>=</mo><mrow><mo>‖</mo><mi>x</mi><mo>−</mo><mover><mrow><mi>x</mi></mrow><mrow><mo>^</mo></mrow></mover><msup><mrow><mo>‖</mo></mrow><mrow><mn>2</mn></mrow></msup><mo>+</mo><mi>K</mi><mi>L</mi><mrow><mo>(</mo><mi>N</mi><mrow><mo>(</mo><msub><mrow><mi>μ</mi></mrow><mrow><mi>x</mi></mrow></msub><mo>,</mo><msub><mrow><mi>σ</mi></mrow><mrow><mi>x</mi></mrow></msub><mo>)</mo><mo>,</mo><mi>N</mi><mrow><mo>(</mo><mn>0</mn><mo>,</mo><mi>I</mi><mo>)</mo></mrow></mrow><mo>)</mo></mrow></mrow></mrow></mrow></math>
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math><mrow><mrow><mi>L</mi><mo>=</mo><mrow><mo>‖</mo><mi>x</mi><mo>−</mo><mover><mrow><mi>x</mi></mrow><mrow><mo>^</mo></mrow></mover><msup><mrow><mo>‖</mo></mrow><mrow><mn>2</mn></mrow></msup><mo>+</mo><mi>K</mi><mi>L</mi><mrow><mo>(</mo><mi>N</mi><mrow><mo>(</mo><msub><mrow><mi>μ</mi></mrow><mrow><mi>x</mi></mrow></msub><mo>,</mo><msub><mrow><mi>σ</mi></mrow><mrow><mi>x</mi></mrow></msub><mo>)</mo><mo>,</mo><mi>N</mi><mrow><mo>(</mo><mn>0</mn><mo>,</mo><mi>I</mi><mo>)</mo></mrow></mrow><mo>)</mo></mrow></mrow></mrow></mrow></math>
+- en: 'We therefore modify the encoder loss function as follows:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，我们修改编码器的损失函数如下：
+- en: '[PRE9]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'The overall reconstruction loss is the sum of the per-pixel losses:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总体重构损失是每像素损失的总和：
+- en: '[PRE10]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'We then train the encoder/decoder combination with the MNIST images functioning
+    as both the input features and the labels:'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们使用 MNIST 图像来训练编码器/解码器组合，这些图像既是输入特征也是标签：
+- en: '[PRE11]'
+  id: totrans-101
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: Because the variational encoder has been trained to include the binary cross-entropy
+    in its loss function, it takes into account the separability of the different
+    classes in the images. The resulting latent vectors are more separable, occupy
+    the entire latent space, and are better suited to generation (see [Figure 12-13](#clusters_left_parenthesisleftright_paren)).
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于变分编码器已经训练包括二元交叉熵在其损失函数中，它考虑了图像中不同类别的可分离性。由此产生的潜变量更易分离，占据整个潜空间，并且更适合生成（见[图
+    12-13](#clusters_left_parenthesisleftright_paren)）。
+- en: '![](Images/pmlc_1213.png)'
+  id: totrans-103
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1213.png)'
+- en: Figure 12-13\. Clusters (left) and generated images (right) from a VAE trained
+    on MNIST.
+  id: totrans-104
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-13\. 从 MNIST 上训练的 VAE 中的聚类（左）和生成的图像（右）。
+- en: Variational autoencoders are able to create images that look just like their
+    inputs. But what if we want to generate entirely new images? We’ll look at image
+    generation next.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 变分自编码器能够创建看起来与其输入完全相同的图像。但是，如果我们想要生成全新的图像呢？我们接下来来看一下图像生成。
+- en: Image Generation
+  id: totrans-106
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 图像生成
+- en: Image generation is an important and rapidly growing field that goes well beyond
+    just generating numbers and faces for fun; it has many important use cases for
+    individuals and businesses alike, such as image restoration, image translation,
+    super-resolution, and anomaly detection.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像生成是一个重要且迅速发展的领域，远远超出了仅仅为了娱乐生成数字和面孔；它对个人和企业都有许多重要的用例，如图像恢复、图像翻译、超分辨率和异常检测。
+- en: We saw previously how VAEs re-create their inputs; however, they aren’t particularly
+    successful at creating entirely new images that are similar to but different from
+    the images in the input dataset. This is especially true if the generated images
+    need to be perceptually real—for example, if, given a dataset of images of tools,
+    we want a model to generate new pictures of tools that have different characteristics
+    than the tools in the training images. In this section, we will discuss methods
+    to generate images in cases like these (GANs, cGANs), and some of the uses (such
+    as translation, super-resolution, etc.) to which image generation can be put.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之前看到VAE如何重新创建它们的输入；然而，它们在创建与输入数据集中的图像相似但又不同的全新图像方面并不特别成功。如果生成的图像需要在感知上真实，例如，如果我们给定一个工具图像数据集，希望模型生成具有与训练图像中不同特征的新工具图片，这一点尤为重要。在本节中，我们将讨论在这类情况下生成图像的方法（如GAN、cGAN等），以及图像生成可应用的一些用途（如翻译、超分辨率等）。
+- en: Generative Adversarial Networks
+  id: totrans-109
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 生成对抗网络
+- en: The type of model most often used for image generation is a *generative adversarial
+    network* (GAN). GANs borrow from game theory by pitting two networks against each
+    other until an equilibrium is reached. The idea is that one network, the *generator*,
+    will constantly try to create better and better reproductions of the real images,
+    while the other network, the *discriminator*, will try to get better and better
+    at detecting the difference between the reproductions and the real images. Ideally,
+    the generator and discriminator will establish a Nash equilibrium so that neither
+    network can completely dominate the other one. If one of the networks does begin
+    to dominate the other, not only will there be no way for the “losing” network
+    to recover, but also this unequal competition will prevent the networks from improving
+    each other.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于图像生成的模型类型通常是*生成对抗网络*（GAN）。GAN从博弈论中借鉴，通过使两个网络相互对抗直到达到均衡状态。其理念是，一个网络，生成器，将不断尝试创建更好的真实图像复制品，而另一个网络，判别器，将尝试越来越善于检测复制品与真实图像之间的区别。理想情况下，生成器和判别器将建立纳什均衡，以便任何一个网络都不能完全主导另一个。如果其中一个网络开始主导另一个，不仅没有办法让“失败”的网络恢复，而且这种不平等竞争将阻止网络相互改进。
+- en: The training alternates between the two networks, each one becoming better at
+    what it does by being challenged by the other. This continues until convergence,
+    when the generator has become so good at creating realistic fake images that the
+    discriminator is only randomly guessing which images are real (coming from the
+    dataset) and which images are fake (coming from the generator).
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练在两个网络之间交替进行，每个网络通过与另一个网络的挑战变得更加擅长于其所做的事情。这种过程持续到收敛，当生成器变得非常擅长于创建逼真的假图像时，判别器只是随机猜测哪些图像是真实的（来自数据集），哪些图像是假的（来自生成器）。
+- en: The generator and discriminator are both neural networks. [Figure 12-14](#the_standard_gan_architecturecomma_consi)
+    shows the overall training architecture.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生成器和判别器都是神经网络。[图 12-14](https://example.org/the_standard_gan_architecturecomma_consi)显示了整体训练架构。
+- en: '![](Images/pmlc_1214.png)'
+  id: totrans-113
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](https://example.org/Images/pmlc_1214.png)'
+- en: Figure 12-14\. The standard GAN architecture, consisting of a generator and
+    a discriminator.
+  id: totrans-114
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-14\. 标准GAN架构，由生成器和判别器组成。
+- en: For instance, imagine that a criminal organization wants to create realistic-looking
+    money to deposit at the bank. In this scenario the criminals would be the generator,
+    since they are trying to create realistic fake bills. The bankers would be the
+    discriminator, examining the bills and trying to ensure the bank doesn’t accept
+    any counterfeit money.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，想象一下，一个犯罪组织想要制造看起来真实的钱来存入银行。在这种情况下，犯罪分子将是生成器，因为他们试图制造逼真的假钞。银行家将是判别器，检查钞票并试图确保银行不接受任何假币。
+- en: 'A typical GAN training would begin with both the generator and the discriminator
+    initialized with random weights. In our scenario that would mean that the counterfeiters
+    have no clue how to generate realistic money: the generated outputs at the beginning
+    simply look like random noise. Likewise, the bankers would begin not knowing the
+    difference between a real and a generated bill, so they would be making terribly
+    ill-informed random guesses as to what is real and what is fake.'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 典型的 GAN 训练将以生成器和鉴别器使用随机权重初始化开始。在我们的场景中，这意味着伪造者不知道如何生成逼真的货币：开始时生成的输出看起来只是随机噪声。同样，银行家开始时也不知道真假币之间的区别，因此他们会对真假进行非常不明智的随机猜测。
+- en: The discriminator (the group of bankers) is presented with the first set of
+    legitimate and generated bills, and has to classify them as real or fake. Because
+    the discriminator starts off with random weights, initially it can’t “see” easily
+    that one bill is random noise and the other is a good bill. It’s updated based
+    on how well (or poorly) it performs, so over many iterations the discriminator
+    will start becoming better at predicting which bills are real and which are generated.
+    While the discriminator’s weights are being trained, the generator’s weights are
+    frozen. However, the generator (the group of counterfeiters) is also improving
+    during its turns, so it creates a moving target for the discriminator, progressively
+    increasing the difficulty of the discrimination task. It’s updated during each
+    iteration based on how well (or not) its bills fooled the discriminator, and while
+    it’s being trained the discriminator’s weights are frozen.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴别器（银行家组）被呈现第一组合法和生成的帐单，并且必须将它们分类为真实或伪造。因为鉴别器从随机权重开始，最初它不能轻易地“看到”一个帐单是随机噪声，另一个是好帐单。它会根据其表现的好坏来更新，因此在许多迭代中，鉴别器将开始更好地预测哪些帐单是真实的，哪些是生成的。在训练鉴别器权重时，生成器的权重被冻结。然而，在其轮次内，生成器（伪造者组）也在改进，因此它对鉴别任务的难度逐渐增加。根据它的帐单如何成功（或失败），它在每次迭代中进行更新，而在其训练期间，鉴别器的权重被冻结。
+- en: After many iterations, the generator is beginning to create something resembling
+    real money because the discriminator was getting good at separating real and generated
+    bills. This further pushes the discriminator to get even better at separating
+    the now decent-looking generated bills from the real ones when it is its turn
+    to train.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 经过多次迭代后，生成器开始创造类似真实货币的东西，因为鉴别器在分辨真实和生成帐单方面做得很好。这进一步推动了鉴别器在其训练时更好地分辨现在看起来像样的生成帐单和真实帐单。
+- en: Eventually, after many iterations of training, the algorithm converges. This
+    happens when the discriminator has lost its ability to separate generated bills
+    from real bills and essentially is randomly guessing.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，在许多次训练迭代后，算法收敛。这是指鉴别器已经失去了分辨生成帐单和真实帐单的能力，基本上是随机猜测。
+- en: To see some of the finer details of the GAN training algorithm, we can refer
+    to the pseudocode in [Figure 12-15](#a_vanilla_gan_training_algorithmdot_imag).
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要查看 GAN 训练算法的一些细节，我们可以参考 [Figure 12-15](#a_vanilla_gan_training_algorithmdot_imag)
+    中的伪代码。
+- en: '![](Images/pmlc_1215.png)'
+  id: totrans-121
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1215.png)'
+- en: Figure 12-15\. A vanilla GAN training algorithm. Image from [Goodfellow et al.,
+    2014](https://arxiv.org/pdf/1406.2661.pdf).
+  id: totrans-122
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-15\. 一个基本 GAN 训练算法。图片来自 [Goodfellow et al., 2014](https://arxiv.org/pdf/1406.2661.pdf)。
+- en: As we can see in the first line of the pseudocode, there is an outer `for` loop
+    over the number of alternating discriminator/generator training iterations. We’ll
+    look at each of these updating phases in turn, but first we need to set up our
+    generator and our discriminator.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在伪代码的第一行中所看到的，外层有一个 `for` 循环，循环次数为交替的鉴别器/生成器训练迭代次数。我们将依次查看每个更新阶段，但首先需要设置我们的生成器和鉴别器。
+- en: Creating the networks
+  id: totrans-124
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 创建网络
+- en: Before we do any training, we need to create our networks for the generator
+    and discriminator. In a vanilla GAN, typically this is just a neural network composed
+    of `Dense` layers.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在进行任何训练之前，我们需要为生成器和鉴别器创建网络。在一个基本的 GAN 中，通常这只是由 `Dense` 层组成的神经网络。
+- en: 'The generator network takes a random vector of some latent dimension as input
+    and passes it through some (possibly several) `Dense` layers to generate an image.
+    For this example, we’ll be using the MNIST handwritten digit dataset, so our inputs
+    are 28x28 images. `LeakyReLU` activation functions usually work very well for
+    GAN training because of their nonlinearity, not having vanishing gradient problems
+    while also not losing information for any negative inputs or having the dreaded
+    dying ReLU problem. Alpha is the amount of negative signal we want to leak through
+    where a value of 0 would be the same as a ReLU activation and a value of 1 would
+    be a linear activation. We can see this in the following TensorFlow code:'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生成器网络以某些潜在维度的随机向量作为输入，并通过一些（可能是几个）`Dense`层来生成图像。对于这个示例，我们将使用MNIST手写数字数据集，因此我们的输入是28x28的图像。`LeakyReLU`激活函数通常非常适合GAN训练，因为它们具有非线性特性，不会出现梯度消失问题，同时也不会因为任何负输入而丢失信息，也不会遇到可怕的ReLU死亡问题。Alpha是我们希望通过的负信号量，在这里，值为0与ReLU激活相同，值为1则是线性激活。我们可以在下面的TensorFlow代码中看到这一点：
+- en: '[PRE12]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'The discriminator network in a vanilla GAN is also made up of `Dense` layers,
+    but instead of generating images, it takes images as input, as shown here. The
+    outputs are vectors of logits:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在普通GAN中的鉴别器网络也由`Dense`层组成，但不是生成图像，而是以图像作为输入，如此处所示。输出是logits向量：
+- en: '[PRE13]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Discriminator training
+  id: totrans-130
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 鉴别器训练
+- en: Within the outer loop is an inner loop for updating the discriminator. First,
+    we sample a mini-batch of noise, typically random samples from a standard normal
+    distribution. The random noise latent vector is passed through the generator to
+    create generated (fake) images, as shown in [Figure 12-16](#the_generator_creates_its_first_batch_of).
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在外循环内是更新鉴别器的内循环。首先，我们抽样一个小批量的噪声，通常是从标准正态分布中随机抽样的样本。随机噪声潜在向量通过生成器生成生成（假）图像，如[图 12-16](#the_generator_creates_its_first_batch_of)所示。
+- en: '![](Images/pmlc_1216.png)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1216.png)'
+- en: Figure 12-16\. The generator creates its first batch of generated images by
+    sampling from the latent space, and passes them to the discriminator.
+  id: totrans-133
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-16\. 生成器通过从潜在空间抽样创建其第一批生成图像，并将其传递给鉴别器。
+- en: 'In TensorFlow, we could for instance sample a batch of random normals using
+    the following code:'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TensorFlow中，例如，我们可以使用以下代码来抽样一批随机正态分布的随机数：
+- en: '[PRE14]'
+  id: totrans-135
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: We also sample a mini-batch of examples from our dataset—in our case, real images—as
+    shown in [Figure 12-17](Images/#we_also_extract_a_batch_of_real_images_f).
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还从数据集中抽样一小批示例，即我们的情况下的真实图像，如[图 12-17](Images/#we_also_extract_a_batch_of_real_images_f)所示。
+- en: '![](Images/pmlc_1217.png)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1217.png)'
+- en: Figure 12-17\. We also extract a batch of real images from the training dataset
+    and pass this to the discriminator.
+  id: totrans-138
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-17\. 我们还从训练数据集中提取了一批真实图像，并将其传递给鉴别器。
+- en: 'The generated images from the generator and the real images from the dataset
+    are each passed through the discriminator, which makes its predictions. Loss terms
+    for the real images and generated images are then calculated, as shown in [Figure 12-18](#real_and_generated_samples_pass_through).
+    Losses can take many different forms: binary cross-entropy (BCE), the average
+    of the final activation map, second-order derivative terms, other penalties, etc.
+    In the sample code, we’ll be using BCE: the larger the real image loss, the more
+    the discriminator thought that the real images were fake; the larger the generated
+    image loss, the more the discriminator thought that the generated images were
+    real.'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生成器生成的图像和数据集中的真实图像分别通过鉴别器，鉴别器进行预测。然后计算真实图像和生成图像的损失项，如[图 12-18](#real_and_generated_samples_pass_through)所示。损失可以采用许多不同形式：二元交叉熵（BCE）、最终激活映射的平均值、二阶导数项、其他惩罚等。在示例代码中，我们将使用BCE：真实图像损失越大，鉴别器认为真实图像是假的；生成图像损失越大，鉴别器认为生成图像是真的。
+- en: '![](Images/pmlc_1218.png)'
+  id: totrans-140
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1218.png)'
+- en: Figure 12-18\. Real and generated samples pass through the discriminator to
+    calculate the losses.
+  id: totrans-141
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-18\. 真实样本和生成样本通过鉴别器以计算损失。
+- en: 'We do this in the following TensorFlow code (as usual, the complete code is
+    in [*12c_gan.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/12_generation/12c_gan.ipynb)).
+    We can concatenate our generated and real images together and do the same with
+    the corresponding labels so that we can do one pass through the discriminator:'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在以下的TensorFlow代码中执行这个操作（通常情况下，完整代码在GitHub上的[*12c_gan.ipynb*](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/12_generation/12c_gan.ipynb)）。我们可以将我们生成的和真实的图像连接在一起，并用相应的标签做同样的事情，以便我们可以通过鉴别器进行一次传递：
+- en: '[PRE15]'
+  id: totrans-143
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: We first pass our random latent vectors through the generator to obtain a batch
+    of generated images. This is concatenated with our batch of real images so we
+    have both sets of images together in one tensor.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先将随机的潜在向量通过生成器生成一批生成的图像。这些图像与我们的真实图像批次连接起来，以便在一个张量中同时包含两组图像。
+- en: We then generate our labels. For the generated images we make a vector of 0s,
+    and for the real images a vector of 1s. This is because with our BCE loss we are
+    essentially just doing binary image classification (where the positive class is
+    that of the real images), and therefore we are getting the probability that an
+    image is real. Labeling the real images with 1s and the fake images with 0s encourages
+    the discriminator model to output probabilities as close to 1 as possible for
+    real images and as close to 0 as possible for fake images.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们生成我们的标签。对于生成的图像，我们制作一个由0组成的向量，对于真实图像，是由1组成的向量。这是因为在我们的二元交叉熵（BCE）损失中，我们实质上只是进行二元图像分类（其中正类是真实图像），因此我们得到的是图像是真实的概率。将真实图像标记为1，虚假图像标记为0，鼓励鉴别器模型输出尽可能接近1的概率，以及尽可能接近0的概率。
+- en: It can be helpful sometimes to add one-sided label smoothing to our real labels,
+    which involves multiplying them by a float constant in the range [0.0, 1.0]. This
+    helps the discriminator avoid becoming overconfident in its predictions based
+    on only a small set of features within the images, which the generator may then
+    exploit (causing it to become good at beating the discriminator but not at image
+    generation).
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时向我们的真实标签添加单侧标签平滑可能会有所帮助，这涉及将它们乘以一个在范围[0.0, 1.0]内的浮点常数。这有助于鉴别器避免基于图像中仅有的少量特征而过于自信的预测，这可能会被生成器利用（导致它擅长欺骗鉴别器但不擅长生成图像）。
+- en: Since this is a discriminator training step, we use a combination of these losses
+    to calculate the gradients with respect to the discriminator weights and then
+    update the aforementioned weights as shown in [Figure 12-19](#discriminator_weights_are_updated_with_r).
+    Remember, during the discriminator training phase the generator’s weights are
+    frozen. This way each network gets its own chance to learn, independent of the
+    other.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这是鉴别器的训练步骤，我们使用这些损失的组合来计算相对于鉴别器权重的梯度，然后根据[图 12-19](#discriminator_weights_are_updated_with_r)中所示更新前述的权重。请记住，在鉴别器训练阶段，生成器的权重是冻结的。这样每个网络都有机会独立学习，与其他网络无关。
+- en: '![](Images/pmlc_1219.png)'
+  id: totrans-148
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1219.png)'
+- en: Figure 12-19\. Discriminator weights are updated with respect to losses.
+  id: totrans-149
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-19\. 相对于损失更新鉴别器权重。
+- en: 'In the following code we can see this discriminator update being performed:'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下面的代码中，我们可以看到这种鉴别器更新的执行过程：
+- en: '[PRE16]'
+  id: totrans-151
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Generator training
+  id: totrans-152
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 生成器训练
+- en: After a few steps of applying gradient updates to the discriminator, it’s time
+    to update the generator (this time with the discriminator’s weights frozen). We
+    can do this in an inner loop too. This is a simple process where we again take
+    a mini-batch of random samples from our standard normal distribution and pass
+    them through the generator to obtain fake images.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 经过几步应用于鉴别器的梯度更新之后，是时候更新生成器了（这次需要冻结鉴别器的权重）。我们也可以在内部循环中执行这个过程。这是一个简单的过程，我们再次从我们的标准正态分布中抽取一个小批量的随机样本，并将它们通过生成器生成以获得虚假图像。
+- en: 'In TensorFlow the code would look like this:'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TensorFlow中，代码看起来像这样：
+- en: '[PRE17]'
+  id: totrans-155
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Notice that even though these will be generated images, we will label them as
+    real. Remember, we want to trick the discriminator into thinking our generated
+    images are real. We can provide the generator with the gradients produced by the
+    discriminator on images it was not fooled by. The generator can use these gradients
+    to update its weights so that the next time it can do a better job of fooling
+    the discriminator.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，尽管这些将是生成的图像，我们会将它们标记为真实。请记住，我们想要欺骗鉴别器，让它认为我们生成的图像是真实的。我们可以提供给生成器由鉴别器在它没有被欺骗的图像上产生的梯度。生成器可以利用这些梯度更新其权重，以便下次能更好地欺骗鉴别器。
+- en: The random inputs pass through the generator as before to create generated images;
+    however, there are no real images needed for generator training, as you can see
+    in [Figure 12-20](Images/#we_only_use_generated_images_for_generat).
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机输入像以前一样通过生成器生成生成的图像； 然而，生成器训练不需要真实图像，正如您在[图 12-20](Images/#we_only_use_generated_images_for_generat)中所看到的那样。
+- en: '![](Images/pmlc_1220.png)'
+  id: totrans-158
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1220.png)'
+- en: Figure 12-20\. We only use generated images for generator training.
+  id: totrans-159
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-20\. 我们仅使用生成的图像进行生成器训练。
+- en: The generated images are then passed through the discriminator as before and
+    a generator loss is calculated, as seen in [Figure 12-21](#only_generated_samples_pass_through_the).
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后像以前一样，生成的图像通过鉴别器并计算生成器损失，正如[图 12-21](#only_generated_samples_pass_through_the)中所示。
+- en: '![](Images/pmlc_1221.png)'
+  id: totrans-161
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1221.png)'
+- en: Figure 12-21\. Only generated samples pass through the discriminator to calculate
+    the loss.
+  id: totrans-162
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-21\. 只有生成的样本通过鉴别器以计算损失。
+- en: Notice that no real images from the dataset are used in this phase. The loss
+    is used to update only the generator’s weights, as shown in [Figure 12-22](#the_generatorapostrophes_weights_are_upd);
+    even though the discriminator was used in the generator’s forward pass, its weights
+    are frozen during this phase so it does not learn anything from this process.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，此阶段不使用数据集中的实际图像。 损失仅用于更新生成器的权重，如[图 12-22](#the_generatorapostrophes_weights_are_upd)所示；尽管鉴别器在生成器的前向传递中被使用，但其权重在此阶段被冻结，因此它不会从此过程中学到任何东西。
+- en: '![](Images/pmlc_1222.png)'
+  id: totrans-164
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1222.png)'
+- en: Figure 12-22\. The generator’s weights are updated with respect to the loss.
+  id: totrans-165
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-22\. 生成器的权重根据损失进行更新。
+- en: 'Here’s the code that performs the generator update:'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是执行生成器更新的代码：
+- en: '[PRE18]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Once this is complete we go back to the discriminator’s inner loop, and so on
+    and so forth until convergence.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦完成，我们会回到鉴别器的内部循环，依此类推，直到收敛。
+- en: 'We can call the following code from our vanilla GAN generator TensorFlow model
+    to see some of the generated images:'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以从我们的香草GAN生成器TensorFlow模型中调用以下代码，以查看一些生成的图像：
+- en: '[PRE19]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Of course, if the model hasn’t been trained, the images coming out will be random
+    noise (produced by random noise coming in and going through multiple layers of
+    random weights). [Figure 12-23](#mnist_digits_generated_by_a_vanilla_gan) shows
+    what our GAN has learned once training on the MNIST handwritten digit dataset
+    is complete.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，如果模型尚未经过训练，输出的图像将是随机噪声（由输入随机噪声并通过多层随机权重传递而产生）。 [图 12-23](#mnist_digits_generated_by_a_vanilla_gan)展示了我们的GAN在完成对MNIST手写数字数据集训练后学到的内容。
+- en: '![](Images/pmlc_1223.png)'
+  id: totrans-172
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1223.png)'
+- en: Figure 12-23\. MNIST digits generated by a vanilla GAN generator.
+  id: totrans-173
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-23\. 香草GAN生成器生成的MNIST数字。
+- en: Distribution changes
+  id: totrans-174
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 分布变化
+- en: GANs definitely have an interesting training procedure compared to more traditional
+    machine learning models. They may even seem a bit mysterious in terms of how they
+    work mathematically to learn the things they do. One way of trying to understand
+    them a little more deeply is to observe the dynamics of the learned distributions
+    of the generator and discriminator as they each try to outdo the other. [Figure 12-24](#learned_distribution_evolution_during_ga)
+    shows how the generator’s and discriminator’s learned distributions change throughout
+    the GAN training.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与更传统的机器学习模型相比，GAN确实具有有趣的训练过程。 从数学上来说，它们如何工作可能显得有些神秘，试图更深入地理解它们的一种方式是观察生成器和鉴别器学习的分布动态，它们各自努力超越对方。
+    [图 12-24](#learned_distribution_evolution_during_ga)展示了在GAN训练过程中生成器和鉴别器学习的分布如何变化。
+- en: '![](Images/pmlc_1224.png)'
+  id: totrans-176
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1224.png)'
+- en: Figure 12-24\. Learned distribution evolution during GAN training. The dashed
+    line is the discriminator distribution, the solid line is the generator distribution,
+    and the dotted line is the data generating (true data) distribution. The lower
+    horizontal line is the domain that z is sampled from for the latent space and
+    the upper horizontal line is a portion of the domain of x for the image space.
+    The arrows show how z maps to x by x = G(z). The generator distribution shrinks
+    in regions of low density and expands in regions of high density of the z to x
+    mapping. Image from [Goodfellow et al., 2014](https://arxiv.org/abs/1406.2661).
+  id: totrans-177
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-24\. GAN训练期间学习分布的演变。虚线是鉴别器分布，实线是生成器分布，点线是数据生成（真实数据）分布。下方的水平线是从中采样潜在空间z的域，上方的水平线是图像空间x的一部分域。箭头显示了z如何通过x
+    = G(z)映射到x。生成器分布在z到x映射的低密度区域收缩并在高密度区域扩展。图片来源于[Goodfellow et al., 2014](https://arxiv.org/abs/1406.2661)。
+- en: 'In [Figure 12-24](#learned_distribution_evolution_during_ga)(a) we can see
+    that the generator is not amazing, but is doing a decent job at generating some
+    of the data distribution. The solid-lined generator distribution overlaps somewhat
+    with the dotted-lined true data distribution (what we’re trying to learn to generate
+    from). Likewise, the discriminator does a fairly decent job of classifying real
+    versus fake samples: it shows a strong signal (dashed line) when overlapping the
+    dotted-lined data distribution and to the left of the peak of the generator distribution.
+    The discriminative signal greatly shrinks in the region where the solid-lined
+    generator distribution peaks.'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图12-24](#learned_distribution_evolution_during_ga)(a)中，我们可以看到生成器表现并不惊艳，但在生成部分数据分布方面做得相当不错。实线生成器分布与点线真实数据分布（我们试图生成的内容）有所重叠。同样地，鉴别器在分类真实与伪造样本方面表现相当不错：当与点线数据分布重叠及生成器分布峰值左侧时，显示出强信号（虚线）。在生成器分布峰值区域，鉴别信号显著减小。
+- en: The discriminator is then trained on another batch of real and generated images
+    from the fixed generator within the inner discriminator training loop, over some
+    number of iterations. In [Figure 12-24](#learned_distribution_evolution_during_ga)(b)
+    we can see that the dashed-lined discriminator distribution smooths out, and on
+    the right it follows along the dotted-lined data distribution under the solid-lined
+    generator distribution. On the left the distribution is much higher, and closer
+    to the data distribution. Notice that the solid-lined generator distribution does
+    not change at this step since we haven’t updated the generator yet.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴别器然后在内部鉴别器训练循环中的固定生成器的另一批真实和生成图像上进行训练，持续若干次迭代。在[图12-24](#learned_distribution_evolution_during_ga)(b)中，我们可以看到虚线鉴别器分布变得平滑，在右侧跟随实线生成器分布下的点线数据分布。在左侧，分布较高，并接近数据分布。请注意，由于尚未更新生成器，实线生成器分布在这一步骤中不会改变。
+- en: '[Figure 12-24](#learned_distribution_evolution_during_ga)(c) shows the results
+    after the generator has been trained for some number of iterations. The performance
+    of the newly updated discriminator helps guide it to shift its network weights
+    and thus fill in some of the gaps it was missing from the data distribution, so
+    it gets better at generating fake samples. We can see this as the solid-lined
+    generator distribution is now much closer to the dotted curve of the data distribution.'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图12-24](#learned_distribution_evolution_during_ga)(c)展示了生成器训练若干次迭代后的结果。新更新的鉴别器表现有助于引导其调整网络权重，并填补其在数据分布中缺失的一些部分，从而使其在生成伪样本方面变得更加优秀。我们可以看到，实线生成器分布现在与数据分布的点线曲线更加接近。'
+- en: '[Figure 12-24](#learned_distribution_evolution_during_ga)(d) shows the results
+    after many more iterations alternating between training the discriminator and
+    the generator. If both networks have enough capacity, the generator will have
+    converged: its distribution will closely match with the data distribution, and
+    it will be generating great-looking samples. The discriminator has also converged
+    because it is no longer able to tell what is a real sample from the data distribution
+    and what is a generated sample from the generator distribution. Thus, the discriminator’s
+    distribution flatlines to random guesses with 50/50 odds, and training of the
+    GAN system is complete.'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 12-24](#learned_distribution_evolution_during_ga)(d) 显示了在多次交替训练鉴别器和生成器之后的结果。如果两个网络具有足够的容量，生成器将会收敛：其分布将与数据分布非常接近，并且生成的样本看起来非常好。鉴别器也已经收敛，因为它已经无法区分真实样本来自数据分布还是生成样本来自生成器分布。因此，鉴别器的分布会平坦到随机猜测的50/50几率，并且GAN系统的训练完成。'
+- en: GAN Improvements
+  id: totrans-182
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: GAN改进
+- en: This looks great on paper, and GANs are extremely powerful for image generation—however,
+    in practice they can be extremely hard to train due to hypersensitivity to hyperparameters,
+    unstable training, and many failure modes.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 纸上看起来很棒，GAN对于图像生成非常强大，但是在实践中，由于对超参数的高度敏感、训练不稳定以及许多失败模式，它们可能非常难以训练。
+- en: If either network gets too good at its job too fast, then the other network
+    will be unable to keep up, and the generated images will never get to look very
+    realistic. Another problem is mode collapse, where the generator loses most of
+    its diversity in creating images and only generates the same few outputs. This
+    happens when it stumbles upon a generated output that for whatever reason is very
+    good at stumping the discriminator. This can go on for quite some time during
+    training until, by chance, the discriminator finally is able to detect that those
+    few images are generated and not real.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果任何一个网络在其工作中进展得太快，那么另一个网络将无法跟上，生成的图像将永远无法看起来非常真实。另一个问题是模式崩溃，生成器在创建图像时失去了大部分多样性，只生成了同样的几个输出。当生成器偶然生成了一个非常擅长困惑鉴别器的图像时，这种情况会持续相当长的时间。在训练过程中，直到鉴别器最终能够检测到这些少数图像是生成的而不是真实的。
+- en: In a GAN, the first network (the generator) has an expanding layer size from
+    its input layer to its output layer. The second network (the discriminator) has
+    a shrinking layer size from its input layer to its output layer. Our vanilla GAN
+    architecture used dense layers, like an autoencoder. However, convolutional layers
+    tend to perform better on tasks involving images.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在GAN中，第一个网络（生成器）从其输入层到其输出层具有扩展的层大小。第二个网络（鉴别器）从其输入层到其输出层具有缩小的层大小。我们的香草GAN架构使用了密集层，类似于自动编码器。然而，在涉及图像的任务中，卷积层往往表现更好。
+- en: 'A *deep convolutional GAN* (DCGAN) is more or less just a vanilla GAN with
+    the dense layers swapped out for convolutional layers. In the following TensorFlow
+    code, we define a DCGAN generator:'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*深度卷积GAN*（DCGAN）基本上只是将香草GAN中的密集层替换为卷积层。在以下TensorFlow代码中，我们定义了一个DCGAN生成器：'
+- en: '[PRE20]'
+  id: totrans-187
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'Our templated generator block then looks like the following:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的模板化生成器块如下所示：
+- en: '[PRE21]'
+  id: totrans-189
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'Likewise, we can define a DCGAN discriminator like this:'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样地，我们可以像这样定义一个DCGAN鉴别器：
+- en: '[PRE22]'
+  id: totrans-191
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'And here’s our templated discriminator block:'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是我们的模板化鉴别器块：
+- en: '[PRE23]'
+  id: totrans-193
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: As you can see, the generator is upsampling the image using `Conv2DTranspose`
+    layers whereas the discriminator is downsampling the image using `Conv2D` layers.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你所看到的，生成器使用`Conv2DTranspose`层对图像进行上采样，而鉴别器使用`Conv2D`层对图像进行下采样。
+- en: 'We can then call the trained DCGAN generator to see what it has learned:'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们可以调用训练好的DCGAN生成器来看看它学到了什么：
+- en: '[PRE24]'
+  id: totrans-196
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: The results are shown in [Figure 12-25](#generated_mnist_digits_produced_by_the_d).
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果显示在[图 12-25](#generated_mnist_digits_produced_by_the_d)中。
+- en: '![](Images/pmlc_1225.png)'
+  id: totrans-198
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1225.png)'
+- en: Figure 12-25\. Generated MNIST digits produced by the DCGAN generator.
+  id: totrans-199
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-25\. DCGAN生成器生成的生成的MNIST数字。
+- en: There are many other improvements that can be made to vanilla GANs, such as
+    using different loss terms, gradients, and penalties. Since this is an active
+    area of research, those are beyond the scope of this book.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以对香草GAN进行许多其他改进，例如使用不同的损失项、梯度和惩罚项。由于这是一个活跃的研究领域，这些超出了本书的范围。
+- en: Conditional GANs
+  id: totrans-201
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 有条件的GAN
+- en: The basic GAN that we discussed previously is trained in a completely unsupervised
+    way on images that we want to learn how to generate. Latent representations, such
+    as a random noise vector, are then used to explore and sample the learned image
+    space. A simple enhancement is to add an external flag to our inputs with a label.
+    For instance, consider the MNIST dataset, which consists of handwritten digits
+    from 0 to 9\. Normally, the GAN just learns the distribution of digits, and when
+    the generator is given random noise vectors it generates different digits, as
+    shown in [Figure 12-26](#unconditional_gan_outputdot). However, which digits are
+    generated cannot be controlled.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之前讨论过的基本 GAN 完全无监督地训练在我们想要生成的图像上。例如，随机噪声向量等潜在表示用于探索和采样学习的图像空间。一个简单的增强方法是在我们的输入中添加一个外部标志和一个标签。例如，考虑
+    MNIST 数据集，它包含从 0 到 9 的手写数字。通常，GAN 只学习数字的分布，当生成器被给定随机噪声向量时，它生成不同的数字，如图 [12-26](#unconditional_gan_outputdot)
+    所示。然而，生成的是哪些数字无法控制。
+- en: '![](Images/pmlc_1226.png)'
+  id: totrans-203
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1226.png)'
+- en: Figure 12-26\. Unconditional GAN output.
+  id: totrans-204
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-26\. 无条件 GAN 输出。
+- en: During training, as with MNIST, we may know the actual label or class designation
+    for each image. That extra information can be included as a feature in our GAN
+    training that can then be used at inference time. With *conditional GANs* (cGANs),
+    image generation can be conditional on the label, so we are able to home in on
+    the specific digit of interest’s distribution. Then, at inference time we can
+    create an image of a specific digit by passing in the desired label instead of
+    receiving a random digit, as seen in [Figure 12-27](#conditional_gan_outputdot).
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在训练过程中，就像 MNIST 一样，我们可能知道每个图像的实际标签或类别。这些额外的信息可以作为我们的 GAN 训练中的特征，然后在推理时使用。通过
+    *条件 GANs*（cGANs），图像生成可以依赖于标签，因此我们能够聚焦于特定感兴趣的数字分布。然后，在推理时，我们可以通过传入期望的标签而不是接收随机数字，创建特定数字的图像，如图
+    [12-27](#conditional_gan_outputdot) 所示。
+- en: '![](Images/pmlc_1227.png)'
+  id: totrans-206
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1227.png)'
+- en: Figure 12-27\. Conditional GAN output.
+  id: totrans-207
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-27\. 有条件的 GAN 输出。
+- en: The cGAN generator
+  id: totrans-208
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: cGAN 生成器
+- en: 'We need to make some changes to our vanilla GAN generator code from earlier
+    so that we can incorporate the label. Essentially, we’ll be concatenating our
+    latent vector with a vector representation of our labels, as you can see in the
+    following code:'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要对之前的香草 GAN 生成器代码进行一些更改，以便我们可以整合标签。基本上，我们将把我们的潜在向量与标签的向量表示连接起来，正如您可以在以下代码中看到的那样：
+- en: '[PRE25]'
+  id: totrans-210
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: Here, we use an `Embedding` layer to transform our integer labels into a dense
+    representation. We’ll later be combining the embedding of the label with our typical
+    random noise vector to create a new latent vector that is a mixture of the input
+    latent space and the class labels. We then use a `Dense` layer to further mix
+    the components.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们使用一个`Embedding`层将我们的整数标签转换为密集表示。稍后，我们将结合标签的嵌入和我们典型的随机噪声向量创建一个新的潜在向量，这是输入潜在空间和类标签的混合。然后，我们使用一个`Dense`层进一步混合组件。
+- en: 'Next, we utilize our standard vanilla GAN generator from before. However, this
+    time we are using the Keras Functional API, as we did for our variational autoencoder
+    earlier, because we now have multiple inputs to our generator model (the latent
+    vector and labels):'
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们利用之前的标准香草 GAN 生成器。但是，这次我们使用 Keras 的功能性 API，就像我们之前对变分自编码器所做的那样，因为现在我们的生成器模型有多个输入（潜在向量和标签）：
+- en: '[PRE26]'
+  id: totrans-213
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'Now that we have a way to embed our integer labels, we can combine this with
+    our original standard generator to create a vanilla cGAN generator:'
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了一种将整数标签嵌入的方法，我们可以将其与我们原来的标准生成器结合起来，创建一个香草 cGAN 生成器：
+- en: '[PRE27]'
+  id: totrans-215
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'Notice we now have two sets of inputs using the Keras `Input` layer. Remember,
+    this is the main reason we are using the Keras Functional API instead of the Sequential
+    API: it allows us to have an arbitrary number of inputs and outputs, with any
+    type of network connectivity in between. Our first input is the standard latent
+    vector, which is our generated random normal noise. Our second input is the integer
+    labels that we will condition on later, so we can target certain classes of generated
+    images via labels provided at inference time. Since, in this example, we are using
+    MNIST handwritten digits, the labels will be integers between 0 and 9.'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们使用 Keras 的`Input`层有两组输入。记住，这是我们使用 Keras Functional API 而不是 Sequential API
+    的主要原因：它允许我们拥有任意数量的输入和输出，并在其间实现任意类型的网络连接。我们的第一个输入是标准的潜在向量，即我们生成的随机正态噪声。我们的第二个输入是整数标签，稍后我们将根据这些标签进行条件控制，因此我们可以通过推理时提供的标签来定位生成图像的特定类别。由于在此示例中，我们使用的是
+    MNIST 手写数字，标签将是 0 到 9 之间的整数。
+- en: Once we’ve created our dense label vectors, we combine them with our latent
+    vectors using a Keras `Concatenate` layer. Now we have a single tensor of vectors,
+    each of shape `latent_dim` + `dense_units`. This is our new “latent vector,” which
+    gets sent into the standard vanilla GAN generator. This isn’t the original latent
+    vector of our original vector space that we sampled random points from, but is
+    now a new higher-dimensional vector space due to the concatenation of the encoded
+    label vector.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们创建了我们的密集标签向量，我们使用 Keras 的`Concatenate`层将它们与我们的潜在向量结合起来。现在我们有一个向量的单个张量，每个的形状为`latent_dim`
+    + `dense_units`。这是我们的新“潜在向量”，它被发送到标准的香草 GAN 生成器中。这不是我们原始向量空间中原始潜在向量的原始潜在向量，我们从中随机采样了随机点，但是现在由于编码标签向量的串联而成为一个新的更高维度的向量空间。
+- en: This new latent vector helps us target specific classes for generation. The
+    class label is now embedded in the latent vector and therefore will be mapped
+    to a different point in image space than with the original latent vector. Furthermore,
+    given the same latent vector, each label pairing will map to a different point
+    in image space because it is using a different learned mapping due to the different
+    concatenated latent–label vectors. Therefore, when the GAN is trained it learns
+    to map each latent point to a point in image space corresponding to an image belonging
+    to one of the 10 classes.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个新的潜在向量帮助我们定位特定的类别进行生成。类标签现在嵌入在潜在向量中，因此将映射到图像空间中的不同点，而不是原始潜在向量中的随机点。此外，给定相同的潜在向量，每个标签配对将映射到图像空间中的不同点，因为它使用不同的学习映射，这是由于不同的连接的潜在-标签向量。因此，当
+    GAN 被训练时，它学会将每个潜在点映射到图像空间中的一个属于 10 个类别之一的图像。
+- en: As we can see at the end of the function, we simply instantiate a Keras `Model`
+    with our two input tensors and output tensor. Looking at the conditional GAN generator’s
+    architecture diagram, shown in [Figure 12-28](#conditional_gan_generator_architecturedo),
+    should make clear how we are using the two sets of inputs, the latent vector and
+    the label, to generate images.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如我们所见，在函数的最后，我们简单地使用我们的两个输入张量和输出张量实例化了一个 Keras `Model`。查看有条件的 GAN 生成器架构图，显示在
+    [图 12-28](#conditional_gan_generator_architecturedo) 中，应该清楚地说明了我们如何使用两组输入，即潜在向量和标签，来生成图像。
+- en: '![](Images/pmlc_1228.png)'
+  id: totrans-220
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1228.png)'
+- en: Figure 12-28\. Conditional GAN generator architecture.
+  id: totrans-221
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-28\. 有条件的 GAN 生成器架构。
+- en: Now that we’ve seen the generator, let’s take a look at the code for the conditional
+    GAN discriminator.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经看过生成器了，让我们来看看有条件的 GAN 判别器的代码。
+- en: The cGAN discriminator
+  id: totrans-223
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: cGAN 判别器
+- en: For the generator, we created label vectors that we concatenated with our latent
+    vectors. For the discriminator, which has image inputs, we instead convert the
+    labels into images and concatenate the images created from the labels with the
+    input images. This allows the label information to be embedded into our images
+    to help the discriminator differentiate between real and generated images. The
+    label will help warp the latent space to image space mapping such that each input
+    will be associated with its label’s bubble within image space. For example, for
+    MNIST, if the model is given the digit 2, the discriminator will generate something
+    within the bubble of 2s in the learned image space.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于生成器，我们创建了与潜在向量连接的标签向量。对于具有图像输入的判别器，我们将标签转换为图像，并将从标签创建的图像与输入图像结合起来。这样可以将标签信息嵌入到我们的图像中，帮助判别器区分真实图像和生成图像。标签将帮助扭曲从潜在空间到图像空间的映射，以便每个输入都与其标签的图像空间内的泡泡相关联。例如，在
+    MNIST 中，如果模型给出数字 2，判别器将在学习的图像空间中生成2的泡泡内的某些内容。
+- en: 'To accomplish the conditional mapping for the discriminator, we once again
+    pass our integer labels through an `Embedding` and a `Dense` layer. However, each
+    example in the batch is now just a vector `num_pixels` long. Thus, we use a `Reshape`
+    layer to transform the vector into an image with just one channel. Think of it
+    as a grayscale image representation of our label. In the following code, we can
+    see the labels being embedded into images:'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了完成判别器的条件映射，我们再次通过`Embedding`层和`Dense`层传递我们的整数标签。然而，批次中的每个示例现在只是一个长度为 `num_pixels`
+    的向量。因此，我们使用`Reshape`层将向量转换为具有一个通道的图像。可以将其视为我们标签的灰度图像表示。在下面的代码中，我们可以看到标签被嵌入到图像中：
+- en: '[PRE28]'
+  id: totrans-226
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'As we did for the generator, we will reuse our standard vanilla GAN discriminator
+    from the previous section that maps images into logit vectors that will be used
+    for loss calculations with binary cross-entropy. Here’s the code for the standard
+    discriminator, using the Keras Functional API:'
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像我们为生成器所做的那样，我们将重用我们在前一节中使用的标准的普通 GAN 判别器，该判别器将图像映射到用于与二元交叉熵损失计算的对数向量中。以下是使用
+    Keras Functional API 的标准判别器的代码：
+- en: '[PRE29]'
+  id: totrans-228
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'Now we’ll create our conditional GAN discriminator. It has two inputs: the
+    first is the standard image input, and the second is the class labels that the
+    images will be conditioned on. Just like for the generator, we convert our labels
+    into a usable representation to use with our images—namely, into grayscale images—and
+    we use a `Concatenate` layer to combine the input images with the label images.
+    We send those combined images into our standard vanilla GAN discriminator and
+    then instantiate a Keras `Model` using our two inputs, the outputs, and a name
+    for the discriminator `Model`:'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们将创建我们的条件 GAN 判别器。它有两个输入：第一个是标准的图像输入，第二个是图像将被条件化的类标签。就像生成器一样，我们将标签转换为可用于与图像配合使用的表示形式——即转换为灰度图像——并使用`Concatenate`层将输入图像与标签图像结合起来。我们将这些组合图像发送到我们标准的普通
+    GAN 判别器中，然后使用我们的两个输入、输出以及判别器`Model`的名称实例化一个 Keras `Model`：
+- en: '[PRE30]'
+  id: totrans-230
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: '[Figure 12-29](#conditional_gan_discriminator_architectu) shows the full conditional
+    GAN discriminator architecture.'
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 12-29](#conditional_gan_discriminator_architectu)展示了完整的条件 GAN 判别器架构。'
+- en: '![](Images/pmlc_1229.png)'
+  id: totrans-232
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1229.png)'
+- en: Figure 12-29\. Conditional GAN discriminator architecture.
+  id: totrans-233
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-29\. 条件 GAN 判别器架构。
+- en: The rest of the conditional GAN training process is virtually the same as the
+    non-conditional GAN training process, except for the fact we now pass in the labels
+    from our dataset to use both for the generator and the discriminator.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 条件 GAN 训练过程的其余部分与非条件 GAN 训练过程基本相同，只是现在我们将数据集中的标签传递给生成器和判别器使用。
+- en: Using a `latent_dim` of 512 and training for 30 epochs, we can use our generator
+    to produce images like the ones in [Figure 12-30](#generated_digits_from_the_conditional_va).
+    Note that for each row the label used at inference was the same, hence why the
+    first row is all zeros, the second row is all ones, and so on. This is great!
+    Not only can we generate handwritten digits, but we can specifically generate
+    the digits we want.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 `latent_dim` 为 512 并训练 30 个 epochs 后，我们可以使用我们的生成器生成像[图 12-30](#generated_digits_from_the_conditional_va)中的图像那样的图像。请注意，对于每一行，推理时使用的标签是相同的，因此第一行全为零，第二行全为一，依此类推。这很棒！我们不仅可以生成手写数字，还可以专门生成我们想要的数字。
+- en: '![](Images/pmlc_1230.png)'
+  id: totrans-236
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1230.png)'
+- en: Figure 12-30\. Generated digits from the conditional vanilla GAN after training
+    on the MNIST dataset.
+  id: totrans-237
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-30\. 在MNIST数据集训练后，条件普通GAN生成的数字。
+- en: We can get even cleaner results if, instead of using our standard vanilla GAN
+    generator and discriminator, we use the DCGAN generator and discriminator shown
+    earlier. [Figure 12-31](#generated_digits_from_the_conditional_dc) shows some
+    of the images generated after training the conditional DCGAN model with a `latent_dim`
+    of 512 for 50 epochs.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们使用之前展示过的DCGAN生成器和判别器而不是标准的普通GAN生成器和判别器，我们可以得到更干净的结果。[图12-31](#generated_digits_from_the_conditional_dc)展示了在使用512的`latent_dim`和50个epochs训练条件DCGAN模型后生成的一些图片。
+- en: '![](Images/pmlc_1231.png)'
+  id: totrans-239
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1231.png)'
+- en: Figure 12-31\. Generated digits from the conditional DCGAN after training on
+    the MNIST dataset.
+  id: totrans-240
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-31\. 在MNIST数据集训练后，条件DCGAN生成的数字。
+- en: GANs are powerful tools for generating data. We focused on image generation
+    here, but other types of data (such as tabular, time series, and audio data) can
+    also be generated via GANs. However, GANs are a bit finicky and often require
+    the use of the tricks we’ve covered here, and many more, to improve their quality
+    and stability. Now that you’ve added GANs as another tool in your toolbox, let’s
+    look at some advanced applications that use them.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: GAN是生成数据的强大工具。我们在这里关注了图像生成，但GAN也可以生成其他类型的数据（如表格、时间序列和音频数据）。然而，GAN有点挑剔，通常需要我们在这里介绍的技巧和更多技巧来改善它们的质量和稳定性。既然你已经把GAN作为工具箱中的另一个工具添加进去了，让我们来看看一些使用它们的高级应用。
+- en: Image-to-Image Translation
+  id: totrans-242
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 图像到图像的翻译
+- en: Image generation is one of the simpler applications that GANs are great at.
+    We can also combine and manipulate the essential components of GANs to put them
+    to other uses, many of which are state of the art.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像生成是GAN擅长的较简单的应用之一。我们还可以结合和操纵GAN的基本组件，将它们用于其他许多最前沿的用途。
+- en: Image-to-image translation is when an image is translated from one (source)
+    domain into another (target) domain. For instance, in [Figure 12-32](#results_of_using_cyclegan_to_translate_a),
+    an image of a horse is translated so that it looks like the horses are zebras.
+    Of course, since finding paired images (e.g., the same scene in winter and summer)
+    can be quite difficult, we can instead create a model architecture that can perform
+    the image-to-image translation using unpaired images. This might not be as performant
+    as a model working with paired images, but it can get very close. In this section
+    we will explore how to perform image translation first if we have unpaired images,
+    the more common situation, and then if we have paired images.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像到图像的翻译是指将一张图片从一个（源）域翻译到另一个（目标）域。例如，在[图12-32](#results_of_using_cyclegan_to_translate_a)中，一张马的图片被翻译成看起来像斑马的图片。当然，由于找到配对的图片（例如，同一个场景的冬季和夏季）可能非常困难，我们可以创建一个能够使用不配对图片进行图像到图像翻译的模型架构。这可能不像使用配对图片的模型那样表现良好，但可以非常接近。在本节中，我们将探讨如何在有不配对图片时执行图像翻译，这是更常见的情况，然后是如何在有配对图片时执行图像翻译。
+- en: '![](Images/pmlc_1232.png)'
+  id: totrans-245
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1232.png)'
+- en: Figure 12-32\. Results of using CycleGAN to translate an image of horses into
+    an image of zebras. Image from [Zhu et al., 2020](https://arxiv.org/abs/1703.10593v7).
+  id: totrans-246
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-32\. 使用CycleGAN将马的图像翻译成斑马的图像的结果。图片来自[Zhu et al., 2020](https://arxiv.org/abs/1703.10593v7)。
+- en: The CycleGAN architecture used to perform the translation in [Figure 12-32](#results_of_using_cyclegan_to_translate_a)
+    takes GANs one step further and has two generators and two discriminators that
+    cycle back and forth, as illustrated in [Figure 12-33](#cyclegan_training_diagramdot_image_from).
+    Continuing with the previous example, let’s say that horse images belong to image
+    domain X, and zebra images belong to image domain Y. Remember, these are unpaired
+    images; therefore, there isn’t a matching zebra image for each horse image, and
+    vice versa.
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图12-32](#results_of_using_cyclegan_to_translate_a)中用于执行翻译的CycleGAN架构进一步发展，具有两个生成器和两个判别器之间的循环，如[图12-33](#cyclegan_training_diagramdot_image_from)所示。继续之前的例子，假设马的图像属于图像域X，斑马的图像属于图像域Y。请记住，这些是不配对的图像；因此，每张马的图像都没有与之匹配的斑马图像，反之亦然。
+- en: '![](Images/pmlc_1233.png)'
+  id: totrans-248
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1233.png)'
+- en: Figure 12-33\. CycleGAN training diagram. Image from [Zhu et al., 2020](https://arxiv.org/abs/1703.10593v7).
+  id: totrans-249
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-33\. CycleGAN训练图解。图片来自[Zhu et al., 2020](https://arxiv.org/abs/1703.10593v7)。
+- en: In [Figure 12-33](#cyclegan_training_diagramdot_image_from)(a), generator G
+    maps image domain X (horses) to image domain Y (zebras) while another generator,
+    F, maps the reverse, Y (zebras) to X (horses). This means that generator G learns
+    weights that map an image of horses, in this example, to an image of zebras, and
+    vice versa for generator F. Discriminator D[X] leads generator F to have a great
+    mapping from Y (zebras) to X (horses), while discriminator D[Y] leads generator
+    G to have a great mapping from X (horses) to Y (zebras). We then perform cycles
+    to add a little more regularization to the learned mappings, as described in the
+    next panel.
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图12-33](#cyclegan_training_diagramdot_image_from)(a)中，生成器G将图像域X（马）映射到图像域Y（斑马），而另一个生成器F则反向映射，即Y（斑马）到X（马）。这意味着生成器G学习权重，将马的图像（在本例中）映射到斑马的图像，反之亦然对生成器F。鉴别器D[X]导致生成器F在Y（斑马）到X（马）的映射上有很好的表现，而鉴别器D[Y]导致生成器G在X（马）到Y（斑马）的映射上有很好的表现。然后，我们执行循环，以在学习的映射中增加一些正则化，如下一部分所述。
+- en: In [Figure 12-33](#cyclegan_training_diagramdot_image_from)(b), the forward
+    cycle consistency loss—X (horses) to Y (zebras) to X (horses)—is from the comparison
+    of an X (horses) domain image mapped to Y (zebras) using generator G and then
+    mapped back to X (horses) using generator F with the original X (horses) image.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图12-33](#cyclegan_training_diagramdot_image_from)(b)中，前向循环一致性损失——X（马）到Y（斑马）到X（马）——来自于X（马）域图像与使用生成器G将其映射到Y（斑马），然后使用生成器F将其映射回X（马）的比较，与原始的X（马）图像。
+- en: Likewise, in [Figure 12-33](#cyclegan_training_diagramdot_image_from)(c), the
+    backward cycle consistency loss—Y (zebras) to X (horses) to Y (zebras)—is from
+    the comparison of a Y (zebras) domain image mapped to X (horses) using generator
+    F and then mapped back to Y (zebras) using generator G with the original Y (zebras)
+    image.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似地，在[图12-33](#cyclegan_training_diagramdot_image_from)(c)中，反向循环一致性损失——Y（斑马）到X（马）到Y（斑马）——来自于Y（斑马）域图像与使用生成器F将其映射到X（马），然后使用生成器G将其映射回Y（斑马）的比较，与原始的Y（斑马）图像。
+- en: Both the forward and backward cycle consistency loss compare the original image
+    for a domain with the cycled image for that domain so that the network can learn
+    to reduce the difference between them.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前向和后向循环一致性损失都会比较原始图像与该域的循环图像，以便网络能够学习减少它们之间的差异。
+- en: By having these multiple networks and ensuring cycle consistency we’re able
+    to get impressive results despite having unpaired images, such as when translating
+    between horses and zebras or between summer images and winter images, as in [Figure 12-34](#results_of_using_cyclegan_to_translate_s).
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过拥有这些多个网络并确保循环一致性，我们能够获得令人印象深刻的结果，尽管图像未配对，例如在马和斑马之间或夏季图像和冬季图像之间进行转换，如[图12-34](#results_of_using_cyclegan_to_translate_s)所示。
+- en: '![](Images/pmlc_1234.png)'
+  id: totrans-255
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1234.png)'
+- en: Figure 12-34\. Results of using CycleGAN to translate summer images to winter
+    images. Image from [Zhu et al., 2020](https://arxiv.org/abs/1703.10593v7).
+  id: totrans-256
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-34\. 使用CycleGAN将夏季图像转换为冬季图像的结果。图片来源于[Zhu et al., 2020](https://arxiv.org/abs/1703.10593v7)。
+- en: Now, if instead we did have paired examples, then we could take advantage of
+    supervised learning to get even more impressive image-to-image translation results.
+    For instance, as shown in [Figure 12-35](#results_of_using_pixtwopix_to_translate),
+    an overhead map view of a city can be translated into the satellite view and vice
+    versa.
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，如果我们确实有配对示例，那么我们可以利用监督学习来获得更令人印象深刻的图像到图像转换结果。例如，如[图12-35](#results_of_using_pixtwopix_to_translate)所示，城市的俯视地图可以转换为卫星视图，反之亦然。
+- en: '![](Images/pmlc_1235.png)'
+  id: totrans-258
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1235.png)'
+- en: Figure 12-35\. Results of using Pix2Pix to translate a map view to satellite
+    view and vice versa. Image from [Isola et al., 2018](https://arxiv.org/abs/1611.07004).
+  id: totrans-259
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-35\. 使用Pix2Pix将地图视图转换为卫星视图及其反向的结果。图片来源于[Isola et al., 2018](https://arxiv.org/abs/1611.07004)。
+- en: The Pix2Pix architecture uses paired images to create the forward and reverse
+    mappings between the two domains. We no longer need cycles to perform the image-to-image
+    translation, but instead have a U-Net (previously seen in [Chapter 4](ch04.xhtml#object_detection_and_image_segmentation))
+    with skip connections as our generator and a PatchGAN as our discriminator, which
+    we discuss further next.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pix2Pix架构使用配对图像来创建两个域之间的前向和反向映射。我们不再需要循环来执行图像到图像的转换，而是使用具有跳跃连接的U-Net（在[第4章](ch04.xhtml#object_detection_and_image_segmentation)中已经见过）作为生成器，以及PatchGAN作为鉴别器，我们接下来会进一步讨论这些。
+- en: The U-Net generator takes a source image and tries to create the target image
+    version, as shown in [Figure 12-36](#pixtwopix_generator_training_diagramdot).
+    This generated image is compared to the actual paired target image via the L1
+    loss or MAE, which is then multiplied by lambda to weight the loss term. The generated
+    image (source to target domain) and the input source image then go to the discriminator
+    with labels of all 1s with a binary/sigmoid cross-entropy loss. The weighted sum
+    of these losses is used for the gradient calculation for the generator to encourage
+    the generator to improve its weights for domain translation in order to fool the
+    discriminator. The same is done for the other generator/discriminator set with
+    the source and target domains reversed for the reverse translation.
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: U-Net 生成器接收源图像并尝试创建目标图像版本，如[图 12-36](#pixtwopix_generator_training_diagramdot)所示。生成的图像通过
+    L1 损失或 MAE 与实际配对的目标图像进行比较，然后乘以 lambda 来加权损失项。生成的图像（源到目标域）和输入源图像然后传递给判别器，标签为全部为
+    1，使用二元/ sigmoid 交叉熵损失。这些损失的加权和用于生成器的梯度计算，以鼓励生成器改进其用于域转换的权重，以欺骗判别器。对于另一个生成器/判别器设置，源和目标域颠倒进行反向转换。
+- en: '![](Images/pmlc_1236.png)'
+  id: totrans-262
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1236.png)'
+- en: Figure 12-36\. Pix2Pix generator training diagram. Image from [Isola et al.,
+    2018](https://arxiv.org/abs/1611.07004).
+  id: totrans-263
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-36\. Pix2Pix 生成器训练图表。图像来源于[Isola et al., 2018](https://arxiv.org/abs/1611.07004)。
+- en: The PatchGAN discriminator classifies portions of the input image using smaller-resolution
+    patches. This way each patch is classified as either real or fake using the local
+    information in that patch rather than the entire image. The discriminator is passed
+    two sets of input pairs, concatenated along channels, as shown in [Figure 12-37](#pixtwopix_discriminator_training_diagram).
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PatchGAN 判别器使用较小分辨率的补丁对输入图像进行分类。这样每个补丁使用本地信息而不是整个图像，被分类为真实或虚假。判别器接收两组输入对，通过通道连接，如[图 12-37](#pixtwopix_discriminator_training_diagram)所示。
+- en: '![](Images/pmlc_1237.png)'
+  id: totrans-265
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1237.png)'
+- en: Figure 12-37\. Pix2Pix discriminator training diagram. Image from [Isola et
+    al., 2018](https://arxiv.org/abs/1611.07004).
+  id: totrans-266
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-37\. Pix2Pix 判别器训练图表。图像来源于[Isola et al., 2018](https://arxiv.org/abs/1611.07004)。
+- en: The first pair is made up of the input source image and the generated “source
+    to target” image from the generator, which the discriminator should classify as
+    fake by labeling them with all 0s. The second pair is made up of the input source
+    image with the target image concatenated with it instead of the generated image.
+    This is the real branch and hence this pair is labeled with all 1s. If we think
+    back to simpler image generation this is following the same discriminator training
+    pattern where the generated images are in the fake, all 0 labels branch and the
+    real images we want to generate are in the real, all 1 labels branch. Therefore,
+    the only change compared to image generation is that we are essentially conditioning
+    the discriminator with the input image from the source domain, similar to what
+    we did with conditional GANs.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一对由输入源图像和生成的“源到目标”图像组成，判别器应将其标记为假，全部标签为 0。第二对由输入源图像与目标图像连接而非生成图像组成。这是真实分支，因此此对标记为全部为
+    1。如果回想简单的图像生成，这遵循相同的判别器训练模式，其中生成的图像在假的、全部标签为 0 的分支中，我们想要生成的真实图像在真实的、全部标签为 1 的分支中。因此，与图像生成相比唯一的变化是，我们本质上是使用源域输入图像来调节判别器，类似于我们在条件
+    GAN 中所做的。
+- en: This can lead to amazing use cases such as [Figure 12-38](#results_of_using_pixtwopix_on_a_drawing),
+    where hand-drawn objects can be filled in to look like real objects with photographic
+    quality.
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可能导致惊人的应用案例，例如[图 12-38](#results_of_using_pixtwopix_on_a_drawing)，手绘物体可以被填充成具有摄影质量的真实物体。
+- en: '![](Images/pmlc_1238.png)'
+  id: totrans-269
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1238.png)'
+- en: Figure 12-38\. Results of using Pix2Pix on a drawing to transform it to an image
+    of photographic quality. Image from [Isola et al., 2018](https://arxiv.org/abs/1611.07004).
+  id: totrans-270
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-38\. 使用 Pix2Pix 将绘图转换为具有摄影质量的图像的结果。图像来源于[Isola et al., 2018](https://arxiv.org/abs/1611.07004)。
+- en: Just like how we can translate text and speech between languages, we can also
+    translate images between different domains. We can use architectures like CycleGAN
+    with (much more common) datasets of unpaired images, or more specialized architectures
+    like Pix2Pix that can take full advantage of paired image datasets. This is still
+    a very active area of research with many improvements being discovered.
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像我们可以在不同语言之间翻译文本和语音一样，我们也可以在不同领域之间翻译图像。我们可以使用CycleGAN等架构和（更常见的）无配对图像数据集，或者更专门的架构如Pix2Pix，可以充分利用配对图像数据集。这仍然是一个非常活跃的研究领域，发现了许多改进方法。
+- en: Super-Resolution
+  id: totrans-272
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 超分辨率
+- en: For most of the use cases we’ve seen so far we’ve been both training and predicting
+    with pristine images. However, we know in reality there can often be many defects
+    in images, such as blur or the resolution being too low. Thankfully, we can modify
+    some of the techniques we’ve already learned to fix some of those image issues.
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们看到的大多数用例中，我们都是用原始图像进行训练和预测。然而，实际情况中图像往往存在许多缺陷，如模糊或分辨率过低。幸运的是，我们可以修改一些已学习的技术来修复其中一些图像问题。
+- en: '*Super-resolution* is the process of taking a degraded or low-resolution image
+    and upscaling it, transforming it into a corrected, high-resolution image. Super-resolution
+    itself has been around for a long time as part of general image processing, yet
+    it wasn’t until more recently that deep learning models were able to produce state-of-the-art
+    results with this technique.'
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*超分辨率*是将降质或低分辨率图像进行放大处理，转换为修正后的高分辨率图像的过程。超分辨率作为一种普遍的图像处理技术已经存在很长时间，然而直到最近，深度学习模型才能够利用这一技术产生最先进的结果。'
+- en: The simplest and oldest methods of super-resolution use various forms of pixel
+    interpolation, such as nearest neighbor or bicubic interpolation. Remember that
+    we’re starting with a low-resolution image that, when upscaled, has more pixels
+    than the original image. These pixels need to be filled in through some means,
+    and in a way that looks perceptually correct and doesn’t just produce a smoothed,
+    blurry larger image.
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最简单且最古老的超分辨率方法使用各种像素插值技术，如最近邻插值或双三次插值。请记住，我们从低分辨率图像开始，放大后的像素数比原始图像更多。这些像素需要通过某种方式填充，并以一种在视觉上正确且不仅仅产生平滑模糊的大图像的方式。
+- en: '[Figure 12-39](Images/#super-resolution_imagesdot_images_from_l) shows a sample
+    of the results from a 2017 [paper](https://arxiv.org/abs/1609.04802) by Christian
+    Ledig et al. The original high-resolution image is on the far right. It’s from
+    this image that a lower-resolution one is created for the training procedure.
+    On the far left is the bicubic interpolation—it’s a quite smooth and blurry recreation
+    of the starting image from a smaller, lower-resolution version of the original.
+    For most applications, this is not of high enough quality.'
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 12-39](Images/#super-resolution_imagesdot_images_from_l)展示了Christian Ledig等人在2017年的一篇[论文](https://arxiv.org/abs/1609.04802)的部分结果样本。最右边是原始高分辨率图像。从该图像创建了一个用于训练过程的低分辨率版本。最左边是双三次插值图像——它是从原始较小、低分辨率版本的起始图像重新创建的平滑模糊版本。对于大多数应用程序来说，这种质量不够高。'
+- en: The second image from the left in [Figure 12-39](Images/#super-resolution_imagesdot_images_from_l)
+    is an image created by SRResNet, which is a residual convolutional block network.
+    Here, a version of the original image that is low resolution, due to Gaussian
+    noise and downsampling, is passed through 16 residual convolutional blocks. The
+    output is a decent super-resolution image that’s fairly close to the original—however,
+    there are some errors and artifacts. The loss function used in SRResNet is the
+    mean squared error between each pixel of the super-resolution output image and
+    the original high-resolution image. Although the model is able to get pretty good
+    results using MSE loss alone, it’s not quite enough to encourage the model to
+    make truly photorealistic and perceptually similar images.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 12-39](Images/#super-resolution_imagesdot_images_from_l)中从左边数第二幅图是由SRResNet创建的图像，它是一个残差卷积块网络。在这里，由于高斯噪声和降采样而导致的原始图像的低分辨率版本经过了16个残差卷积块。输出是一个相当接近原始图像的不错的超分辨率图像，然而仍然存在一些错误和伪影。在SRResNet中使用的损失函数是超分辨率输出图像中每个像素与原始高分辨率图像之间的均方误差。虽然该模型仅使用MSE损失能够获得相当不错的结果，但这还不足以鼓励模型生成真正逼真和在视觉上相似的图像。'
+- en: '![](Images/pmlc_1239.png)'
+  id: totrans-278
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1239.png)'
+- en: Figure 12-39\. Super-resolution images. Images from [Ledig et al., 2017](https://arxiv.org/abs/1609.04802).
+  id: totrans-279
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-39\. 超分辨率图像。图片来自[Ledig et al., 2017](https://arxiv.org/abs/1609.04802)。
+- en: 'The third image from the left in [Figure 12-39](Images/#super-resolution_imagesdot_images_from_l)
+    shows the best (in terms of perceptual quality) results, obtained using a model
+    called SRGAN. The idea to utilize a GAN came from what the SRResNet image was
+    lacking: high perceptual quality, which we can quickly judge by looking at the
+    image. This is due to the MSE reconstruction loss, which aims to minimize the
+    average error of the pixels but doesn’t attempt to ensure the individual pixels
+    combine to form a perceptually convincing image.'
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图12-39](Images/#super-resolution_imagesdot_images_from_l)的左侧第三幅图显示了最佳（在感知质量方面）结果，使用了一种称为SRGAN的模型。利用GAN的想法来自于SRResNet图像的缺失：高感知质量，我们可以通过观察图像来快速判断。这是由于MSE重建损失，它旨在最小化像素的平均误差，但不试图确保单个像素组合成为感知上令人信服的图像。
+- en: As we saw earlier, GANs generally have both a generator for creating images
+    and a discriminator to discern whether the images being passed to it are real
+    or generated. Rather than trying to slowly and painfully manually tune models
+    to create convincing images, we can use GANs to do this tuning for us automatically.
+    [Figure 12-40](#srgan_generator_and_discriminator_archit) shows the generator
+    and discriminator network architectures of SRGAN.
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前看到的那样，GAN通常既有用于创建图像的生成器，也有用于辨别传递给它的图像是真实还是生成的鉴别器。与尝试缓慢而痛苦地手动调整模型以创建令人信服的图像不同，我们可以使用GAN自动进行这种调整。[图12-40](#srgan_generator_and_discriminator_archit)显示了SRGAN的生成器和鉴别器网络架构。
+- en: '![](Images/pmlc_1240.png)'
+  id: totrans-282
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1240.png)'
+- en: Figure 12-40\. SRGAN generator and discriminator architectures. Image from [Ledig
+    et al., 2017](https://arxiv.org/abs/1609.04802).
+  id: totrans-283
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-40\. SRGAN生成器和鉴别器架构。图片来自[Ledig et al., 2017](https://arxiv.org/abs/1609.04802)。
+- en: In the SRGAN generator architecture, we begin by taking a high-resolution (HR)
+    image and applying a Gaussian filter to it, then downsampling the image by some
+    factor. This creates a low-resolution (LR) version of the image, which then gets
+    convolved and passed through several residual blocks, like we saw in [Chapter 4](ch04.xhtml#object_detection_and_image_segmentation)
+    with ResNet. The image is upsampled along the way, since we need to get back to
+    its original size. The network also includes skip connections so that more detail
+    from the earlier layers can condition the later layers and for better gradient
+    backpropagation during the backward pass. After a few more convolutional layers,
+    a super-resolution (SR) image is generated.
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在SRGAN生成器架构中，我们首先使用高分辨率（HR）图像并对其应用高斯滤波器，然后通过某些因子对图像进行下采样。这创建了图像的低分辨率（LR）版本，然后将其卷积并通过多个残差块传递，就像我们在[第4章](ch04.xhtml#object_detection_and_image_segmentation)中使用ResNet看到的那样。在路径上对图像进行了上采样，因为我们需要恢复到其原始大小。网络还包括跳跃连接，以便更多来自早期层的细节能够影响后续层，并在向后传播期间实现更好的梯度反向传播。经过几个卷积层后，生成了超分辨率（SR）图像。
+- en: The discriminator takes images as input and determines whether they are SR or
+    HR. The input is passed through several convolutional blocks, ending with a dense
+    layer that flattens the intermediate images and finally another dense layer that
+    produces the logits. Just like with a vanilla GAN, these logits are optimized
+    on binary cross-entropy and so the result is a probability that the image is HR
+    or SR, which is the adversarial loss term.
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴别器将图像作为输入，并确定它们是SR还是HR。输入通过几个卷积块传递，最后通过一个密集层将中间图像展平，然后再通过另一个密集层生成logits。就像普通的GAN一样，这些logits在二元交叉熵上进行优化，因此结果是图像是HR还是SR的概率，这是对抗损失项。
+- en: With SRGAN, there is another loss term that is weighted together with the adversarial
+    loss to train the generator. This is the *contextual loss*, or how much of the
+    original content remains within the image. Minimizing the contextual loss will
+    ensure that the output image looks similar to the original image. Typically this
+    is the pixel-wise MSE, but since that is a form of averaging it can create overly
+    smooth textures that don’t look realistic. Therefore, SRGAN instead uses what
+    its developers call the *VGG loss*, using the activation feature maps for each
+    of the layers of a pretrained 19-layer VGG network (after each activation, before
+    the respective max-pooling layer). They calculate the VGG loss as the sum of the
+    Euclidean distance between the feature maps of the original HR images and the
+    feature maps of the generated SR images, summing those values across all VGG layers,
+    and then normalizing by the image height and width. The balance of these two loss
+    terms will create images that not only look similar to the input images but also
+    are correctly interpolated so that, perceptually, they look like real images.
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用SRGAN时，还有另一个损失项与对抗损失一起加权以训练生成器。这是*上下文损失*，即原始内容在图像中保留的程度。最小化上下文损失将确保输出图像看起来与原始图像相似。通常这是像素级均方误差（MSE），但由于它是一种平均化形式，可能会创建过于平滑的纹理，看起来不真实。因此，SRGAN使用其开发人员称为*VGG损失*，使用预训练的19层VGG网络的每个层的激活特征图（在每个激活后，位于相应的最大池化层之前）。他们计算VGG损失为原始HR图像的特征图与生成的SR图像的特征图之间的欧几里得距离的总和，跨所有VGG层对这些值进行归一化，并通过图像的高度和宽度。这两个损失项的平衡将创建不仅外观与输入图像相似的图像，而且在感知上看起来像真实图像的图像。
+- en: Modifying Pictures (Inpainting)
+  id: totrans-287
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 修改图片（修复）
+- en: There can be other reasons to fix an image, such as a tear in a photograph or
+    a missing or obscured section, as shown in [Figure 12-41](#context_encoder_inpainting_resultsdot_im)(a).
+    This hole-filling is called *inpainting*, where we want to literally paint in
+    the pixels that should be in the empty spot. Typically, to fix such an issue an
+    artist would spend hours or days restoring the image by hand, as shown in [Figure 12-41](#context_encoder_inpainting_resultsdot_im)(b),
+    which is a laborious process and unscalable. Thankfully, deep learning with GANs
+    can make scalably fixing images like this a reality—[Figure 12-41](#context_encoder_inpainting_resultsdot_im)(c)
+    and (d) show some sample results.
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有其他修复图像的原因，例如照片上的撕裂或缺失或遮挡的部分，如[图 12-41](#context_encoder_inpainting_resultsdot_im)(a)所示。这种填补空白区域的操作称为*修复*，我们希望在空白处确实填充应该存在的像素。通常情况下，艺术家需要花费数小时或数天手工修复这样的问题，如[图 12-41](#context_encoder_inpainting_resultsdot_im)(b)所示，这是一个费力的过程，无法扩展。幸运的是，基于GAN的深度学习可以实现可扩展地修复这样的图像——[图 12-41](#context_encoder_inpainting_resultsdot_im)(c)和(d)展示了一些样本结果。
+- en: '![](Images/pmlc_1241.png)'
+  id: totrans-289
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1241.png)'
+- en: Figure 12-41\. Context encoder inpainting results. Image from [Pathak et al.,
+    2016](https://arxiv.org/abs/1604.07379).
+  id: totrans-290
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-41\. 上下文编码器修复结果。图片来源于[Pathak et al., 2016](https://arxiv.org/abs/1604.07379)。
+- en: Here, unlike with SRGAN, instead of adding noise or a filter and downsampling
+    a high-resolution image for training, we extract an area of pixels and set that
+    region aside. We then pass the remaining image through a simple encoder/decoder
+    network, as shown in [Figure 12-42](#context_encoder_generator_and_discrimina).
+    This forms the generator of the GAN, which we hope will generate content similar
+    to what was in the pixel region we extracted.
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里，与SRGAN不同的是，我们并不是为了训练而给高分辨率图像添加噪音或滤镜并降采样，而是提取像素区域并将该区域设置为一边。然后，我们通过一个简单的编码器/解码器网络处理剩余的图像，如[图 12-42](#context_encoder_generator_and_discrimina)所示。这形成了GAN的生成器，我们希望它能生成与我们提取的像素区域相似的内容。
+- en: '![](Images/pmlc_1242.png)'
+  id: totrans-292
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1242.png)'
+- en: Figure 12-42\. Context encoder generator and discriminator architectures. Image
+    from [Pathak et al., 2016](https://arxiv.org/abs/1604.07379).
+  id: totrans-293
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-42\. 上下文编码器生成器和判别器架构。图片来源于[Pathak et al., 2016](https://arxiv.org/abs/1604.07379)。
+- en: The discriminator then compares the generated region of pixels with the region
+    we extracted from the original image and tries to determine whether the image
+    was generated or came from the real dataset.
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，判别器将生成的像素区域与我们从原始图像中提取的区域进行比较，并试图确定图像是生成的还是来自真实数据集。
+- en: 'Similar to SRGAN, and for the same reasons, the loss function has two terms:
+    a reconstruction loss and an adversarial loss. The reconstruction loss isn’t the
+    typical L2 distance between the extracted image patch and the generated image
+    patch, but rather the normalized masked L2 distance. The loss function applies
+    a mask to the overall image so that we only aggregate the distances of the patch
+    that we reconstructed, and not the border pixels around it. The final loss is
+    the aggregated distance normalized by the number of pixels in the region. Alone,
+    this usually does a decent job of creating a rough outline of the image patch;
+    however, the reconstructed patch is usually lacking high-frequency detail and
+    ends up being blurry due to the averaged pixel-wise error.'
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与SRGAN类似，出于同样的原因，损失函数包括两项：重建损失和对抗损失。重建损失不是提取图像补丁与生成图像补丁之间的典型L2距离，而是归一化的掩码L2距离。损失函数对整体图像应用掩码，因此我们只聚合重建的补丁距离，而不是周围的边界像素。最终损失是通过区域中像素数归一化的聚合距离。通常情况下，这样可以粗略地创建图像补丁的轮廓；然而，由于像素平均误差，重建的补丁通常缺乏高频细节，因此变得模糊。
+- en: The adversarial loss for the generator comes from the discriminator, which helps
+    the generated image patch appear to come from the manifold of natural images and
+    therefore look realistic. These two loss functions can be combined in a weighted
+    sum joint loss.
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生成器的对抗损失来自鉴别器，这有助于生成的图像补丁看起来来自自然图像的流形，因此看起来真实。这两个损失函数可以结合成加权和的联合损失。
+- en: The extracted image patches don’t just have to come from the central region,
+    like in [Figure 12-43](#different_extracted_patch_region_masksdo)(a)—in fact,
+    that approach can be detrimental to the training as a result of poor generalization
+    of the learned low-level image features to images without patches extracted. Instead,
+    taking random blocks, as in [Figure 12-43](#different_extracted_patch_region_masksdo)(b),
+    or random regions of pixels, as shown in [Figure 12-43](#different_extracted_patch_region_masksdo)(c),
+    produces more general features and greatly outperforms the approach of using a
+    central region mask.
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提取的图像补丁不仅仅需要来自中心区域，就像[图12-43](#different_extracted_patch_region_masksdo)(a)中所示的那样——事实上，这种方法可能会因为学习到的低级别图像特征无法推广到没有提取补丁的图像而导致训练效果不佳。相反，像[图12-43](#different_extracted_patch_region_masksdo)(b)中那样随机选取块，或者像[图12-43](#different_extracted_patch_region_masksdo)(c)中那样随机选择像素区域，会产生更通用的特征，并且明显优于使用中心区域掩码的方法。
+- en: '![](Images/pmlc_1243.png)'
+  id: totrans-298
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1243.png)'
+- en: Figure 12-43\. Different extracted patch region masks. Image from [Pathak et
+    al., 2016](https://arxiv.org/abs/1604.07379).
+  id: totrans-299
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-43\. 不同提取的补丁区域掩码。图片来自[Pathak等人，2016](https://arxiv.org/abs/1604.07379)。
+- en: Anomaly Detection
+  id: totrans-300
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 异常检测
+- en: Anomaly detection is another application that can benefit from the use of GANs—images
+    can be passed to a modified GAN model and flagged as anomalous or not. This can
+    be useful for tasks such as counterfeit currency detection, or looking for tumors
+    in medical scans.
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 异常检测是另一个可以从GAN的使用中受益的应用领域——可以将图像传递给修改后的GAN模型，并标记为异常或非异常。这对于任务如检测伪钞或在医学扫描中寻找肿瘤非常有用。
+- en: Typically there is a lot more unlabeled data available for deep learning use
+    cases than labeled, and often the process of labeling is extremely laborious and
+    may require deep subject matter expertise. This can make a supervised approach
+    infeasible, which means we need an unsupervised approach.
+  id: totrans-302
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 深度学习用例中通常会有更多的未标记数据可用，而标记过程通常非常费时，可能需要深入的学科专业知识。这使得监督方法不可行，因此我们需要一种无监督方法。
+- en: To perform anomaly detection, we need to learn what “normal” looks like. If
+    we know what normal is, then when an image doesn’t fit within that distribution,
+    it may contain anomalies. Therefore, when training anomaly detection models, it
+    is important to train the model only on normal data. Otherwise, if the normal
+    data is contaminated with anomalies, then the model will learn that those anomalies
+    are normal. At inference time, this would lead to actual anomalous images not
+    being correctly flagged, thus generating many more false negatives than may be
+    acceptable.
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要执行异常检测，我们需要学习“正常”是什么样子。如果我们知道正常是什么，那么当图像不符合该分布时，它可能包含异常。因此，在训练异常检测模型时，重要的是仅对正常数据进行训练。否则，如果正常数据中混有异常，那么模型会学习到这些异常是正常的。在推断时，这将导致实际的异常图像无法正确标记，从而产生比可接受范围更多的假阴性。
+- en: The standard method of anomaly detection is to first learn how to reconstruct
+    normal images, then learn the distribution of reconstruction errors of normal
+    images, and finally learn a distance threshold where anything above that threshold
+    is flagged as anomalous. There are many different types of models we can use to
+    minimize the reconstruction error between the input image and its reconstruction.
+    For example, using an autoencoder, we can pass normal images through the encoder
+    (which compresses an image down to a more compact representation), possibly through
+    a layer or two in the bottleneck, then through the decoder (which expands the
+    image back to its original representation), and finally generate an image that
+    should be a reconstruction of the original image. The reconstruction is never
+    perfect; there is always some error. Given a large collection of normal images,
+    the reconstruction error will form a distribution of “normal errors.” Now, if
+    the network is given an anomalous image—one that it has not seen anything like
+    during training—it will not be able to compress and reconstruct it correctly.
+    The reconstruction error will be way out of the normal error distribution. The
+    image can thus be flagged as an anomalous image.
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 异常检测的标准方法是首先学习如何重构正常图像，然后学习正常图像重构误差的分布，并最终学习一个距离阈值，其中超过该阈值的任何内容都被标记为异常。我们可以使用许多不同类型的模型来最小化输入图像与其重构之间的重构误差。例如，使用自编码器，我们可以将正常图像通过编码器（将图像压缩为更紧凑的表示），可能通过瓶颈层或两层，然后通过解码器（将图像扩展回其原始表示）生成一个应该是原始图像重构的图像。重构永远不会完美；总会有一些误差。在大量的正常图像集合中，重构误差将形成一个“正常误差”的分布。现在，如果网络给出一个异常图像——在训练期间没有见过类似的图像——它将无法正确地压缩和重构它。重构误差将远远超出正常误差分布。因此，该图像可以被标记为异常图像。
+- en: Taking the anomaly detection use case one step further, we could instead perform
+    *anomaly localization*, where we are flagging individual pixels as anomalous.
+    This is like an unsupervised segmentation task rather than an unsupervised classification
+    task. Each pixel has an error, and this can form a distribution of errors. In
+    an anomalous image, many pixels will exhibit a large error. Reconstructed pixels
+    above a certain distance threshold from their original versions can be flagged
+    as anomalous, as shown in [Figure 12-44](#anomaly_localization_flags_individual_pi).
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将异常检测用例推进一步，我们可以执行*异常定位*，在这种情况下，我们标记单个像素为异常。这类似于一个无监督的分割任务，而不是无监督的分类任务。每个像素都有一个误差，这可以形成一个误差分布。在异常图像中，许多像素将表现出较大的误差。从原始版本的某个距离阈值以上的重建像素可以被标记为异常，如[图 12-44](#anomaly_localization_flags_individual_pi)所示。
+- en: '![](Images/pmlc_1244.png)'
+  id: totrans-306
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1244.png)'
+- en: Figure 12-44\. Anomaly localization flags individual pixels as anomalous. Image
+    from [Schlegl et al., 2019](https://oreil.ly/bsOpV).
+  id: totrans-307
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-44\. 异常定位标记单个像素作为异常。图片来源于[Schlegl et al., 2019](https://oreil.ly/bsOpV)。
+- en: However, for many use cases and datasets this isn’t the end of the story. With
+    just the autoencoder and reconstruction loss, the model may learn how to map any
+    image to itself instead of learning what normal looks like. Essentially, reconstruction
+    dominates the combined loss equation and therefore the model learns the best way
+    to compress *any* image, rather than learning the “normal” image manifold. For
+    anomaly detection this is very bad because the reconstruction loss for both normal
+    and anomalous images will be similar. Therefore, as with super-resolution and
+    inpainting, using a GAN can help.
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，对于许多使用情况和数据集来说，事情并没有就此结束。仅有自编码器和重构损失，模型可能学会如何将任何图像映射到其自身，而不是学习正常的外观。基本上，重构主导了组合损失方程，因此模型学习了压缩*任何*图像的最佳方式，而不是学习“正常”图像流形。对于异常检测来说，这是非常不利的，因为正常和异常图像的重构损失将是相似的。因此，与超分辨率和修复一样，使用GAN可以提供帮助。
+- en: This is an active area of research, so there are many competing variations of
+    model architectures, loss functions, training procedures, etc., but they all have
+    several components in common, as seen in [Figure 12-45](#skip-ganomaly_architecturecomma_using_a).
+    Typically they consist of a generator and discriminator, sometimes with additional
+    encoder and decoder networks depending on the use case.
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个活跃的研究领域，因此有许多竞争的模型架构、损失函数、训练过程等，但它们都有一些共同的组成部分，如[图 12-45](#skip-ganomaly_architecturecomma_using_a)所示。通常它们包括一个生成器和鉴别器，有时还包括额外的编码器和解码器网络，这取决于使用情况。
+- en: '![](Images/pmlc_1245.png)'
+  id: totrans-310
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1245.png)'
+- en: Figure 12-45\. Skip-GANomaly architecture, using a U-Net generator (encoder/decoder)
+    with skip connections, discriminator, and multiple loss terms. Image from [Akçay
+    et al., 2019](https://arxiv.org/abs/1901.08954).
+  id: totrans-311
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-45\. Skip-GANomaly 架构，使用 U-Net 生成器（编码器/解码器）与跳跃连接，鉴别器和多个损失项。图像来自 [Akçay
+    et al., 2019](https://arxiv.org/abs/1901.08954)。
+- en: The generator can be an autoencoder or U-Net, if the input and output are images,
+    as in [Figure 12-45](#skip-ganomaly_architecturecomma_using_a)’s *G*, or the generator
+    can just be a decoder that takes as input a user-provided random latent vector.
+    This image autoencoder, since it’s part of a GAN, is also sometimes called an
+    adversarial autoencoder.
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果生成器的输入和输出是图像，如 [图 12-45](#skip-ganomaly_architecturecomma_using_a) 的 *G*，生成器可以是自编码器或
+    U-Net，或者生成器可以只是一个解码器，其输入是用户提供的随机潜在向量。这种图像自编码器，因为它是 GAN 的一部分，有时也称为对抗性自编码器。
+- en: The discriminator, such as [Figure 12-45](#skip-ganomaly_architecturecomma_using_a)’s
+    *D*, is used to adversarially train the generator. This is typically an encoder-type
+    network, compressing an image down into a vector of logits to then be used for
+    loss calculations.
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴别器，如 [图 12-45](#skip-ganomaly_architecturecomma_using_a) 的 *D*，用于对生成器进行对抗训练。这通常是一种编码器类型的网络，将图像压缩成一个逻辑向量，然后用于损失计算。
+- en: As mentioned previously, sometimes there’s an additional encoder or multiple
+    generator/discriminator pairs. If the generator is an autoencoder, the additional
+    encoder can be used for regularizing the intermediate bottleneck vector of the
+    generator. If the generator is just a decoder, then the encoder can encode the
+    generator’s generated image into a feature vector to reconstruct the noise prior,
+    essentially acting as the inverse of the generator.
+  id: totrans-314
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，有时会有额外的编码器或多个生成器/鉴别器对。如果生成器是自编码器，则额外的编码器可以用于正则化生成器的中间瓶颈向量。如果生成器只是一个解码器，那么编码器可以将生成器生成的图像编码成特征向量，以重建噪声先验，从本质上来说，它充当了生成器的反函数。
+- en: 'As with SRGAN and inpainting, there are usually multiple loss terms: namely
+    a reconstruction loss such as L[con] and an adversarial loss such as L[adv] in
+    the example architecture in [Figure 12-45](#skip-ganomaly_architecturecomma_using_a).
+    Additionally, there can be other loss terms like [Figure 12-45](#skip-ganomaly_architecturecomma_using_a)’s
+    L[lat], which is a latent loss that sums the Euclidean distance between two feature
+    maps in an intermediate layer from the discriminator. The weighted sum of these
+    losses is designed to encourage the desired inference behavior. The adversarial
+    loss ensures that the generator has learned the manifold of normal images.'
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 SRGAN 和 inpainting 相同，通常存在多个损失项：例如重建损失如 L[con] 和对抗损失如 L[adv]，在示例架构中如 [图 12-45](#skip-ganomaly_architecturecomma_using_a)
+    中所示。此外，还可能有其他损失项，如 [图 12-45](#skip-ganomaly_architecturecomma_using_a) 的 L[lat]，这是一个潜在损失，它计算了鉴别器中一个中间层的两个特征图之间的欧几里得距离之和。这些损失的加权和旨在促进所需的推断行为。对抗损失确保生成器已经学会了正常图像的流形。
+- en: The three-phase training procedure of image reconstruction, calculating the
+    normal prediction error distribution, and applying the distance threshold will
+    produce different results depending on whether normal or anomalous images are
+    passed through the trained generator. Normal images will look very similar to
+    the original images, so their reconstruction error will be low; therefore, when
+    compared to the learned parameterized error distribution, they will have distances
+    that are below the learned threshold. However, when the generator is passed an
+    anomalous image, the reconstruction will no longer just be slightly worse. Therefore,
+    the anomalies should be painted out, generating what the model thinks the image
+    would look like without anomalies. The generator will essentially hallucinate
+    what it thinks should be there based on its learned normal image manifold. Obviously
+    this should result in a very large error when compared to the original anomalous
+    image, allowing us to correctly flag the anomalous images or pixels for anomaly
+    detection or localization, respectively.
+  id: totrans-316
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像重建的三阶段训练过程，计算正常预测误差分布，并应用距离阈值，将根据经过训练的生成器传递的是正常还是异常图像而产生不同的结果。正常图像将与原始图像非常相似，因此它们的重建误差将很低；因此，与学习的参数化误差分布相比，它们将具有低于学习阈值的距离。然而，当生成器传递异常图像时，重建将不再仅仅稍差。因此，应该将异常点标记出来，生成模型认为没有异常时的图像样子。生成器基本上会根据其学习的正常图像流形来幻想应该在那里的内容。显然，与原始异常图像相比，这应该会产生非常大的误差，从而使我们能够正确地标记异常图像或像素，用于异常检测或定位，分别。
+- en: Deepfakes
+  id: totrans-317
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 深度伪造
+- en: A popular technique that has recently exploded into the mainstream is the making
+    of so-called *deepfakes*. Deepfakes replace objects or people in existing images
+    or videos with different objects or people. The typical models used to create
+    these deepfake images or videos are autoencoders or, with even better performance,
+    GANs.
+  id: totrans-318
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最近爆炸性增长到主流的一种流行技术是所谓的*深度伪造*。深度伪造用不同的对象或人物替换现有图像或视频中的对象或人物。用于创建这些深度伪造图像或视频的典型模型是自编码器，或者性能更好的是GAN。
+- en: One method of creating deepfakes is to create one encoder and two decoders,
+    A and B. Let’s say we are trying to swap person X’s face with person Y’s. First,
+    we distort an image of person X’s face and pass that through the encoder to get
+    the embedding, which is then passed through decoder A. This encourages the two
+    networks to learn how to reconstruct person X’s face from the noisy version. Next,
+    we pass a warped version of person Y’s face through the same encoder, and pass
+    it through decoder B. This encourages these two networks to learn how to reconstruct
+    person Y’s face from the noisy version. We repeat this process over and over again
+    until decoder A is great at producing clean images of person X and decoder B is
+    great for person Y. The three networks have learned the essence of the two faces.
+  id: totrans-319
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建深度伪造的一种方法是创建一个编码器和两个解码器，A和B。假设我们试图用人物X的面孔与人物Y的面孔交换。首先，我们扭曲人物X面孔的图像，通过编码器获取嵌入，然后通过解码器A传递。这鼓励这两个网络学习如何从嘈杂版本中重建出人物X的面孔。接下来，我们通过同样的编码器传递人物Y面孔的扭曲版本，并通过解码器B传递。这鼓励这两个网络学习如何从嘈杂版本中重建出人物Y的面孔。我们一遍又一遍地重复这个过程，直到解码器A能够产生人物X的清晰图像，解码器B能够产生人物Y的清晰图像。这三个网络已经学会了这两张面孔的本质。
+- en: At inference time, if we now pass an image of person X through the encoder and
+    then through decoder B, which was trained on the other person (person Y) instead
+    of person X, the networks will think that the input is noisy and “denoise” the
+    image into person Y’s face. Adding a discriminator for an adversarial loss can
+    help improve the image quality.
+  id: totrans-320
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 推断时，如果我们现在通过编码器将人物X的图像传递，然后通过训练在人物Y而不是人物X上的解码器B，网络将认为输入是嘈杂的，并将图像“去噪”为人物Y的面孔。添加一个对抗损失的鉴别器可以帮助改善图像质量。
+- en: There have been many other advancements in the creation of deepfakes, such as
+    requiring only a single source image (often demonstrated by running the deepfake
+    on a work of art such as the *Mona Lisa*). Remember, though, that to achieve great
+    results, a lot of data is required to sufficiently train the networks.
+  id: totrans-321
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在深度伪造的创建中已经有许多其他进展，例如只需要单个源图像（通常通过在*蒙娜丽莎*等艺术作品上运行深度伪造来演示）。不过，请记住，为了取得良好的结果，需要大量的数据来充分训练网络。
+- en: Deepfakes are something that we need to keep a close eye on due to their possible
+    abuse for political or financial gain—for instance, making a politician appear
+    to say something they never did. There is a lot of active research looking into
+    methods to detect deepfakes.
+  id: totrans-322
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 深度假像是我们需要密切关注的东西，因为它们可能被滥用于政治或财务上的利益，例如让政客看起来说了他们从未说过的话。目前有大量积极的研究致力于探索检测深度假像的方法。
+- en: Image Captioning
+  id: totrans-323
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 图像标题生成
+- en: So far in this chapter, we have looked at how to represent images (using encoders)
+    and how to generate images from those representations (using decoders). Images
+    are not the only thing worth generating from image representations, though—we
+    might want to generate text based on the content of the images, a problem known
+    as *image captioning*.
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，在本章中，我们已经看到如何表示图像（使用编码器）以及如何从这些表示生成图像（使用解码器）。然而，图像并不是唯一值得从图像表示生成的东西，我们可能想基于图像内容生成文本，这是一个被称为*图像标题生成*的问题。
+- en: Image captioning is an asymmetric transformation problem. The encoder here operates
+    on images, whereas the decoder needs to generate text. A typical approach is to
+    use standard models for the two tasks, as shown in [Figure 12-46](#high-level_image_captioning_architecture).
+    For example, we could use the Inception convolutional model to encode images into
+    image embeddings, and a language model (marked by the gray box) for the sequence
+    generation.
+  id: totrans-325
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像标题生成是一个非对称转换问题。这里的编码器操作于图像，而解码器需要生成文本。一个典型的方法是使用标准模型来完成这两个任务，如[图12-46](#high-level_image_captioning_architecture)所示。例如，我们可以使用Inception卷积模型将图像编码为图像嵌入，并使用语言模型（在灰色框内）进行序列生成。
+- en: '![](Images/pmlc_1246.png)'
+  id: totrans-326
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1246.png)'
+- en: Figure 12-46\. High-level image captioning architecture.
+  id: totrans-327
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-46。高级图像标题生成架构。
+- en: 'There are two important concepts that are necessary to understand what’s happening
+    in the language model: attention and gated recurrent units (GRUs).'
+  id: totrans-328
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有两个重要的概念是理解语言模型中发生的事情的必要条件：注意力和门控循环单元（GRUs）。
+- en: '*Attention* is important for the model to learn the relationships between specific
+    parts in the image and specific words in the caption. This is accomplished by
+    training the network such that it learns to focus its attention on specific parts
+    of the image for specific words in the output sequence (see [Figure 12-47](#the_model_learns_to_predict_the_next_wor)).
+    Therefore, the decoder incorporates a mechanism that *attends* over the image
+    to predict the next word.'
+  id: totrans-329
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*注意力* 对于模型学习图像中特定部分与标题中特定词语之间的关系非常重要。通过训练网络，使其学会专注于图像的特定部分以预测输出序列中特定词语的方式来实现这一点（参见[图12-47](#the_model_learns_to_predict_the_next_wor)）。因此，解码器包含一个机制，通过*注意*图像来预测下一个词语。'
+- en: '![](Images/pmlc_1247.png)'
+  id: totrans-330
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1247.png)'
+- en: Figure 12-47\. The model learns to predict the next word in the sequence by
+    focusing its attention on the relevant part of the input image. The attention
+    of the network at the time the word “frisbee” is to be predicted is shown in this
+    figure. Image from [Xu et al., 2016](https://arxiv.org/abs/1502.03044v3).
+  id: totrans-331
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图12-47。模型通过关注输入图像的相关部分来学习预测序列中的下一个词。在预测“飞盘”这个词时，网络的注意力如图所示。图像来自[Xu et al., 2016](https://arxiv.org/abs/1502.03044v3)。
+- en: A *GRU cell* is the basic building block of a sequence model. Unlike the image
+    models that we have seen in this book, language models need to remember what words
+    they have already predicted. In order for a language model to take an English
+    input sentence (“I love you”) and translate it into French (“Je t’aime”), it is
+    insufficient for the model to translate the sentence word-by-word. Instead, the
+    model needs to have some memory. This is accomplished through a GRU cell that
+    has an input, an output, an input state, and an output state. In order to predict
+    the next word, the state is passed around from step to step, and the output of
+    one step becomes the input to the next.
+  id: totrans-332
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*GRU单元* 是序列模型的基本构建块。与本书中看到的图像模型不同，语言模型需要记住它们已经预测过的词语。为了让语言模型能够将英文输入句子（“I love
+    you”）翻译成法文（“Je t’aime”），仅仅逐词翻译是不够的。相反，模型需要一些记忆能力。这通过GRU单元完成，它具有输入、输出、输入状态和输出状态。为了预测下一个词语，状态在步骤之间传递，并且一个步骤的输出成为下一个步骤的输入。'
+- en: In this section we will build an end-to-end captioning model, starting with
+    creating the dataset and preprocessing the captions and moving on to building
+    the captioning model, training it, and using it to make predictions.
+  id: totrans-333
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将构建一个端到端的字幕模型，从创建数据集和预处理字幕开始，然后构建字幕模型，训练它，并使用它进行预测。
+- en: Dataset
+  id: totrans-334
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据集
+- en: To train a model to predict captions, we need a training dataset that consists
+    of images and captions for those images. The [COCO captions dataset](https://oreil.ly/t4xr6)
+    is a large corpus of such captioned images. We will use a version of the COCO
+    dataset that is part of TensorFlow Datasets—this version contains images, bounding
+    boxes, labels, and captions from COCO 2014, split into the subsets defined by
+    Karpathy and Li (2015), and takes care of some data quality issues with the original
+    dataset (for example, some of the images in the original dataset did not have
+    captions).
+  id: totrans-335
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要训练一个模型来预测标题，我们需要一个包含这些图像和标题的训练数据集。[COCO字幕数据集](https://oreil.ly/t4xr6)是这样一组带字幕图像的大型语料库。我们将使用TensorFlow数据集的COCO数据集版本——这个版本包含了来自COCO
+    2014的图像、边界框、标签和字幕，按照Karpathy和Li（2015）定义的子集划分，并解决了原始数据集中的一些数据质量问题（例如，原始数据集中的一些图像没有字幕）。
+- en: 'We can create a training dataset using the following code (the full code is
+    in [*02e_image_captioning.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/12_generation/02e_image_captioning.ipynb)):'
+  id: totrans-336
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用以下代码创建一个训练数据集（完整代码在GitHub的*02e_image_captioning.ipynb*中查看）：
+- en: '[PRE31]'
+  id: totrans-337
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: This code applies the `get_image_label()` function to each of the examples that
+    are read. This method pulls out the captions and the image tensor. The images
+    are all different sizes, but we need them to be of shape (299, 299, 3) in order
+    to use the pretrained Inception model. Therefore, we resize each image to the
+    desired size.
+  id: totrans-338
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码将`get_image_label()`函数应用于读取的每个示例。此方法提取标题和图像张量。这些图像大小不同，但我们需要它们的形状为（299，299，3）以便使用预训练的Inception模型。因此，我们将每个图像调整为所需的大小。
+- en: Each image has multiple captions. A few example images and the first caption
+    of each are shown in [Figure 12-48](Images/#a_few_example_images_and_the_first_capti).
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个图像都有多个标题。下面显示了一些示例图像和每个图像的第一个标题：[图 12-48](Images/#a_few_example_images_and_the_first_capti)。
+- en: '![](Images/pmlc_1248.png)'
+  id: totrans-340
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1248.png)'
+- en: Figure 12-48\. A few example images and the first caption for these images from
+    the COCO dataset.
+  id: totrans-341
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-48。来自COCO数据集的几个示例图像和这些图像的第一个标题。
+- en: Tokenizing the Captions
+  id: totrans-342
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 标题分词
+- en: 'Given a caption such as:'
+  id: totrans-343
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定一个标题，如：
+- en: '[PRE32]'
+  id: totrans-344
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: 'we need to remove punctuation, lowercase it, split into words, remove unusual
+    words, add special start and stop tokens, and pad it to a consistent length:'
+  id: totrans-345
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要删除标点符号，转换为小写，拆分为单词，删除不常见的单词，添加特殊的起始和停止标记，并将其填充到一致的长度：
+- en: '[PRE33]'
+  id: totrans-346
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'We start by adding the `<start>` and `<end>` tokens to each caption string:'
+  id: totrans-347
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们在每个标题字符串中添加 `<start>` 和 `<end>` 标记：
+- en: '[PRE34]'
+  id: totrans-348
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: 'Then we use the Keras tokenizer to create the word-to-index lookup table:'
+  id: totrans-349
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们使用Keras的标记器创建单词到索引的查找表：
+- en: '[PRE35]'
+  id: totrans-350
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: 'The tokenizer can now be used to do the lookups in both directions:'
+  id: totrans-351
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在标记器可以用来在两个方向上进行查找：
+- en: '[PRE36]'
+  id: totrans-352
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: Batching
+  id: totrans-353
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 批处理
+- en: 'Each image in the COCO dataset can have up to five captions. So, given an image,
+    we can actually generate up to five feature/label pairs (the image is the feature,
+    the caption is the label). Because of this, creating a batch of training features
+    is not as easy as:'
+  id: totrans-354
+  prefs: []
+  type: TYPE_NORMAL
+  zh: COCO数据集中的每个图像最多可以有五个标题。因此，对于给定的图像，我们实际上可以生成高达五个特征/标签对（图像是特征，标题是标签）。由于这个原因，创建一批训练特征并不像这么容易：
+- en: '[PRE37]'
+  id: totrans-355
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: 'since these 32 examples will expand into anywhere from 32 to 32 * 5 potential
+    examples. We need batches to be of consistent size, so we will have to use the
+    training dataset to generate the necessary examples before batching them:'
+  id: totrans-356
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这些32个示例将扩展到32到32 * 5个潜在示例。我们需要批次具有一致的大小，因此我们将使用训练数据集生成必要的示例，然后对它们进行批处理：
+- en: '[PRE38]'
+  id: totrans-357
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: Note that we are reading the caption strings, and applying the same processing
+    to each of these strings that we did in the previous section. That was for the
+    purpose of creating the word-to-index lookup tables and computing the maximum
+    caption length over the entire dataset so that captions can be padded to the same
+    length. Here, we simply apply the lookup tables and pad the captions based on
+    what was calculated over the full dataset.
+  id: totrans-358
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们正在阅读字幕字符串，并对这些字符串应用与前一节相同的处理。这是为了创建单词到索引查找表，并计算整个数据集上的最大字幕长度，以便字幕可以填充到相同的长度。在这里，我们简单地应用查找表，并根据在整个数据集上计算的内容填充字幕。
+- en: 'We can then create batches of 193 image/caption pairs by:'
+  id: totrans-359
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们可以通过以下方式创建193个图像/字幕对的批次：
+- en: '[PRE39]'
+  id: totrans-360
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: Captioning Model
+  id: totrans-361
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 字幕模型
+- en: The model consists of an image encoder followed by a caption decoder (see [Figure 12-46](#high-level_image_captioning_architecture)).
+    The caption decoder incorporates an attention mechanism that focuses on different
+    parts of the input image.
+  id: totrans-362
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该模型由图像编码器和字幕解码器组成（见[图 12-46](#high-level_image_captioning_architecture)）。字幕解码器包含一个注意机制，专注于输入图像的不同部分。
+- en: Image encoder
+  id: totrans-363
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 图像编码器
+- en: 'The image encoder consists of the pretrained Inception model followed by a
+    `Dense` layer:'
+  id: totrans-364
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像编码器由预训练的Inception模型和一个`Dense`层组成：
+- en: '[PRE40]'
+  id: totrans-365
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: 'Invoking the image encoder applies the Inception model, flattens the result
+    from the [batch, 8, 8, 2048] that Inception returns to [batch, 64, 2048], and
+    passes it through the `Dense` layer:'
+  id: totrans-366
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调用图像编码器应用Inception模型，将Inception返回的[batch, 8, 8, 2048]扁平化为[batch, 64, 2048]，并通过`Dense`层传递：
+- en: '[PRE41]'
+  id: totrans-367
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: Attention mechanism
+  id: totrans-368
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 注意机制
+- en: The attention component is complicated—look at the following description in
+    conjunction with [Figure 12-46](#high-level_image_captioning_architecture) and
+    the complete code in [*02e_image_captioning.ipynb* on GitHub](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/12_generation/02e_image_captioning.ipynb).
+  id: totrans-369
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意组件很复杂——结合[图 12-46](#high-level_image_captioning_architecture)的以下描述以及[*02e_image_captioning.ipynb*在GitHub上的完整代码](https://github.com/GoogleCloudPlatform/practical-ml-vision-book/blob/master/12_generation/02e_image_captioning.ipynb)。
+- en: 'Recall that attention is how the model learns the relationships between specific
+    parts in the image and specific words in the caption. The attention mechanism
+    consists of two sets of weights—`W1` is a dense layer meant for the spatial component
+    (`features`, where in the image to focus on), and `W2` is a dense layer for the
+    “temporal” component (indicating which word in the input sequence to focus on):'
+  id: totrans-370
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请回想一下，注意力是模型学习图像中特定部分与字幕中特定单词之间关系的方式。注意机制包括两组权重——`W1`是用于空间组件（特征，图像中要关注的位置）的密集层，`W2`是“时间”组件的密集层（指示输入序列中要关注的单词）：
+- en: '[PRE42]'
+  id: totrans-371
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: 'The weighted attention mechanism is applied to the hidden state of the recurrent
+    neural network to compute a score:'
+  id: totrans-372
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加权注意机制应用于递归神经网络的隐藏状态，以计算分数：
+- en: '[PRE43]'
+  id: totrans-373
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: '`V` here is a dense layer that has a one output node that is passed through
+    a softmax layer to obtain a final combined weight that adds up to 1 across all
+    the words. The features are weighted by this value, and this is an input to the
+    decoder:'
+  id: totrans-374
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`V`在这里是一个密集层，具有一个输出节点，通过softmax层传递以获得最终的组合权重，该权重在所有单词上加起来等于1。这些特征通过此值加权，这是解码器的输入：'
+- en: '[PRE44]'
+  id: totrans-375
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: This attention mechanism is part of the decoder, which we’ll look at next.
+  id: totrans-376
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个注意机制是解码器的一部分，我们将在下一部分中讨论。
+- en: Caption decoder
+  id: totrans-377
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 字幕解码器
+- en: Recall that the decoder needs to have some memory of what it has predicted in
+    the past, and so the state is passed around from step to step, with the output
+    of one step becoming the input to the next. Meanwhile, during training, the caption
+    words are fed into the decoder one word at a time.
+  id: totrans-378
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，解码器需要记住它过去预测过的内容，因此状态会从一个步骤传递到下一个步骤，一个步骤的输出成为下一个步骤的输入。同时，在训练过程中，字幕单词逐个输入解码器。
+- en: 'The decoder takes the caption words one a time (x in the following listing)
+    and converts each word into its word embedding. The embedding is then concatenated
+    with the context output of the attention mechanism (which specifies where in the
+    image the attention mechanism is currently focused) and passed into a recurrent
+    neural network cell (a GRU cell is used here):'
+  id: totrans-379
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解码器逐个获取字幕单词（在下面的列表中为x），并将每个单词转换为其词嵌入。然后将嵌入与注意机制的上下文输出（指定注意机制当前关注的图像部分）连接起来，并传递到递归神经网络单元（此处使用GRU单元）：
+- en: '[PRE45]'
+  id: totrans-380
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: The output of the GRU cell is then passed through a set of dense layers to obtain
+    the decoder output. The output here would normally be a softmax because the decoder
+    is a multilabel classifier—we need the decoder to tell which of the five thousand
+    words the next word needs to be. However, for reasons that will become apparent
+    in the section on predictions, it is helpful to keep the output as logits.
+  id: totrans-381
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，GRU单元的输出通过一组密集层传递，以获得解码器的输出。这里的输出通常会是softmax，因为解码器是一个多标签分类器——我们需要解码器告诉下一个单词是五千个单词中的哪一个。然而，出于在预测部分变得明显的原因，保持输出为logits是有帮助的。
+- en: 'Putting these pieces together, we have:'
+  id: totrans-382
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 把这些片段放在一起，我们有：
+- en: '[PRE46]'
+  id: totrans-383
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: 'The loss function of the captioning model is a bit tricky. It’s not simply
+    the mean cross-entropy over the entire output, because we need to ignore the padded
+    words. Therefore, we define a loss function that masks out the padded words (which
+    are all zeros) before computing the mean:'
+  id: totrans-384
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 字幕模型的损失函数有点棘手。它不仅仅是整个输出的平均交叉熵，因为我们需要忽略填充的单词。因此，在计算平均值之前，我们定义了一个可以屏蔽填充单词（即全零）的损失函数：
+- en: '[PRE47]'
+  id: totrans-385
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: Training Loop
+  id: totrans-386
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 训练循环
+- en: Now that our model has been created, we can move on to training it. You might
+    have noticed that we don’t have a single Keras model—we have an encoder and a
+    decoder. That is because it is not enough to call `model.fit()` on the entire
+    image and caption—we need to pass in the caption words to the decoder one by one
+    because the decoder needs to learn how to predict the next word in the sequence.
+  id: totrans-387
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们的模型已经创建，我们可以开始训练它了。您可能已经注意到，我们不只有一个Keras模型——我们有一个编码器和一个解码器。这是因为仅仅在整个图像和字幕上调用`model.fit()`是不够的——我们需要逐个传递字幕单词给解码器，因为解码器需要学习如何预测序列中的下一个单词。
+- en: 'Given an image and a target caption, we initialize the loss and reset the decoder
+    state (so that the decoder doesn’t continue with the words of the previous caption):'
+  id: totrans-388
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定一张图像和一个目标字幕，我们初始化损失并重置解码器状态（以防解码器继续使用前一个字幕的单词）：
+- en: '[PRE48]'
+  id: totrans-389
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE48]'
+- en: 'The decoder input starts with a special start token:'
+  id: totrans-390
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解码器输入以特殊的起始标记开始：
+- en: '[PRE49]'
+  id: totrans-391
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE49]'
+- en: 'We invoke the decoder and compute the loss by comparing the decoder’s output
+    against the next word in the caption:'
+  id: totrans-392
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们调用解码器，并通过比较解码器输出与字幕中的下一个单词来计算损失：
+- en: '[PRE50]'
+  id: totrans-393
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE50]'
+- en: 'We are adding the *i*th word to the decoder input each time so that the model
+    learns based on the correct caption, not based on whatever the predicted word
+    is:'
+  id: totrans-394
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们每次将第i个单词添加到解码器输入中，这样模型学习时基于正确的字幕，而不是基于预测的单词是什么：
+- en: '[PRE51]'
+  id: totrans-395
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE51]'
+- en: This is called *teacher forcing*. Teacher forcing swaps the target word in the
+    input with the predicted word from the last step.
+  id: totrans-396
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这被称为*教师强制*。教师强制将输入中的目标词与上一步预测的词交换。
+- en: 'The whole set of operations just described has to be captured for the purpose
+    of computing gradient updates, so we wrap it in a `GradientTape`:'
+  id: totrans-397
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 刚刚描述的整套操作必须被捕捉以计算梯度更新，因此我们在`GradientTape`中包裹它：
+- en: '[PRE52]'
+  id: totrans-398
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE52]'
+- en: 'We can then update the loss, and apply gradients:'
+  id: totrans-399
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们可以更新损失并应用梯度：
+- en: '[PRE53]'
+  id: totrans-400
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE53]'
+- en: 'Now that we have defined what happens in a single training step, we can loop
+    through it for the desired number of epochs:'
+  id: totrans-401
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经定义了单个训练步骤中发生的事情，我们可以循环执行所需数量的时期：
+- en: '[PRE54]'
+  id: totrans-402
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE54]'
+- en: Prediction
+  id: totrans-403
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 预测
+- en: For the purpose of prediction, we are given an image and need to generate a
+    caption. We start the caption string with the token `<start>` and feed the image
+    and the initial token to the decoder. The decoder returns a set of logits, one
+    for each of the words in our vocabulary.
+  id: totrans-404
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了预测的目的，我们得到一张图像，需要生成一个字幕。我们用标记`<start>`开始字幕字符串，并将图像和初始标记馈送给解码器。解码器返回一组logits，每个词汇表中的一个。
+- en: 'Now we need to use the logits to get the next word. There are several approaches
+    we could follow:'
+  id: totrans-405
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们需要使用logits来获取下一个单词。我们可以采取几种方法：
+- en: A greedy approach where we pick the word with the maximum log-likelihood. This
+    essentially means that we do `tf.argmax()` on the logits. This is fast but tends
+    to overemphasize uninformative words like “a” and “the.”
+  id: totrans-406
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 贪婪方法是我们选择具有最大对数似然的单词。这本质上意味着我们在logits上进行`tf.argmax()`。这很快，但往往会过度强调像“a”和“the”这样的不太信息丰富的单词。
+- en: A *beam search* method where we pick the top three or five candidates. We will
+    then force the decoder with each of these words, and pick the next word in the
+    sequence. This creates a tree of output sequences, from which the highest-probability
+    sequence is selected. Because this optimizes the probability of the sequence rather
+    than of individual words, it tends to give the best results, but it’s computationally
+    quite expensive and can lead to high latencies.
+  id: totrans-407
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*光束搜索*方法会选择前三或五个候选词。然后我们会强制解码器使用这些词中的每一个，并选择序列中的下一个词。这样就创建了一个输出序列的树，从中选择概率最高的序列。由于这种优化是针对序列而不是单个词的概率，因此往往会产生最佳结果，但计算成本相当高，可能导致较高的延迟。'
+- en: A probabilistic method where we choose the word in proportion to its likelihood—in
+    TensorFlow, this is achieved using `tf.random.categorical()`. If the word following
+    “crowd” is 70% likely to be “people” and 30% likely to be “watching,” then the
+    model chooses “people” with a 70% likelihood, and “watching” with a 30% probability,
+    so that the less likely phrase is also explored. This is a reasonable trade-off
+    that achieves both novelty and speed at the expense of being nonreproducible.
+  id: totrans-408
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一种概率方法是根据其可能性选择词语——在TensorFlow中，可以通过`tf.random.categorical()`实现。例如，如果“crowd”后面的词“people”的可能性为70%，“watching”的可能性为30%，那么模型以70%的概率选择“people”，30%的概率选择“watching”，以便探索可能性较低的短语。这是一种在新颖性和速度之间进行合理权衡的方法，但代价是不可重现性。
+- en: Let’s try out the third approach.
+  id: totrans-409
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们试试第三种方法。
+- en: 'We start by applying all the preprocessing to the image, and then send it to
+    the image encoder:'
+  id: totrans-410
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先对图像应用所有预处理步骤，然后将其发送到图像编码器：
+- en: '[PRE55]'
+  id: totrans-411
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE55]'
+- en: 'We then initialize the decoder input with the token `<start>` and invoke the
+    decoder repeatedly until an `<end>` caption is received or the maximum caption
+    length is reached:'
+  id: totrans-412
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们用标记`<start>`初始化解码器输入，并重复调用解码器，直到收到`<end>`标题或达到最大标题长度：
+- en: '[PRE56]'
+  id: totrans-413
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE56]'
+- en: An example image and captions generated from it are shown in [Figure 12-49](#an_example_imagecomma_courtesy_of_the_au).
+    The model seems to have captured that this is a group of people on a field playing
+    baseball. However, the model believes that there is a high likelihood that the
+    white line in the center is the median divider of a street, and that this game
+    could have been played on the street. Stopwords (*of*, *in*, *and*, *a*, etc.)
+    are not generated by the model because we removed them from the training dataset.
+    Had we had a larger dataset, we could have tried to generate proper sentences
+    by keeping those stopwords in.
+  id: totrans-414
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个示例图像及其生成的标题显示在[图 12-49](#an_example_imagecomma_courtesy_of_the_au)中。模型似乎捕捉到这是一群在球场上打棒球的人群。然而，该模型认为中间的白线可能是街道的分隔线，这场比赛可能是在街上进行的。模型不会生成停用词（*of*,
+    *in*, *and*, *a* 等），因为我们在训练数据集中已将其移除。如果我们有更大的数据集，我们可以尝试保留这些停用词以生成更合适的句子。
+- en: '![](Images/pmlc_1249.png)'
+  id: totrans-415
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/pmlc_1249.png)'
+- en: Figure 12-49\. An example image, courtesy of the author, and a few of the captions
+    generated by the model.
+  id: totrans-416
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 12-49\. 一个示例图像，由作者提供，并模型生成的部分标题。
+- en: At this point, we now have an end-to-end image captioning model. Image captioning
+    is an important way to make sense of a large corpus of images and is starting
+    to find use in a number of applications, such as generating image descriptions
+    for the visually impaired, meeting accessibility requirements in social media,
+    generating audio guides like those used in museums, and performing cross-language
+    annotation of images.
+  id: totrans-417
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到此为止，我们现在有了一个端到端的图像字幕模型。图像字幕是理解大量图像的重要方式，开始在许多应用中找到用途，例如为视觉障碍者生成图像描述，满足社交媒体的可访问性要求，生成博物馆中使用的音频导览，以及执行图像的跨语言注释。
+- en: Summary
+  id: totrans-418
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: In this chapter, we looked at how to generate images and text. To generate images,
+    we first create latent representations of images using an autoencoder (or variational
+    autoencoder). A latent vector passed through a trained decoder functions as an
+    image generator. In practice, however, the generated images are too obviously
+    fake. To improve the realism of the generated images, we can use GANs, which use
+    a game theoretic approach to train a pair of neural networks. Finally, we looked
+    at how to implement image captioning by training an image encoder and a text decoder
+    along with an attention mechanism.
+  id: totrans-419
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们看了如何生成图像和文本。要生成图像，我们首先使用自编码器（或变分自编码器）创建图像的潜在表示。通过经过训练的解码器传递的潜在向量充当图像生成器。然而，在实践中，生成的图像显然过于假造。为了提高生成图像的逼真度，我们可以使用生成对抗网络（GANs），这种方法使用博弈论方法训练一对神经网络。最后，我们看了如何通过训练图像编码器和文本解码器以及注意机制来实现图像字幕生成。

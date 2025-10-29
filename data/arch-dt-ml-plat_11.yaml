@@ -1,0 +1,1647 @@
+- en: Chapter 11\. Architecting an ML Platform
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第11章：设计一个ML平台
+- en: In the previous chapter, we discussed the overall architecture of ML applications
+    and that in many cases you will use prebuilt ML models. In some cases, your team
+    will have to develop the ML model that is at the core of the ML application.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们讨论了ML应用程序的整体架构，并且在许多情况下，您将使用预先构建的ML模型。在某些情况下，您的团队将不得不开发ML模型，这是ML应用程序的核心。
+- en: In this chapter, you will delve into the development and deployment of such
+    *custom* ML models. You will look at the stages in the development of ML models
+    and the frameworks that support such development. After the model has been created,
+    you will need to automate the training process by looking into tools and products
+    that can help you make this transition. Finally, you will need to monitor the
+    behavior of your trained models that have been deployed to endpoints to see if
+    they are drifting when making inferences.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您将深入探讨开发和部署此类*定制* ML模型。您将查看ML模型开发的各个阶段和支持此类开发的框架。在模型创建后，您需要通过查看可以帮助您实现这一过渡的工具和产品来自动化训练过程。最后，您需要监控已部署到端点的训练模型的行为，以查看它们在进行推断时是否存在漂移。
+- en: In earlier chapters, we discussed ML capabilities that are enabled by various
+    parts of the data platform. Specifically, the data storage for your ML platform
+    can be in the data lake ([Chapter 5](ch05.html#architecting_a_data_lake)) or DWH
+    ([Chapter 6](ch06.html#innovating_with_an_enterprise_data_ware)), the training
+    would be carried out on compute that is efficient for that storage, and the inference
+    can be invoked from a streaming pipeline ([Chapter 8](ch08.html#architectures_for_streaming))
+    or deployed to the edge ([Chapter 9](ch09.html#extending_a_data_platform_using_hybrid)).
+    In this chapter, we will pull all of these discussions together and consider what
+    goes into these ML capabilities.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前几章中，我们讨论了数据平台各部分所能提供的ML能力。具体来说，你的ML平台的数据存储可以在数据湖中（[第5章](ch05.html#architecting_a_data_lake)）或DWH中（[第6章](ch06.html#innovating_with_an_enterprise_data_ware)），训练会在适合该存储的计算资源上进行，推断可以从流水线中调用（[第8章](ch08.html#architectures_for_streaming)）或部署到边缘上（[第9章](ch09.html#extending_a_data_platform_using_hybrid)）。在本章中，我们将总结所有这些讨论，并考虑这些ML能力的具体内容。
+- en: ML Activities
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: ML活动
+- en: If you are building an ML platform to support custom ML model development, what
+    activities do you need to support? Too often, we see architects jump straight
+    to the ML framework (“We need to support XGBoost and PyTorch because that’s what
+    my data scientists use”) without consideration of the many activities that data
+    scientists and ML engineers need to be able to do on the platform.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你正在构建一个支持自定义ML模型开发的ML平台，你需要支持哪些活动呢？我们经常看到架构师直接跳到ML框架（“我们需要支持XGBoost和PyTorch，因为这是我的数据科学家使用的”），而没有考虑数据科学家和ML工程师在平台上需要做的许多活动。
+- en: Typically, the ML platform has to support the activities in [Figure 11-1](#activities_that_an_ml_platform_needs_to).
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 典型情况下，ML平台必须支持[图11-1](#activities_that_an_ml_platform_needs_to)中的活动。
+- en: '![Activities that an ML platform needs to support](assets/adml_1101.png)'
+  id: totrans-7
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ML平台需要支持的活动](assets/adml_1101.png)'
+- en: Figure 11-1\. Activities that an ML platform needs to support
+  id: totrans-8
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-1：ML平台需要支持的活动
+- en: You need to clean and process the raw data to make it more suitable for ML and
+    for the resulting trained models to be more accurate. Data preparation requires
+    exploratory data analysis to examine the data, plot its distribution, and study
+    its nuances. Then, an ML model is trained on a subset of the data and evaluated
+    using another subset. Based on this, the data scientist will make changes to the
+    data preparation or modeling steps. This process is iterative and usually involves
+    a great deal of experimentation.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你需要清洁和处理原始数据，使其更适合ML，并使得最终训练出来的模型更加准确。数据准备需要进行探索性数据分析来检查数据，绘制其分布，并研究其细微差别。然后，ML模型会在数据的一个子集上进行训练，并使用另一个子集进行评估。基于此，数据科学家将对数据准备或建模步骤进行更改。这个过程是迭代的，通常涉及大量的实验。
+- en: After model training is finished, you need to assess it against test data, check
+    for compliance and performance, and then deploy it to an endpoint. Clients of
+    the ML model may then send prediction requests to the endpoint.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型训练完成后，您需要对其进行测试数据评估，检查其符合性和性能，然后将其部署到一个端点。ML模型的客户端随后可以向端点发送预测请求。
+- en: A trained model does not remain fit for purpose indefinitely. The environment
+    typically changes, and over time, the model starts to become less accurate. Therefore,
+    you have to automate the steps for model training and deployment to ensure that
+    your models are always up to date and accurate.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 经过训练的模型不会永远保持合适。环境通常会发生变化，随着时间的推移，模型开始变得不太准确。因此，您必须自动化模型训练和部署步骤，以确保您的模型始终保持最新和准确。
+- en: Also, you have to carefully and continuously monitor the model (to ensure it
+    is handling the incoming prediction requests), evaluate it (to ensure predictions
+    remain accurate and features have not drifted), and retrain it whenever there
+    is new training data or new code or model drift is detected.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，您必须仔细而持续地监控模型（以确保它处理传入的预测请求），评估它（以确保预测保持准确，特征没有漂移），并在检测到新的训练数据、新代码或模型漂移时重新训练它。
+- en: Let’s look at how to design an ML platform to support all these activities.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看如何设计一个ML平台来支持所有这些活动。
+- en: Developing ML Models
+  id: totrans-14
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 开发ML模型
+- en: 'Developing ML models involves iterative development that consists of:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开发ML模型涉及迭代开发，包括：
+- en: Preparing the data for ML
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为ML准备数据
+- en: Writing the ML model code
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 编写ML模型代码
+- en: Running the ML model code on the prepared data
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在准备好的数据上运行ML模型代码
+- en: To support these steps, your data scientists will need a development environment
+    for ML.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了支持这些步骤，您的数据科学家需要一个ML开发环境。
+- en: Labeling Environment
+  id: totrans-20
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 标记环境
+- en: To develop custom ML models, you need to have the data that will be used to
+    *train* the model. Let’s assume the data needed has been collected and stored,
+    either in a DWH or in a data lake.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要开发自定义ML模型，您需要拥有将用于*训练*模型的数据。假设所需数据已被收集并存储在DWH或数据湖中。
+- en: In the case of supervised learning, the training data will need to have labels,
+    or correct answers. In some cases, these labels may be naturally present in the
+    data, and in others, you will need to get the data labeled using human experts.
+    Quite often, this tooling is outsourced and is not done by the data science team
+    itself, but it is worth asking whether a labeling application needs to be supported
+    by your ML platform.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在监督学习的情况下，训练数据需要有标签或正确答案。在某些情况下，这些标签可能自然存在于数据中，而在其他情况下，您需要使用人工专家来标记数据。通常情况下，这些工具是外包的，而不是由数据科学团队自己完成，但值得询问的是，ML平台是否需要支持标签应用程序。
+- en: Development Environment
+  id: totrans-23
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 开发环境
+- en: Because the ML development process is so iterative, data scientists are most
+    productive in an environment where they can write code, run it, view the results,
+    change the code immediately, and rerun the code. Data scientists need to have
+    the ability to execute their code in small snippets—it should not involve having
+    to rerun the entire program. The code and its outputs live in a document that
+    is called a notebook, as we anticipated in [“Interactive Analytics with Notebooks”](ch05.html#interactive_analytics_with_notebooks).
+    The notebook will be rendered by a web browser, and this is how users will access
+    the notebook. Code within the notebook is executed by software called a notebook
+    server (see [Figure 11-2](#high_level_architecture_for_notebooks)). The notebook
+    server software is installed on cloud VMs, and their lifecycle is managed through
+    managed notebook services such as SageMaker, Databricks, Vertex AI Workbench,
+    or Azure Machine Learning.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于ML开发过程如此迭代，数据科学家在能够编写代码、运行代码、查看结果、立即更改代码并重新运行代码的环境中最具生产力。数据科学家需要能够在小片段中执行其代码，而不需要重新运行整个程序。代码及其输出存储在一个称为笔记本的文档中，正如我们在[“使用笔记本进行交互式分析”](ch05.html#interactive_analytics_with_notebooks)中预期的那样。笔记本将由Web浏览器呈现，这是用户访问笔记本的方式。笔记本中的代码由称为笔记本服务器的软件执行（请参见[图11-2](#high_level_architecture_for_notebooks)）。笔记本服务器软件安装在云VM上，并通过托管笔记本服务（如SageMaker、Databricks、Vertex
+    AI Workbench或Azure Machine Learning）来管理其生命周期。
+- en: '![High-level architecture for notebooks](assets/adml_1102.png)'
+  id: totrans-25
+  prefs: []
+  type: TYPE_IMG
+  zh: '![笔记本电脑的高级架构](assets/adml_1102.png)'
+- en: Figure 11-2\. High-level architecture for notebooks
+  id: totrans-26
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-2\. 笔记本电脑的高级架构
+- en: Jupyter Notebook, as you have already read in previous chapters, has become
+    the de facto standard for data science development because it supports such interactive
+    workflows. Managed services for running Jupyter Notebook servers exist on all
+    the major cloud providers. These typically come with necessary statistical and
+    ML software frameworks preinstalled and offer the ability to run on GPU-enabled
+    machines for speeding up mathematical computations.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您在之前章节中已经了解到的，Jupyter Notebook已经成为数据科学开发的事实标准，因为它支持这种交互式工作流程。在所有主要的云提供商上都存在运行Jupyter
+    Notebook服务器的托管服务。这些服务通常预安装必要的统计和ML软件框架，并提供在启用GPU的机器上进行数学计算加速的能力。
+- en: Notebook services are also provided as part of cloud-agnostic data frameworks
+    like Databricks—this will work on all the major clouds in a nearly identical way.
+    Google Colab provides free managed notebooks, but these have time and hardware
+    restrictions. These limits are removed in a professional version of Colab that
+    is also offered. Finally, there are domain-specific managed notebooks such as
+    Terra.bio⁠—​these add, for example, biology-specific libraries and visualization
+    capabilities to generic notebooks.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 笔记本服务也作为云无关数据框架的一部分提供，例如Databricks，几乎在所有主要云上的工作方式相同。Google Colab提供免费的托管笔记本，但这些笔记本有时间和硬件限制。这些限制在专业版Colab中也有所解除。最后，还有领域特定的托管笔记本，如Terra.bio——这些笔记本添加了生物学特定的库和可视化功能到通用笔记本中。
+- en: As coding assistant tools based on generative AI (such as Replit, GitHub Copilot,
+    and Google Codey) are incorporated into notebook services like Colab and Jupyter,
+    things may change significantly. At the time of writing, it is difficult to predict
+    what the future holds, but AI assistants are likely to greatly streamline and
+    simplify software development.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着基于生成AI的编程助手工具（例如Replit、GitHub Copilot和Google Codey）被整合到Colab和Jupyter等笔记本服务中，事情可能会发生显著变化。在撰写本文时，很难预测未来会发生什么，但AI助理很可能大大简化和简化软件开发。
+- en: User Environment
+  id: totrans-30
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 用户环境
+- en: The typical approach is for the notebooks to be user managed. In essence, you
+    treat the VM on which Jupyter runs as the data scientists’ workstation. No one
+    else will be able to log in to that workstation. The data scientist will spend
+    the majority of their workday in it. The notebook files are placed under version
+    control, and the version control system (such as GitLab or GitHub) provides the
+    collaborative, consistent team view of the project.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 典型的方法是笔记本由用户管理。本质上，您将Jupyter运行的VM视为数据科学家的工作站。没有其他人能够登录到该工作站。数据科学家将大部分工作时间花费在其中。笔记本文件存放在版本控制下，版本控制系统（例如GitLab或GitHub）提供项目的协作一致的团队视图。
+- en: User-managed notebook instances let data scientists access cloud data and ML
+    services in a simple way that is auditable.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户管理的笔记本实例让数据科学家以可审计的简单方式访问云数据和ML服务。
+- en: When data scientists need to store the data, it has to be stored in such a way
+    that all collaborators have access to it. Instead of the data being local to the
+    Jupyter VM (as it would be in a traditional workstation), the data is held in
+    the DWH or in object storage and read on the fly. In some instances, it can be
+    helpful to download a copy of the data to a sufficiently large local disk.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当数据科学家需要存储数据时，必须以所有合作者都可以访问的方式存储数据。数据不像传统工作站中的本地数据，而是存储在数据仓库（DWH）或对象存储中，并且根据需要动态读取。在某些情况下，将数据副本下载到足够大的本地磁盘可能会有所帮助。
+- en: In many cases, data scientists work with confidential data or data with privacy-sensitive
+    information. Therefore, it is common to place the managed notebook service and
+    the source of the data within a higher trust boundary such as a virtual private
+    cloud (VPC), as shown in [Figure 11-3](#use_a_higher_trust_boundary_to_encompas).
+    Such an architecture helps mitigate the risk of data exfiltration by data scientists,
+    protects notebook instances from external network traffic, and limits access to
+    the VM that hosts the notebook server.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多情况下，数据科学家处理机密数据或包含隐私敏感信息的数据。因此，通常将托管的笔记本服务和数据源放置在较高的信任边界内，例如虚拟专用云（VPC），如[图 11-3](#use_a_higher_trust_boundary_to_encompas)所示。这样的架构有助于减少数据科学家数据外泄的风险，保护笔记本实例免受外部网络流量的影响，并限制访问托管笔记本服务器的虚拟机。
+- en: '![Use a higher trust boundary to encompass notebook servers, data keys, and
+    training data](assets/adml_1103.png)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用更高的信任边界包含笔记本服务器、数据密钥和训练数据](assets/adml_1103.png)'
+- en: Figure 11-3\. Use a higher trust boundary to encompass notebook servers, data
+    keys, and training data
+  id: totrans-36
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-3\. 使用更高的信任边界来包括笔记本服务器、数据密钥和训练数据。
+- en: Make sure that you use fine-grained access controls such as column-/row-level
+    security when providing access for data scientists. Data owners should ensure
+    that data scientists have access to redacted or tokenized datasets to the maximum
+    extent possible. Apply a crypto-boundary to all the datasets and manage these
+    keys through a cloud key management service. This ensures that encryption keys
+    are needed before any data can be read, and key management teams are kept separate
+    from data owners.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保在为数据科学家提供访问权限时使用细粒度访问控制，例如列级/行级安全性。数据所有者应确保数据科学家尽可能访问经过编辑或标记化的数据集。将加密边界应用于所有数据集，并通过云密钥管理服务管理这些密钥。这确保在读取任何数据之前需要加密密钥，并且密钥管理团队与数据所有者保持分离。
+- en: Data scientists require VMs with GPUs when training deep learning models on
+    unstructured data. If you provide each data scientist their own managed notebook
+    instance, cost could become an issue. As a first step, make sure to set up features
+    of the managed service to automatically pause or stop the VM if it hasn’t been
+    used for some number of hours.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据科学家在处理非结构化数据训练深度学习模型时需要带 GPU 的虚拟机。如果为每位数据科学家提供独立的托管笔记本实例，成本可能会成为一个问题。作为第一步，确保设置托管服务的功能，以便在虚拟机未被使用一段时间后自动暂停或停止。
+- en: For large teams (more than 50 data scientists), stopping idle instances may
+    not be sufficient cost optimization. You would want multiple users to share the
+    same hardware so as to amortize the computational power across those users. In
+    such cases, the architecture involves running the notebook server on a Kubernetes
+    cluster rather than on a VM (JupyterHub supports this) and then serving out notebooks
+    to multiple users from the same cluster. Because this architecture is multitenant,
+    it makes security considerations harder. Consider whether the cost savings are
+    worth the increased security risks.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于大型团队（超过 50 名数据科学家），停止空闲实例可能不足以进行充分的成本优化。您希望多个用户共享相同的硬件，以便跨这些用户分摊计算能力。在这种情况下，架构涉及在
+    Kubernetes 集群上运行笔记本服务器，而不是在虚拟机上（JupyterHub 支持此功能），然后从同一集群向多个用户提供笔记本。由于这种架构是多租户的，使安全考虑变得更加困难。请考虑成本节约是否值得增加的安全风险。
+- en: Preparing Data
+  id: totrans-40
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据准备
+- en: The first step in many ML projects is to extract data from source systems (typically
+    a DWH or a relational database), preprocess/clean it, and convert to a format
+    (such as TensorFlow Records) optimized for ML training. The resulting ML data
+    is stored in an object storage service for easy access from notebooks.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多机器学习项目的第一步是从源系统（通常是 DWH 或关系数据库）中提取数据，预处理/清理数据，并将其转换为优化用于机器学习训练的格式（如 TensorFlow
+    Records）。生成的机器学习数据存储在对象存储服务中，以便从笔记本轻松访问。
+- en: For example, many image classification model architectures require all images
+    to be the same size. During the data preparation step, cropping or resizing of
+    images to the requisite size can be carried out. Similarly, in text models, the
+    input text words and sentences have to be converted into a numeric representation.
+    This is often done by applying a large model (e.g., BERT, GPT-3) to the words
+    or sentences to get a batch of numbers.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，许多图像分类模型架构要求所有图像具有相同的尺寸。在数据准备步骤中，可以执行裁剪或调整图像大小以符合所需尺寸。类似地，在文本模型中，输入文本单词和句子必须转换为数值表示。通常通过将大型模型（例如
+    BERT、GPT-3）应用于单词或句子来获得一批数字。
+- en: At this point, it is essential for data scientists to visually examine the data.
+    Common plotting libraries are included in the Jupyter environment. If there are
+    tools that make this easier for the data scientists (e.g., video rendering software
+    or domain-specific frameworks and libraries), make sure to have them installed
+    on the Jupyter VM.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此时，数据科学家视觉检查数据至关重要。Jupyter 环境中包含常见的绘图库。如果有工具可以让数据科学家更轻松地完成这项工作（例如，视频渲染软件或特定领域的框架和库），请确保在
+    Jupyter 虚拟机上安装它们。
+- en: During the visual examination, data scientists will discover situations where
+    the data needs to be corrected or discarded. Such changes can be made to the dataset
+    and a new dataset created. Or they can be added to the software that reads in
+    the data. It’s more common for this cleanup to be done in software because it
+    provides a consistent way to treat such data if provided during prediction.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在视觉检查期间，数据科学家将发现需要校正或丢弃数据的情况。可以对数据集进行这些更改并创建新数据集，也可以将这些更改添加到读取数据的软件中。如果这些数据在预测期间提供，则更常见的是在软件中进行清理，因为这样可以提供一种一致的处理方式。
+- en: Then, it is common for the data to be split into subsets. One subset will be
+    used for training and another subset to ensure that the model is not overfitting.
+    Sometimes, a third subset is kept aside for final evaluation.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，通常会将数据分成子集。一个子集用于训练，另一个子集用于确保模型不过拟合。有时，还会保留第三个子集进行最终评估。
+- en: There are several ways that data scientists can read the data from source systems,
+    filter out bad values, transform the data, and split it into subsets. Doing data
+    preparation in SQL within the DWH is often a convenient choice for structured
+    data. However, there are limitations to the types of statistical processing that
+    can be carried out in SQL. Therefore, data processing will typically be carried
+    out using pandas—while pandas will work for small datasets, you will need a framework
+    such as Dask, Apache Spark, or Apache Beam to process large amounts of data. Therefore,
+    a cloud managed service that will allow you to run Dask, Spark, or Beam at scale
+    needs to be within the high trust boundary.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据科学家可以通过多种方式从源系统读取数据，过滤掉不良值，转换数据，并将其分成子集。在数据仓库（DWH）中使用SQL进行数据准备通常是处理结构化数据的便捷选择。然而，在SQL中进行统计处理存在一定的局限性。因此，数据处理通常会使用pandas——虽然pandas适用于小数据集，但处理大量数据时，您需要像Dask、Apache
+    Spark或Apache Beam这样的框架。因此，需要在高信任边界内使用云管理服务来运行Dask、Spark或Beam。
+- en: All such activities should be carried out in coordination with the business
+    to have a clear understanding of the organization’s objectives and to ensure that
+    the correct information is retained during the preparation phase.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些活动都应与业务协调进行，以清晰了解组织的目标，并确保在准备阶段保留正确的信息。
+- en: Training ML Models
+  id: totrans-48
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 训练ML模型
+- en: Your data scientists will write model code within the Jupyter notebooks in frameworks
+    such as scikit-learn, XGBoost, Keras/TensorFlow, or PyTorch. Then, they will execute
+    the model code over the training dataset multiple times to determine the optimal
+    weights of the model.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据科学家将在Jupyter笔记本中编写模型代码，使用诸如scikit-learn、XGBoost、Keras/TensorFlow或PyTorch等框架。然后，他们将多次执行模型代码，通过训练数据集确定模型的最优权重。
+- en: Writing ML code
+  id: totrans-50
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 编写ML代码
+- en: The code will typically read training data in small batches and run through
+    a training loop that consists of adjusting weights. The data pipeline that reads
+    the data might carry out data augmentation to artificially increase the size of
+    the dataset by, for example, flipping images. The model architecture will be closely
+    tied to the inputs that are read and how they are transformed. The data scientist
+    will typically experiment with many options for representing data, many types
+    of models, and many methods of optimization.^([1](ch11.html#ch01fn11))
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码通常会以小批量读取训练数据，并通过训练循环来调整权重。读取数据的数据管道可能会进行数据增强，例如翻转图像以人工增加数据集的大小。模型架构将与读取的输入及其转换方式紧密相关。数据科学家通常会尝试许多选项来表示数据，许多类型的模型以及许多优化方法。^([1](ch11.html#ch01fn11))
+- en: Model code is developed iteratively, and so a low-latency connection to the
+    cloud and the ability to have quick turnaround time are essential. It is important
+    to try out small changes to the code without having to run the entire training
+    program again. Writing code is typically *not* the time to use managed training
+    services—at this stage, data scientists use notebooks in their local environment.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型代码是迭代开发的，因此与云端的低延迟连接和快速周转时间能力至关重要。在不必重新运行整个训练程序的情况下尝试对代码进行小的更改非常重要。编写代码通常*不*是使用托管训练服务的时候——在此阶段，数据科学家使用本地环境中的笔记本。
+- en: Doing interactive development on a large dataset will impose unnecessary delays.
+    To speed up development, it might be useful to provide a sample of the large dataset
+    that can be downloaded to the notebook VM. In the case of situations involving
+    privacy-sensitive data, the sample might have to consist of simulated/synthetic
+    data.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大型数据集上进行交互式开发会导致不必要的延迟。为了加快开发速度，提供一个可以下载到笔记本虚拟机的大型数据集样本可能会很有用。在涉及涉及隐私敏感数据的情况下，样本可能必须由模拟/合成数据组成。
+- en: Once the code has been developed, the data scientist will typically want to
+    run the training job on the entire dataset. Whether they can do so from within
+    the notebook depends on the size of the dataset and the capability of the VM on
+    which the notebook server is running.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦代码开发完毕，数据科学家通常希望在整个数据集上运行训练作业。他们是否可以在笔记本中这样做取决于数据集的大小以及笔记本服务器的 VM 的功能。
+- en: Small-scale jobs
+  id: totrans-55
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 小规模工作
+- en: For small datasets and simple models, where a training run can finish in under
+    an hour, it can be helpful to provide the ability to run a training job in the
+    notebook itself.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于小数据集和简单模型，训练运行时间可以在一小时内完成，可以在笔记本本身提供运行训练作业的能力。
+- en: Managed notebook services offer the data scientist the ability to change the
+    machine type on which their notebook runs, to make it more powerful—this can be
+    accomplished by switching to a machine with GPUs or TPUs attached. This will provide
+    the necessary horsepower to train the model on moderately sized datasets.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 托管笔记本服务提供给数据科学家改变笔记本运行的机器类型的能力，使其更加强大—这可以通过切换到附有 GPU 或 TPU 的机器来完成。这将为在中等规模数据集上训练模型提供必要的计算能力。
+- en: For even larger datasets and/or complex models or where a training run can take
+    longer than an hour, it is preferable to use a managed training service. It is
+    possible to submit a notebook to a managed training service like SageMaker or
+    Vertex AI, have the notebook be executed in its entirety, and receive the updated
+    notebook after a few hours.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于更大的数据集和/或复杂模型或者训练运行时间超过一小时的情况，最好使用托管训练服务。可以将笔记本提交到像 SageMaker 或 Vertex AI
+    这样的托管训练服务，使笔记本完全执行，并在几个小时后收到更新的笔记本。
+- en: Distributed training
+  id: totrans-59
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 分布式训练
+- en: For extremely large datasets, simply scaling up to a more powerful machine is
+    not sufficient. You will have to run the training job on a cluster of machines
+    that communicate with one another in a special way. Essentially, every batch of
+    training examples is distributed among the machines in the cluster, each of the
+    machines does mathematical calculations on its subset of the batch, and the intermediate
+    calculations are used to determine the actual result on the match. Frameworks
+    such as TensorFlow and PyTorch support distributed training, but the cluster has
+    to be set up in specific ways.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于非常大的数据集，简单地升级到更强大的计算机是不够的。您将不得不在一组以特殊方式相互通信的机器上运行训练作业的集群中运行训练作业。基本上，每个训练示例的批次被分布在集群中的机器上，每个机器对其批次的子集进行数学计算，并使用中间计算来确定匹配的实际结果。TensorFlow
+    和 PyTorch 等框架支持分布式训练，但必须以特定方式设置集群。
+- en: To get distributed training of the code in the notebook, it is necessary to
+    run the notebook server on an appropriately configured cluster (e.g., JupyterHub
+    on a Kubeflow cluster). Unless this is the user environment you have created,
+    making this change is not a quick one.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在笔记本中获取代码的分布式训练，需要在适当配置的集群上运行笔记本服务器（例如，在 Kubeflow 集群上的 JupyterHub）。除非这是您创建的用户环境，否则这种更改并不迅速。
+- en: A better option is to skip ahead to the automation step discussed in [“Automation”](#automation-id000005)
+    and use managed training frameworks.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更好的选择是跳到讨论的自动化步骤[“自动化”](#automation-id000005)并使用托管训练框架。
+- en: No-code ML
+  id: totrans-63
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 无代码机器学习
+- en: Custom models do not always require coding in TensorFlow, PyTorch, etc. Low-code
+    and no-code options exist. For example, it is possible to use the cloud console
+    or create and deploy an AutoML model. Tools such as Dataiku and DataRobot provide
+    completely point-and-click ways to train and deploy models.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定制模型并不总是需要在 TensorFlow、PyTorch 等中进行编码。存在低代码和无代码选项。例如，可以使用云控制台或创建和部署 AutoML 模型。Dataiku
+    和 DataRobot 等工具提供了完全的点对点方式来训练和部署模型。
+- en: The capabilities of no-code ML models continue to become better and better.
+    For unstructured data (images, video, text), it is hard to do better than the
+    AutoML options available. On images, you can use AutoML for classification, segmentation,
+    and even generation from text prompts. On text, you can use it to parse forms,
+    extract entities, detect sentiment, summarize documents, and answer questions.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无代码ML模型的能力继续变得越来越好。对于非结构化数据（图像、视频、文本），很难找到比现有的AutoML选项更好的解决方案。对于图像，您可以使用AutoML进行分类、分割，甚至根据文本提示生成图像。对于文本，您可以使用它来解析表单、提取实体、检测情感、总结文档和回答问题。
+- en: In all these cases, you can treat the model that comes out of AutoML as a custom
+    model that can then be deployed just like models that were coded up by a data
+    science team.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在所有这些情况下，您可以将AutoML生成的模型视为可以像由数据科学团队编写的模型一样部署的自定义模型。
+- en: Deploying ML Models
+  id: totrans-67
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 部署ML模型
+- en: As discussed in [Chapter 10](ch10.html#ai_application_architecture), batch prediction
+    is used to periodically score large amounts of data, whereas online prediction
+    is used for near-real-time scoring of data.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[第10章](ch10.html#ai_application_architecture)所讨论的，批量预测用于定期评分大量数据，而在线预测用于近实时数据评分。
+- en: If you will only be doing batch predictions, it is possible to directly use
+    the trained model files from large-scale data processing frameworks such as Spark,
+    Beam, and Flink. You will not need to deploy the model. Some DWHs (such as BigQuery)
+    allow you to provide a trained TensorFlow model on Cloud Storage for batch predictions.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果只进行批量预测，可以直接使用来自大规模数据处理框架（如Spark、Beam和Flink）的训练模型文件。您无需部署该模型。某些数据仓库（如BigQuery）允许您在Cloud
+    Storage上提供训练好的TensorFlow模型进行批量预测。
+- en: To use a model for online predictions, you need to deploy it as a microservice
+    in a serving environment. The major cloud ML frameworks (Vertex AI, SageMaker,
+    Azure Machine Learning) have similar concepts and support similar capabilities
+    for online predictions.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将模型用于在线预测，您需要将其部署为服务环境中的微服务。主要的云ML框架（Vertex AI、SageMaker、Azure Machine Learning）具有类似的概念，并支持在线预测的类似功能。
+- en: Deploying to an Endpoint
+  id: totrans-71
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 部署到端点
+- en: Clients access an endpoint through the URL associated with it (see [Figure 11-4](#deploying_a_trained_model_to_an_endpoin)).
+    The clients send an HTTP POST request with a JSON payload that contains the input
+    to the prediction method. The endpoint contains a number of model objects, among
+    which it splits traffic. In [Figure 11-4](#deploying_a_trained_model_to_an_endpoin),
+    80% of traffic goes to Model 1, 10% to Model 2, and the remainder to Model 3\.
+    The model is an object that references ML models built in a wide variety of frameworks
+    (TensorFlow, PyTorch, XGBoost, etc.). There are prebuilt container images for
+    each framework. In the case of TensorFlow, the container image looks for SavedModel
+    files, the format that Keras/TensorFlow 2.0 models are exported into by default.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 客户通过与其关联的URL访问端点（见[图 11-4](#deploying_a_trained_model_to_an_endpoin)）。客户端发送带有JSON负载的HTTP
+    POST请求，其中包含预测方法的输入。端点包含多个模型对象，其中它分割流量。在[图 11-4](#deploying_a_trained_model_to_an_endpoin)中，80%的流量流向模型
+    1，10%流向模型 2，其余流向模型 3。该模型是一个引用在各种框架（TensorFlow、PyTorch、XGBoost等）中构建的ML模型的对象。每个框架都有预构建的容器映像。在TensorFlow的情况下，容器映像寻找SavedModel文件，这是Keras/TensorFlow
+    2.0模型默认导出的格式。
+- en: '![Deploying a trained model to an endpoint](assets/adml_1104.png)'
+  id: totrans-73
+  prefs: []
+  type: TYPE_IMG
+  zh: '![将训练好的模型部署到端点](assets/adml_1104.png)'
+- en: Figure 11-4\. Deploying a trained model to an endpoint
+  id: totrans-74
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-4\. 将训练好的模型部署到端点
+- en: The endpoint is backed by an autoscaling service that can handle variability
+    in the traffic. However, it is still up to the ML engineer to choose a machine
+    large enough to support a few simultaneous requests by carrying out measurements.
+    The computation can be sped up by running the endpoint on machines that have accelerators
+    (such as GPUs or field-programmable gate arrays [FPGAs]) attached. If working
+    with large models such as text models, it may be necessary to ensure that the
+    machine has sufficient memory. Autoscaling might also introduce unacceptable latencies
+    since it can take a bit of time for a new machine to come online. Therefore, it
+    can be helpful to ensure that there is a warm pool with some minimum number of
+    machines available.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 端点由一个自动扩展服务支持，可以处理流量的变化。然而，选择足够大的机器以支持几个同时的请求是机器学习工程师的责任，可以通过测量来实现计算的加速。运行具有加速器（如GPU或可编程门阵列[FPGA]）的机器上的端点可以加快计算速度。如果使用大型模型（如文本模型），可能需要确保机器有足够的内存。由于自动扩展可能会引入不可接受的延迟，因为新机器可能需要一些时间上线，因此确保有一个有一定数量最小机器的热池可能会有所帮助。
+- en: Evaluate Model
+  id: totrans-76
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 评估模型
+- en: The reason to deploy multiple models to an endpoint is so that ML engineers
+    can control the traffic split to them. This is because the ML platform will need
+    to allow for A/B testing of models so that ML engineers can decide whether to
+    replace the current production model with a newly developed one.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将多个模型部署到一个端点的原因是为了让机器学习工程师能够控制向它们的流量分配。这是因为机器学习平台需要允许对模型进行A/B测试，以便机器学习工程师可以决定是否用新开发的模型替换当前的生产模型。
+- en: The ML managed services provide the ability to monitor resource usage and ensure
+    that the deployed model can keep up with the input requests. A sample of the inputs
+    and corresponding predictions can be sent to a DWH and used to compare the performance
+    of different model versions.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习托管服务提供了监控资源使用情况的能力，确保部署的模型能够跟得上输入请求。可以将输入的样本及其对应的预测发送到数据仓库，并用来比较不同模型版本的性能。
+- en: Hybrid and Multicloud
+  id: totrans-79
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 混合和多云
+- en: Because moving data around is costly and adds governance and security considerations,
+    you will usually choose to train ML models on the cloud where the majority of
+    your historical data lives. On the other hand, to minimize network latency, you
+    will need to deploy the models to an endpoint on the cloud (or edge) where the
+    consuming applications run. In [Figure 11-5](#itapostrophes_possible_to_train_ml_mode),
+    you can see an example of training on one cloud (where your data lives) and deploying
+    to another (where your applications run). To do such a hybrid training and deployment,
+    use standard model formats (such as TensorFlow SavedModel, ONNX, or *.bst* files)
+    and containers.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于数据传输成本高昂，还增加了治理和安全考虑因素，通常会选择在大部分历史数据存储的云端训练机器学习模型。另一方面，为了最小化网络延迟，需要将模型部署到应用程序运行的云端（或边缘）。在[图11-5](#itapostrophes_possible_to_train_ml_mode)中，您可以看到在一个云端（存储您的数据的地方）进行训练，然后在另一个云端（运行您的应用程序的地方）部署的示例。为了进行这样的混合训练和部署，使用标准模型格式（如TensorFlow
+    SavedModel、ONNX或*.bst*文件）和容器。
+- en: '![It’s possible to train ML models on one cloud and deploy them to another](assets/adml_1105.png)'
+  id: totrans-81
+  prefs: []
+  type: TYPE_IMG
+  zh: '![可以在一个云上训练机器学习模型并在另一个云上部署它们](assets/adml_1105.png)'
+- en: Figure 11-5\. It’s possible to train ML models on one cloud and deploy them
+    to another
+  id: totrans-82
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-5\. 可以在一个云上训练机器学习模型并在另一个云上部署它们
+- en: This flexibility, to run inference disconnected from the cloud, is an important
+    consideration when building an ML platform. Choose frameworks that are not tied
+    to proprietary implementations.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在构建机器学习平台时，能够脱离云端运行推断是一个重要的考虑因素。选择那些不依赖专有实现的框架。
+- en: Training-Serving Skew
+  id: totrans-84
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 训练-服务偏差
+- en: One of the major challenges in ML is *training-serving skew*. When an ML model
+    is trained on preprocessed data, it is necessary to carry out the identical steps
+    on incoming prediction requests. This is because you need to provide the model
+    data with the same characteristics as the data it was trained on. If you don’t
+    do that, you will get a skew between training and serving, and the model predictions
+    will not be as good.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习中的主要挑战之一是*训练-服务偏差*。当机器学习模型在预处理数据上训练时，需要对传入的预测请求执行相同的步骤。这是因为需要向模型提供与其训练数据具有相同特征的数据。如果不这样做，训练和服务之间会存在偏差，模型的预测结果将不会很好。
+- en: 'There are three ways to ensure that preprocessing done during training is repeated
+    as-is during prediction: putting the preprocessing code within the model, using
+    a transform function, or using a feature store. Let’s discuss them one by one.'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有三种方法可以确保在训练期间进行的预处理在预测期间按原样重复进行：将预处理代码放入模型内部、使用转换函数或使用特征存储。让我们逐一讨论它们。
+- en: Within the model
+  id: totrans-87
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 在模型内部
+- en: The simplest option, as shown in [Figure 11-6](#incorporating_the_preprocessing_code_in),
+    is to incorporate the preprocessing steps within the model function itself. For
+    example, preprocessing might be carried out within a Lambda layer in Keras. This
+    way, when the model is saved, the preprocessing steps will automatically be part
+    of the model.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最简单的选择是，如[图 11-6](#incorporating_the_preprocessing_code_in)所示，将预处理步骤整合到模型函数中。例如，在Keras中可以通过Lambda层进行预处理。这样，在保存模型时，预处理步骤将自动成为模型的一部分。
+- en: '![Incorporating the preprocessing code into the model function](assets/adml_1106.png)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_IMG
+  zh: '![将预处理代码整合到模型函数中](assets/adml_1106.png)'
+- en: Figure 11-6\. Incorporating the preprocessing code into the model function
+  id: totrans-90
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-6\. 将预处理代码整合到模型函数中
+- en: The advantage of this method is the simplicity. No extra infrastructure is required.
+    Preprocessing code is carried along with the model. So if you need to deploy the
+    model on the edge or in another cloud, there is nothing special you have to do.
+    The SavedModel format contains all the necessary information.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法的优点在于简单性。不需要额外的基础设施。预处理代码与模型一起传递。因此，如果需要在边缘或其他云中部署模型，无需特别操作。SavedModel格式包含所有必要的信息。
+- en: The drawback to this approach is that the preprocessing steps will be wastefully
+    repeated on each iteration through the training dataset. The more expensive the
+    computation, the more this adds up.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该方法的缺点是，预处理步骤将在每次对训练数据集进行迭代时被浪费地重复执行。计算量越大，这种重复执行的成本就越高。
+- en: Another drawback is that data scientists have to implement the preprocessing
+    code in the same framework as the ML model. Thus, for example, if the model is
+    written using PyTorch, the preprocessing also has to be done using PyTorch. If
+    the preprocessing code uses custom libraries, this can become difficult.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个缺点是，数据科学家必须在与ML模型相同的框架中实现预处理代码。因此，例如，如果使用PyTorch编写模型，则预处理也必须使用PyTorch。如果预处理代码使用自定义库，这可能会变得困难。
+- en: Transform function
+  id: totrans-94
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 转换函数
+- en: As you have understood, the main drawback with placing the preprocessing code
+    within the model function is that the code needs to be used to transform the raw
+    data during each iteration of the model-training process, and this needs to be
+    in the same language as the training code.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您所理解的，将预处理代码放在模型函数内部的主要缺点是，代码需要在模型训练过程的每次迭代中用于转换原始数据，并且必须使用与训练代码相同的语言。
+- en: This can be optimized if you capture the preprocessing steps in a function and
+    apply that function to the raw data. Then, the model training can be carried out
+    on the preprocessed data, so it is more efficient. Of course, you have to make
+    sure to invoke that function from both training and prediction code (see [Figure 11-7](#encapsulate_the_preprocessing_code_into)).
+    Alternatively, you have to capture the preprocessing steps in a container and
+    interpose the container between the input and the model. While this adds effi­ciency, it
+    also adds complexity—you have to make sure to save the transform func­tion as
+    an artifact associated with the model and know which transform function to invoke.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您捕获预处理步骤并将其应用于原始数据，则可以优化此过程。然后，可以在预处理数据上进行模型训练，从而更加高效。当然，您必须确保从训练和预测代码中调用该函数（参见[图 11-7](#encapsulate_the_preprocessing_code_into)）。或者，您可以捕获预处理步骤并将其封装到容器中，在输入和模型之间插入该容器。虽然这会增加效率，但也会增加复杂性——您必须确保将转换函数保存为与模型关联的工件，并知道要调用哪个转换函数。
+- en: '![Encapsulate the preprocessing code into a transform function that is applied
+    to both the raw dataset and to prediction requests](assets/adml_1107.png)'
+  id: totrans-97
+  prefs: []
+  type: TYPE_IMG
+  zh: '![将预处理代码封装到转换函数中，该函数应用于原始数据集和预测请求](assets/adml_1107.png)'
+- en: Figure 11-7\. Encapsulate the preprocessing code into a transform function that
+    is applied to both the raw dataset and the prediction requests
+  id: totrans-98
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-7\. 将预处理代码封装到转换函数中，该函数应用于原始数据集和预测请求
+- en: Frameworks like TensorFlow Extended (TFX) provide a transform capability to
+    simplify the bookkeeping involved. Some SQL-based ML frameworks like BigQuery
+    ML also support a `TRANSFORM` clause. Vertex AI supports a Feature Transformation
+    Engine.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow Extended（TFX）等框架提供了转换功能以简化所涉及的簿记工作。一些基于SQL的机器学习框架（如BigQuery ML）也支持`TRANSFORM`子句。Vertex
+    AI支持特征转换引擎。
+- en: You should prefer to use a transform function over putting the transformation
+    code into the model if the extra infrastructural and bookkeeping overhead is worth
+    it. This will be the case if the feature is computationally expensive.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果额外的基础设施和簿记开销值得的话，你应该优先使用转换函数而不是将转换代码放入模型中。如果特征计算开销大的话，这种情况就是如此。
+- en: Feature store
+  id: totrans-101
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 特征存储
+- en: Placing the preprocessing code within the model function or encapsulating it
+    in a transform function (or SQL clause or container) will suffice for the vast
+    majority of features.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将预处理代码放在模型函数内部或封装在转换函数（或SQL子句或容器）中对于绝大多数特征来说足够了。
+- en: As you will learn soon, there are two situations where these won’t suffice and
+    you will need a *feature store* (see [Figure 11-8](#a_feature_store_is_a_central_repository)),
+    a repository for storing and serv­ing ML features. The feature store is essentially
+    a key-value store where the key consists of an entity (e.g., `hotel_id`) and a
+    timestamp and the value consists of the properties of that entity (e.g., price,
+    number of bookings, number of website visi­tors to hotel listing over the past
+    hour, etc.) as of that timestamp. All the major ML frameworks (AWS SageMaker,
+    Vertex AI, Databricks, etc.) come with a feature store.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你很快学到时，有两种情况这些不足以满足，你会需要一个*特征存储*（见[图 11-8](#a_feature_store_is_a_central_repository)），一个用于存储和提供机器学习特征的仓库。特征存储本质上是一个键-值存储，其中键由实体（例如，`hotel_id`）和时间戳组成，值由该实体的属性组成（例如，价格，预订数量，过去一小时内到达酒店列表的网站访客数量等），作为该时间戳的属性。所有主要的机器学习框架（AWS
+    SageMaker，Vertex AI，Databricks等）都配备了特征存储。
+- en: '![A feature store is a central repository that provides entity values as of
+    a certain time](assets/adml_1108.png)'
+  id: totrans-104
+  prefs: []
+  type: TYPE_IMG
+  zh: '![特征存储是一个提供某个时间点上实体值的中央存储库](assets/adml_1108.png)'
+- en: Figure 11-8\. A feature store is a central repository that provides entity values
+    as of a certain time
+  id: totrans-105
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-8\. 特征存储是一个提供某个时间点上实体值的中央存储库
+- en: The first situation where you will need a feature store is if the feature values
+    will not be known by clients requesting predictions but have to instead be computed
+    on the server. If the clients requesting predictions will not know the feature
+    values, then you need a mechanism to inject the feature values into incoming prediction
+    requests. The feature store plays that role. For example, one of the features
+    of a dynamic pricing model may be the number of website visitors to the item listing
+    over the past hour. The client (think of a mobile app) requesting the price of
+    a hotel will not know this feature. This information has to be computed on the
+    server using a streaming pipeline on clickstream data and inserted into the feature
+    store.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一种情况是，如果客户端请求预测时不知道特征值，而必须在服务器上计算，那么你将需要一个特征存储。如果请求预测的客户端不知道特征值，那么你需要一种机制将特征值注入到传入的预测请求中。特征存储发挥了这种作用。例如，动态定价模型的一个特征可能是过去一小时内项目列表的网站访问者数量。请求酒店价格的客户端（考虑一个移动应用程序）不会知道这个特征。这些信息必须通过点击流数据上的流式处理管道在服务器上计算，并插入到特征存储中。
+- en: The second situation is to prevent unnecessary copies of the data. For example,
+    consider that you have a feature that is computationally expensive and is used
+    in multiple ML models. Rather than using a transform function and storing the
+    transformed feature in multiple ML training datasets, it is much more efficient
+    and maintainable to store it in a centralized repository.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二种情况是为了防止数据的不必要复制。例如，考虑一个计算开销大且用于多个机器学习模型的特征。与其使用转换函数并将转换后的特征存储在多个机器学习训练数据集中，将其存储在集中式存储库中要更有效和可维护得多。
+- en: Don’t go overboard in either scenario. For example, if all the features of the
+    model that will need to be computed server-side are computed in the same way (for
+    example, they are retrieved from a relational database or computed by a streaming
+    pipeline), it’s perfectly acceptable to have the retrieval code in a transform
+    function or container. Similarly, it is perfectly acceptable to repeat some feature
+    processing a handful of times rather than to complicate your ML platform with
+    a feature store.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在任一情况下都不要过度行事。例如，如果模型的所有特征都需要在服务器端计算方式相同（例如，它们从关系数据库检索或由流水线计算），将检索代码放在转换函数或容器中是完全可以接受的。同样，重复一些特征处理几次而不是通过特征存储复杂化您的ML平台也是可以接受的。
+- en: The canonical use of a feature store
+  id: totrans-109
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 特征存储的典型用途
+- en: 'The most important use case of a feature store is when situations #1 and #2
+    both apply. For example, consider that you need a “point-in-time lookup” for fetching
+    training data to train a model. Features such as the number of website visitors
+    over the past hour or the number of trips made by a driver in the past hour, etc.,
+    are used in multiple models. But they are pretty straightforward in that they
+    are computed by a streaming pipeline and so their real-time value can be part
+    of the DWH. Those are relatively easy and don’t always need a feature store.'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '特征存储的最重要用例是当情况 #1 和 #2 都适用时。例如，考虑您需要一个“时间点查找”，以获取训练数据来训练模型。诸如过去一小时网站访问者数量或司机过去一小时内的行程数等特征，被多个模型使用。但它们相对直接，因为它们由流水线计算，并且它们的实时值可以成为数据仓库的一部分。这些相对简单，不总是需要特征存储。'
+- en: Now consider an alternative type of feature that is used by many models but
+    also is continually improved, as sketched in [Figure 11-9](#a_feature_store_is_particularly_useful)—for
+    example, perhaps you have an embedding of a song, artist, and user in a music-streaming
+    service. There is a team updating user and song embeddings on a daily basis. Every
+    time the model that consumes this feature is retrained — high commercial value
+    use cases will need to retrain periodically — the training code will need to fetch
+    the values of this feature that align with the training labels and the latest
+    version of the embedding algorithm. This has to be done efficiently and easily
+    across all labels. And this has to be done across the tens or hundreds of features
+    used by the model. The feature store makes periodic model retraining on hard-to-compute,
+    frequently improved features exceptionally useful.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在考虑一种备选特征类型，许多模型使用它，并且持续改进，如图 [11-9](#a_feature_store_is_particularly_useful)
+    所示——例如，也许您在音乐流媒体服务中有歌曲、艺术家和用户的嵌入。有一个团队每天更新用户和歌曲的嵌入。每次消费这一特征的模型被重新训练时 — 高商业价值的用例需要定期重新训练 — 训练代码将需要获取与训练标签和最新版本嵌入算法对齐的此特征的值。这必须在所有标签中高效且轻松地完成。而且这必须在模型使用的数十甚至数百个特征之间完成。特征存储使得对难以计算且频繁改进的特征进行周期性模型重新训练尤为有用。
+- en: '![A feature store is particularly useful for hard-to-compute features that
+    are frequently updated, since models will have to be trained on “point-in-time”
+    embeddings](assets/adml_1109.png)'
+  id: totrans-112
+  prefs: []
+  type: TYPE_IMG
+  zh: '![特征存储尤其适用于难以计算且频繁更新的特征，因为模型将必须根据“时间点”嵌入进行训练](assets/adml_1109.png)'
+- en: Figure 11-9\. A feature store is particularly useful for hard-to-compute features
+    that are frequently updated, since models will have to be trained on “point-in-time”
+    embeddings
+  id: totrans-113
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-9\. 特征存储尤其适用于难以计算且频繁更新的特征，因为模型将必须根据“时间点”嵌入进行训练。
+- en: Decision chart
+  id: totrans-114
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 决策图
+- en: The considerations discussed here are summarized in [Figure 11-10](#choosing_between_different_options_for).
+    This is not a decision tree to decide whether your organization needs a feature
+    store — there are probably a handful of features for which you do. This is a decision
+    tree to decide whether to use a feature store for the particular feature/model
+    you are building or operationalizing.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此处讨论的考虑因素总结在 [图 11-10](#choosing_between_different_options_for) 中。这不是一个决策树来决定您的组织是否需要一个特征存储 — 可能只有少数特征需要。这是一个决策树，用来决定是否对您正在构建或操作的特定特征/模型使用特征存储。
+- en: All three major cloud ML frameworks (AWS SageMaker, Vertex AI, Azure Machine
+    Learning) come with a feature store. Databricks and Tecton.ai provide feature
+    stores that are cloud agnostic.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有三个主要的云ML框架（AWS SageMaker、Vertex AI、Azure Machine Learning）都配备了特征存储。Databricks
+    和 Tecton.ai 提供了与云无关的特征存储。
+- en: '![Choosing between different options for capturing preprocessing](assets/adml_1110.png)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![选择不同的预处理选项](assets/adml_1110.png)'
+- en: Figure 11-10\. Choosing between different options for capturing preprocessing
+  id: totrans-118
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-10\. 选择不同的预处理选项
+- en: Automation
+  id: totrans-119
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 自动化
+- en: As you have understood so far, it is possible to use the cloud consoles to deploy
+    a custom model. It is possible to develop and deploy a TensorFlow or PyTorch model
+    to AWS/GCP/Azure using just a notebook. Neither of these approaches scale to hundreds
+    of models and large teams.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你到目前为止理解的那样，可以使用云控制台部署自定义模型。可以使用笔记本开发和部署 TensorFlow 或 PyTorch 模型到 AWS/GCP/Azure。但这些方法都不适用于数百个模型和大型团队。
+- en: Automate Training and Deployment
+  id: totrans-121
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 自动化训练和部署
+- en: When you create an AutoML model using the web console, for example, you get
+    back an endpoint that can be monitored and on which you can set up continuous
+    evaluation. If you find that the model is drifting, retraining it on new data
+    automatically is difficult—you don’t want to wake up at 2 a.m. to use the user
+    interface to train the model. It would be much better if you could train and deploy
+    the model using just code. Code is much easier for your team to automate.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，通过 Web 控制台创建 AutoML 模型后，您将获得一个可以监控的端点，并且可以设置持续评估。如果发现模型漂移，自动在新数据上重新训练会很困难——您不希望在凌晨
+    2 点起床使用用户界面来训练模型。最好能够仅使用代码训练和部署模型。对于您的团队来说，代码更容易自动化。
+- en: Taking a TensorFlow model that was trained in a Jupyter notebook and deploying
+    the SavedModel to Vertex AI or SageMaker has the same problem. Retraining is going
+    to be difficult because the ops team will have to set up all of the ops and monitoring
+    and scheduling on top of something that is really clunky and totally nonminimal.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将在 Jupyter 笔记本中训练的 TensorFlow 模型部署为 SavedModel 到 Vertex AI 或 SageMaker 也会遇到相同的问题。重新训练将会很困难，因为运维团队必须在这些笨重且非最小化的操作和监控调度之上设置所有的运维工作。
+- en: For retraining, it’s much better for the entire process—from dataset creation
+    to training to deployment—to be driven by code. Clearly separating out the model
+    code from the ops code and expressing everything in “regular” Python rather than
+    in notebooks is important.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于重新训练，最好的方式是从数据集创建到训练再到部署的整个过程都由代码驱动。将模型代码与运维代码清晰分离，并用“普通”的 Python 表达，而不是笔记本，非常重要。
+- en: 'To do this, the code that the data scientist team has developed in the notebook
+    has to be transferred to regular files, with a few things parameterized:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了做到这一点，数据科学家团队在笔记本中开发的代码必须转移到常规文件中，并进行少量参数化：
+- en: The data is read from object storage service locations according to the contract
+    imposed by the managed ML service. For example, this is `AIP_TRAIN⁠ING​_DATA_URI`
+    in Google Cloud, `InputDataConfig` in AWS, and the `Run` context in Azure Machine
+    Learning.
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据将根据托管机器学习服务的合同规定从对象存储服务位置读取。例如，在Google Cloud 中是 `AIP_TRAIN⁠ING​_DATA_URI`，在AWS中是
+    `InputDataConfig`，在Azure Machine Learning 中是 `Run` 上下文。
+- en: The model creation code is extracted out to plain Python files.
+  id: totrans-127
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型创建代码被提取为普通的 Python 文件。
+- en: The model output (in SavedModel, ONNX, *.bst*, etc.) is saved into an object
+    storage service location provided as part of the contract imposed by the managed
+    ML service.
+  id: totrans-128
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型输出（在SavedModel、ONNX、*.bst*等格式中）将保存到由托管机器学习服务的合同规定的对象存储服务位置。
+- en: Let’s focus now on how to orchestrate all the steps needed to train your model.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们专注于如何编排所有训练模型所需的步骤。
+- en: Orchestration with Pipelines
+  id: totrans-130
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用管道进行编排
+- en: 'Simply converting the Jupyter Notebook steps that your data scientists prepared
+    to an executable script is not sufficient. It is necessary to *orchestrate* the
+    steps on the appropriate infrastructure:'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仅仅将数据科学家准备的 Jupyter Notebook 步骤转换为可执行脚本是不够的。需要在适当的基础设施上“编排”这些步骤：
+- en: Prepare the dataset using Spark, Beam, SQL, etc.
+  id: totrans-132
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 Spark、Beam、SQL 等准备数据集。
+- en: Submit a training job to the managed ML service.
+  id: totrans-133
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提交一个训练作业到托管的机器学习服务。
+- en: If the model does better than previously trained models, deploy the trained
+    model to the endpoint.
+  id: totrans-134
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果模型表现比先前训练的模型更好，则将训练好的模型部署到端点。
+- en: Monitor the model performance and do A/B testing to evaluate the model on real
+    data.
+  id: totrans-135
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 监控模型性能并进行实时数据的 A/B 测试以评估模型。
+- en: 'There are, broadly, four options for orchestration: managed pipelines, Airflow,
+    Kubeflow, and TFX.'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就编排而言，大体上有四种选择：托管管道、Airflow、Kubeflow 和 TFX。
+- en: Managed pipelines
+  id: totrans-137
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 托管管道
+- en: If you are using a single cloud for your complete development and deployment
+    workflow, use the provided ML workflow orchestration mechanism. Every task that
+    is carried out using the managed services on that cloud will have a corresponding
+    operator, and these jobs will understand dependency tracking. For example, Vertex
+    AI provides Vertex AI Pipelines, a fully managed service that allows you to retrain
+    your models as often as necessary. Azure Machine Learning has a native designer
+    that serves the same purpose.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您正在为完整的开发和部署工作流程使用单一云，使用提供的 ML 工作流编排机制。在该云上使用托管服务执行的每个任务将具有相应的运算符，并且这些作业将理解依赖关系跟踪。例如，Vertex
+    AI 提供 Vertex AI Pipelines，这是一个完全托管的服务，允许您根据需要重新训练模型。Azure Machine Learning 具有本地的设计器，提供相同的功能。
+- en: All the managed-pipeline offerings make available programming SDKs that provide
+    handy automation capabilities. In the case of Databricks, this pipeline SDK is
+    provided by MLflow, an open source framework that runs on Spark but provides integration
+    to TensorFlow, PyTorch, and other ML libraries and frameworks.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有托管的管道提供编程 SDK，提供便捷的自动化能力。在 Databricks 的情况下，这个管道 SDK 是由 MLflow 提供的，它是一个在 Spark
+    上运行但提供 TensorFlow、PyTorch 和其他 ML 库和框架集成的开源框架。
+- en: Airflow
+  id: totrans-140
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Airflow
+- en: If you are already using Airflow for scheduling and orchestration of data pipelines,
+    extending its use for ML will allow you to have a simple, consistent system. The
+    drawback is that Airflow does not have custom ML operators, so you will find yourself
+    using generic Python or bash operators that, in turn, call out to the cloud SDK.
+    Airflow is open source, and you can use managed services to run Airflow—Google
+    Cloud Composer, Amazon Managed Workflows for Airflow, and Astronomer.io, which
+    is cloud agnostic.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您已经在使用 Airflow 进行数据管道的调度和编排，将其扩展到机器学习的使用将允许您拥有一个简单、一致的系统。缺点是 Airflow 没有定制的
+    ML 运算符，因此您将发现自己使用通用的 Python 或 bash 运算符，这些运算符反过来调用云 SDK。Airflow 是开源的，您可以使用托管服务来运行
+    Airflow——如 Google Cloud Composer、Amazon Managed Workflows for Airflow 和 Astronomer.io，它是云不可知的。
+- en: Kubeflow Pipelines
+  id: totrans-142
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Kubeflow 管道
+- en: Each of the steps can be containerized and the containers orchestrated on Kubernetes.
+    Kubeflow operators already exist for popular ML frameworks, ML metrics, etc. Kubeflow
+    is also open source, and you can use the managed Kubernetes services (Google Kubernetes
+    Engine, Amazon Elastic Kubernetes Service, or Azure Kubernetes Service) on the
+    public clouds to run Kubeflow. There are also cloud-agnostic managed Kubeflow
+    providers like Iguazio.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个步骤都可以容器化，并在 Kubernetes 上编排容器。Kubeflow 已经为流行的 ML 框架、ML 指标等提供了操作符。Kubeflow 也是开源的，您可以在公共云上使用托管的
+    Kubernetes 服务（如 Google Kubernetes Engine、Amazon Elastic Kubernetes Service 或 Azure
+    Kubernetes Service）来运行 Kubeflow。还有像 Iguazio 这样的云不可知的托管 Kubeflow 提供者。
+- en: TensorFlow Extended
+  id: totrans-144
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: TensorFlow Extended
+- en: If you are using the TensorFlow ecosystem, TFX provides convenient Python functions
+    for common operations such as model validation, evaluation, etc. This provides
+    a prescriptive, easy-to-use approach for orchestration that avoids the need to
+    build and maintain operators or containers. TFX is an open source package that
+    can be run on managed pipelines, Airflow, and Kubeflow.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您正在使用 TensorFlow 生态系统，TFX 提供了便捷的 Python 函数用于常见操作，如模型验证、评估等。这提供了一种规范、易于使用的编排方法，避免了构建和维护运算符或容器的需要。TFX
+    是一个开源软件包，可以在托管管道、Airflow 和 Kubeflow 上运行。
+- en: 'TFX is an integrated ML platform for developing and deploying production ML
+    systems. It is designed for scalable, high-performance ML tasks. The key libraries
+    of TFX for which prebuilt Python libraries exist are as follows:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX 是一个集成的 ML 平台，用于开发和部署生产 ML 系统。它专为可扩展、高性能的 ML 任务设计。TFX 的关键库包括预构建的 Python 库如下：
+- en: TensorFlow Data Validation (TFDV)
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow 数据验证（TFDV）
+- en: Used for detecting anomalies in the data
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于检测数据中的异常
+- en: TensorFlow Transform (TFT)
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow 转换（TFT）
+- en: Used for data preprocessing and feature engineering
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于数据预处理和特征工程
+- en: Keras
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Keras
+- en: Used for building and training ML models
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于构建和训练 ML 模型
+- en: TensorFlow Model Analysis (TFMA)
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow 模型分析（TFMA）
+- en: Used for ML model evaluation and analysis
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于 ML 模型评估和分析
+- en: TensorFlow Serving (TFServing)
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow 服务（TFServing）
+- en: Used for serving ML models at endpoints
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于在端点上提供 ML 模型
+- en: These libraries implement their tasks using open source Apache Beam and TensorFlow.
+    The tasks can run locally on the Kubeflow or Airflow cluster on which TFX is being
+    run, or they can submit the jobs to managed services such as Dataflow and Vertex
+    AI.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些库使用开源 Apache Beam 和 TensorFlow 来实现它们的任务。任务可以在本地 Kubeflow 或 Airflow 集群上运行，也可以提交作业到托管服务，如
+    Dataflow 和 Vertex AI。
+- en: Continuous Evaluation and Training
+  id: totrans-158
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 持续评估和训练
+- en: Each step in the ML workflow results in output artifacts that you need to organize
+    in a systematic way.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML 工作流程中的每一步都会产生输出工件，您需要以系统化的方式组织这些工件。
+- en: Artifacts
+  id: totrans-160
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 工件
+- en: User notebooks, pipeline source code, data processing functions, and model source
+    code need to be stored in the source code repository.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户笔记本、管道源代码、数据处理函数和模型源代码需要存储在源代码仓库中。
+- en: 'Every experiment that the data scientists carry out needs to be kept track
+    of: the parameters, the metrics, which datasets were used, and what models were
+    created. This is a capability that all the ML orchestration frameworks provide.'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据科学家进行的每一个实验都需要进行跟踪：参数、指标、使用的数据集以及创建的模型。所有的机器学习编排框架都提供这一能力。
+- en: Model training jobs, the subsequent trained model files, and deployed models
+    are tracked in the managed ML service (such as Azure Machine Learning, Vertex
+    AI, or SageMaker).
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型训练作业、随后训练的模型文件以及部署的模型都在托管的 ML 服务中进行跟踪（如 Azure 机器学习、Vertex AI 或 SageMaker）。
+- en: The environment used for development, training, and deployment is containerized
+    and kept track of in a container registry. This is essential for reproducibility.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于开发、训练和部署的环境被容器化，并在容器注册表中进行跟踪。这对于可重现性是至关重要的。
+- en: Dependency tracking
+  id: totrans-165
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 依赖跟踪
+- en: Steps in the ML pipeline should do dependency tracking and not launch the task
+    unless one of the dependencies has changed. For example, unless the raw data has
+    changed, an invocation of the pipeline should not cause the training data to be
+    re-created. This is something that the prebuilt operators and managed ML pipelines
+    provide but that custom-built operators and pipelines may not.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML 管道中的步骤应该进行依赖跟踪，只有当其中一个依赖发生变化时才启动任务。例如，除非原始数据发生了变化，否则不应该导致重新创建训练数据的管道调用。这是预构建的操作器和托管的
+    ML 管道提供的功能，但自定义操作器和管道可能没有。
+- en: Once you have automated the training and prediction code into an ML pipeline
+    and captured the artifacts systematically, it is possible to set up a continuous
+    integration/continuous deployment (CI/CD) pipeline. This involves, in the ML context,
+    continuous evaluation and continuous retraining.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦将训练和预测代码自动化到 ML 管道中并系统地捕获了工件，就可以设置持续集成/持续部署（CI/CD）管道。在 ML 上下文中，这涉及持续评估和持续重新训练。
+- en: Continuous evaluation
+  id: totrans-168
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 持续评估
+- en: To set up continuous evaluation, you will need to configure the prediction endpoint
+    to store a sample of inputs and corresponding predictions to a DWH. If necessary,
+    a labeling job can be periodically run to submit tickets for humans to validate
+    the predictions that have been made. A scheduled evaluation query will compare
+    the human labels against predictions that have been made to monitor for drift
+    in the performance of the model over time. This is automatically handled in TFX
+    by the Model Analysis component.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要设置持续评估，您需要配置预测端点以将输入和相应预测的样本存储到数据仓库（DWH）。如果需要，可以定期运行一个标记作业，以便人工验证已进行的预测。定期的评估查询将比较人工标签与已进行的预测，以监控模型性能随时间变化的漂移。在
+    TFX 中，Model Analysis 组件会自动处理这一过程。
+- en: The scheduled evaluation query will also need to examine the distribution of
+    model features and monitor them for drift. This is automatically handled in TFX
+    by the Data Validation component. Skew and drift detection are also provided out
+    of the box for all model types by the managed predictions service in Vertex AI.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定期的评估查询还需要检查模型特征的分布，并监控其漂移。在 TFX 中，Data Validation 组件会自动处理这些。Vertex AI 中托管的预测服务也为所有模型类型提供了偏斜和漂移检测的开箱即用功能。
+- en: Continuous retraining
+  id: totrans-171
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 持续重新训练
+- en: Whenever the evaluation query identifies skew or drift, an alert should be raised
+    for human overview into what sorts of changes are needed. Other types of changes
+    can trigger an immediate retraining.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当评估查询识别出偏斜或漂移时，应该发出警报，以便人员审查需要进行的变更类型。其他类型的变更可以触发立即的重新训练。
+- en: Whenever code changes are checked in, the model training pipeline might need
+    to be kicked off. This can be handled by GitHub/GitLab Actions.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当代码更改被检入时，可能需要启动模型训练流水线。可以通过GitHub/GitLab Actions来处理。
+- en: Finally, whenever a sufficiently large amount of new data is received, the model
+    training pipeline will need to be kicked off. This can be handled by triggering
+    a Lambda or Cloud Function off new files in the cloud object storage and having
+    the function invoke the pipeline endpoint.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，每当接收到足够大量的新数据时，模型训练流水线将需要启动。可以通过触发云对象存储中新文件的Lambda或Cloud Function来处理，并让函数调用流水线端点。
+- en: Choosing the ML Framework
+  id: totrans-175
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 选择ML框架
+- en: In [Chapter 10](ch10.html#ai_application_architecture), you looked primarily
+    at prebuilt ML models and how to build ML applications on top of such foundational
+    capabilities. You also looked at low-code and no-code ways of creating ML models.
+    In this chapter, you looked at custom ML models.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第10章](ch10.html#ai_application_architecture)中，您主要关注了预构建的ML模型以及如何在此类基础能力之上构建ML应用程序。您还研究了创建ML模型的低代码和无代码方式。在本章中，您研究了定制的ML模型。
+- en: As a cloud architect, you should choose the tools available in the ML platform
+    based on the skill set of the people who will be building the ML application.
+    If ML models will be built by data scientists, you need to enable them to use
+    a code-first ML framework such as Keras/TensorFlow or PyTorch and operationalize
+    it using SageMaker, Vertex AI, Databricks, etc. If the models will be developed
+    by domain experts, provide them a low-code ML framework such as BigQuery ML or
+    AI Builder. While a data scientist may be unhappy with prebuilt models (and the
+    corresponding lack of flexibility), the ease of use and data wrangling capabilities
+    that BigQuery ML provides will be perfect for domain experts. Practitioners in
+    the field will need a no-code ML framework such as DataRobot or Dataiku to create
+    ML models.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为云架构师，您应根据将构建ML应用程序的人员的技能选择ML平台中可用的工具。如果ML模型由数据科学家构建，您需要使他们能够使用基于代码的ML框架（如Keras/TensorFlow或PyTorch），并使用SageMaker、Vertex
+    AI、Databricks等来操作它。如果模型由领域专家开发，为他们提供一个低代码ML框架，如BigQuery ML或AI Builder。虽然数据科学家可能不满意预构建模型（及相应的灵活性不足），但BigQuery
+    ML提供的易用性和数据整理能力将非常适合领域专家。领域内的从业者将需要一个无代码ML框架，例如DataRobot或Dataiku来创建ML模型。
+- en: Team Skills
+  id: totrans-178
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 团队技能
+- en: 'The answer for the same ML problem will vary from organization to organization.
+    For example, consider using ML for pricing optimization. Teams will tend to choose
+    the approach based on their skill set:'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同一ML问题的答案将因组织而异。例如，考虑使用ML进行定价优化的情况。团队将根据他们的技能选择方法：
+- en: A team of data scientists will choose to build dynamic pricing models. They
+    will probably start with controlled variance pricing methods and proceed to incorporate
+    factors such as demand shocks. The point is that this is a sophisticated, specialized
+    team, using sophisticated methods. They’ll need to do it with code.
+  id: totrans-180
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据科学家团队将选择构建动态定价模型。他们可能会从受控变异定价方法开始，并逐步引入需求冲击等因素。关键是这是一个使用复杂方法的复杂、专业团队。他们需要使用代码完成这些工作。
+- en: A team of domain experts might choose to build tiered pricing models. For example,
+    a product manager might use historical data to craft the pricing for different
+    tiers and adapt the pricing to new market segments based on the characteristics
+    of that market segment. This involves analytics or a regression model and is very
+    doable in SQL.
+  id: totrans-181
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个领域专家团队可能会选择构建分层定价模型。例如，产品经理可以使用历史数据来制定不同层次的定价，并根据市场细分特征调整新市场段的定价。这涉及到分析或回归模型，在SQL中非常可行。
+- en: A team of nontechnical practitioners determines the optimum price. For example,
+    you could have store managers set the price of products in their store based on
+    historical data and factors they find important. This requires a no-code framework
+    (e.g., [DataRobot to price insurance](https://oreil.ly/kML83)).
+  id: totrans-182
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个非技术从业者团队确定最佳价格。例如，你可以让店长根据历史数据和他们认为重要的因素来定价他们店铺的产品。这需要一个无代码框架（例如，[DataRobot定价保险](https://oreil.ly/kML83)）。
+- en: The correct answer depends on your business and the ROI that your leadership
+    expects to get from each of the above approaches.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正确答案取决于您的业务及您的领导期望从上述各种方法中获得的ROI。
+- en: Task Considerations
+  id: totrans-184
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 任务考虑
+- en: 'Model training needs a data science skill set (stats, Python, notebooks), and
+    deployment needs an ML engineer skill set (software engineering, cloud infra,
+    ops), while invoking the model can be done by any developer. However, it’s important
+    to recognize that the ML workflow is more than just model training and deployment.
+    The end-to-end ML workflow consists of: (1) training, (2) deployment, (3) evalu­ation, (4)
+    invocation, (5) monitoring, (6) experimentation, (7) explanation, (8) trouble­shooting, and
+    (9) auditing. As a cloud architect, you need to identify who at your company will
+    be doing the task for each ML problem. Very rarely will these other steps be carried
+    out by an engineer (indeed, it’s a red flag if only engineers can do these things).'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型训练需要数据科学技能（统计、Python、笔记本），部署需要ML工程师技能集（软件工程、云基础设施、运维），而调用模型可以由任何开发者完成。然而，重要的是要认识到ML工作流程不仅仅是模型训练和部署。端到端的ML工作流程包括：（1）训练、（2）部署、（3）评估、（4）调用、（5）监控、（6）实验、（7）解释、（8）故障排除，以及（9）审计。作为云架构师，你需要确定公司内谁将负责每个ML问题的任务。这些其他步骤很少由工程师执行（确实，如果只有工程师能够执行这些任务，则是一个警告信号）。
+- en: For example, a model that is created by a data scientist may have to be invoked
+    as part of reports that are run within Salesforce by a practitioner (a salesperson,
+    in this case) and audited by a sales manager. If data scientists build such models
+    in Spark, productionize them as notebooks, and deploy them as APIs, how will the
+    sales manager do their audit? You now need a software engineering team that builds
+    custom applications (maybe leveraging a Streamlit framework or similar) to enable
+    this part of the ML workflow. This is a serious waste of time, money, and effort.
+    This is a problem that the cloud architect could have avoided by deploying the
+    model into a DWH that readily supports dashboards.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，由数据科学家创建的模型可能需要作为销售人员在Salesforce内运行报告的一部分，并由销售经理审核。如果数据科学家在Spark中构建这样的模型，将其产品化为笔记本，并将其部署为API，销售经理如何进行审计呢？现在你需要一个软件工程团队来构建定制应用程序（可能利用Streamlit框架或类似的工具）来启用ML工作流程的这一部分。这是时间、金钱和精力的严重浪费。这是一个云架构师可以通过将模型部署到支持仪表板的DWH中避免的问题。
+- en: User-Centric
+  id: totrans-187
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 用户中心化
+- en: 'It may sound obvious, but we see so many organizations making this mistake
+    that it is worth calling out: organizations that try to standardize on an ML framework
+    disregarding the skill set of the people who need to carry out a task will fail.
+    Because skill sets vary within your organization, you will have different ML frameworks
+    and tools in your organization.'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这听起来很明显，但我们看到很多组织都犯了这个错误，值得指出：试图在ML框架上进行标准化，而忽视需要执行任务的人的技能集的组织将会失败。因为你的组织内技能集是不同的，你的组织内将会有不同的ML框架和工具。
+- en: Make sure to choose open, interoperable tools so that you don’t end up with
+    silos. It is also helpful to go with solutions that address different levels of
+    sophistication—this way, the vendor takes care of interoperability.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保选择开放、互操作的工具，以免陷入信息孤岛。选择能够解决不同复杂性水平的解决方案也是有帮助的——这样一来，供应商负责处理互操作性问题。
+- en: Summary
+  id: totrans-190
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: 'In this chapter, we covered how to architect an ML platform for the development
+    and deployment of custom ML models. The key takeaways are as follows:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们介绍了如何为开发和部署定制ML模型的ML平台进行架构设计。主要收获如下：
+- en: An ML platform needs to support model development, deployment, orchestration,
+    and continuous evaluation and retraining.
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个ML平台需要支持模型开发、部署、编排以及持续评估和重新训练。
+- en: When writing code and doing exploratory data analysis, data scientists are most
+    productive in notebook environments.
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在编写代码和进行探索性数据分析时，数据科学家在笔记本环境中最具生产力。
+- en: All the major cloud providers provide managed notebook servers for Jupyter Notebook.
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有主要的云服务提供商都为Jupyter Notebook提供托管的笔记本服务器。
+- en: When working with confidential or private data, place the notebook server, input
+    data, and encrypted keys within a higher trust boundary that will reduce the risk
+    of data exfiltration.
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在处理机密或私密数据时，将笔记本服务器、输入数据和加密密钥放置在更高信任边界内，将减少数据外泄的风险。
+- en: Data preparation on small datasets can be done using pandas. On larger datasets,
+    scale out data preparation using Dask, Spark, or Beam.
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以使用pandas对小数据集进行数据准备。对于较大的数据集，使用Dask、Spark或Beam进行数据准备的扩展。
+- en: Writing of the model code is typically done with a small sample of the dataset.
+    In the case of private or confidential data, provide a sample that can be downloaded
+    to the notebook VM.
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型代码的编写通常是通过数据集的小样本完成的。对于私人或机密数据，提供一个可下载到笔记本VM的样本。
+- en: Model code in a notebook can be executed on small datasets by changing the machine
+    type to one with a GPU. On larger datasets, use a notebook executor service to
+    execute the notebook within the managed training service. The latter option also
+    works for distributed training on enormous datasets.
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在笔记本中的模型代码可以通过将机器类型更改为带有GPU的类型来在小数据集上执行。对于大数据集，使用笔记本执行器服务在托管训练服务中执行笔记本。后一选项也适用于大规模数据集上的分布式训练。
+- en: Deploy models to an endpoint that is backed by an autoscaling service capable
+    of running on GPUs.
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 部署模型到由能够在GPU上运行的自动扩展服务支持的端点。
+- en: Evaluate models by doing A/B testing of the models deployed to an endpoint.
+  id: totrans-200
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过对部署到端点的模型进行A/B测试来评估模型。
+- en: Hybrid and multicloud scenarios are supported through the use of standard model
+    formats and frameworks or by the use of containers.
+  id: totrans-201
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过使用标准模型格式和框架或容器来支持混合和多云场景。
+- en: To prevent training-serving skew, encapsulate preprocessing code within the
+    model or in a transform function. Alternatively, use a feature store.
+  id: totrans-202
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为了防止训练 - 服务偏差，将预处理代码封装在模型内部或在转换函数中。或者，使用特征存储。
+- en: For retraining, it’s much better for the entire process—from dataset creation
+    to training to deployment—to be driven by code.
+  id: totrans-203
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于重新训练，最好从数据集创建到训练再到部署的整个过程都由代码驱动。
+- en: 'There are four options for orchestration: managed pipelines, Airflow, Kubeflow,
+    and TFX. Use managed pipelines if you are using a single cloud, Airflow to have
+    consistency with data pipelines, Kubeflow if all your steps are containerized,
+    and TFX if you are within the TensorFlow ecosystem and want an easy-to-use, prescriptive
+    system.'
+  id: totrans-204
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 有四种编排选项：托管管道，Airflow，Kubeflow 和 TFX。如果您使用单一云，则使用托管管道；如果需要与数据管道保持一致性，则使用Airflow；如果所有步骤都是容器化的，则使用Kubeflow；如果您在TensorFlow生态系统内并希望使用易于使用的预设系统，则使用TFX。
+- en: Artifacts such as notebooks, pipeline source code, etc., should be backed up
+    so that they can be used to reproduce errors.
+  id: totrans-205
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应备份诸如笔记本、管道源代码等工件，以便能够重现错误。
+- en: Continuous evaluation is achieved by configuring the prediction endpoint to
+    store a sample of inputs and corresponding predictions to a DWH.
+  id: totrans-206
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过配置预测端点将输入和对应预测的样本存储到数据仓库来实现连续评估。
+- en: Continuous retraining is triggered by new code, new data, or detected drift.
+  id: totrans-207
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 连续重新训练是由新代码、新数据或检测到的漂移触发的。
+- en: Make sure to choose the ML framework based primarily on the skill set of the
+    users who will be building ML applications.
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保基于将构建机器学习应用程序的用户的技能集来选择ML框架。
+- en: 'Consider each of these tasks separately: (1) training, (2) deployment, (3)
+    evaluation, (4) invocation, (5) monitoring, (6) experimentation, (7) explanation,
+    (8) troubleshooting, and (9) auditing. Then, ask who at your company will be doing
+    the task for each ML problem.'
+  id: totrans-209
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将这些任务分开考虑：(1) 训练，(2) 部署，(3) 评估，(4) 调用，(5) 监控，(6) 实验，(7) 解释，(8) 故障排除 和 (9) 审计。然后，询问在贵公司谁将为每个机器学习问题执行这些任务。
+- en: In the next chapter, you will learn how to apply the principles you have learned
+    so far via the description of a model case. You will understand what it means
+    to transform an old-fashioned data platform into something that is modern and
+    cloud native.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，您将通过一个模型案例的描述学习如何应用您到目前为止学到的原则。您将了解将老式数据平台转变为现代化和云原生的含义。
+- en: ^([1](ch11.html#ch01fn11-marker)) The reference here is to regularization, learning
+    rate schedules, optimizers, etc.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch11.html#ch01fn11-marker)) 这里的参考是指正则化、学习率调度、优化器等。

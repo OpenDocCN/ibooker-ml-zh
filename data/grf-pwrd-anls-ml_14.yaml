@@ -1,0 +1,1523 @@
+- en: Chapter 11\. Entity Resolution Revisited
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第11章。实体解析再访
+- en: 'This chapter uses entity resolution for a streaming video service as an example
+    of unsupervised machine learning with graph algorithms. After completing this
+    chapter, you should be able to:'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章以流媒体视频服务的实体解析为例，介绍了无监督机器学习和图算法。完成本章后，您将能够：
+- en: Name the categories of graph algorithms that are appropriate for entity resolution
+    as unsupervised learning
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 列举适用于实体解析的无监督学习图算法类别
+- en: List three different approaches for assessing the similarity of entities
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 列出评估实体相似性的三种不同方法
+- en: Understand how parameterized weights can adapt entity resolution to be a supervised
+    learning task
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理解参数化权重如何使实体解析成为监督学习任务
+- en: Interpret a simple GSQL `FROM` clause and have a general understanding of `ACCUM`
+    semantics
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 解释简单的GSQL `FROM`子句，并对`ACCUM`语义有一般了解
+- en: Set up and run a TigerGraph Cloud Starter Kit using GraphStudio
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 设置和运行TigerGraph Cloud入门套件，使用GraphStudio
+- en: 'Problem: Identify Real-World Users and Their Tastes'
+  id: totrans-7
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 问题：识别现实世界用户及其喜好
+- en: 'The streaming video on demand (SVoD) market is big business. Accurate estimates
+    of the global market size are hard to come by, but the most conservative estimate
+    may be $50 billion in 2020,^([1](ch11.html#ch01fn44)) with annual growth rates
+    ranging from 11%^([2](ch11.html#ch01fn45)) to 21%^([3](ch11.html#ch01fn46)) for
+    the next five years or so. Movie studios, television networks, communication networks,
+    and tech giants have been merging and reinventing themselves, in hopes of becoming
+    a leader in the new preferred format for entertainment consumption: on-demand
+    digital entertainment, on any video-capable device.'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流媒体视频点播（SVoD）市场规模庞大。全球市场规模的准确估算并不容易，但最保守的估计可能是2020年约500亿美元^([1](ch11.html#ch01fn44))，而年增长率在未来五年左右将介于11%^([2](ch11.html#ch01fn45))到21%^([3](ch11.html#ch01fn46))之间。电影制片厂、电视网络、通讯网络和科技巨头一直在进行合并并重塑自己，希望成为娱乐消费的新首选格式的领导者：即时数字娱乐，适用于任何视频设备。
+- en: To succeed, SVoD providers need to have the content to attract and retain many
+    millions of subscribers. Traditional video technology (movie theaters and broadcast
+    television) limited the provider to offering only one program at a time per venue
+    or per broadcast region. Viewers had very limited choice, and providers selected
+    content that would appeal to large segments of the public. Home video on VHS tape
+    and DVD introduced personalization. Wireless digital video on demand on any personal
+    device has put the power in the hands of the consumer.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要成功，SVoD提供商需要有内容来吸引和保留数百万订阅者。传统视频技术（电影院和广播电视）限制提供商每次只能在一个场所或广播区域播放一个节目。观众的选择非常有限，而提供商则选择能够吸引大众的内容。VHS磁带和DVD的家庭视频引入了个性化。任何个人设备上的无线数字视频点播把权力交到了消费者手中。
+- en: 'Providers no longer need to appeal to the masses. On the contrary, the road
+    to success is microsegmentation: to offer something for everyone. The SVoD giants
+    are assembling sizable catalogs of existing content, as well as spending billions
+    of dollars on new content. The volume of options creates several data management
+    problems. With so many shows available, it is very hard for users to browse. Providers
+    must categorize the content, categorize users, and then recommend shows to users.
+    Good recommendations increase viewership and satisfaction.'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提供商不再需要迎合大众。相反，成功的关键是微分割：为每个人提供一些内容。SVoD巨头正在汇集大量现有内容的目录，同时在新内容上投入数十亿美元。这么多选择量产生了几个数据管理问题。有了这么多节目可供选择，用户很难浏览。提供商必须对内容进行分类、对用户进行分类，然后向用户推荐节目。良好的推荐可以提高观众收视率和满意度。
+- en: 'While predicting customers’ interests is hard enough, the streaming video industry
+    also needs to overcome a multifaceted *entity resolution* problem. Entity resolution,
+    you may recall, is the task of identifying two or more entities in a dataset that
+    refer to the same real-world entity and then linking or merging them together.
+    In today’s market, streaming video providers face at least three entity resolution
+    challenges. First, each user may have multiple different authorization schemes,
+    one for each type of device they use for viewing. Second, corporate mergers are
+    common, and they require merging the databases of the constituent companies. For
+    example, Disney+ combines the catalogs of Disney, Pixar, Marvel, and National
+    Geographic Studios. Max brings together HBO, Warner Bros., DC Comics, and Discovery.
+    Third, SVoD providers may form a promotional, affiliate, or partnership arrangement
+    with another company: a customer may be able to access streaming service A because
+    they are a customer of some other service B. For example, customers of Verizon
+    internet service may qualify for free Disney+, Hulu, and ESPN+ service.'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管预测客户的兴趣已经足够困难，但流媒体视频行业还需要克服一个多方面的*实体解析*问题。实体解析，您可能记得，是识别数据集中指向同一现实世界实体的两个或多个实体，然后将它们链接或合并在一起的任务。在今天的市场上，流媒体视频提供商面临至少三个实体解析挑战。首先，每个用户可能有多个不同的授权方案，每种设备都有一个。其次，企业合并很常见，需要合并组成公司的数据库。例如，Disney+结合了Disney、Pixar、Marvel和National
+    Geographic Studios的目录。Max汇集了HBO、Warner Bros.、DC Comics和Discovery。第三，SVoD提供商可能与另一家公司进行促销、附属或合作关系：客户可能因为是某些其他服务B的客户而能够访问流媒体服务A。例如，Verizon互联网服务的客户可以免费使用Disney+、Hulu和ESPN+服务。
+- en: 'Solution: Graph-Based Entity Resolution'
+  id: totrans-12
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 解决方案：基于图的实体解析
+- en: Before we can design a solution, let’s start with a clear statement of the problem
+    we want to solve.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们设计解决方案之前，让我们从清晰地陈述我们想要解决的问题开始。
+- en: Problem Statement
+  id: totrans-14
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 问题陈述
+- en: Each real-world user may have multiple digital identities. The goal is to discover
+    the hidden connections between these digital identities and then to link or merge
+    them together. By doing so, we will be able to connect all of the information
+    together, forming a more complete picture of the user. In particular, we will
+    know all the videos that a person has watched so we can get a better understanding
+    of their personal taste and make better recommendations.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个现实世界的用户可能有多个数字身份。我们的目标是发现这些数字身份之间的隐藏联系，然后将它们链接或合并在一起。通过这样做，我们将能够将所有信息连接起来，形成用户的更完整的画像。特别是，我们将知道一个人观看过哪些视频，从而更好地理解他们的个人喜好并提供更好的推荐。
+- en: 'Now that we’ve crafted a clear problem statement, let’s consider a potential
+    solution: entity resolution. Entity resolution has two parts: deciding which entities
+    are probably the same and then resolving entities. Let’s look at each part in
+    turn.'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经明确了问题陈述，让我们考虑一个潜在的解决方案：实体解析。实体解析分为两部分：确定哪些实体可能相同，然后解析实体。让我们依次看看每个部分。
+- en: Learning Which Entities Are the Same
+  id: totrans-17
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 学习哪些实体是相同的
+- en: If we are fortunate enough to have training data showing us examples of entities
+    that are in fact the same, we can use supervised learning to train a machine learning
+    model. In this case, we do not have training data. Instead, we will rely on the
+    characteristics of the data itself, looking at similarities and communities to
+    perform unsupervised learning.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有幸拥有显示实际上是相同实体的示例的训练数据，我们可以使用监督学习来训练机器学习模型。在这种情况下，我们没有训练数据。相反，我们将依赖数据本身的特征，查看相似性和社区以执行无监督学习。
+- en: 'To do a good job, we want to build in some domain knowledge. What are the situations
+    for a person to have multiple online identities, and what would be the clues in
+    the data? Here are some reasons why a person may create multiple accounts:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要做好这项工作，我们希望积累一些领域知识。一个人有多个在线身份的情况是什么，数据中有什么线索？以下是一些人可能创建多个账户的原因：
+- en: A user creates a second account because they forgot about or forgot how to access
+    the first one.
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户创建第二个账户是因为他们忘记了或忘记了如何访问第一个账户。
+- en: A user has accounts with two different streaming services, and the companies
+    enter a partnership or merge.
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户在两个不同的流媒体服务中都有账户，并且这些公司进入了合作或合并关系。
+- en: A person may intentionally set up multiple distinct identities, perhaps to take
+    advantage of multiple membership rewards or to separate their behavioral profiles
+    (e.g., to watch different types of videos on different accounts). The personal
+    information may be very different, but the device IDs might be the same.
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个人可能有意设立多个不同的身份，也许是为了利用多个会员奖励，或者为了分开他们的行为配置文件（例如，在不同账户上观看不同类型的视频）。个人信息可能会有很大差异，但设备
+    ID 可能是相同的。
+- en: Whenever the same person creates two different accounts at different moments,
+    there can be variations in some details for trivial or innocuous reasons. The
+    person decides to use a nickname. They choose to abbreviate a city or street name.
+    They mistype. They have multiple phone numbers and email addresses to choose from,
+    and they make a different choice for no particular reason. Over time, more substantial
+    changes may occur to the address, phone number, device IDs, and even the user’s
+    name.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当同一人在不同时刻创建两个不同账户时，由于琐碎或无害的原因，某些细节可能会有所不同。人们可能决定使用昵称，选择缩写城市或街道名称，误输入，有多个电话号码和电子邮件地址可供选择，但他们出于无特定原因做出了不同选择。随着时间的推移，地址、电话号码、设备
+    ID 甚至用户姓名可能会发生更大的变化。
+- en: While several situations can result in one person having multiple online identities,
+    it seems we can focus our data analysis on only two patterns. In the first pattern,
+    most of the personal information will be the same or similar, but a few attributes
+    may differ. Even when two attributes differ, they may still be related. An example
+    is the use of a nickname or a misspelling of an address. In the second pattern,
+    much of the information is different, but one or more key pieces remain the same,
+    such as home phone number or birthdate, and behavioral clues (such as what type
+    of videos they like and what time of day they watch them) may suggest that two
+    identities belong to the same person.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管有多种情况导致一个人拥有多个在线身份，但我们似乎可以将我们的数据分析集中在只有两种模式上。在第一种模式中，大部分个人信息将相同或类似，但可能会有少量属性不同。即使两个属性不同，它们可能仍然相关。例如使用昵称或地址拼写错误。在第二种模式中，大部分信息不同，但一个或多个关键部分仍然相同，例如家庭电话号码或生日，以及行为线索（例如喜欢什么类型的视频以及观看它们的时间）。这些线索可能表明两个身份属于同一人。
+- en: To build our solution, we will need to use some similarity algorithms and also
+    a community detection or clustering algorithm to group similar entities together.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要构建我们的解决方案，我们需要使用一些相似度算法，以及社区检测或聚类算法将相似的实体分组在一起。
+- en: Resolving Entities
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 解决实体
+- en: 'Once we have used the appropriate algorithms to identify a group of entities
+    that we believe to be the same, what will we do about it? We want to update the
+    database somehow to reflect this new knowledge. There are two possible ways to
+    accomplish this: merge the group into one entity or link the entities in a special
+    way so that whenever we look at one member of the group, we will readily see the
+    other related identities.'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们使用适当的算法识别出我们认为相同的一组实体，我们将如何处理？我们希望更新数据库以反映这些新知识。有两种可能的方法可以实现这一点：将组合并为一个实体，或以一种特殊方式链接这些实体，以便每当我们查看组中的一个成员时，我们将立即看到其他相关的身份。
+- en: Merging the entities makes sense when some online identities are considered
+    incorrect, so we want to eliminate them. For example, suppose a customer has two
+    online accounts because they misspelled their name or forgot that they had an
+    account already. Both the business owner and the customer want to eliminate one
+    account and to merge all of the records (purchase history, game scores, etc.)
+    into one account. Knowing which account to eliminate takes more knowledge of each
+    specific case than we have in our example.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当考虑到一些在线身份信息不正确时，合并实体是有意义的，因此我们希望消除它们。例如，假设客户因姓名拼写错误或忘记已有账户而拥有两个在线账户。业务所有者和客户都希望消除一个账户，并将所有记录（购买历史、游戏得分等）合并到一个账户中。要确定删除哪个账户需要更多的具体案例知识，超出了我们的示例范围。
+- en: 'Alternatively, one can simply link entities together. Specifically, make use
+    of two types of entities in the graph: one representing digital identities and
+    the other representing real-world entities. After resolution, the database will
+    show one real-world entity having an edge to each of its digital identities, as
+    illustrated in [Figure 11-1](#digital_entities_linked_to_a_real_world).'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，可以简单地将实体链接在一起。具体来说，利用图中的两种实体类型：一个表示数字身份，另一个表示真实世界实体。解析后，数据库将显示一个真实世界实体与其各个数字身份之间有边，如[图11-1](#digital_entities_linked_to_a_real_world)所示。
+- en: '![Image](assets/gpam_1101.png)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Image](assets/gpam_1101.png)'
+- en: Figure 11-1\. Digital entities linked to a real-world entity after resolution
+  id: totrans-31
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-1\. 解析后与真实世界实体链接的数字实体
+- en: Implementing Graph-Based Entity Resolution
+  id: totrans-32
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实施基于图的实体解析
+- en: The implementation of graph-based entity resolution we will present is available
+    as a TigerGraph Cloud Starter Kit. As usual, we will focus on using the GraphStudio
+    visual interface. All of the necessary operations could also be performed from
+    a command-line interface.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将介绍的基于图的实体解析的实现可作为TigerGraph云起始套件使用。与往常一样，我们将专注于使用GraphStudio可视化界面。所有必要的操作也可以从命令行界面执行。
+- en: The In-Database Entity Resolution Starter Kit
+  id: totrans-34
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据库内实体解析起始套件
+- en: Using TigerGraph Cloud, deploy a new cloud instance and select “In-Database
+    Machine Learning for Big Data Entity Resolution” as the use case. Once this starter
+    kit is installed, load the data following the steps listed in the section [“Load
+    data and install queries for a starter kit”](ch03.html#load_data_and_install_queries_for_a_sta)
+    in [Chapter 3](ch03.html#see_your_customers_and_business_better).
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用TigerGraph Cloud，部署一个新的云实例，并选择“数据库内机器学习用于大数据实体解析”作为用例。一旦安装了这个起始套件，按照第3章中“加载数据并安装查询的起始套件”一节中列出的步骤加载数据。
+- en: Graph Schema
+  id: totrans-36
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 图模式
+- en: Looking at the graph schema shown in [Figure 11-2](#graph_schema_for_video_customer_account),
+    you can see that **`Account`**, **`User`**, and **`Video`** are hub vertices,
+    with several edges radiating from them. The other vertices represent the personal
+    information about users and the characteristics of videos. We want to compare
+    the personal information of different users. Following good practice for graph-oriented
+    analytics, if we want to see if two or more entities have a feature in common
+    (e.g., email address), we model that feature as a vertex instead of as a property
+    of a vertex.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查看图模式，如[图11-2](#graph_schema_for_video_customer_account)所示，您可以看到**`账户`**、**`用户`**和**`视频`**是中心顶点，从它们辐射出多条边。其他顶点代表用户的个人信息和视频的特征。我们想比较不同用户的个人信息。遵循面向图形的分析的良好实践，如果我们想查看两个或更多实体是否共享某个特征（例如电子邮件地址），我们将该特征建模为一个顶点，而不是作为顶点的属性。
+- en: '![Image](assets/gpam_1102.png)'
+  id: totrans-38
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Image](assets/gpam_1102.png)'
+- en: Figure 11-2\. Graph schema for video customer accounts (see a larger version
+    of this figure at [https://oreil.ly/gpam1102](https://oreil.ly/gpam1102))
+  id: totrans-39
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-2\. 视频客户账户的图模式（在[https://oreil.ly/gpam1102](https://oreil.ly/gpam1102)上查看更大版本的此图）
+- en: '[Table 11-1](#vertex_types_in_the_graph_model) gives a brief explanation of
+    each of the vertex types in the graph model. Though the starter kit’s data contains
+    much data about videos, we will not focus on the videos themselves in this exercise.
+    We are going to focus on entity resolution of **`Accounts`**.'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表11-1](#vertex_types_in_the_graph_model)简要解释了图模型中每个顶点类型。虽然起始套件的数据包含大量有关视频的数据，但我们在本次练习中不会专注于视频本身。我们将专注于**`账户`**的实体解析。'
+- en: Table 11-1\. Vertex types in the graph model
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表11-1\. 图模型中的顶点类型
+- en: '| Vertex type | Description |'
+  id: totrans-42
+  prefs: []
+  type: TYPE_TB
+  zh: '| 顶点类型 | 描述 |'
+- en: '| --- | --- |'
+  id: totrans-43
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| **`Account`** | An account for a SVoD user, a digital identity |'
+  id: totrans-44
+  prefs: []
+  type: TYPE_TB
+  zh: '| **`账户`** | 一个SVoD用户的账户，一个数字身份 |'
+- en: '| **`User`** | A real-world person. One **`User`** can link to multiple **`Accounts`**
+    |'
+  id: totrans-45
+  prefs: []
+  type: TYPE_TB
+  zh: '| **`用户`** | 一个真实世界的人。一个**`用户`**可以链接到多个**`账户`** |'
+- en: '| **`IP`**, **`Email`**, **`Last_Name`**, **`Phone`**, **`Address`**, **`Device`**
+    | Key attributes of an **`Account`**, represented as vertices to facilitate linking
+    **`Accounts`**/**`Users`** that share a common attribute |'
+  id: totrans-46
+  prefs: []
+  type: TYPE_TB
+  zh: '| **`IP`**，**`电子邮件`**，**`姓`**，**`电话`**，**`地址`**，**`设备`** | **`账户`**的关键属性，表示为顶点以便链接共享共同属性的**`账户`**/**`用户`**
+    |'
+- en: '| **`Video`** | A video title offered by an SVoD |'
+  id: totrans-47
+  prefs: []
+  type: TYPE_TB
+  zh: '| **`视频`** | 由SVoD提供的视频标题 |'
+- en: '| **`Keyword`**, **`Genre`** | Attributes of a **`Video`** |'
+  id: totrans-48
+  prefs: []
+  type: TYPE_TB
+  zh: '| **`关键词`**，**`类型`** | **`视频`**的属性 |'
+- en: '| **`Video_Play_Event`** | The time and duration of a particular **`Account`**
+    viewing a particular **`Video`** |'
+  id: totrans-49
+  prefs: []
+  type: TYPE_TB
+  zh: '| **`Video_Play_Event`** | 特定**`Account`**观看特定**`Video`**的时间和持续时间。'
+- en: '| **`Weight`** | Similarity model parameters |'
+  id: totrans-50
+  prefs: []
+  type: TYPE_TB
+  zh: '| **`Weight`** | 相似性模型参数 |'
+- en: Queries and Analytics
+  id: totrans-51
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 查询和分析
+- en: 'For our entity resolution use case, we have a three-stage plan requiring three
+    or more queries:'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的实体解析用例，我们有一个需要三个或更多查询的三阶段计划：
+- en: 'Initialization: For each **`Account`** vertex, create a **`User`** vertex and
+    link them. **`Accounts`** are online identities, and **`Users`** represent real-world
+    persons. We begin with the hypothesis that each **`Account`** is a real person.'
+  id: totrans-53
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 初始化：对于每个**`Account`**顶点，创建一个**`User`**顶点并将它们链接起来。**`Accounts`**是在线身份，**`Users`**代表现实世界的人物。我们从每个**`Account`**都是一个真实人物的假设开始。
+- en: 'Similarity detection: Apply one or more similarity algorithms to measure the
+    similarity between **`User`** vertices. If we consider a pair to be similar enough,
+    then we create a link between them, using the **`SameAs`** edge type shown in
+    [Figure 11-2](#graph_schema_for_video_customer_account).'
+  id: totrans-54
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 相似性检测：应用一个或多个相似性算法来衡量**`User`**顶点之间的相似性。如果我们认为一对足够相似，那么我们会创建一个连接它们的链接，使用[图11-2](#graph_schema_for_video_customer_account)中显示的**`SameAs`**边类型。
+- en: 'Merging: Find the connected components of linked **`User`** vertices. Pick
+    one of them to be the main vertex. Transfer all of the edges of the other members
+    of the community to the main vertex. Delete the other community vertices.'
+  id: totrans-55
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 合并：查找链接的**`User`**顶点的连通分量。选择其中一个作为主要顶点。将其他社区成员的所有边转移到主要顶点。删除其他社区顶点。
+- en: For reasons we will explain when we talk about merging, you may need to repeat
+    steps 2 and 3 as a pair, until the similarity detection step is no longer creating
+    any new connections.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 出于我们在讨论合并时将解释的原因，您可能需要重复步骤2和3，直到相似性检测步骤不再创建任何新的连接。
+- en: We will present two different methods for implementing entity resolution in
+    our use case. The first method uses Jaccard similarity (detailed in [Chapter 6](ch06.html#analyzing_connections_for_deeper_insigh))
+    to count exact matches of neighboring vertices and treating each neighbor with
+    equal importance. Merging will use a simple connected component algorithm. The
+    second method is more advanced, suggesting a way to handle both exact and approximate
+    matches of attribute values, and including weights to adjust the relative importance
+    of relationships. Approximate matches are a good way to handle minor typos or
+    the use of abbreviated names.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将为我们的用例展示两种不同的实体解析方法。第一种方法使用Jaccard相似度（详见[第6章](ch06.html#analyzing_connections_for_deeper_insigh)）来计算相邻顶点的精确匹配，并将每个相邻顶点视为同等重要。合并将使用简单的连通分量算法。第二种方法更为高级，建议一种处理属性值的精确和近似匹配的方法，并包括权重以调整关系的相对重要性。近似匹配是处理小错误或使用缩写名称的一种良好方法。
+- en: 'Method 1: Jaccard Similarity'
+  id: totrans-58
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 方法1：Jaccard相似度
+- en: For each of the three stages, well give a high-level explanation, directions
+    for operations to perform in TigerGraph’s GraphStudio, a description of what to
+    expect as a result, and a closer look at some of the GSQL code in the queries.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于每个阶段，我们将提供一个高层次解释，操作TigerGraph的GraphStudio指南，期望的结果描述以及对查询中某些GSQL代码的更详细查看。
+- en: Initialization
+  id: totrans-60
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 初始化
+- en: Recall in our model that an **`Account`** is a digital identity and a **`User`**
+    is a real person. The original database contains only **`Accounts`**. The initialization
+    step creates a unique temporary **`User`** linked to each **`Account`**. And for
+    every edge that runs from an **`Account`** to one of the attribute vertices (**`Email`**,
+    **`Phone`**, etc.), we create a corresponding edge from the **`User`** to the
+    same set of attribute vertices. [Figure 11-3](#user_vertex_and_edges_created_in_the_in)
+    shows an example. The three vertices on the left and the two edges connecting
+    them are part of the original data. The initialization step creates the **`User`**
+    vertex and the three dotted-line edges. As a result, each **`User`** starts out
+    with the same attribute neighborhood as its **`Account`**.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的模型中，**`Account`**是数字身份，**`User`**是真实人物。原始数据库仅包含**`Accounts`**。初始化步骤创建一个与每个**`Account`**关联的唯一临时**`User`**。对于从**`Account`**到属性顶点（**`Email`**、**`Phone`**等）的每条边，我们创建一个从**`User`**到相同属性顶点集的对应边。[图11-3](#user_vertex_and_edges_created_in_the_in)显示了一个示例。左侧的三个顶点及连接它们的两条边属于原始数据。初始化步骤创建了**`User`**顶点和三条虚线边。因此，每个**`User`**从其**`Account`**开始具有相同的属性邻域。
+- en: '![Image](assets/gpam_1103.png)'
+  id: totrans-62
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Image](assets/gpam_1103.png)'
+- en: Figure 11-3\. User vertex and edges created in the initialization step
+  id: totrans-63
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-3\. 在初始化步骤中创建的用户顶点和边
+- en: 'Do: Run the GSQL query `initialize_users`.'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行GSQL查询`initialize_users`。
+- en: 'This query has no input parameters, so it will run immediately without any
+    additional steps from the user. The following block of code shows the first 20
+    lines of `initialize_users`. The comment at the beginning lists the six types
+    of attribute vertices to be included:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此查询没有输入参数，因此将立即运行，无需用户额外步骤。以下代码块显示了`initialize_users`的前20行。开头的注释列出了包括的六种属性顶点类型：
+- en: '[PRE0]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'In the first `SELECT` block, for each **`Account`** that doesn’t already have
+    a neighboring **`User`**, we use `INSERT` statements to create a **`User`** vertex
+    and a **`Has_Account`** edge connecting this **`User`** to the **`Account`**.
+    The alias `s` refers to an **`Account`**; we give the new **`User`** the same
+    ID as that of its paired **`Account`**: `s.id`.'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第一个`SELECT`块中，对于每个尚未具有相邻**`User`**的**`Account`**，我们使用`INSERT`语句创建一个**`User`**顶点，并创建一个**`Has_Account`**边连接此**`User`**到**`Account`**。别名`s`表示一个**`Account`**；我们为新的**`User`**赋予与其对应的**`Account`**相同的ID：`s.id`。
+- en: 'The next block takes care of **`IP`** attribute vertices: If there is a **`Has_IP`**
+    edge from an **`Account`** to an **`IP`** vertex, then insert an edge from the
+    corresponding **`User`** vertex to the same **`IP`** vertex. The final block in
+    the section handles **`Email`** attribute vertices in an analogous way. The code
+    for the remaining four attribute types (**`Device`**, **`Phone`**, **`Last_Name`**,
+    and **`Address`**) has been omitted for brevity.'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个块处理**`IP`**属性顶点：如果从**`Account`**到**`IP`**顶点存在一个**`Has_IP`**边，则插入一条从相应**`User`**顶点到同一**`IP`**顶点的边。本节的最后一个块类似地处理**`Email`**属性顶点。出于简洁起见，剩余四种属性类型（**`Device`**、**`Phone`**、**`Last_Name`**和**`Address`**）的代码已被省略。
+- en: Similarity detection
+  id: totrans-69
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 相似度检测
+- en: Jaccard similarity counts how many attributes two entities have in common, divided
+    by the total number of attributes between them. Each comparison of attributes
+    results in a yes/no answer; a miss is as good as a mile. [Figure 11-4](#jaccard_similarity_example)
+    shows an example where User A and User B each have three attributes; two of those
+    match (Email 65 and Device 87). Therefore, A and B have two attributes in common.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Jaccard相似度计算两个实体共有多少属性，除以它们之间的总属性数。每个属性比较都有是/否答案；失误也不可小觑。[图 11-4](#jaccard_similarity_example)展示了一个例子，其中用户A和用户B各自有三个属性；其中两个匹配（Email
+    65和Device 87）。因此，A和B共有两个属性。
+- en: '![Image](assets/gpam_1104.png)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](assets/gpam_1104.png)'
+- en: Figure 11-4\. Jaccard similarity example
+  id: totrans-72
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-4\. Jaccard相似度示例
+- en: They have a total of four distinct attributes (Email 65, Device 87, Phone 23,
+    and Phone 99); therefore, the Jaccard similarity is 2/4 = 0.5.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 他们总共有四个不同的属性（Email 65、Device 87、Phone 23和Phone 99）；因此，Jaccard相似度为2/4 = 0.5。
+- en: 'Do: Run the `connect_jaccard_sim` query with default parameter values.'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行带有默认参数值的`connect_jaccard_sim`查询。
+- en: This query computes this similarity score for each pair of vertices. If the
+    score is at or above the given threshold, it creates a **`Same_As`** edge to connect
+    the two **`Users`**. The default threshold is 0.5, but you can make it higher
+    or lower. Jaccard scores range from 0 to 1\. [Figure 11-5](#connections_for_user_vertices_onecomma)
+    shows the connections for **`User`** vertices 1, 2, 3, 4, and 5, using Jaccard
+    similarity and a threshold of 0.5\. For these five vertices, we find communities
+    that range in size from one vertex alone (**`User`** 3) to three vertices (**`Users`**
+    1 and 2).
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此查询为每对顶点计算此相似度分数。如果分数达到或超过给定阈值，则创建一个**`Same_As`**边连接这两个**`User`**。默认阈值为0.5，但您可以调高或调低。Jaccard分数的范围从0到1。[图
+    11-5](#connections_for_user_vertices_onecomma)展示了使用Jaccard相似度和0.5阈值连接**`User`**顶点1、2、3、4和5的情况。对于这五个顶点，我们发现的社区大小从一个单独的顶点（**`User`**
+    3）到三个顶点（**`Users`** 1和2）不等。
+- en: '![Image](assets/gpam_1105.png)'
+  id: totrans-76
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](assets/gpam_1105.png)'
+- en: Figure 11-5\. Connections for **`User`** vertices 1, 2, 3, 4, and 5, using Jaccard
+    similarity and a threshold of 0.5 (see a larger version of this figure at [https://oreil.ly/gpam1105](https://oreil.ly/gpam1105))
+  id: totrans-77
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-5\. 使用Jaccard相似度和阈值0.5连接**`User`**顶点1、2、3、4和5（详见此图的大版本：[https://oreil.ly/gpam1105](https://oreil.ly/gpam1105)）
+- en: '![Image](assets/gpam_1106.png)'
+  id: totrans-78
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](assets/gpam_1106.png)'
+- en: Figure 11-6\. Selecting vertices on the Explore Graph page
+  id: totrans-79
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-6\. 在探索图页面上选择顶点
+- en: '![Image](assets/gpam_1107.png)'
+  id: totrans-80
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](assets/gpam_1107.png)'
+- en: Figure 11-7\. Expanding from vertices on the Explore Graph page
+  id: totrans-81
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-7\. 从探索图页面上的顶点扩展
+- en: 'We’ll go over a few parts of the GSQL code of `connect_jaccard_sim` to explain
+    how it works. In the following code snippet, we count the attributes in common
+    between every pair of **`Users`**, using a single `SELECT` statement. The statement
+    uses pattern matching to describe how two such **`Users`** would be connected,
+    and then it uses an accumulator to count the occurrences:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将会讨论`connect_jaccard_sim`的几部分GSQL代码，以解释它的工作原理。在下面的代码片段中，我们统计了每对**`Users`**之间共同属性的数量，使用单个`SELECT`语句。该语句使用模式匹配描述了如何连接两个这样的**`Users`**，然后使用累加器来计算出现的次数：
+- en: '[PRE1]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Note
+  id: totrans-84
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: GSQL’s `FROM` clause describes a left-to-right path moving from vertex to vertex
+    via edges. Each sequence of vertices and edges that fits the requirements forms
+    one “row” in the temporary “table” of results, which is passed on to the `ACCUM`
+    and `POST-ACCUM` clauses for further processing.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: GSQL的`FROM`子句描述了一个从顶点到顶点经由边的从左到右路径。符合要求的每个顶点和边序列形成结果临时“表”的一行，传递给`ACCUM`和`POST-ACCUM`子句进行进一步处理。
+- en: 'This `FROM` clause presents a two-hop graph path pattern to search for:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个`FROM`子句呈现了一个两跳图路径模式来搜索：
+- en: '[PRE2]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'The components of the clause are as follows:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 子句的组成部分如下：
+- en: '`User:A` means start from a **`User`** vertex, aliased to `A`.'
+  id: totrans-89
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`User:A`表示从一个**`User`**顶点开始，别名为`A`。'
+- en: '`-()-` means pass through any edge type.'
+  id: totrans-90
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`-()-`表示通过任何边类型。'
+- en: '`(IP|Email|Phone|Last_Name|Address|Device):n` means arrive at one of these
+    six vertex types, aliased to `n`.'
+  id: totrans-91
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`(IP|Email|Phone|Last_Name|Address|Device):n`表示到达这六种顶点类型之一，别名为`n`。'
+- en: '`-()-` means pass through another edge of any type.'
+  id: totrans-92
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`-()-`表示通过另一种类型的边。'
+- en: '`User:B` means arrive at a **`User`** vertex, aliased to `B`.'
+  id: totrans-93
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`User:B`表示到一个**`User`**顶点，别名为`B`。'
+- en: '`WHERE B != A` ensures that we skip the situation of a loop where A = B. The
+    next line announces the start of an `ACCUM` clause. Inside the `ACCUM` clause,
+    the line `(``A.@intersection += (B -> 1), // tally each path A->B)` is a good
+    example of GSQL’s support for parallel processing and aggregation: for each path
+    from A to B, append a (key → value) record attached to A. The record is (B, +=1).
+    That is, if this is the first record associating B with A, then set the value
+    to 1\. For each additional record where B is A’s target, then increment the value
+    by 1\. Hence, we’re counting how many times there is a connection from A to B,
+    via one of the six specified edge types. This line ends with a comma, so the next
+    line `@@path_count += 1` is still part of the `ACCUM` clause. For bookkeeping
+    purposes, `@@path_count` counts how many of these paths we find.'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`WHERE B != A`确保我们跳过A = B的情况。下一行宣布了`ACCUM`子句的开始。在`ACCUM`子句内部，`(``A.@intersection
+    += (B -> 1), // tally each path A->B``)是GSQL支持并行处理和聚合的一个很好的例子：对于从A到B的每条路径，附加一个（键→值）记录附加到A。记录是（B，+=1）。也就是说，如果这是将B与A关联的第一条记录，则将值设置为1。对于B是A目标的每个额外记录，则将值增加1。因此，我们正在计算从A到B的连接次数，通过六种指定的边类型之一。这一行以逗号结尾，所以下一行`@@path_count
+    += 1`仍然是`ACCUM`子句的一部分。为了记账目的，`@@path_count`计算我们找到了多少这样的路径。'
+- en: 'Let’s look at one more code block—the final computation of Jaccard similarity
+    and creation of connections between **`Users`**:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看另一个代码块——Jaccard相似度的最终计算，并在**`Users`**之间创建连接：
+- en: '[PRE3]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'This `SELECT` block does the following:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个`SELECT`块执行以下操作：
+- en: For each **`User`** A, iterate over its set of records of similar **`Users`**
+    B, along with B’s number of common neighbors, aliased to `overlap`.
+  id: totrans-98
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 对于每个**`User`** A，迭代其类似**`Users`** B的记录集合，以及B的共同邻居数，别名为`overlap`。
+- en: For each such pair (A, B), compute the Jaccard score, using `overlap` as well
+    as the number of qualified neighbors of A and B `(``@@deg.get(A)` and `@@deg.get(B)``)`,
+    computed earlier.
+  id: totrans-99
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 对于每对（A，B），使用`overlap`以及A和B的合格邻居数（`(``@@deg.get(A)`和`@@deg.get(B)``)）计算Jaccard分数，这些先前计算过。
+- en: If the score is greater than the threshold, insert a **`SameAs`** edge between
+    A and B.
+  id: totrans-100
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果分数大于阈值，在A和B之间插入一个**`SameAs`**边。
+- en: '`@@insert_count` and `@@jaccard_heap` are for reporting statistics.'
+  id: totrans-101
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '`@@insert_count`和`@@jaccard_heap`用于报告统计数据。'
+- en: Merging
+  id: totrans-102
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 合并
+- en: In our third and last stage, we merge the connected communities of **`User`**
+    vertices that we created in the previous step. For each community, we will select
+    one vertex to be the survivor or lead. The remaining members will be deleted;
+    all of the edges from an **`Account`** to a nonlead will be redirected to point
+    to the lead **`User`**.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的第三个和最后一个阶段，我们合并了在前一步中创建的**`User`**顶点的连接社区。对于每个社区，我们将选择一个顶点作为生存者或领导者。剩余成员将被删除；从一个**`Account`**到非领导者的所有边将被重定向指向领导**`User`**。
+- en: 'Do: Run the `merge_connected_users` query. The value of the threshold parameter
+    should always be the same as the value used for `connect_jaccard_sim`.'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行`merge_connected_users`查询。阈值参数的值应始终与`connect_jaccard_sim`使用的值相同。
+- en: Look at the JSON output. Note whether it says `converged = TRUE` or `FALSE`.
+    [Figure 11-8](#entity_resolution_achievedcomma_using_j) displays the user communities
+    for Accounts 1, 2, 3, 4, and 5\. Each user community has been reduced to a single
+    **`User`** (real person). Each of those **`Users`** links to one or more **`Accounts`**
+    (digital identities). We’ve achieved our entity resolution.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查看JSON输出。注意它是否说`converged = TRUE`或`FALSE`。[图 11-8](#entity_resolution_achievedcomma_using_j)显示了帐户1、2、3、4和5的用户社区。每个用户社区已经减少到一个单一的**`User`**（真实人物）。每个这些**`Users`**链接到一个或多个**`Accounts`**（数字身份）。我们已经实现了实体解析。
+- en: '![Image](assets/gpam_1108.png)'
+  id: totrans-106
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Image](assets/gpam_1108.png)'
+- en: Figure 11-8\. Entity resolution achieved, using Jaccard similarity (see a larger
+    version of this figure at [https://oreil.ly/gpam1108](https://oreil.ly/gpam1108))
+  id: totrans-107
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-8。使用Jaccard相似度实现的实体解析（在[https://oreil.ly/gpam1108](https://oreil.ly/gpam1108)可以查看此图的大图版本）
+- en: 'The `merge_connected_users` algorithm has three stages:'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`merge_connected_users`算法有三个阶段：'
+- en: In each component, select a lead **`User`**.
+  id: totrans-109
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在每个组件中，选择一个主要的**`User`**。
+- en: In each component, redirect the attribute connections from other **`Users`**
+    to the lead **`User`**.
+  id: totrans-110
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在每个组件中，将其他**`Users`**的属性连接重定向到主要的**`User`**。
+- en: Delete the **`Users`** that are not the lead **`User`** and all of the **`Same_As`**
+    edges.
+  id: totrans-111
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 删除不是主要**`User`**的**`Users`**和所有**`Same_As`**边。
+- en: 'Let’s take a closer look at the GSQL code. For each group of similar **`Users`**
+    connected by **`Same_As`** edges, we will choose the one that happens to have
+    the smallest ID value as the lead **`User`**. We use a `MinAccum` called `@min_user_id`
+    to compare vertices’ internal ID values. Whenever you input a new value to a `MinAccum`,
+    it retains the lesser of its current value and the new input value. We start by
+    initialing every vertex’s `@min_user_id` to itself:'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们更仔细地看一下GSQL代码。对于每组由**`Same_As`**边连接的相似**`Users`**，我们将选择具有最小ID值的那个作为主要的**`User`**。我们使用名为`@min_user_id`的`MinAccum`来比较顶点的内部ID值。每当您向`MinAccum`输入新值时，它保留其当前值和新输入值的较小值。我们首先将每个顶点的`@min_user_id`初始化为其自身：
+- en: '[PRE4]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'Then, we iterate on the following process: for each pair of connected **`Users`**
+    `s → t` (`FROM` clause), vertex `t` updates `@min_user_id` to be the lesser of
+    the two vertices’ internal IDs (`ACCUM` clause):'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们对以下过程进行迭代：对于每对连接的**`Users`** `s → t`（`FROM`子句），顶点`t`更新`@min_user_id`，以较小的两个顶点内部ID为准（`ACCUM`子句）：
+- en: '[PRE5]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: The `HAVING` clause is a filter to decide whether this particular `t` should
+    be included in the `Updated_users` output set. Note the tick mark (`'`) at the
+    end of the line; this is a modifier for the accumulator `t.@min_user_id`. It means
+    “the value of the accumulator *before* the `ACCUM` clause was executed.” For looped
+    procedures like this `WHILE` loop, this syntax lets us compare the previous value
+    to current values. If `t.@min_user_id`’s value is the same as its previous value,
+    then `t` is not included in `Updated_users`. When no vertices have changed their
+    `@min_user_ids`, we can exit the `WHILE` loop.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`HAVING`子句是一个筛选器，用于决定是否将特定的`t`包括在`Updated_users`输出集中。注意行末的撇号（`''`）；这是对累加器`t.@min_user_id`的修饰符。它表示“在执行`ACCUM`子句之前的累加器值”。对于像这样的循环过程，此语法允许我们将先前的值与当前值进行比较。如果`t.@min_user_id`的值与其先前的值相同，则`t`不包括在`Updated_users`中。当没有顶点更改其`@min_user_id`时，我们可以退出`WHILE`循环。'
+- en: It might seem that one pass through the three steps—initialize, connect similar
+    entities, and merge connected entities—should be enough. The merging, however,
+    can create a situation in which new similarities arise. Take a look at [Figure 11-9](#user_with_more_attributes_after_entity),
+    which depicts the attribute connections of User 302 after Users 2 and 602 have
+    been merged into it. Accounts 2, 302, and 602 remain separate, so you can see
+    how each of them contributed some attributes. Because User 302 has more attributes
+    than before, it is now possible that it is more similar than before to some other
+    (possibly newly merged) User. Therefore, we should run another round of similarity
+    connection and merge. Repeat these steps until no new similarities arise.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 看起来通过三个步骤——初始化、连接相似实体和合并连接实体——应该足够了。然而，合并可能会创建一种情况，其中产生新的相似性。请查看[图 11-9](#user_with_more_attributes_after_entity)，该图描述了在将用户
+    2 和用户 602 合并为用户 302 后用户 302 的属性连接。账户 2、302 和 602 保持分开，因此您可以看到每个账户如何贡献一些属性。因为用户
+    302 拥有比以前更多的属性，所以现在可能与一些其他用户（可能是新合并的用户）更相似。因此，我们应该运行另一轮相似性连接和合并。重复这些步骤，直到不再出现新的相似性。
+- en: '![Image](assets/gpam_1109.png)'
+  id: totrans-118
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Image](assets/gpam_1109.png)'
+- en: Figure 11-9\. User with more attributes after entity resolution (see a larger
+    version of this figure at [https://oreil.ly/gpam1109](https://oreil.ly/gpam1109))
+  id: totrans-119
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-9\. 实体解析后具有更多属性的用户（请查看此图的大尺寸版本，网址为 [https://oreil.ly/gpam1109](https://oreil.ly/gpam1109)）
+- en: 'As a reminder, here is the sequence of queries for simple entity resolution
+    using Jaccard similarity:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为提醒，这是使用 Jaccard 相似度进行简单实体解析的查询顺序：
+- en: Run `initialize_users`.
+  id: totrans-121
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行 `initialize_users`.
+- en: Run `connect_jaccard_sim`.
+  id: totrans-122
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行 `connect_jaccard_sim`.
+- en: Run `merge_connected_users`.
+  id: totrans-123
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行 `merge_connected_users`.
+- en: Repeat steps 2 and 3 until the output of `merge_connected_users` says `converged
+    = TRUE`.
+  id: totrans-124
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 重复步骤 2 和 3，直到 `merge_connected_users` 的输出显示 `converged = TRUE`。
+- en: Reset
+  id: totrans-125
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 重置
+- en: After you’ve finished, or at any time, you might want to restore the database
+    to its original state. You need to do this if you want to run the entity resolution
+    process from the start again. The query `util_delete_users` will delete all **`User`**
+    vertices and all edges connecting to them. Note that you need to change the input
+    parameter `are_you_sure` from `FALSE` to `TRUE`. This manual effort is put in
+    as a safety precaution.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完成后，或随时，您可能希望将数据库恢复到其原始状态。如果要重新运行实体解析过程，您需要这样做。查询 `util_delete_users` 将删除所有**`User`**顶点及其所有相关边。请注意，您需要将输入参数
+    `are_you_sure` 从 `FALSE` 更改为 `TRUE`。这是为了安全起见而进行的手动操作。
+- en: Warning
+  id: totrans-127
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Deleting bulk vertices (`util_delete_users`) or creating bulk vertices (`initialize_users`)
+    can take several seconds to take effect, even after a query says it is finished.
+    Go to the Load Data page to check the live statistics for **`User`** vertices
+    and **`User`**-related edges to see if the creation or deletion has finished.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 删除批量顶点（`util_delete_users`）或创建批量顶点（`initialize_users`）可能需要几秒钟才能生效，即使查询显示已完成。请转到“加载数据”页面，检查**`User`**顶点和**`User`**相关边的实时统计信息，以查看创建或删除是否已完成。
+- en: 'Method 2: Scoring Exact and Approximate Matches'
+  id: totrans-129
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '方法 2: 计分精确和近似匹配'
+- en: The previous section demonstrated a nice and easy graph-based entity resolution
+    technique, but it is too basic for real-world use. It relies on exact matching
+    of attribute values, whereas we need to allow for almost the same values, which
+    arise from unintentional and intentional spelling variations. We also would like
+    to make some attributes more important than others. For example, if you happen
+    to have date-of-birth information, you might be strict about this attribute matching
+    exactly. While persons can move and have multiple phone numbers and email addresses,
+    they can have only one birth date. In this section, we will introduce weights
+    to adjust the relative importance of different attributes. We will also provide
+    a technique for approximate matches of string values.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前一节展示了一个基于图的实体解析技术，简单易行，但对于实际应用来说过于基础。它依赖于属性值的精确匹配，而我们需要允许几乎相同的值，这些值可能来自无意和有意的拼写变化。我们也希望某些属性比其他属性更重要。例如，如果你有出生日期信息，你可能会对这个属性的精确匹配要求严格。尽管个人可以移动并拥有多个电话号码和电子邮件地址，但他们只能有一个出生日期。在这一节中，我们将引入权重来调整不同属性的相对重要性。我们还将提供一种字符串值的近似匹配技术。
+- en: Note
+  id: totrans-131
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If you already used your starter kit to run Method 1, be sure to reset it. (See
+    [“Reset”](#reset) at the end of Method 1.)
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您已经使用起始工具包运行了方法 1，请务必进行重置。 (参见方法 1 结尾的 [“重置”](#reset) 部分。)
+- en: Initialization
+  id: totrans-133
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 初始化
+- en: We are still using the same graph model with **`User`** vertices representing
+    real persons and **`Account`** vertices representing digital accounts. So we are
+    still using the `initialize_users` query to set up an initial set of **`User`**
+    vertices.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们仍然使用相同的图模型，其中**`User`**顶点代表真实人物，**`Account`**顶点代表数字账户。因此，我们仍然使用`initialize_users`查询来设置一组初始**`User`**顶点。
+- en: 'We are adding the query `util_set_weights` as another initialization step.
+    This query accepts weights for each of the six attributes (`IP`, `Email`, `Phone`,
+    `Address`, `Last_Name`, and `Device`) and stores them. If this were a relational
+    database, we would store those weights in a table. Since this is a graph, we are
+    going to store them in a vertex. We need only one vertex, because one vertex can
+    have multiple attributes. However, we are going to be even fancier. We are going
+    to use a map type attribute, which will have six key → value entries. This allows
+    us to use the map like a lookup table: tell me the name of the key (attribute
+    name), and I’ll tell you the value (weight).'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将查询`util_set_weights`添加为另一个初始化步骤。此查询接受六个属性（`IP`、`Email`、`Phone`、`Address`、`Last_Name`和`Device`）的权重并将其存储。如果这是关系数据库，我们将把这些权重存储在表中。由于这是一个图形数据库，我们将把它们存储在一个顶点中。我们只需要一个顶点，因为一个顶点可以有多个属性。然而，我们要更加精致。我们将使用映射类型属性，其中将有六个键
+    → 值条目。这使我们可以像查找表一样使用映射：告诉我键的名称（属性名称），我会告诉你值（权重）。
+- en: If we had some ground truth training data (e.g., knowing which accounts truly
+    belong to the same user), we could use machine learning to learn what attribute
+    weight values are good at predicting whether two accounts belong to the same real
+    person. Since we do not have any training data, the job of setting the best weights
+    is left to the experience and judgment of the user.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有一些地面真相训练数据（例如，知道哪些帐户真正属于同一个用户），我们可以使用机器学习来学习哪些属性权重值在预测两个帐户是否属于同一真实人物方面表现良好。由于我们没有任何训练数据，设置最佳权重的工作留给用户的经验和判断。
+- en: 'Do: Run `initialize_users`. Check the graph statistics on the Load Data page
+    to make sure that all 901 **`User`** vertices and related edges have been created.
+    Run `util_set_weights`. The weights for the six attributes are input parameters
+    for this query. Default weights are included, but you may change them if you wish.
+    If you want to see the results, run `util_print_vertices`.'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行：运行`initialize_users`。检查Load Data页面上的图统计信息，确保所有901个**`User`**顶点和相关边已经创建。运行`util_set_weights`。这个查询的输入参数是六个属性的权重。默认包含了权重，但如果您愿意，可以进行更改。如果想要查看结果，运行`util_print_vertices`。
+- en: Scoring weighted exact matches
+  id: totrans-138
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 计分加权精确匹配
+- en: 'We are going to do our similarity comparison and linking in two phases. In
+    phase one, we are still checking for exact matches because exact matches are more
+    valuable than approximate matches; however, those connections will be weighted.
+    In phase two, we will then check for approximate matches for our two attributes
+    that have alphabetic values: `Last_Name` and `Address`.'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在两个阶段进行相似性比较和链接。在第一阶段中，我们仍然检查精确匹配，因为精确匹配比近似匹配更有价值；然而，这些连接将被加权。在第二阶段中，我们将检查我们具有字母值的两个属性`Last_Name`和`Address`的近似匹配。
+- en: In weighted exact matching, we create weighted connections between **`Users`**,
+    where higher weights indicate stronger similarity. The net weight of a connection
+    is the sum of the contributions from each attribute that is shared by the two
+    **`Users`**. [Figure 11-10](#two_phase_calculation_of_weighted_match) illustrates
+    the weighted match computation. Earlier, during the initialization phase, you
+    established weights for each of the attributes of interest. In the figure, we
+    use the names `wt_email` and `wt_phone` for the weights associated with matching
+    `Email` and `Phone` attributes, respectively.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在加权精确匹配中，我们在**`Users`**之间创建加权连接，其中更高的权重表示更强的相似性。连接的净权重是每对共享相同**`Users`**的属性贡献之和。[图 11-10](#two_phase_calculation_of_weighted_match)展示了加权匹配计算。在初始化阶段早期，您已经为每个感兴趣的属性建立了权重。在图中，我们使用`wt_email`和`wt_phone`来表示与匹配`Email`和`Phone`属性相关的权重。
+- en: '![Image](assets/gpam_1110.png)'
+  id: totrans-141
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图像](assets/gpam_1110.png)'
+- en: Figure 11-10\. Two-phase calculation of weighted matches
+  id: totrans-142
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-10\. 加权匹配的两阶段计算
+- en: The weighted match computation has two steps. In step 1, we look for connections
+    from **`Users`** to **`Attributes`** and record a weight on each attribute for
+    a connection to each **`User`**. Both User A and User B connect to Email 65, so
+    Email 65 records `A:wt_email` and `B:wt_email`. Each **`User`**’s weight needs
+    to be recorded separately. Phone 99 also connects to Users A and B so it records
+    analogous information.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加权匹配计算分为两步。在第 1 步中，我们寻找从**`Users`**到**`Attributes`**的连接，并在每个**`User`**的连接上记录权重。User
+    A 和 User B 都连接到 Email 65，因此 Email 65 记录了`A:wt_email`和`B:wt_email`。每个**`User`**的权重需要分别记录。Phone
+    99 也连接到 Users A 和 B，因此它记录了类似的信息。
+- en: In step 2, we look for the same connections but in the other direction, with
+    **`Users`** as the destinations. Both Email 65 and Phone 99 have connections to
+    User A. User A aggregates their records from step 1\. Note that some of those
+    records refer to User A. User A ignores those, because it is not interested in
+    connections to itself! In this example, it ends up recording `B:(wt_email + wt_phone)`.
+    We use this value to create a weighted **`Same_As`** edge between Users A and
+    B. You can see that User B has equivalent information about User A.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在步骤 2 中，我们寻找相同的连接，但是在另一个方向上，以**`Users`**作为目的地。 Email 65 和 Phone 99 都与 User A
+    相连接。 User A 从步骤 1 中汇总了他们的记录。注意，其中一些记录是指向 User A 的。User A 忽略了这些记录，因为它对与自身的连接不感兴趣！在这个例子中，最终记录了`B:(wt_email
+    + wt_phone)`。我们使用这个值在 Users A 和 B 之间创建一个加权的**`Same_As`**边缘。你可以看到 User B 对于 User
+    A 有着等效的信息。
+- en: 'Do: run the `connect_weighted_match` query.'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行`connect_weighted_match`查询。
+- en: '[Figure 11-11](#user_community_including_account_five) shows one of the communities
+    generated by `connect_weighted_match`. This particular community is the one containing
+    User/Account 5\. The figure also shows connections to two attributes, `Address`
+    and `Last_Name`. The other attributes such as `Email` were used in the scoring
+    but are not shown, to avoid clutter.'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 11-11](#user_community_including_account_five) 展示了`connect_weighted_match`生成的一个社区。这个特定社区包含了用户/帐户
+    5。图中还显示了与两个属性`Address`和`Last_Name`的连接。其他属性如`Email`在评分中使用但未显示，以避免混乱。'
+- en: '![Image](assets/gpam_1111.png)'
+  id: totrans-147
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图像](assets/gpam_1111.png)'
+- en: Figure 11-11\. User community including Account 5 after exact weighted matching
+    (see a larger version of this figure at [https://oreil.ly/gpam1111](https://oreil.ly/gpam1111))
+  id: totrans-148
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-11。精确加权匹配后包含帐户 5 的用户社区（在 [https://oreil.ly/gpam1111](https://oreil.ly/gpam1111)
+    上查看此图的更大版本）
+- en: 'The thickness of the **`Same_As`** edges indicates the strength of the connection.
+    The strongest connection is between **`Users`** 505 and 805 at the bottom of the
+    screen. In fact, we can see three subcommunities of **`Users`** among the largest
+    community of seven members:'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**`Same_As`**边缘的厚度显示了连接的强度。屏幕底部 Users 505 和 805 之间的连接最为强大。事实上，我们可以看到七个成员中最大社区中的三个用户子社区：'
+- en: Users 5, 105, and 205 at the top. The bond between Users 5 and 105 is a little
+    stronger, for reasons not shown. All three share the same last name. They have
+    similar addresses.
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 顶部的 Users 5、105 和 205。Users 5 和 105 之间的连接略微更强，原因未显示。他们三人有相同的姓氏。他们有类似的地址。
+- en: Users 305 and 405 in the middle. Their last names and addresses are different,
+    so some of the attributes not shown must be the cause of their similarity.
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在中间的 Users 305 和 405。他们的姓和地址不同，因此某些未显示的属性必定是他们相似性的原因。
+- en: Users 505 and 805 at the bottom. They share the same last name and address,
+    as well as other attributes.
+  id: totrans-152
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 底部的 Users 505 和 805。他们共享相同的姓和地址，以及其他属性。
+- en: Scoring approximate matches
+  id: totrans-153
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 评分近似匹配
+- en: 'We can see in [Figure 11-11](#user_community_including_account_five) that some
+    **`Users`** have similar names (Ellsworth versus Ellesworth) and similar addresses
+    (Eagle Creek Center versus Eagle Crest Ctr). A scoring system that looks only
+    for exact matchings gives us no credit for these near misses. An entity resolution
+    system is ideally able to assess the similarity of two text strings and to assign
+    a score to the situation. Do they differ by a single letter, like Ellesworth and
+    Ellsworth? Are letters transposed, like Center and Cneter? Computer scientists
+    like to think of the *edit distance* between two text strings: how many single-letter
+    changes of value or position are needed to transform string X into string Y?'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以在[图 11-11](#user_community_including_account_five)中看到一些**`Users`**具有类似的姓名（Ellsworth与Ellesworth）和相似的地址（Eagle
+    Creek Center与Eagle Crest Ctr）。一个只查找完全匹配的评分系统对这些近似情况不予考虑。实体解析系统理想情况下能够评估两个文本字符串的相似度并为其分配一个分数。它们是否仅有一个字母不同，例如Ellsworth和Ellesworth？是否有字母位置颠倒，例如Center和Cneter？计算机科学家喜欢考虑两个文本字符串之间的*编辑距离*：需要多少单字母值或位置变换来将字符串X转换为字符串Y？
+- en: 'We are going to use Jaro-Winkler (JW) similarity^([4](ch11.html#ch01fn47))
+    to measure the similarity between two strings, an enhancement of Jaro similarity.
+    Given two strings, *s*1 and *s*2, that have *m* matching characters and *t* transformation
+    steps between them, their Jaro similarity is defined as:'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用Jaro-Winkler（JW）相似度^([4](ch11.html#ch01fn47))来衡量两个字符串之间的相似度，这是Jaro相似度的改进版本。给定两个字符串*s*1和*s*2，它们具有*m*个匹配字符和*t*个转换步骤，它们的Jaro相似度定义为：
+- en: <math alttext="upper J a r o left-parenthesis s Baseline 1 comma s Baseline
+    2 right-parenthesis equals one-third left-parenthesis StartFraction m Over StartAbsoluteValue
+    s Baseline 1 EndAbsoluteValue EndFraction plus StartFraction m Over StartAbsoluteValue
+    s Baseline 2 EndAbsoluteValue EndFraction plus StartFraction m minus t Over m
+    EndFraction right-parenthesis"><mrow><mi>J</mi> <mi>a</mi> <mi>r</mi> <mi>o</mi>
+    <mrow><mo>(</mo> <mi>s</mi> <mn>1</mn> <mo>,</mo> <mi>s</mi> <mn>2</mn> <mo>)</mo></mrow>
+    <mo>=</mo> <mrow><mfrac><mn>1</mn> <mn>3</mn></mfrac> <mrow><mo>(</mo> <mfrac><mi>m</mi>
+    <mrow><mo>|</mo><mi>s</mi><mn>1</mn><mo>|</mo></mrow></mfrac> <mo>+</mo> <mfrac><mi>m</mi>
+    <mrow><mo>|</mo><mi>s</mi><mn>2</mn><mo>|</mo></mrow></mfrac> <mo>+</mo> <mfrac><mrow><mi>m</mi><mo>-</mo><mi>t</mi></mrow>
+    <mi>m</mi></mfrac> <mo>)</mo></mrow></mrow></mrow></math> .
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="upper J a r o left-parenthesis s Baseline 1 comma s Baseline
+    2 right-parenthesis equals one-third left-parenthesis StartFraction m Over StartAbsoluteValue
+    s Baseline 1 EndAbsoluteValue EndFraction plus StartFraction m Over StartAbsoluteValue
+    s Baseline 2 EndAbsoluteValue EndFraction plus StartFraction m minus t Over m
+    EndFraction right-parenthesis"><mrow><mi>J</mi> <mi>a</mi> <mi>r</mi> <mi>o</mi>
+    <mrow><mo>(</mo> <mi>s</mi> <mn>1</mn> <mo>,</mo> <mi>s</mi> <mn>2</mn> <mo>)</mo></mrow>
+    <mo>=</mo> <mrow><mfrac><mn>1</mn> <mn>3</mn></mfrac> <mrow><mo>(</mo> <mfrac><mi>m</mi>
+    <mrow><mo>|</mo><mi>s</mi><mn>1</mn><mo>|</mo></mrow></mfrac> <mo>+</mo> <mfrac><mi>m</mi>
+    <mrow><mo>|</mo><mi>s</mi><mn>2</mn><mo>|</mo></mrow></mfrac> <mo>+</mo> <mfrac><mrow><mi>m</mi><mo>-</mo><mi>t</mi></mrow>
+    <mi>m</mi></mfrac> <mo>)</mo></mrow></mrow></mrow></math> .
+- en: If the strings are identical, then *m* = |*s*1| = |*s*2|, and *t* = 0, so the
+    equation simplifies to (1 + 1 + 1)/3 = 1\. On the other hand, if there are no
+    letters in common, then the score is 0\. JW similarity takes Jaro as a starting
+    point and adds an additional reward if the beginnings of each string—reading from
+    the left end—match exactly.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果字符串完全相同，则*m* = |*s*1| = |*s*2|，而*t* = 0，因此方程简化为(1 + 1 + 1)/3 = 1\. 另一方面，如果没有共同的字母，则分数为0\.
+    JW相似度从Jaro相似度出发，并在每个字符串的开头完全匹配时额外奖励。
+- en: The net similarity score for two attribute values is their JW similarity multiplied
+    by the weight for the attribute type. For example, if the attribute’s weight is
+    0.5, and if the JW similarity score is 0.9, then the net score is 0.5 × 0.9 =
+    0.45.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两个属性值的净相似度分数是它们的JW相似度乘以属性类型的权重。例如，如果属性的权重为0.5，并且JW相似度分数为0.9，则净分数为0.5 × 0.9 =
+    0.45。
+- en: 'Do: Run the `score_similar_attributes` query.'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行`score_similar_attributes`查询。
+- en: The `score_similar_attributes` query considers the **`User`** pairs that already
+    are linked by a **`Same_As`** edge. It computes the weighted JW similarity for
+    the `Last_Name` and the `Address` attributes, and adds those scores to the existing
+    similarity score. We chose `Last_Name` and `Address` because they are alphabetic
+    instead of numeric. This is an application decision rather than a technical one.
+    [Figure 11-12](#user_community_including_account_five_a) shows the results after
+    adding in the scores for the approximate matches.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`score_similar_attributes`查询考虑已经通过`Same_As`边缘连接的**`User`**对。它计算了`Last_Name`和`Address`属性的加权JW相似性，并将这些分数添加到现有的相似性分数中。我们选择了`Last_Name`和`Address`，因为它们是字母顺序而不是数字顺序。这是一个应用决策而不是技术决策。[图 11-12](#user_community_including_account_five_a)显示了在添加近似匹配分数后的结果。'
+- en: '![Image](assets/gpam_1112.png)'
+  id: totrans-161
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Image](assets/gpam_1112.png)'
+- en: Figure 11-12\. User community including Account 5 after exact and approximate
+    weighted matching (see a larger version of this figure at [https://oreil.ly/gpam1112](https://oreil.ly/gpam1112))
+  id: totrans-162
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图11-12\. 包括帐户5在精确和近似加权匹配后的用户社区（在[https://oreil.ly/gpam1112](https://oreil.ly/gpam1112)可以查看这个图的更大版本）
+- en: 'Comparing [Figure 11-11](#user_community_including_account_five) and [Figure 11-12](#user_community_including_account_five_a),
+    we notice the following changes:'
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 比较[图 11-11](#user_community_including_account_five)和[图 11-12](#user_community_including_account_five_a)，我们注意到以下变化：
+- en: The connections among Users 1, 105, and 205 have strengthened due to their having
+    similar addresses.
+  id: totrans-164
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Users 1、105和205之间的联系因为他们有相似的地址而加强了。
+- en: User 305 is more strongly connected to the trio above due to a similar last
+    name.
+  id: totrans-165
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户305因为姓氏相似而与上述三人更紧密地联系在一起。
+- en: The connection between 305 and 405 has strengthened due to their having similar
+    addresses.
+  id: totrans-166
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 305和405之间的联系由于他们有相似的地址而加强了。
+- en: User 405 is more strongly connected to Users 505 and 805 due to the name Hunter
+    having some letters in common with Brunke. This last effect might be considered
+    an unintended consequence of the JW similarity measure not being as judicious
+    as a human evaluator would be.
+  id: totrans-167
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户405由于名字Hunter与Brunke有一些字母相同，因此与用户505和805更紧密地连接在一起。这个影响可能被认为是JW相似性度量不像人工评估者那样慎重的副作用。
+- en: Comparing two strings is a general-purpose function that does not require graph
+    traversal, so we have implemented it as a simple string function in GSQL. Because
+    it is not yet a built-in feature of the GSQL language, we took advantage of GSQL’s
+    ability to accept a user-supplied C++ function as a user-defined function (UDF).
+    The UDFs for `jaroDistance(s1, s2)` and `jaroWinklerDistance(s1, s2)` are included
+    in this starter kit. You can invoke them from within a GSQL query anywhere that
+    you would be able to call a built-in string function. Of course, any other string
+    comparison function could be implemented here in place of JW.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 比较两个字符串是一个通用的函数，不需要图遍历，因此我们将其实现为GSQL中的简单字符串函数。由于它还不是GSQL语言的内置功能，我们利用了GSQL接受用户提供的C++函数作为用户定义函数（UDF）的能力。本启动套件包含了`jaroDistance(s1,
+    s2)`和`jaroWinklerDistance(s1, s2)`的UDF。您可以在GSQL查询中的任何地方调用它们，就像调用内置字符串函数一样。当然，任何其他字符串比较函数都可以在此处实现，以取代JW。
+- en: 'The following code snippet shows how we performed the approximate matching
+    and scoring for the `Address` feature:'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码片段显示了我们如何对`Address`特征执行近似匹配和评分：
+- en: '[PRE6]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: The lines in the first `FROM` clause are an example of a *conjunctive path pattern*,
+    that is, a compound pattern composed of several individual patterns, separated
+    by commas. The commas act like Boolean AND. This conjunctive pattern means “find
+    a User A linked to a User B, and find the `Address` connected to A, and find the
+    `Address` connected to B.” The following `WHERE` clause filters out the case where
+    A = B and prevents a pair (A, B) from being processed twice.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个`FROM`子句中的行是*合取路径模式*的示例，即由多个单独模式组成的复合模式，用逗号分隔。逗号的作用类似于布尔AND。这个合取模式意味着“找到与用户A连接的用户B，找到与A连接的`Address`，并找到与B连接的`Address`”。接下来的`WHERE`子句过滤了A
+    = B的情况，并防止对一对（A，B）进行两次处理。
+- en: The `IF` statement filters out the case where A and B are different but have
+    identical addresses. If their addresses are the same, then we already gave them
+    full credit when we ran `connect_weighted_match`. We then compute the weighted
+    scoring, using the `jaroWinklerDistance` function and the weight for `Address`,
+    storing the score in a `FLOAT` variable `sim`, which gets temporarily stored in
+    a lookup table. The last two lines in the `IF` statement are just to record our
+    activity, for informative output at the end.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`IF` 语句过滤掉 A 和 B 不同但地址相同的情况。如果它们的地址相同，那么在运行 `connect_weighted_match` 时我们已经给予了它们完全的信用。然后我们使用
+    `jaroWinklerDistance` 函数和 `Address` 的权重计算加权得分，将分数存储在一个 `FLOAT` 变量 `sim` 中，该变量暂时存储在查找表中。`IF`
+    语句中的最后两行仅用于记录我们的活动，以便在最后输出时提供信息。'
+- en: Merging similar entities
+  id: totrans-173
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 合并相似实体。
+- en: 'In Method 1, we had a simple scheme for deciding whether to merge two entities:
+    if their Jaccard score was greater than some threshold, then we created a **`Same_As`**
+    edge. The decision was made to merge everything that has a **`Same_As`** edge.
+    We want a more nuanced approach now. Our scoring has adjustable weights, and the
+    **`Same_As`** edges record our scores. We can use another threshold score to decide
+    which **`Users`** to merge.'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在方法 1 中，我们有一个简单的方案来决定是否合并两个实体：如果它们的 Jaccard 分数大于某个阈值，则创建一个 **`Same_As`** 边缘。决定合并所有具有
+    **`Same_As`** 边缘的内容。现在我们希望采用更细致的方法。我们的评分具有可调整的权重，并且 **`Same_As`** 边缘记录了我们的评分。我们可以使用另一个阈值分数来决定要合并哪些
+    **`Users`**。
+- en: 'We only need to make two small changes to `merge_connected_users` to let the
+    user set a threshold:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们只需要对 `merge_connected_users` 进行两个小改动，以让用户设置一个阈值：
+- en: Save a copy of `merge_connected_users` as a new query called `merge_similar_users`.
+  id: totrans-176
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将 `merge_connected_users` 的一个副本保存为名为 `merge_similar_users` 的新查询。
+- en: 'Add a threshold parameter to the query header:'
+  id: totrans-177
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在查询标题中添加一个阈值参数：
+- en: '[PRE7]'
+  id: totrans-178
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'In the `SELECT` block that finds connected **`Users`**, add a `WHERE` clause
+    to check the **`Same_As`** edge’s similarity value:'
+  id: totrans-179
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在查找连接的 **`Users`** 的 `SELECT` 块中，添加一个 `WHERE` 子句来检查 **`Same_As`** 边缘的相似性值：
+- en: '[PRE8]'
+  id: totrans-180
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Run `merge_similar_users`. Pick a threshold value and see if you get the result
+    that you expect.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行 `merge_similar_users`。选择一个阈值，并查看您是否得到了预期的结果。
+- en: For the community shown in [Figure 11-12](#user_community_including_account_five_a),
+    [Figure 11-13](#entity_resolution_with_different_thresh) shows the three different
+    merging results for threshold values of 1.0, 2.5, and 3.0.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于在 [图 11-12](#user_community_including_account_five_a) 中显示的社区，[图 11-13](#entity_resolution_with_different_thresh)
+    展示了三种不同的合并结果，阈值分别为 1.0、2.5 和 3.0。
+- en: '![Image](assets/gpam_1113.png)'
+  id: totrans-183
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](assets/gpam_1113.png)'
+- en: Figure 11-13\. Entity resolution with different threshold levels (see a larger
+    version of this figure at [https://oreil.ly/gpam1113](https://oreil.ly/gpam1113))
+  id: totrans-184
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 11-13\. 使用不同阈值级别进行实体解析（请查看该图的更大版本：[https://oreil.ly/gpam1113](https://oreil.ly/gpam1113)）。
+- en: That concludes our second and more nuanced method of entity resolution.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是我们第二种更细致的实体解析方法的总结。
+- en: 'To review, here is the sequence of queries we ran for entity resolution using
+    weighted exact and approximate matching:'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回顾一下，这里是使用加权精确和近似匹配进行实体解析时运行的查询序列：
+- en: Run `initialize_users`.
+  id: totrans-187
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行 `initialize_users`。
+- en: Run `util_set_weights`.
+  id: totrans-188
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行 `util_set_weights`。
+- en: Run `connect_weighed_match`.
+  id: totrans-189
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行 `connect_weighed_match`。
+- en: Run `score_similar_attributes`.
+  id: totrans-190
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行 `score_similar_attributes`。
+- en: Run `merge_similar_users`.
+  id: totrans-191
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行 `merge_similar_users`。
+- en: Repeat steps 3, 4 and 5 until the output of `merge_similar_users` says `con⁠verged
+    = TRUE`.
+  id: totrans-192
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 重复步骤 3、4 和 5，直到 `merge_similar_users` 的输出显示 `con⁠verged = TRUE`。
+- en: Chapter Summary
+  id: totrans-193
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 章节总结
+- en: 'In this chapter, we saw how graph algorithms and other graph techniques can
+    be used for sophisticated entity resolution. Similarity algorithms and the connected
+    component algorithm play key roles. We considered several schemes for assessing
+    the similarity of two entities: Jaccard similarity, the weighted sum of exact
+    matches, and Jaro-Winkler similarity for comparing text strings.'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们看到了如何使用图算法和其他图技术进行复杂的实体解析。相似性算法和连接组件算法起着关键作用。我们考虑了几种评估两个实体相似性的方案：Jaccard
+    相似性、精确匹配的加权和以及用于比较文本字符串的 Jaro-Winkler 相似性。
+- en: 'These approaches can readily be extended to supervised learning if training
+    data becomes available. There are a number of model parameters that can be learned
+    to improve the accuracy of the entity resolution: the scoring weights of each
+    attribute for exact matching, tuning the scoring of approximate matches, and thresholds
+    for merging similar **`Users`**.'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些方法如果有训练数据，可以轻松扩展到监督学习。有许多模型参数可以学习，以提高实体解析的准确性：每个属性的得分权重用于精确匹配，调整近似匹配的评分以及合并相似
+    **`Users`** 的阈值。
+- en: We saw how the `FROM` clause in GSQL queries selects data in a graph by expressing
+    a path or pattern. We also saw examples of the `ACCUM` clause and accumulators
+    being used to compute and store information such as the common neighbors between
+    vertices, a tally, an accumulating score, or even an evolving ID value, marking
+    a vertex as a member of a particular community.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 GSQL 查询中，我们看到了 `FROM` 子句通过表示路径或模式来选择图中的数据。我们还看到了 `ACCUM` 子句的示例以及累加器被用来计算和存储信息，例如顶点之间的共同邻居、一个计数、累积分数，甚至是逐步演变的
+    ID 值，标记顶点作为特定社区的成员。
+- en: 'This chapter showed us how graph-based machine learning can improve the ability
+    of enterprises to see the truth behind the data. In the next chapter, we’ll apply
+    graph machine learning to one of the most popular and important use cases: fraud
+    detection.'
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章向我们展示了基于图的机器学习如何提高企业看清数据背后的真相的能力。在下一章中，我们将把图机器学习应用到其中一个最受欢迎和重要的用例之一：欺诈检测。
+- en: ^([1](ch11.html#ch01fn44-marker)) “Video Streaming Market Size Worth $416.84
+    Billion by 2030,” Grand View Research, March 2023, [*https://www.grandviewresearch.com/press-release/global-video-streaming-market*](https://www.grandviewresearch.com/press-release/global-video-streaming-market).
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch11.html#ch01fn44-marker)) “2030 年视频流媒体市场规模预计达到 4168.4 亿美元”，Grand View
+    Research，2023 年 3 月，[*https://www.grandviewresearch.com/press-release/global-video-streaming-market*](https://www.grandviewresearch.com/press-release/global-video-streaming-market)。
+- en: ^([2](ch11.html#ch01fn45-marker)) “Video Streaming (SVoD) – Worldwide,” Statista,
+    accessed May 26, 2023, [*https://www.statista.com/outlook/dmo/digital-media/video-on-demand/video-streaming-svod/worldwide*](https://www.statista.com/outlook/dmo/digital-media/video-on-demand/video-streaming-svod/worldwide).
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch11.html#ch01fn45-marker)) “视频流媒体（SVoD）- 全球”，Statista，2023 年 5 月 26 日访问，[*https://www.statista.com/outlook/dmo/digital-media/video-on-demand/video-streaming-svod/worldwide*](https://www.statista.com/outlook/dmo/digital-media/video-on-demand/video-streaming-svod/worldwide)。
+- en: ^([3](ch11.html#ch01fn46-marker)) “Video Streaming Market Size Worth $416.84
+    Billion by 2030,” Grand View Research.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch11.html#ch01fn46-marker)) “2030 年视频流媒体市场规模预计达到 4168.4 亿美元”，Grand View
+    Research。
+- en: ^([4](ch11.html#ch01fn47-marker)) Even more advanced similarity algorithms exist
+    that are able to incorporate the semantic similarity between strings as well as
+    the edit distance. For this example, we use a relatively simple algorithm for
+    the sake of speed and easy illustration.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch11.html#ch01fn47-marker)) 还存在更高级的相似性算法，能够融合字符串之间的语义相似性以及编辑距离。在本例中，为了速度和简单说明，我们使用了一个相对简单的算法。

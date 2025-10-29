@@ -1,0 +1,2173 @@
+- en: Chapter 7\. Model Deployment and Prediction Service
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第7章 模型部署与预测服务
+- en: In Chapters [4](ch04.xhtml#training_data) through [6](ch06.xhtml#model_development_and_offline_evaluatio),
+    we have discussed the considerations for developing an ML model, from creating
+    training data, extracting features, and developing the model to crafting metrics
+    to evaluate this model. These considerations constitute the logic of the model—instructions
+    on how to go from raw data into an ML model, as shown in [Figure 7-1](#different_aspects_that_make_up_the_ml_m).
+    Developing this logic requires both ML knowledge and subject matter expertise.
+    In many companies, this is the part of the process that is done by the ML or data
+    science teams.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第4章 [训练数据](ch04.xhtml#training_data) 到第6章 [模型开发和离线评估](ch06.xhtml#model_development_and_offline_evaluatio)
+    中，我们已经讨论了开发机器学习模型的考虑因素，从创建训练数据、提取特征、开发模型到设计评估该模型的指标。这些考虑因素构成了模型的逻辑——从原始数据到机器学习模型的操作指南，如
+    [图7-1](#different_aspects_that_make_up_the_ml_m) 所示。开发这种逻辑需要机器学习知识和专业知识。在许多公司中，这是由机器学习或数据科学团队完成的流程的一部分。
+- en: '![](Images/dmls_0701.png)'
+  id: totrans-2
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0701.png)'
+- en: Figure 7-1\. Different aspects that make up the ML model logic
+  id: totrans-3
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-1 不同方面构成的机器学习模型逻辑
+- en: 'In this chapter, we’ll discuss another part in the iterative process: deploying
+    your model. “Deploy” is a loose term that generally means making your model running
+    and accessible. During model development, your model usually runs in a development
+    environment.^([1](ch07.xhtml#ch01fn198)) To be deployed, your model will have
+    to leave the development environment. Your model can be deployed to a staging
+    environment for testing or to a production environment to be used by your end
+    users. In this chapter, we focus on deploying models to production environments.'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将讨论迭代过程中的另一部分：部署你的模型。“部署”是一个泛指，通常意味着使你的模型运行并可访问。在模型开发过程中，你的模型通常运行在开发环境中。^([1](ch07.xhtml#ch01fn198))
+    要部署，你的模型将不得不离开开发环境。你的模型可以部署到一个用于测试的暂存环境，或者部署到一个用于最终用户使用的生产环境。在本章中，我们专注于将模型部署到生产环境中。
+- en: Before we move forward, I want to emphasize that production is a spectrum. For
+    some teams, production means generating nice plots in notebooks to show to the
+    business team. For other teams, production means keeping your models up and running
+    for millions of users a day. If your work is in the first scenario, your production
+    environment is similar to the development environment, and this chapter is less
+    relevant for you. If your work is closer to the second scenario, read on.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们继续之前，我想强调一点，生产是一个连续的过程。对于一些团队，生产意味着在笔记本中生成漂亮的图表供业务团队查看。对于其他团队，生产意味着保持模型每天为数百万用户运行。如果你的工作属于第一种情况，你的生产环境类似于开发环境，那么这一章对你来说不太相关。如果你的工作更接近第二种情况，请继续阅读。
+- en: 'I once read somewhere on the internet: deploying is easy if you ignore all
+    the hard parts. If you want to deploy a model for your friends to play with, all
+    you have to do is to wrap your predict function in a POST request endpoint using
+    Flask or FastAPI, put the dependencies this predict function needs to run in a
+    container,^([2](ch07.xhtml#ch01fn199)) and push your model and its associated
+    container to a cloud service like AWS or GCP to expose the endpoint:'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我曾在互联网上的某处读到过：如果你忽略所有困难的部分，部署就是简单的。如果你想为朋友们部署一个模型以供玩耍，你只需将你的预测函数包装在一个 POST 请求的端点中，使用
+    Flask 或 FastAPI，将这个预测函数需要运行的依赖项放入容器中，^([2](ch07.xhtml#ch01fn199)) 然后将你的模型及其相关容器推送到像
+    AWS 或 GCP 这样的云服务以公开端点：
+- en: '[PRE0]'
+  id: totrans-7
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'You can use this exposed endpoint for downstream applications: e.g., when an
+    application receives a prediction request from a user, this request is sent to
+    the exposed endpoint, which returns a prediction. If you’re familiar with the
+    necessary tools, you can have a functional deployment in an hour. My students,
+    after a 10-week course, were all able to deploy an ML application as their final
+    projects even though few have had deployment experience before.^([3](ch07.xhtml#ch01fn200))'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以使用此公开的端点供下游应用程序使用：例如，当应用程序接收到用户的预测请求时，该请求将被发送到公开的端点，该端点返回一个预测结果。如果你熟悉必要的工具，你可以在一个小时内完成功能部署。即使我的学生们在一个为期10周的课程后，虽然很少有部署经验，但都能够将机器学习应用程序部署为他们的最终项目。^([3](ch07.xhtml#ch01fn200))
+- en: The hard parts include making your model available to millions of users with
+    a latency of milliseconds and 99% uptime, setting up the infrastructure so that
+    the right person can be immediately notified when something goes wrong, figuring
+    out what went wrong, and seamlessly deploying the updates to fix what’s wrong.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 艰难的部分包括使您的模型对数百万用户可用，延迟为毫秒，正常运行时间为 99%，设置基础设施以便在出现问题时立即通知合适的人员，找出问题所在，并无缝地部署更新以修复问题。
+- en: In many companies, the responsibility of deploying models falls into the hands
+    of the same people who developed those models. In many other companies, once a
+    model is ready to be deployed, it will be exported and handed off to another team
+    to deploy it. However, this separation of responsibilities can cause high overhead
+    communications across teams and make it slow to update your model. It also can
+    make it hard to debug should something go wrong. We’ll discuss more on team structures
+    in [Chapter 11](ch11.xhtml#the_human_side_of_machine_learning).
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多公司中，部署模型的责任落在开发这些模型的同一组人手中。在许多其他公司中，一旦模型准备部署，它将被导出并移交给另一个团队来部署。然而，这种责任的分离可能导致团队之间的沟通成本高昂，并使得更新模型变得缓慢。它也可能导致在出现问题时难以进行调试。我们将在[第
+    11 章](ch11.xhtml#the_human_side_of_machine_learning)中更多讨论团队结构。
+- en: Note
+  id: totrans-11
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注：
+- en: 'Exporting a model means converting this model into a format that can be used
+    by another application. Some people call this process “serialization.”^([4](ch07.xhtml#ch01fn201))
+    There are two parts of a model that you can export: the model definition and the
+    model’s parameter values. The model definition defines the structure of your model,
+    such as how many hidden layers it has and how many units in each layer. The parameter
+    values provide the values for these units and layers. Usually, these two parts
+    are exported together.'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 导出模型意味着将此模型转换为另一个应用程序可以使用的格式。有些人称此过程为“序列化”。^([4](ch07.xhtml#ch01fn201)) 模型的两个部分可以导出：模型定义和模型的参数值。模型定义定义了您的模型的结构，例如它有多少隐藏层和每层多少单元。参数值提供这些单元和层的值。通常这两个部分一起导出。
+- en: In TensorFlow 2, you might use `tf.keras.Model.save()` to export your model
+    into TensorFlow’s SavedModel format. In PyTorch, you might use `torch.onnx.export()`
+    to export your model into ONNX format.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 TensorFlow 2 中，您可能会使用 `tf.keras.Model.save()` 将您的模型导出到 TensorFlow 的 SavedModel
+    格式。在 PyTorch 中，您可能会使用 `torch.onnx.export()` 将您的模型导出到 ONNX 格式。
+- en: Regardless of whether your job involves deploying ML models, being cognizant
+    of how your models are used can give you an understanding of their constraints
+    and help you tailor them to their purposes.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论你的工作是否涉及部署 ML 模型，了解你的模型如何使用可以帮助你理解它们的限制，并帮助你根据其目的进行调整。
+- en: 'In this chapter, we’ll start off with some common myths about ML deployment
+    that I’ve often heard from people who haven’t deployed ML models. We’ll then discuss
+    the two main ways a model generates and serves its predictions to users: online
+    prediction and batch prediction. The process of generating predictions is called
+    *inference*.'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一章中，我们将从一些关于 ML 部署的常见误解开始，这些误解通常来自于那些没有部署过 ML 模型的人。然后我们将讨论模型向用户生成和提供预测的两种主要方式：在线预测和批处理预测。生成预测的过程称为*推理*。
+- en: 'We’ll continue with where the computation for generating predictions should
+    be done: on the device (also referred to as the edge) and the cloud. How a model
+    serves and computes the predictions influences how it should be designed, the
+    infrastructure it requires, and the behaviors that users encounter.'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将继续讨论生成预测的计算应该在哪里进行：设备上（也称为边缘）和云上。模型如何提供和计算预测会影响其设计方式、所需的基础设施和用户遇到的行为。
+- en: If you come from an academic background, some of the topics discussed in this
+    chapter might be outside your comfort zone. If an unfamiliar term comes up, take
+    a moment to look it up. If a section becomes too dense, feel free to skip it.
+    This chapter is modular, so skipping a section shouldn’t affect your understanding
+    of another section.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你来自学术背景，本章讨论的一些话题可能超出你的舒适区。如果出现不熟悉的术语，请花点时间查找它。如果某一部分变得过于密集，请随意跳过。本章是模块化的，因此跳过一部分不应影响你对另一部分的理解。
+- en: Machine Learning Deployment Myths
+  id: totrans-18
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 机器学习部署的误解
+- en: As discussed in [Chapter 1](ch01.xhtml#overview_of_machine_learning_systems),
+    deploying an ML model can be very different from deploying a traditional software
+    program. This difference might cause people who have never deployed a model before
+    to either dread the process or underestimate how much time and effort it will
+    take. In this section, we’ll debunk some of the common myths about the deployment
+    process, which will, hopefully, put you in a good state of mind to begin the process.
+    This section will be most helpful to people with little to no deploying experience.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如同在 [第1章](ch01.xhtml#overview_of_machine_learning_systems) 中讨论的那样，部署机器学习模型与部署传统软件程序有很大不同。这种差异可能会导致从未部署过模型的人们要么害怕这个过程，要么低估了所需的时间和精力。在本节中，我们将揭示一些关于部署过程的常见误解，希望能让您在开始这一过程时保持良好的心态。本节对那些没有或几乎没有部署经验的人最有帮助。
+- en: 'Myth 1: You Only Deploy One or Two ML Models at a Time'
+  id: totrans-20
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 误解1：一次只部署一两个机器学习模型
+- en: When doing academic projects, I was advised to choose a small problem to focus
+    on, which usually led to a single model. Many people from academic backgrounds
+    I’ve talked to tend to also think of ML production in the context of a single
+    model. Subsequently, the infrastructure they have in mind doesn’t work for actual
+    applications, because it can only support one or two models.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在做学术项目时，我被建议选择一个小问题进行专注，通常这会导致一个单一的模型。我与来自学术背景的许多人交流后发现，他们也倾向于在生产机器学习模型时考虑单一模型。因此，他们设想的基础设施不适用于实际应用，因为它只能支持一两个模型。
+- en: 'In reality, companies have many, many ML models. An application might have
+    many different features, and each feature might require its own model. Consider
+    a ride-sharing app like Uber. It needs a model to predict each of the following
+    elements: ride demand, driver availability, estimated time of arrival, dynamic
+    pricing, fraudulent transaction, customer churn, and more. Additionally, if this
+    app operates in 20 countries, until you can have models that generalize across
+    different user-profiles, cultures, and languages, each country would need its
+    own set of models. So with 20 countries and 10 models for each country, you already
+    have 200 models. [Figure 7-2](#different_tasks_that_leverage_ml_at_net) shows
+    a wide range of the tasks that leverage ML at Netflix.'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，公司拥有许多许多机器学习模型。一个应用可能有许多不同的特性，每个特性可能需要自己的模型。以Uber这样的顺风车应用为例。它需要预测以下各种因素的模型：乘车需求、司机可用性、预计到达时间、动态定价、欺诈交易、客户流失等等。此外，如果该应用在20个国家运营，直到可以有跨不同用户配置文件、文化和语言泛化的模型，每个国家都需要自己的模型。因此，对于20个国家，每个国家需要10个模型，您已经有了200个模型。[图7-2](#different_tasks_that_leverage_ml_at_net)
+    展示了Netflix上利用机器学习的广泛任务范围。
+- en: '![](Images/dmls_0702.png)'
+  id: totrans-23
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/dmls_0702.png)'
+- en: 'Figure 7-2\. Different tasks that leverage ML at Netflix. Source: Ville Tuulos^([5](ch07.xhtml#ch01fn202))'
+  id: totrans-24
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-2. Netflix上利用机器学习的不同任务。来源：Ville Tuulos^([5](ch07.xhtml#ch01fn202))
+- en: In fact, Uber has thousands of models in production.^([6](ch07.xhtml#ch01fn203))
+    At any given moment, Google has thousands of models training concurrently with
+    hundreds of billions parameters in size.^([7](ch07.xhtml#ch01fn204)) Booking.com
+    has 150+ models.^([8](ch07.xhtml#ch01fn205)) A 2021 study by Algorithmia shows
+    that among organizations with over 25,000 employees, 41% have more than 100 models
+    in production.^([9](ch07.xhtml#ch01fn206))
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，Uber正在生产中使用数千个模型。^([6](ch07.xhtml#ch01fn203)) 在任何时刻，Google都在并行训练数千个模型，每个模型的参数规模达到数百亿。^([7](ch07.xhtml#ch01fn204))
+    Booking.com 拥有150多个模型。^([8](ch07.xhtml#ch01fn205)) 2021年Algorithmia的一项研究显示，在拥有超过25,000名员工的组织中，41%的组织在生产中使用超过100个模型。^([9](ch07.xhtml#ch01fn206))
+- en: 'Myth 2: If We Don’t Do Anything, Model Performance Remains the Same'
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 误解2：如果我们什么都不做，模型的性能将保持不变
+- en: Software doesn’t age like fine wine. It ages poorly. The phenomenon in which
+    a software program degrades over time even if nothing seems to have changed is
+    known as “software rot” or “bit rot.”
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 软件不像美酒一样随着时间的推移变老越来越好，它老化的速度比较快。即使看起来没有变化，软件程序随时间逐渐退化的现象被称为“软件腐化”或“位腐化”。
+- en: ML systems aren’t immune to it. On top of that, ML systems suffer from what
+    are known as data distribution shifts, when the data distribution your model encounters
+    in production is different from the data distribution it was trained on.^([10](ch07.xhtml#ch01fn207))
+    Therefore, an ML model tends to perform best right after training and to degrade
+    over time.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习系统对此并不免疫。除此之外，机器学习系统还会遭受所谓的数据分布漂移的影响，即模型在生产环境中遇到的数据分布与其训练时的数据分布不同。^([10](ch07.xhtml#ch01fn207))
+    因此，机器学习模型倾向于在训练后表现最佳，并随时间而逐渐退化。
+- en: 'Myth 3: You Won’t Need to Update Your Models as Much'
+  id: totrans-29
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 谬误 3：你不需要频繁更新你的模型
+- en: 'People tend to ask me: “How often *should* I update my models?” It’s the wrong
+    question to ask. The right question should be: “How often *can* I update my models?”'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 人们经常问我：“我应该多频繁地 *更新* 我的模型？”这是一个错误的问题。正确的问题应该是：“我可以多频繁地 *更新* 我的模型？”
+- en: Since a model’s performance decays over time, we want to update it as fast as
+    possible. This is an area of ML where we should learn from existing DevOps best
+    practices. Even back in 2015, people were already constantly pushing out updates
+    to their systems. Etsy deployed 50 times/day, Netflix thousands of times per day,
+    AWS every 11.7 seconds.^([11](ch07.xhtml#ch01fn208))
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于模型的性能会随时间衰减，我们希望尽可能快地对其进行更新。这是一个我们应该从现有的 DevOps 最佳实践中学习的 ML 领域。早在 2015 年，人们就已经在不断地推送系统更新。Etsy
+    每天部署 50 次，Netflix 每天数千次，AWS 每 11.7 秒一次。^([11](ch07.xhtml#ch01fn208))
+- en: While many companies still only update their models once a month, or even once
+    a quarter, Weibo’s iteration cycle for updating some of their ML models is 10
+    minutes.^([12](ch07.xhtml#ch01fn209)) I’ve heard similar numbers at companies
+    like Alibaba and ByteDance (the company behind TikTok).
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然很多公司仍然只每月或甚至每季度更新他们的模型，微博更新一些 ML 模型的迭代周期为 10 分钟。^([12](ch07.xhtml#ch01fn209))
+    我听说阿里巴巴和抖音（TikTok 的公司）也有类似的情况。
+- en: In the words of Josh Wills, a former staff engineer at Google and director of
+    data engineering at Slack, “We’re always trying to bring new models into production
+    just as fast as humanly possible.”^([13](ch07.xhtml#ch01fn210))
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如 Josh Wills 所说，他曾在 Google 担任过高级工程师，现在是 Slack 的数据工程主管，“我们总是尽可能快地将新模型投入生产。”^([13](ch07.xhtml#ch01fn210))
+- en: We’ll discuss more on the frequency to retrain your models in [Chapter 9](ch09.xhtml#continual_learning_and_test_in_producti).
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在 [第 9 章](ch09.xhtml#continual_learning_and_test_in_producti) 中详细讨论模型重新训练的频率。
+- en: 'Myth 4: Most ML Engineers Don’t Need to Worry About Scale'
+  id: totrans-35
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 谬误 4：大多数 ML 工程师不需要担心规模问题
+- en: What “scale” means varies from application to application, but examples include
+    a system that serves hundreds of queries per second or millions of users a month.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “规模” 的含义因应用而异，但例如一个每秒服务数百个查询或每月服务数百万用户的系统。
+- en: You might argue that, if so, only a small number of companies need to worry
+    about it. There is only one Google, one Facebook, one Amazon. That’s true, but
+    a small number of large companies employ the majority of the software engineering
+    workforce. According to the Stack Overflow Developer Survey 2019, more than half
+    of the respondents worked for a company of at least 100 employees (see [Figure 7-3](#the_distribution_of_the_size_of_compani)).
+    This isn’t a perfect correlation, but a company of 100 employees has a good chance
+    of serving a reasonable number of users.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果是这样的话，你可能会争辩说只有少数公司需要担心这个问题。Google 只有一个，Facebook 只有一个，Amazon 也只有一个。这是事实，但是少数大公司雇佣了大多数软件工程师。根据
+    2019 年 Stack Overflow 开发者调查，超过一半的受访者在至少有 100 名员工的公司工作（见 [图 7-3](#the_distribution_of_the_size_of_compani)）。这并不是完全相关，但是一个有
+    100 名员工的公司有很大的机会为一定数量的用户提供服务。
+- en: '![](Images/dmls_0703.png)'
+  id: totrans-38
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0703.png)'
+- en: 'Figure 7-3\. The distribution of the size of companies where software engineers
+    work. Source: Adapted from an image by Stack Overflow^([14](ch07.xhtml#ch01fn211))'
+  id: totrans-39
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-3\. 软件工程师工作所在公司规模的分布。来源：根据 Stack Overflow 的一张图修改^([14](ch07.xhtml#ch01fn211))
+- en: I couldn’t find a survey for ML-specific roles, so I asked on [Twitter](https://oreil.ly/e1fjn)
+    and found similar results. This means that if you’re looking for an ML-related
+    job in the industry, you’ll likely work for a company of at least 100 employees,
+    whose ML applications likely need to be scalable. Statistically speaking, an ML
+    engineer should care about scale.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我没有找到关于专门 ML 角色的调查，所以我在 [Twitter](https://oreil.ly/e1fjn) 上提问并得到了类似的结果。这意味着如果你在行业中寻找与
+    ML 相关的工作，你很可能会在至少有 100 名员工的公司工作，而这些公司的 ML 应用可能需要具备可扩展性。统计学上来说，一个 ML 工程师应该关心规模问题。
+- en: Batch Prediction Versus Online Prediction
+  id: totrans-41
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 批量预测与在线预测的区别
+- en: 'One fundamental decision you’ll have to make that will affect both your end
+    users and developers working on your system is how it generates and serves its
+    predictions to end users: online or batch. The terminologies surrounding batch
+    and online prediction are still quite confusing due to the lack of standardized
+    practices in the industry. I’ll do my best to explain the nuances of each term
+    in this section. If you find any of the terms mentioned here too confusing, feel
+    free to ignore them for now. If you forget everything else, there are three main
+    modes of prediction that I hope you’ll remember:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将需要做出的一个基础决策，这将影响最终用户以及在系统上工作的开发人员，那就是系统如何生成和向最终用户提供预测：在线还是批处理。由于行业中缺乏标准化的实践，围绕批处理和在线预测的术语仍然相当混乱。在本节中，我将尽力解释每个术语的细微差别。如果你觉得这里提到的任何术语太令人困惑，请随意暂时忽略它们。如果你忘记了其他一切，我希望你能记住三种主要的预测模式：
+- en: Batch prediction, which uses only batch features.
+  id: totrans-43
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 只使用批处理特征的批处理预测。
+- en: Online prediction that uses only batch features (e.g., precomputed embeddings).
+  id: totrans-44
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 只使用批处理特征（例如预计算的嵌入）的在线预测。
+- en: Online prediction that uses both batch features and streaming features. This
+    is also known as streaming prediction.
+  id: totrans-45
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用批处理特征和流处理特征的在线预测。这也被称为流式预测。
+- en: '*Online prediction* is when predictions are generated and returned as soon
+    as requests for these predictions arrive. For example, you enter an English sentence
+    into Google Translate and get back its French translation immediately. Online
+    prediction is also known as *on-demand prediction*. Traditionally, when doing
+    online prediction, requests are sent to the prediction service via RESTful APIs
+    (e.g., HTTP requests—see [“Data Passing Through Services”](ch03.xhtml#data_passing_through_services)).
+    When prediction requests are sent via HTTP requests, online prediction is also
+    known as *synchronous prediction*: predictions are generated in synchronization
+    with requests.'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*在线预测* 是指在请求到达时生成预测并立即返回的过程。例如，你输入一个英文句子到谷歌翻译中，立即获得其法语翻译。在线预测也被称为 *按需预测*。传统上，在进行在线预测时，请求通过
+    RESTful API（例如HTTP请求—参见[“数据通过服务传递”](ch03.xhtml#data_passing_through_services)）发送到预测服务。当通过HTTP请求发送预测请求时，在线预测也被称为
+    *同步预测*：预测与请求同步生成。'
+- en: '*Batch prediction* is when predictions are generated periodically or whenever
+    triggered. The predictions are stored somewhere, such as in SQL tables or an in-memory
+    database, and retrieved as needed. For example, Netflix might generate movie recommendations
+    for all of its users every four hours, and the precomputed recommendations are
+    fetched and shown to users when they log on to Netflix. Batch prediction is also
+    known as *asynchronous prediction*: predictions are generated asynchronously with
+    requests.'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*批处理预测* 是指定期生成预测或在触发时生成预测。预测存储在某处，例如SQL表或内存数据库，并根据需要检索。例如，Netflix可能每四小时为其所有用户生成电影推荐，预先计算的推荐在用户登录Netflix时获取并显示。批处理预测也被称为
+    *异步预测*：预测与请求异步生成。'
+- en: Terminology Confusion
+  id: totrans-48
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 术语混淆
+- en: The terms “online prediction” and “batch prediction” can be confusing. Both
+    can make predictions for multiple samples (in batch) or one sample at a time.
+    To avoid this confusion, people sometimes prefer the terms “synchronous prediction”
+    and “asynchronous prediction.” However, this distinction isn’t perfect either,
+    because when online prediction leverages a real-time transport to send prediction
+    requests to your model, the requests and predictions technically are asynchronous.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 术语“在线预测”和“批处理预测”可能会令人困惑。两者都可以批量预测多个样本或单个样本。为了避免混淆，有时人们更喜欢使用术语“同步预测”和“异步预测”。然而，这种区分也并非完美，因为当在线预测利用实时传输将预测请求发送到您的模型时，请求和预测在技术上是异步的。
+- en: '[Figure 7-4](#a_simplified_architecture_for_batch_pre) shows a simplified architecture
+    for batch prediction, and [Figure 7-5](#a_simplified_architecture_for_online_p)
+    shows a simplified version of online prediction using only batch features. We’ll
+    go over what it means to use only batch features next.'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图7-4](#a_simplified_architecture_for_batch_pre) 显示了用于批处理预测的简化架构，而 [图7-5](#a_simplified_architecture_for_online_p)
+    则展示了仅使用批处理特征的在线预测的简化版本。接下来我们将详细介绍仅使用批处理特征的含义。'
+- en: '![](Images/dmls_0704.png)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0704.png)'
+- en: Figure 7-4\. A simplified architecture for batch prediction
+  id: totrans-52
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-4。用于批处理预测的简化架构
+- en: '![](Images/dmls_0705.png)'
+  id: totrans-53
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0705.png)'
+- en: Figure 7-5\. A simplified architecture for online prediction that uses only
+    batch features
+  id: totrans-54
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-5\. 一个仅使用批量特征的在线预测简化架构
+- en: 'As discussed in [Chapter 3](ch03.xhtml#data_engineering_fundamentals), features
+    computed from historical data, such as data in databases and data warehouses,
+    are *batch features*. Features computed from streaming data—data in real-time
+    transports—are *streaming features*. In batch prediction, only batch features
+    are used. In online prediction, however, it’s possible to use both batch features
+    and streaming features. For example, after a user puts in an order on DoorDash,
+    they might need the following features to estimate the delivery time:'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如 [Chapter 3](ch03.xhtml#data_engineering_fundamentals) 中所讨论的，从历史数据（如数据库和数据仓库中的数据）计算得出的特征是
+    *批量特征*。而从流式数据（实时传输的数据）计算得出的特征是 *流式特征*。在批量预测中，只使用批量特征。然而，在线预测中，可以同时使用批量特征和流式特征。例如，在用户在
+    DoorDash 上下订单后，可能需要以下特征来估计送达时间：
+- en: Batch features
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量特征
+- en: The mean preparation time of this restaurant in the past
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这家餐厅过去的平均准备时间
+- en: Streaming features
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流式特征
+- en: In the last 10 minutes, how many other orders they have, and how many delivery
+    people are available
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在过去的 10 分钟内，他们还有多少其他订单，以及有多少送餐人员可用
+- en: Streaming Features Versus Online Features
+  id: totrans-60
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 流式特征与在线特征
+- en: I’ve heard the terms “streaming features” and “online features” used interchangeably.
+    They are actually different. Online features are more general, as they refer to
+    any feature used for online prediction, including batch features stored in memory.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我听说过“流式特征”和“在线特征”这两个术语被互换使用。它们实际上是不同的。在线特征更为一般化，因为它们指的是任何用于在线预测的特征，包括存储在内存中的批量特征。
+- en: A very common type of batch feature used for online prediction, especially session-based
+    recommendations, is item embeddings. Item embeddings are usually precomputed in
+    batch and fetched whenever they are needed for online prediction. In this case,
+    embeddings can be considered online features but not streaming features.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在线预测中用于批量特征的一种非常常见的批量特征类型，特别是基于会话的推荐系统，是项目嵌入。项目嵌入通常是批量预先计算的，并在在线预测需要时获取。在这种情况下，嵌入可以视为在线特征，但不是流式特征。
+- en: Streaming features refer exclusively to features computed from streaming data.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流式特征专指从流式数据计算得出的特征。
+- en: A simplified architecture for online prediction that uses both streaming features
+    and batch features is shown in [Figure 7-6](#a_simplified_architecture_for_online_pr).
+    Some companies call this kind of prediction “streaming prediction” to distinguish
+    it from the kind of online prediction that doesn’t use streaming features.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个使用流式特征和批量特征的在线预测简化架构如图 [Figure 7-6](#a_simplified_architecture_for_online_pr)
+    所示。有些公司将这种预测称为“流式预测”，以区分不使用流式特征的在线预测。
+- en: '![](Images/dmls_0706.png)'
+  id: totrans-65
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0706.png)'
+- en: Figure 7-6\. A simplified architecture for online prediction that uses both
+    batch features and streaming features
+  id: totrans-66
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-6\. 一个同时使用批量特征和流式特征的在线预测简化架构
+- en: However, online prediction and batch prediction don’t have to be mutually exclusive.
+    One hybrid solution is that you precompute predictions for popular queries, then
+    generate predictions online for less popular queries. [Table 7-1](#some_key_differences_between_batch_pred)
+    summarizes the key points to consider for online prediction and batch prediction.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在线预测和批量预测并不必然是互斥的。一种混合解决方案是为热门查询预先计算预测结果，然后为不那么热门的查询在线生成预测结果。[Table 7-1](#some_key_differences_between_batch_pred)
+    总结了在线预测和批量预测需要考虑的关键点。
+- en: Table 7-1\. Some key differences between batch prediction and online prediction
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 7-1\. 批量预测与在线预测之间的一些关键区别
+- en: '|  | Batch prediction (asynchronous) | Online prediction (synchronous) |'
+  id: totrans-69
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | 批量预测（异步） | 在线预测（同步） |'
+- en: '| --- | --- | --- |'
+  id: totrans-70
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Frequency | Periodical, such as every four hours | As soon as requests come
+    |'
+  id: totrans-71
+  prefs: []
+  type: TYPE_TB
+  zh: '| 频率 | 周期性，例如每四小时 | 随请求即时到达 |'
+- en: '| Useful for | Processing accumulated data when you don’t need immediate results
+    (such as recommender systems) | When predictions are needed as soon as a data
+    sample is generated (such as fraud detection) |'
+  id: totrans-72
+  prefs: []
+  type: TYPE_TB
+  zh: '| 适用于 | 处理累积数据时不需要即时结果（如推荐系统） | 在生成数据样本后需要立即预测时（如欺诈检测） |'
+- en: '| Optimized for | High throughput | Low latency |'
+  id: totrans-73
+  prefs: []
+  type: TYPE_TB
+  zh: '| 优化目标 | 高吞吐量 | 低延迟 |'
+- en: In many applications, online prediction and batch prediction are used side by
+    side for different use cases. For example, food ordering apps like DoorDash and
+    UberEats use batch prediction to generate restaurant recommendations—it’d take
+    too long to generate these recommendations online because there are many restaurants.
+    However, once you click on a restaurant, food item recommendations are generated
+    using online prediction.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多应用中，在线预测和批处理预测并用于不同的用例。例如，像DoorDash和UberEats这样的食品订购应用使用批处理预测来生成餐厅推荐——在线生成这些推荐可能需要太长时间，因为有很多餐馆。但是，一旦你点击一个餐馆，使用在线预测生成食品项目推荐。
+- en: Many people believe that online prediction is less efficient, both in terms
+    of cost and performance, than batch prediction because you might not be able to
+    batch inputs together and leverage vectorization or other optimization techniques.
+    This is not necessarily true, as we already discussed in the section [“Batch Processing
+    Versus Stream Processing”](ch03.xhtml#batch_processing_versus_stream_processi).
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多人认为在线预测比批处理预测在成本和性能上效率低，因为你可能无法将输入批量处理，并利用向量化或其他优化技术。如我们在[“批处理与流处理”](ch03.xhtml#batch_processing_versus_stream_processi)部分已讨论的那样，并非一定如此。
+- en: Also, with online prediction, you don’t have to generate predictions for users
+    who aren’t visiting your site. Imagine you run an app where only 2% of your users
+    log in daily—e.g., in 2020, Grubhub had 31 million users and 622,000 daily orders.^([15](ch07.xhtml#ch01fn212))
+    If you generate predictions for every user each day, the compute used to generate
+    98% of your predictions will be wasted.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，使用在线预测，你不必为不访问你网站的用户生成预测。想象一下，你运行一个应用，只有2%的用户每天登录——例如，2020年，Grubhub拥有3100万用户和622,000个日常订单。^([15](ch07.xhtml#ch01fn212))
+    如果你每天为每个用户生成预测，那么用于生成98%预测的计算资源将被浪费。
+- en: From Batch Prediction to Online Prediction
+  id: totrans-77
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 从批处理预测到在线预测
+- en: To people coming to ML from an academic background, the more natural way to
+    serve predictions is probably online. You give your model an input and it generates
+    a prediction as soon as it receives that input. This is likely how most people
+    interact with their models while prototyping. This is also likely easier to do
+    for most companies when first deploying a model. You export your model, upload
+    the exported model to Amazon SageMaker or Google App Engine, and get back an exposed
+    endpoint.^([16](ch07.xhtml#ch01fn213)) Now, if you send a request that contains
+    an input to that endpoint, it will send back a prediction generated on that input.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于从学术背景转向机器学习的人来说，提供预测的更自然方式可能是在线预测。当你给模型输入并收到输入时，它会立即生成一个预测。这可能是大多数人在原型开发时与其模型交互的方式。对于大多数公司在首次部署模型时来说，这也可能更容易。你导出你的模型，将导出的模型上传到亚马逊SageMaker或Google
+    App Engine，并获得一个公开的端点。^([16](ch07.xhtml#ch01fn213)) 现在，如果你发送一个包含输入的请求到该端点，它将返回在该输入上生成的预测。
+- en: A problem with online prediction is that your model might take too long to generate
+    predictions. Instead of generating predictions as soon as they arrive, what if
+    you compute predictions in advance and store them in your database, and fetch
+    them when requests arrive? This is exactly what batch prediction does. With this
+    approach, you can generate predictions for multiple inputs at once, leveraging
+    distributed techniques to process a high volume of samples efficiently.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在线预测的一个问题是你的模型可能花费太长时间来生成预测。如果不是在收到请求时立即生成预测，那么你可以提前计算预测并将其存储在数据库中，并在请求到达时获取它们。这正是批处理预测所做的。采用这种方法，你可以一次为多个输入生成预测，利用分布式技术高效处理大量样本。
+- en: Because the predictions are precomputed, you don’t have to worry about how long
+    it’ll take your models to generate predictions. For this reason, batch prediction
+    can also be seen as a trick to reduce the inference latency of more complex models—the
+    time it takes to retrieve a prediction is usually less than the time it takes
+    to generate it.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为预测是预先计算的，你不必担心模型生成预测需要多长时间。因此，批处理预测也可以被视为减少更复杂模型推断延迟的技巧——检索预测的时间通常比生成预测的时间短。
+- en: Batch prediction is good for when you want to generate a lot of predictions
+    and don’t need the results immediately. You don’t have to use all the predictions
+    generated. For example, you can make predictions for all customers on how likely
+    they are to buy a new product, and reach out to the top 10%.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你想要生成大量预测并且不需要立即得到结果时，批量预测是很好的选择。你不必使用所有生成的预测结果。例如，你可以预测所有客户购买新产品的可能性，并与排名前10%的客户联系。
+- en: However, the problem with batch prediction is that it makes your model less
+    responsive to users’ change preferences. This limitation can be seen even in more
+    technologically progressive companies like Netflix. Say you’ve been watching a
+    lot of horror movies lately, so when you first log in to Netflix, horror movies
+    dominate recommendations. But you’re feeling bright today, so you search “comedy”
+    and start browsing the comedy category. Netflix should learn and show you more
+    comedy in your list of their recommendations, right? As of writing this book,
+    it can’t update the list until the next batch of recommendations is generated,
+    but I have no doubt that this limitation will be addressed in the near future.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，批量预测的问题在于它使得你的模型对用户变化的偏好反应变慢。即使在像Netflix这样更先进的技术公司，这种限制也是显而易见的。比如最近你一直在看恐怖电影，所以当你第一次登录Netflix时，恐怖电影占据了推荐列表。但今天你感觉很开心，于是搜索了“喜剧”并开始浏览喜剧类别。Netflix应该学习并在推荐列表中展示更多的喜剧电影，对吧？截至撰写本书时，它不能在下一批推荐生成之前更新列表，但我毫无疑问这种限制将在不久的将来得到解决。
+- en: Another problem with batch prediction is that you need to know what requests
+    to generate predictions for in advance. In the case of recommending movies for
+    users, you know in advance how many users to generate recommendations for.^([17](ch07.xhtml#ch01fn214))
+    However, for cases when you have unpredictable queries—if you have a system to
+    translate from English to French, it might be impossible to anticipate every possible
+    English text to be translated—you need to use online prediction to generate predictions
+    as requests arrive.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量预测的另一个问题是需要预先知道为哪些请求生成预测。例如，对于用户推荐电影的情况，你预先知道需要为多少用户生成推荐。然而，对于有不可预测查询的情况——比如一个系统用于英语到法语的翻译，可能无法预测到每一个可能的英文文本——你需要使用在线预测来根据请求生成预测。
+- en: In the Netflix example, batch prediction causes mild inconvenience (which is
+    tightly coupled with user engagement and retention), not catastrophic failures.
+    There are many applications where batch prediction would lead to catastrophic
+    failures or just wouldn’t work. Examples where online prediction is crucial include
+    high-frequency trading, autonomous vehicles, voice assistants, unlocking your
+    phone using face or fingerprints, fall detection for elderly care, and fraud detection.
+    Being able to detect a fraudulent transaction that happened three hours ago is
+    still better than not detecting it at all, but being able to detect it in real
+    time can prevent the fraudulent transaction from going through.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Netflix的例子中，批量预测会导致轻微的不便（这与用户参与度和保留率密切相关），而非灾难性的失败。有许多应用场景，批量预测可能导致灾难性的失败或者根本无法使用。在线预测至关重要的例子包括高频交易、自动驾驶车辆、语音助手、使用面部或指纹解锁手机、老年护理的跌倒检测以及欺诈检测。能够检测到三小时前发生的欺诈交易总比完全不检测要好，但能够实时检测可以阻止欺诈交易的进行。
+- en: Batch prediction is a workaround for when online prediction isn’t cheap enough
+    or isn’t fast enough. Why generate one million predictions in advance and worry
+    about storing and retrieving them if you can generate each prediction as needed
+    at the exact same cost and same speed?
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量预测是在线预测不够便宜或速度不够快时的一种变通方案。如果可以以同样的成本和速度生成每个预测，为什么要提前生成一百万个预测并担心存储和检索呢？
+- en: As hardware becomes more customized and powerful and better techniques are being
+    developed to allow faster, cheaper online predictions, online prediction might
+    become the default.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着硬件变得更加定制化和强大，并且正在开发更好的技术以允许更快、更便宜的在线预测，在线预测可能会成为默认选择。
+- en: 'In recent years, companies have made significant investments to move from batch
+    prediction to online prediction. To overcome the latency challenge of online prediction,
+    two components are required:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 近年来，公司已经投入大量资金从批量预测转向在线预测。为了克服在线预测的延迟挑战，需要两个组成部分：
+- en: A (near) real-time pipeline that can work with incoming data, extract streaming
+    features (if needed), input them into a model, and return a prediction in near
+    real time. A streaming pipeline with real-time transport and a stream computation
+    engine can help with that.
+  id: totrans-88
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个（几乎）实时的管道，可以处理传入数据，提取流特征（如果需要），将其输入到模型中，并在几乎实时返回预测结果。具备实时传输和流计算引擎的流水线可以帮助实现这一目标。
+- en: A model that can generate predictions at a speed acceptable to its end users.
+    For most consumer apps, this means milliseconds.
+  id: totrans-89
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型能够以对其最终用户可接受的速度生成预测。对于大多数消费者应用程序来说，这意味着毫秒级的响应时间。
+- en: We’ve discussed stream processing in [Chapter 3](ch03.xhtml#data_engineering_fundamentals).
+    We’ll continue discussing the unification of the stream pipeline with the batch
+    pipeline in the next section. Then we’ll discuss how to speed up inference in
+    the section [“Model optimization”](#model_optimization).
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在[第三章](ch03.xhtml#data_engineering_fundamentals)中讨论了流处理。在接下来的部分，我们将继续讨论如何统一流水线和批处理管道。然后，我们将讨论如何在“模型优化”部分加快推断的速度。
+- en: Unifying Batch Pipeline and Streaming Pipeline
+  id: totrans-91
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 统一批处理管道和流处理管道
+- en: Batch prediction is largely a product of legacy systems. In the last decade,
+    big data processing has been dominated by batch systems like MapReduce and Spark,
+    which allow us to periodically process a large amount of data very efficiently.
+    When companies started with ML, they leveraged their existing batch systems to
+    make predictions. When these companies want to use streaming features for their
+    online prediction, they need to build a separate streaming pipeline. Let’s go
+    through an example to make this more concrete.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量预测在很大程度上是传统系统的产物。在过去的十年中，大数据处理主要由像 MapReduce 和 Spark 这样的批处理系统主导，这些系统能够高效地周期性处理大量数据。当公司开始使用
+    ML 时，他们利用现有的批处理系统进行预测。当这些公司希望在在线预测中使用流处理特性时，他们需要构建一个单独的流水线。让我们通过一个示例来具体说明这一点。
+- en: Imagine you want to build a model to predict arrival time for an application
+    like Google Maps. The prediction is continually updated as a user’s trip progresses.
+    A feature you might want to use is the average speed of all the cars in your path
+    in the last five minutes. For training, you might use data from the last month.
+    To extract this feature from your training data, you might want to put all your
+    data into a dataframe to compute this feature for multiple training samples at
+    the same time. During inference, this feature will be continually computed on
+    a sliding window. This means that in training this feature is computed in batch,
+    whereas during inference this feature is computed in a streaming process.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你想要构建一个类似 Google Maps 的应用程序，用于预测到达时间。预测将随着用户行程的进行而持续更新。你可能想使用的一个特征是在你路径中所有车辆的平均速度（过去五分钟内）。在训练时，你可能会使用过去一个月的数据。要从训练数据中提取此特征，你可能希望将所有数据放入数据框架中，以同时为多个训练样本计算此特征。在推断过程中，此特征将持续在滑动窗口上计算。这意味着在训练时，此特征是批处理计算的，而在推断时，此特征是流处理的。
+- en: Having two different pipelines to process your data is a common cause for bugs
+    in ML production. One cause for bugs is when the changes in one pipeline aren’t
+    correctly replicated in the other, leading to two pipelines extracting two different
+    sets of features. This is especially common if the two pipelines are maintained
+    by two different teams, such as the ML team maintains the batch pipeline for training
+    while the deployment team maintains the stream pipeline for inference, as shown
+    in [Figure 7-7](#having_two_different_pipelines_for_trai).
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 ML 生产中，拥有两种不同的数据处理管道是常见的 bug 引发原因之一。一个导致 bug 的原因是，当一个管道中的更改没有正确复制到另一个管道时，就会导致两个管道提取两组不同的特征。特别是如果这两个管道由两个不同的团队维护，例如，机器学习团队维护批处理管道进行训练，而部署团队维护流水线进行推断，如[图
+    7-7](#having_two_different_pipelines_for_trai)所示。
+- en: '![](Images/dmls_0707.png)'
+  id: totrans-95
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0707.png)'
+- en: Figure 7-7\. Having two different pipelines for training and inference is a
+    common source for bugs for ML in production
+  id: totrans-96
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-7。在 ML 生产中，为训练和推断各维护两个不同的管道是常见的 bug 源。
+- en: '[Figure 7-8](#a_data_pipeline_for_ml_systems_that_do) shows a more detailed
+    but also more complex feature of the data pipeline for ML systems that do online
+    prediction. The boxed element labeled Research is what people are often exposed
+    to in an academic environment.'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 7-8](#a_data_pipeline_for_ml_systems_that_do)展示了用于在线预测的 ML 系统数据管道的更详细但也更复杂的特性。标有“研究”标签的框选元素通常在学术环境中向人们展示。'
+- en: '![](Images/dmls_0708.png)'
+  id: totrans-98
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0708.png)'
+- en: Figure 7-8\. A data pipeline for ML systems that do online prediction
+  id: totrans-99
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-8\. 用于进行在线预测的ML系统数据管道
+- en: Building infrastructure to unify stream processing and batch processing has
+    become a popular topic in recent years for the ML community. Companies including
+    Uber and Weibo have made major infrastructure overhauls to unify their batch and
+    stream processing pipelines by using a stream processor like Apache Flink.^([18](ch07.xhtml#ch01fn215))
+    Some companies use feature stores to ensure the consistency between the batch
+    features used during training and the streaming features used in prediction. We’ll
+    discuss feature stores in [Chapter 10](ch10.xhtml#infrastructure_and_tooling_for_mlops).
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在ML社区中，建立统一流处理和批处理基础设施近年来成为一个热门话题。包括Uber和微博在内的公司通过使用像Apache Flink这样的流处理器，进行了主要的基础设施改造，以统一其批处理和流处理管道。^(参考18：ch07.xhtml#ch01fn215)一些公司使用特征存储库来确保训练期间使用的批处理特征与预测中使用的流特征的一致性。我们将在[第10章](ch10.xhtml#infrastructure_and_tooling_for_mlops)中讨论特征存储库。
+- en: Model Compression
+  id: totrans-101
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 模型压缩
+- en: We’ve talked about a streaming pipeline that allows an ML system to extract
+    streaming features from incoming data and input them into an ML model in (near)
+    real time. However, having a near (real-time) pipeline isn’t enough for online
+    prediction. In the next section, we’ll discuss techniques for fast inference for
+    ML models.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经讨论了流水线，允许ML系统从传入数据中提取流特征，并将其输入到ML模型中以（几乎）实时进行处理。然而，仅具有接近（实时）的流水线对于在线预测来说还不足够。在接下来的部分中，我们将讨论ML模型的快速推理技术。
+- en: 'If the model you want to deploy takes too long to generate predictions, there
+    are three main approaches to reduce its inference latency: make it do inference
+    faster, make the model smaller, or make the hardware it’s deployed on run faster.'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您要部署的模型生成预测时间过长，有三种主要方法可以减少推理延迟：使其进行更快的推理、使模型更小，或者使其部署的硬件运行更快。
+- en: The process of making a model smaller is called model compression, and the process
+    to make it do inference faster is called inference optimization. Originally, model
+    compression was to make models fit on edge devices. However, making models smaller
+    often makes them run faster.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缩小模型的过程称为模型压缩，使其进行更快推理的过程称为推理优化。最初，模型压缩是为了使模型适应边缘设备。然而，缩小模型通常也会使其运行更快。
+- en: We’ll discuss inference optimization in the section [“Model optimization”](#model_optimization),
+    and we’ll discuss the landscape for hardware backends being developed specifically
+    for running ML models faster in the section [“ML on the Cloud and on the Edge”](#ml_on_the_cloud_and_on_the_edge).
+    Here, we’ll discuss model compression.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在[“模型优化”](#model_optimization)一节中讨论推理优化，而在[“云端和边缘上的ML”](#ml_on_the_cloud_and_on_the_edge)一节中讨论专门用于加速ML模型运行的硬件后端的情况。在这里，我们将讨论模型压缩。
+- en: The number of research papers on model compression is growing. Off-the-shelf
+    utilities are proliferating. As of April 2022, Awesome Open Source has a list
+    of [“The Top 168 Model Compression Open Source Projects”](https://oreil.ly/CYm82),
+    and that list is growing. While there are many new techniques being developed,
+    the four types of techniques that you might come across the most often are low-rank
+    optimization, knowledge distillation, pruning, and quantization. Readers interested
+    in a comprehensive review might want to check out Cheng et al.’s “Survey of Model
+    Compression and Acceleration for Deep Neural Networks,” which was updated in 2020.^([19](ch07.xhtml#ch01fn216))
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型压缩的研究论文数量正在增加。现成的实用工具正在蓬勃发展。截至2022年4月，Awesome Open Source列出了[“前168名模型压缩开源项目”](https://oreil.ly/CYm82)，并且该列表还在增加。尽管有许多新技术正在开发中，但您可能经常遇到的四种技术类型包括低秩优化、知识蒸馏、修剪和量化。有兴趣进行全面审查的读者可能希望查看程等人更新于2020年的“深度神经网络模型压缩与加速综述”。^(参考19：ch07.xhtml#ch01fn216)
+- en: Low-Rank Factorization
+  id: totrans-107
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 低秩分解
+- en: The key idea behind *low-rank factorization* is to replace high-dimensional
+    tensors with lower-dimensional tensors.^([20](ch07.xhtml#ch01fn217)) One type
+    of low-rank factorization is *compact convolutional filters,* where the over-parameterized
+    (having too many parameters) convolution filters are replaced with compact blocks
+    to both reduce the number of parameters and increase speed.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*低秩分解*的关键思想是用低维张量替换高维张量。^(参考20：ch07.xhtml#ch01fn217)一种低秩分解类型是*紧凑卷积滤波器*，其中过参数化（具有过多参数）的卷积滤波器被紧凑块替换，以减少参数数量并增加速度。'
+- en: For example, by using a number of strategies including replacing 3 × 3 convolution
+    with 1 × 1 convolution, SqueezeNets achieves AlexNet-level accuracy on ImageNet
+    with 50 times fewer parameters.^([21](ch07.xhtml#ch01fn218))
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，通过使用包括将 3 × 3 卷积替换为 1 × 1 卷积在内的多种策略，SqueezeNets 在 ImageNet 上以比标准模型少 50 倍的参数达到了
+    AlexNet 级别的准确性。^([21](ch07.xhtml#ch01fn218))
+- en: Similarly, MobileNets decomposes the standard convolution of size *K* × *K*
+    × *C* into a depthwise convolution (*K* × *K* × 1) and a pointwise convolution
+    (1 × 1 × *C*), with *K* being the kernel size and *C* being the number of channels.
+    This means that each new convolution uses only *K*² + *C* instead of *K*²*C* parameters.
+    If *K* = 3, this means an eight to nine times reduction in the number of parameters
+    (see [Figure 7-9](#compact_convolutional_filters_in_mobile)).^([22](ch07.xhtml#ch01fn219))
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，MobileNets将尺寸为 *K* × *K* × *C* 的标准卷积分解为深度卷积 (*K* × *K* × 1) 和逐点卷积 (1 × 1
+    × *C*)，其中 *K* 是核大小，*C* 是通道数。这意味着每个新卷积仅使用 *K*² + *C* 而不是 *K*²*C* 个参数。如果 *K* = 3，这意味着参数数量减少了八到九倍（参见
+    [图 7-9](#compact_convolutional_filters_in_mobile)）。^([22](ch07.xhtml#ch01fn219))
+- en: '![](Images/dmls_0709.png)'
+  id: totrans-111
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0709.png)'
+- en: 'Figure 7-9\. Compact convolutional filters in MobileNets. The standard convolutional
+    filters in (a) are replaced by depthwise convolution in (b) and pointwise convolution
+    in (c) to build a depthwise separable filter. Source: Adapted from an image by
+    Howard et al.'
+  id: totrans-112
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-9\. MobileNets 中的紧凑卷积滤波器。标准卷积滤波器在 (a) 中被深度卷积替代，而在 (b) 和 (c) 中被逐点卷积替代，以构建深度可分离滤波器。来源：根据
+    Howard 等人的图像调整。
+- en: This method has been used to develop smaller models with significant acceleration
+    compared to standard models. However, it tends to be specific to certain types
+    of models (e.g., compact convolutional filters are specific to convolutional neural
+    networks) and requires a lot of architectural knowledge to design, so it’s not
+    widely applicable to many use cases yet.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此方法已用于开发与标准模型相比具有显著加速的更小模型。然而，它倾向于特定类型的模型（例如，紧凑的卷积滤波器特定于卷积神经网络），并且需要大量的架构知识来设计，因此尚未广泛适用于许多用例。
+- en: Knowledge Distillation
+  id: totrans-114
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 知识蒸馏
+- en: '*Knowledge distillation* is a method in which a small model (student) is trained
+    to mimic a larger model or ensemble of models (teacher). The smaller model is
+    what you’ll deploy. Even though the student is often trained after a pretrained
+    teacher, both may also be trained at the same time.^([23](ch07.xhtml#ch01fn220))
+    One example of a distilled network used in production is DistilBERT, which reduces
+    the size of a BERT model by 40% while retaining 97% of its language understanding
+    capabilities and being 60% faster.^([24](ch07.xhtml#ch01fn221))'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*知识蒸馏* 是一种方法，其中一个小模型（学生）被训练成模仿一个较大模型或模型集合（教师）。较小的模型是您将部署的模型。尽管学生通常在预训练的教师之后进行训练，但两者也可以同时进行训练。^([23](ch07.xhtml#ch01fn220))
+    在生产中使用的一个例子是 DistilBERT，它将 BERT 模型的大小减少了 40%，同时保留了 97% 的语言理解能力，并且速度提升了 60%。^([24](ch07.xhtml#ch01fn221))'
+- en: The advantage of this approach is that it can work regardless of the architectural
+    differences between the teacher and the student networks. For example, you can
+    get a random forest as the student and a transformer as the teacher. The disadvantage
+    of this approach is that it’s highly dependent on the availability of a teacher
+    network. If you use a pretrained model as the teacher model, training the student
+    network will require less data and will likely be faster. However, if you don’t
+    have a teacher available, you’ll have to train a teacher network before training
+    a student network, and training a teacher network will require a lot more data
+    and take more time to train. This method is also sensitive to applications and
+    model architectures, and therefore hasn’t found wide usage in production.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法的优点在于，它可以在教师网络和学生网络之间的架构差异不大时工作。例如，您可以将随机森林作为学生，将变压器作为教师。这种方法的缺点在于，它高度依赖于教师网络的可用性。如果您使用预训练模型作为教师模型，那么训练学生网络将需要较少的数据，并且可能会更快地完成。然而，如果没有可用的教师，您将需要在训练学生网络之前训练教师网络，并且训练教师网络将需要更多的数据和更长的训练时间。此方法还对应用和模型架构敏感，因此尚未在生产中广泛使用。
+- en: Pruning
+  id: totrans-117
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 精简
+- en: '*Pruning* was a method originally used for decision trees where you remove
+    sections of a tree that are uncritical and redundant for classification.^([25](ch07.xhtml#ch01fn222))
+    As neural networks gained wider adoption, people started to realize that neural
+    networks are over-parameterized and began to find ways to reduce the workload
+    caused by the extra parameters.'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*修剪* 最初是用于决策树的方法，其中您删除对分类无关和冗余的树部分。^([25](ch07.xhtml#ch01fn222)) 随着神经网络的广泛采用，人们开始意识到神经网络存在过度参数化问题，并开始寻找减少额外参数工作量的方法。'
+- en: Pruning, in the context of neural networks, has two meanings. One is to remove
+    entire nodes of a neural network, which means changing its architecture and reducing
+    its number of parameters. The more common meaning is to find parameters least
+    useful to predictions and set them to 0\. In this case, pruning doesn’t reduce
+    the total number of parameters, only the number of nonzero parameters. The architecture
+    of the neural network remains the same. This helps with reducing the size of a
+    model because pruning makes a neural network more sparse, and sparse architecture
+    tends to require less storage space than dense structure. Experiments show that
+    pruning techniques can reduce the nonzero parameter counts of trained networks
+    by over 90%, decreasing storage requirements and improving computational performance
+    of inference without compromising overall accuracy.^([26](ch07.xhtml#ch01fn223))
+    In [Chapter 11](ch11.xhtml#the_human_side_of_machine_learning), we’ll discuss
+    how pruning can introduce biases into your model.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在神经网络的上下文中，修剪有两种含义。一种是删除神经网络的整个节点，这意味着改变其架构并减少其参数数量。更常见的含义是找到对预测最无用的参数，并将它们设为0。在这种情况下，修剪不会减少总参数数量，只会减少非零参数的数量。神经网络的架构保持不变。这有助于减少模型的大小，因为修剪使得神经网络更稀疏，而稀疏结构通常比密集结构需要更少的存储空间。实验证明，修剪技术可以将经过训练的网络的非零参数数量减少超过90%，从而减少存储需求并提高推断的计算性能，而不会影响总体准确性。^([26](ch07.xhtml#ch01fn223))
+    在[第11章](ch11.xhtml#the_human_side_of_machine_learning)，我们将讨论修剪如何为模型引入偏差。
+- en: While it’s generally agreed that pruning works,^([27](ch07.xhtml#ch01fn224))
+    there have been many discussions on the actual value of pruning. Liu et al. argued
+    that the main value of pruning isn’t in the inherited “important weights” but
+    in the pruned architecture itself.^([28](ch07.xhtml#ch01fn225)) In some cases,
+    pruning can be useful as an architecture search paradigm, and the pruned architecture
+    should be retrained from scratch as a dense model. However, Zhu et al. showed
+    that the large sparse model after pruning outperformed the retrained dense counterpart.^([29](ch07.xhtml#ch01fn226))
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管人们普遍认为修剪有效，^([27](ch07.xhtml#ch01fn224))但关于修剪的实际价值有很多讨论。刘等人认为修剪的主要价值不在于“重要权重”，而在于修剪后的架构本身。^([28](ch07.xhtml#ch01fn225))
+    在某些情况下，修剪可以作为一种架构搜索范式，修剪后的架构应该从头开始重新训练作为稠密模型。然而，朱等人表明，修剪后的大型稀疏模型表现优于重新训练的密集对应模型。^([29](ch07.xhtml#ch01fn226))
+- en: Quantization
+  id: totrans-121
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '**量化**'
+- en: '*Quantization* is the most general and commonly used model compression method.
+    It’s straightforward to do and generalizes over tasks and architectures.'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*量化* 是最常见和通用的模型压缩方法。它易于操作，并适用于各种任务和架构。'
+- en: Quantization reduces a model’s size by using fewer bits to represent its parameters.
+    By default, most software packages use 32 bits to represent a float number (single
+    precision floating point). If a model has 100M parameters and each requires 32
+    bits to store, it’ll take up 400 MB. If we use 16 bits to represent a number,
+    we’ll reduce the memory footprint by half. Using 16 bits to represent a float
+    is called half precision.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 量化通过使用更少的比特来表示模型的参数来减小模型的大小。大多数软件包默认使用32位来表示浮点数（单精度浮点数）。如果一个模型有1亿个参数，并且每个参数需要32位来存储，那么它将占用400
+    MB的内存。如果我们使用16位来表示一个数，我们将把内存占用减少一半。使用16位来表示浮点数称为半精度。
+- en: Instead of using floats, you can have a model entirely in integers; each integer
+    takes only 8 bits to represent. This method is also known as “fixed point.” In
+    the extreme case, some have attempted the 1-bit representation of each weight
+    (binary weight neural networks), e.g., BinaryConnect and XNOR-Net.^([30](ch07.xhtml#ch01fn227))
+    The authors of the XNOR-Net paper spun off Xnor.ai, a startup that focused on
+    model compression. In early 2020, it was acquired by Apple for a reported $200M.^([31](ch07.xhtml#ch01fn228))
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用整数完全构建模型，而不是使用浮点数；每个整数仅需8位表示。这种方法也被称为“固定点”。在极端情况下，一些人尝试了每个权重的1位表示（二进制权重神经网络），例如BinaryConnect和XNOR-Net。^([30](ch07.xhtml#ch01fn227))
+    XNOR-Net论文的作者创办了Xnor.ai，一家专注于模型压缩的初创公司。在2020年初，该公司以2亿美元的价格被苹果收购。^([31](ch07.xhtml#ch01fn228))
+- en: Quantization not only reduces memory footprint but also improves the computation
+    speed. First, it allows us to increase our batch size. Second, less precision
+    speeds up computation, which further reduces training time and inference latency.
+    Consider the addition of two numbers. If we perform the addition bit by bit, and
+    each takes *x* nanoseconds, it’ll take 32*x* nanoseconds for 32-bit numbers but
+    only 16*x* nanoseconds for 16-bit numbers.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 量化不仅减少了内存占用，还提高了计算速度。首先，它允许我们增加批处理大小。其次，低精度加速计算，进一步减少了训练时间和推断延迟。考虑两个数字的加法。如果我们逐位执行加法，每个位需要*x*纳秒，则对于32位数字，需要32*x*纳秒，而对于16位数字，只需16*x*纳秒。
+- en: There are downsides to quantization. Reducing the number of bits to represent
+    your numbers means that you can represent a smaller range of values. For values
+    outside that range, you’ll have to round them up and/or scale them to be in range.
+    Rounding numbers leads to rounding errors, and small rounding errors can lead
+    to big performance changes. You also run the risk of rounding/scaling your numbers
+    to under-/overflow and rendering it to 0\. Efficient rounding and scaling is nontrivial
+    to implement at a low level, but luckily, major frameworks have this built in.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 量化也存在一些缺点。减少位数以表示数字意味着您可以表示的数值范围更小。对于超出该范围的值，您必须将其四舍五入并/或按比例缩放以适应该范围。四舍五入会导致舍入误差，而小的舍入误差可能导致性能大幅变化。您还面临将数字舍入/缩放至下溢/溢出并将其渲染为0的风险。有效的舍入和缩放在低级别实现起来并不容易，但幸运的是，主要框架已经内置了这一功能。
+- en: Quantization can either happen during training (quantization aware training),^([32](ch07.xhtml#ch01fn229))
+    where models are trained in lower precision, or post-training, where models are
+    trained in single-precision floating point and then quantized for inference. Using
+    quantization during training means that you can use less memory for each parameter,
+    which allows you to train larger models on the same hardware.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 量化可以在训练期间进行（量化感知训练），^([32](ch07.xhtml#ch01fn229)) 在此期间，模型以较低精度进行训练，或者在训练后进行（后量化），在此期间，模型以单精度浮点数进行训练，然后量化以进行推断。在训练期间使用量化意味着每个参数可以使用更少的内存，这使您可以在相同的硬件上训练更大的模型。
+- en: Recently, low-precision training has become increasingly popular, with support
+    from most modern training hardware. NVIDIA introduced Tensor Cores, processing
+    units that support mixed-precision training.^([33](ch07.xhtml#ch01fn230)) Google
+    TPUs (tensor processing units) also support training with Bfloat16 (16-bit Brain
+    Floating Point Format), which the company dubbed “the secret to high performance
+    on Cloud TPUs.”^([34](ch07.xhtml#ch01fn231)) Training in fixed-point is not yet
+    as popular but has had a lot of promising results.^([35](ch07.xhtml#ch01fn232))
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 近年来，低精度训练变得越来越流行，得到了大多数现代训练硬件的支持。英伟达推出了Tensor Cores，这是支持混合精度训练的处理单元。^([33](ch07.xhtml#ch01fn230))
+    谷歌的TPU（张量处理单元）也支持使用Bfloat16（16位脑浮点格式）进行训练，谷歌将其称为“Cloud TPU性能的秘密”。^([34](ch07.xhtml#ch01fn231))
+    固定点训练虽然尚未流行，但已经取得了许多有希望的成果。^([35](ch07.xhtml#ch01fn232))
+- en: Fixed-point inference has become a standard in the industry. Some edge devices
+    only support fixed-point inference. Most popular frameworks for on-device ML inference—Google’s
+    TensorFlow Lite, Facebook’s PyTorch Mobile, NVIDIA’s TensorRT—offer post-training
+    quantization for free with a few lines of code.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 固定点推断已经成为行业标准。一些边缘设备仅支持固定点推断。最流行的在设备上进行机器学习推断的框架，如谷歌的TensorFlow Lite、Facebook的PyTorch
+    Mobile、英伟达的TensorRT，提供了带有几行代码的后训练量化功能。
+- en: ML on the Cloud and on the Edge
+  id: totrans-130
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 云端和边缘上的机器学习
+- en: 'Another decision you’ll want to consider is where your model’s computation
+    will happen: on the cloud or on the edge. On the cloud means a large chunk of
+    computation is done on the cloud, either public clouds or private clouds. On the
+    edge means a large chunk of computation is done on consumer devices—such as browsers,
+    phones, laptops, smartwatches, cars, security cameras, robots, embedded devices,
+    FPGAs (field programmable gate arrays), and ASICs (application-specific integrated
+    circuits)—which are also known as edge devices.'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还需要考虑的另一个决策是模型计算发生的位置：在云端还是在边缘。在云端意味着大部分计算在云上进行，可以是公共云或私有云。在边缘意味着大部分计算在消费者设备上，如浏览器、手机、笔记本电脑、智能手表、汽车、安全摄像头、机器人、嵌入式设备、FPGA（现场可编程门阵列）和ASIC（专用集成电路），这些也被称为边缘设备。
+- en: The easiest way is to package your model up and deploy it via a managed cloud
+    service such as AWS or GCP, and this is how many companies deploy when they get
+    started in ML. Cloud services have done an incredible job to make it easy for
+    companies to bring ML models into production.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最简单的方式是将你的模型打包并通过AWS或GCP等托管云服务进行部署，这也是许多公司在开始机器学习时的部署方式。云服务在使公司将机器学习模型投入生产方面做出了不可思议的贡献。
+- en: However, there are many downsides to cloud deployment. The first is cost. ML
+    models can be compute-intensive, and compute is expensive. Even back in 2018,
+    big companies like Pinterest, Infor, and Intuit were already spending hundreds
+    of millions of dollars on cloud bills every year.^([37](ch07.xhtml#ch01fn233))
+    That number for small and medium companies can be between $50K and $2M a year.^([38](ch07.xhtml#ch01fn234))
+    A mistake in handling cloud services can cause startups to go bankrupt.^([39](ch07.xhtml#ch01fn235))
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，云部署有许多缺点。首先是成本。机器学习模型可能需要大量计算资源，而计算资源很昂贵。即使在2018年，像Pinterest、Infor和Intuit这样的大公司每年的云服务账单也已经高达数亿美元。^([37](ch07.xhtml#ch01fn233))
+    对于中小型企业来说，这个数字可能在50,000美元到2,000,000美元之间。^([38](ch07.xhtml#ch01fn234)) 在处理云服务时出现的错误可能导致初创公司破产。^([39](ch07.xhtml#ch01fn235))
+- en: As their cloud bills climb, more and more companies are looking for ways to
+    push their computations to edge devices. The more computation is done on the edge,
+    the less is required on the cloud, and the less they’ll have to pay for servers.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着云服务账单的上升，越来越多的公司正在寻找将计算推向边缘设备的方法。在边缘设备上进行的计算量越多，云端所需的计算量就越少，公司需要支付的服务器费用也就越少。
+- en: Other than help with controlling costs, there are many properties that make
+    edge computing appealing. The first is that it allows your applications to run
+    where cloud computing cannot. When your models are on public clouds, they rely
+    on stable internet connections to send data to the cloud and back. Edge computing
+    allows your models to work in situations where there are no internet connections
+    or where the connections are unreliable, such as in rural areas or developing
+    countries. I’ve worked with several companies and organizations that have strict
+    no-internet policies, which means that whichever applications we wanted to sell
+    them must not rely on internet connections.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了帮助控制成本之外，边缘计算还具有许多吸引人的特性。首先，它允许您的应用程序在云计算无法运行的地方运行。当您的模型部署在公共云上时，它们依赖于稳定的互联网连接来发送数据到云端和返回。边缘计算允许您的模型在没有互联网连接或连接不稳定的情况下工作，例如在农村地区或发展中国家。我曾与几家有严格无互联网政策的公司和组织合作过，这意味着我们想要销售给他们的任何应用程序都不能依赖互联网连接。
+- en: Second, when your models are already on consumers’ devices, you can worry less
+    about network latency. Requiring data transfer over the network (sending data
+    to the model on the cloud to make predictions then sending predictions back to
+    the users) might make some use cases impossible. In many cases, network latency
+    is a bigger bottleneck than inference latency. For example, you might be able
+    to reduce the inference latency of ResNet-50 from 30 ms to 20 ms, but the network
+    latency can go up to seconds, depending on where you are and what services you’re
+    trying to use.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，当您的模型已经部署在消费者设备上时，您可以较少担心网络延迟问题。需要通过网络传输数据（将数据发送到云端模型进行预测，然后将预测结果发送回用户）可能会使某些用例无法实现。在许多情况下，网络延迟比推理延迟更成为瓶颈。例如，您可能能够将ResNet-50的推理延迟从30毫秒减少到20毫秒，但网络延迟可能会高达几秒，具体取决于您所在的位置和您尝试使用的服务。
+- en: Putting your models on the edge is also appealing when handling sensitive user
+    data. ML on the cloud means that your systems might have to send user data over
+    networks, making it susceptible to being intercepted. Cloud computing also often
+    means storing data of many users in the same place, which means a breach can affect
+    many people. “Nearly 80% of companies experienced a cloud data breach in [the]
+    past 18 months,” according to *Security* magazine.^([40](ch07.xhtml#ch01fn236))
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在处理敏感用户数据时，将模型放在边缘也很有吸引力。云端的机器学习意味着系统可能必须通过网络发送用户数据，这使得数据容易被截取。云计算还经常意味着将许多用户的数据存储在同一地点，这意味着一次破坏可能会影响到许多人。“根据《安全》杂志的数据，近80%的公司在过去18个月中经历过云数据泄露。”
+- en: Edge computing makes it easier to comply with regulations, like GDPR, about
+    how user data can be transferred or stored. While edge computing might reduce
+    privacy concerns, it doesn’t eliminate them altogether. In some cases, edge computing
+    might make it easier for attackers to steal user data, such as they can just take
+    the device with them.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 边缘计算使得遵循像GDPR这样的法规更加容易，关于如何传输或存储用户数据。虽然边缘计算可能会减少隐私问题，但并不能完全消除。在某些情况下，边缘计算可能会使攻击者更容易窃取用户数据，例如他们可以直接带走设备。
+- en: To move computation to the edge, the edge devices have to be powerful enough
+    to handle the computation, have enough memory to store ML models and load them
+    into memory, as well as have enough battery or be connected to an energy source
+    to power the application for a reasonable amount of time. Running a full-sized
+    BERT on your phone, if your phone is capable of running BERT, is a very quick
+    way to kill its battery.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将计算转移到边缘，边缘设备必须足够强大，能够处理计算任务，有足够的内存来存储机器学习模型并将其加载到内存中，同时有足够的电池或连接到能源源以合理时间供电。如果你的手机有能力运行全尺寸的BERT模型，那么在手机上运行BERT将非常快地耗尽它的电池。
+- en: Because of the many benefits that edge computing has over cloud computing, companies
+    are in a race to develop edge devices optimized for different ML use cases. Established
+    companies including Google, Apple, and Tesla have all announced their plans to
+    make their own chips. Meanwhile, ML hardware startups have raised billions of
+    dollars to develop better AI chips.^([41](ch07.xhtml#ch01fn237)) It’s projected
+    that by 2025 the number of active edge devices worldwide will be over 30 billion.^([42](ch07.xhtml#ch01fn238))
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于边缘计算相比云计算具有多种优势，公司们正在竞相开发为不同机器学习用例优化的边缘设备。包括谷歌、苹果和特斯拉在内的大公司都宣布了他们制造自己芯片的计划。与此同时，机器学习硬件初创公司已经筹集了数十亿美元来开发更好的人工智能芯片。据预测，到2025年全球活跃的边缘设备数量将超过300亿。
+- en: 'With so many new offerings for hardware to run ML models on, one question arises:
+    how do we make our model run on arbitrary hardware efficiently? In the following
+    section, we’ll discuss how to compile and optimize a model to run it on a certain
+    hardware backend. In the process, we’ll introduce important concepts that you
+    might encounter when handling models on the edge, including intermediate representations
+    (IRs) and compilers.'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着为硬件运行机器学习模型的新选择日益增多，一个问题浮现：我们如何在任意硬件上高效运行我们的模型？在接下来的部分中，我们将讨论如何编译和优化模型，以在特定硬件后端上运行。在此过程中，我们将介绍在处理边缘模型时可能遇到的重要概念，包括中间表示（IR）和编译器。
+- en: Compiling and Optimizing Models for Edge Devices
+  id: totrans-142
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 为边缘设备编译和优化模型
+- en: For a model built with a certain framework, such as TensorFlow or PyTorch, to
+    run on a hardware backend, that framework has to be supported by the hardware
+    vendor. For example, even though TPUs were released publicly in February 2018,
+    it wasn’t until September 2020 that PyTorch was supported on TPUs. Before then,
+    if you wanted to use a TPU, you’d have to use a framework that TPUs supported.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于使用特定框架（如TensorFlow或PyTorch）构建的模型要在硬件后端上运行，该框架必须得到硬件供应商的支持。例如，尽管TPU在2018年2月公开发布，但直到2020年9月PyTorch才被支持在TPU上运行。在此之前，如果想使用TPU，必须使用TPU支持的框架。
+- en: Providing support for a framework on a hardware backend is time-consuming and
+    engineering-intensive. Mapping from ML workloads to a hardware backend requires
+    understanding and taking advantage of that hardware’s design, and different hardware
+    backends have different memory layouts and compute primitives, as shown in [Figure 7-11](#different_compute_primitives_and_memory).
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为硬件后端提供框架支持耗时且需要大量工程资源。从 ML 工作负载映射到硬件后端需要理解和利用该硬件的设计，不同的硬件后端具有不同的内存布局和计算原语，如[图
+    7-11](#different_compute_primitives_and_memory)所示。
+- en: '![](Images/dmls_0711.png)'
+  id: totrans-145
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0711.png)'
+- en: 'Figure 7-11\. Different compute primitives and memory layouts for CPU, GPU,
+    and TPU. Source: Adapted from an image by Chen et al.^([43](ch07.xhtml#ch01fn240))'
+  id: totrans-146
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-11\. CPU、GPU 和 TPU 的不同计算原语和内存布局。来源：根据陈等人的图片适配。^([43](ch07.xhtml#ch01fn240))
+- en: For example, the compute primitive of CPUs used to be a number (scalar) and
+    the compute primitive of GPUs used to be a one-dimensional vector, whereas the
+    compute primitive of TPUs is a two-dimensional vector (tensor).^([44](ch07.xhtml#ch01fn239))
+    Performing a convolution operator will be very different with one-dimensional
+    vectors compared to two-dimensional vectors. Similarly, you’d need to take into
+    account different L1, L2, and L3 layouts and buffer sizes to use them efficiently.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，CPU 的计算原语曾经是一个数字（标量），GPU 的计算原语曾经是一维向量，而 TPU 的计算原语是二维向量（张量）。^([44](ch07.xhtml#ch01fn239))
+    使用卷积运算符时，一维向量和二维向量的差异非常大。同样，您需要考虑不同的 L1、L2 和 L3 布局和缓冲区大小以有效地使用它们。
+- en: Because of this challenge, framework developers tend to focus on providing support
+    to only a handful of server-class hardware, and hardware vendors tend to offer
+    their own kernel libraries for a narrow range of frameworks. Deploying ML models
+    to new hardware requires significant manual effort.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为这一挑战，框架开发人员倾向于只支持少数几种服务器级硬件，并且硬件供应商倾向于为一小部分框架提供自己的内核库。将 ML 模型部署到新硬件需要大量手动工作。
+- en: Instead of targeting new compilers and libraries for every new hardware backend,
+    what if we create a middleman to bridge frameworks and platforms? Framework developers
+    will no longer have to support every type of hardware; they will only need to
+    translate their framework code into this middleman. Hardware vendors can then
+    support one middleman instead of multiple frameworks.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果不是为每个新硬件后端创建新的编译器和库，那么我们创建一个中间人来桥接框架和平台会怎样？框架开发人员将不再需要支持每种类型的硬件，他们只需将框架代码转换为这个中间人即可。硬件供应商随后可以支持一个中间人而不是多个框架。
+- en: This type of “middleman” is called an intermediate representation (IR). IRs
+    lie at the core of how compilers work. From the original code for a model, compilers
+    generate a series of high- and low-level IRs before generating the code native
+    to a hardware backend so that it can run on that hardware backend, as shown in
+    [Figure 7-12](#a_series_of_high__and_low_level_irs_bet).
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种“中间人”称为中间表示（IR）。 IRs 是编译器工作的核心。从模型的原始代码开始，编译器在生成本地硬件后端可以运行的代码之前会生成一系列高级和低级
+    IRs，如[图 7-12](#a_series_of_high__and_low_level_irs_bet)所示。
+- en: '![](Images/dmls_0712.png)'
+  id: totrans-151
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0712.png)'
+- en: Figure 7-12\. A series of high- and low-level IRs between the original model
+    code to machine code that can run on a given hardware backend
+  id: totrans-152
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-12\. 从原始模型代码到能在特定硬件后端上运行的机器码之间的一系列高级和低级中间表示（IR）
+- en: This process is also called *lowering*, as in you “lower” your high-level framework
+    code into low-level hardware-native code. It’s not translating because there’s
+    no one-to-one mapping between them.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个过程也称为*降低*，即将高级框架代码降低为低级硬件本机代码。这不是简单的翻译，因为它们之间没有一对一的映射关系。
+- en: High-level IRs are usually computation graphs of your ML models. A computation
+    graph is a graph that describes the order in which your computation is executed.
+    Readers interested can read about computation graphs in [PyTorch](https://oreil.ly/who8P)
+    and [TensorFlow](https://oreil.ly/O8qR9).
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 高级 IRs 通常是您的 ML 模型的计算图。计算图描述了计算执行顺序的图形。感兴趣的读者可以在[PyTorch](https://oreil.ly/who8P)和[TensorFlow](https://oreil.ly/O8qR9)中了解计算图。
+- en: Model optimization
+  id: totrans-155
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型优化
+- en: After you’ve “lowered” your code to run your models into the hardware of your
+    choice, an issue you might run into is performance. The generated machine code
+    might be able to run on a hardware backend, but it might not be able to do so
+    efficiently. The generated code may not take advantage of data locality and hardware
+    caches, or it may not leverage advanced features such as vector or parallel operations
+    that could speed code up.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在将代码“降低”以在所选硬件上运行模型之后，您可能会遇到的问题是性能问题。生成的机器码可能能够在硬件后端上运行，但可能无法高效运行。生成的代码可能没有利用数据局部性和硬件缓存，也可能没有利用矢量或并行操作等高级特性，这可能会加速代码。
+- en: A typical ML workflow consists of many frameworks and libraries. For example,
+    you might use pandas/dask/ray to extract features from your data. You might use
+    NumPy to perform vectorization. You might use a pretrained model like Hugging
+    Face’s Transformers to generate features, then make predictions using an ensemble
+    of models built with various frameworks like sklearn, TensorFlow, or LightGBM.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 典型的ML工作流包括许多框架和库。例如，您可能会使用pandas/dask/ray从数据中提取特征。您可能会使用NumPy进行向量化。您可能会使用像Hugging
+    Face的Transformers这样的预训练模型生成特征，然后使用使用各种框架（如sklearn、TensorFlow或LightGBM）构建的模型集合进行预测。
+- en: Even though individual functions in these frameworks might be optimized, there’s
+    little to no optimization across frameworks. A naive way of moving data across
+    these functions for computation can cause an order of magnitude slowdown in the
+    whole workflow. A study by researchers at Stanford DAWN lab found that typical
+    ML workloads using NumPy, pandas, and TensorFlow run *23 times slower* in one
+    thread compared to hand-optimized code.^([45](ch07.xhtml#ch01fn241))
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使这些框架中的各个函数可能已经优化，跨框架的优化仍然很少。在这些函数之间进行数据移动以进行计算的天真方式可能会导致整个工作流程的性能下降一个数量级。斯坦福DAWN实验室的研究人员发现，使用NumPy、pandas和TensorFlow的典型ML工作负载在单线程中运行比手动优化的代码慢23倍。^([45](ch07.xhtml#ch01fn241))
+- en: 'In many companies, what usually happens is that data scientists and ML engineers
+    develop models that seem to be working fine in development. However, when these
+    models are deployed, they turn out to be too slow, so their companies hire optimization
+    engineers to optimize their models for the hardware their models run on. An example
+    of a job description for optimization engineers at Mythic follows:'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多公司中，通常情况下，数据科学家和机器学习工程师开发的模型在开发阶段看起来运行良好。然而，当这些模型部署后，它们可能会变得太慢，因此公司会雇佣优化工程师来优化其在特定硬件上的模型。Mythic的优化工程师职位描述如下：
+- en: This vision comes together in the AI Engineering team, where our expertise is
+    used to develop AI algorithms and models that are optimized for our hardware,
+    as well as to provide guidance to Mythic’s hardware and compiler teams.
+  id: totrans-160
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 这一愿景在AI工程团队中得以实现，我们利用专业知识开发适用于我们硬件的AI算法和模型，并为Mythic的硬件和编译器团队提供指导。
+- en: ''
+  id: totrans-161
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: 'The AI Engineering team significantly impacts Mythic by:'
+  id: totrans-162
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: AI工程团队通过以下方式显著影响Mythic：
+- en: ''
+  id: totrans-163
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: Developing quantization and robustness AI retraining tools
+  id: totrans-164
+  prefs:
+  - PREF_BQ
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 开发量化和鲁棒性AI重新训练工具
+- en: Investigating new features for our compiler that leverage the adaptability of
+    neural networks
+  id: totrans-165
+  prefs:
+  - PREF_BQ
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 探索利用神经网络适应性的编译器的新特性
+- en: Developing new neural networks that are optimized for our hardware products
+  id: totrans-166
+  prefs:
+  - PREF_BQ
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 开发针对我们硬件产品优化的新神经网络
+- en: Interfacing with internal and external customers to meet their development needs
+  id: totrans-167
+  prefs:
+  - PREF_BQ
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与内部和外部客户交流，以满足其开发需求
+- en: Optimization engineers are hard to come by and expensive to hire because they
+    need to have expertise in both ML and hardware architectures. Optimizing compilers
+    (compilers that also optimize your code) are an alternative solution, as they
+    can automate the process of optimizing models. In the process of lowering ML model
+    code into machine code, compilers can look at the computation graph of your ML
+    model and the operators it consists of—convolution, loops, cross-entropy—and find
+    a way to speed it up.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优化工程师难以找到且雇佣成本高昂，因为他们需要在机器学习和硬件架构两方面具备专业知识。优化编译器（同时优化您的代码的编译器）是另一种解决方案，因为它们可以自动化模型优化的过程。在将ML模型代码降低到机器码的过程中，编译器可以查看您的ML模型的计算图及其包含的运算符——卷积、循环、交叉熵——并找到加速计算的方法。
+- en: 'There are two ways to optimize your ML models: locally and globally. Locally
+    is when you optimize an operator or a set of operators of your model. Globally
+    is when you optimize the entire computation graph end to end.'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优化机器学习模型有两种方法：局部和全局。局部是指优化模型中的一个或一组操作符。全局是指端到端优化整个计算图。
+- en: 'There are standard local optimization techniques that are known to speed up
+    your model, most of them making things run in parallel or reducing memory access
+    on chips. Here are four of the common techniques:'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存在标准的局部优化技术，已知可以加快模型运行速度，大多数是通过并行运行或减少芯片上的内存访问。以下是四种常见的技术：
+- en: Vectorization
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 矢量化
+- en: Given a loop or a nested loop, instead of executing it one item at a time, execute
+    multiple elements contiguous in memory at the same time to reduce latency caused
+    by data I/O.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定一个循环或嵌套循环，不要逐个执行，而是连续内存中执行多个元素，以减少数据I/O引起的延迟。
+- en: Parallelization
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并行化
+- en: Given an input array (or *n*-dimensional array), divide it into different, independent
+    work chunks, and do the operation on each chunk individually.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定一个输入数组（或*n*维数组），将其分成不同的独立工作块，并在每个块上进行操作。
+- en: Loop tiling^([46](ch07.xhtml#idm46868207978704))
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 循环平铺^([46](ch07.xhtml#idm46868207978704))
+- en: Change the data accessing order in a loop to leverage hardware’s memory layout
+    and cache. This kind of optimization is hardware dependent. A good access pattern
+    on CPUs is not a good access pattern on GPUs.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更改循环中的数据访问顺序，以利用硬件的内存布局和缓存。这种优化依赖于硬件。在CPU上良好的访问模式在GPU上可能不是良好的访问模式。
+- en: Operator fusion
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 操作符融合
+- en: Fuse multiple operators into one to avoid redundant memory access. For example,
+    two operations on the same array require two loops over that array. In a fused
+    case, it’s just one loop. [Figure 7-13](#an_example_of_an_operator_fusiondot_sou)
+    shows an example of operator fusion.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将多个操作符融合成一个，以避免冗余的内存访问。例如，对同一个数组进行两次操作需要对该数组进行两次循环。在融合的情况下，只需一个循环。[图7-13](#an_example_of_an_operator_fusiondot_sou)展示了操作符融合的示例。
+- en: '![](Images/dmls_0713.png)'
+  id: totrans-179
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0713.png)'
+- en: 'Figure 7-13\. An example of an operator fusion. Source: Adapted from an image
+    by Matthias Boehm^([47](ch07.xhtml#ch01fn243))'
+  id: totrans-180
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-13\. 操作符融合示例。来源：改编自Matthias Boehm的图片^([47](ch07.xhtml#ch01fn243))
+- en: To obtain a much bigger speedup, you’d need to leverage higher-level structures
+    of your computation graph. For example, a convolution neural network with the
+    computation graph can be fused vertically or horizontally to reduce memory access
+    and speed up the model, as shown in [Figure 7-14](#vertical_and_horizontal_fusion_of_the_c).
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要获得更大的加速，您需要利用计算图的更高级结构。例如，具有计算图的卷积神经网络可以进行垂直或水平融合，以减少内存访问并加快模型速度，如[图7-14](#vertical_and_horizontal_fusion_of_the_c)所示。
+- en: '![](Images/dmls_0714.png)'
+  id: totrans-182
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0714.png)'
+- en: 'Figure 7-14\. Vertical and horizontal fusion of the computation graph of a
+    convolution neural network. Source: Adapted from an image by TensorRT team^([48](ch07.xhtml#ch01fn244))'
+  id: totrans-183
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-14\. 卷积神经网络计算图的垂直和水平融合。来源：改编自TensorRT团队的图片^([48](ch07.xhtml#ch01fn244))
+- en: Using ML to optimize ML models
+  id: totrans-184
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用机器学习优化机器学习模型
+- en: As hinted by the previous section with the vertical and horizontal fusion for
+    a convolutional neural network, there are many possible ways to execute a given
+    computation graph. For example, given three operators A, B, and C, you can fuse
+    A with B, fuse B with C, or fuse A, B, and C all together.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如前一节中对卷积神经网络进行垂直和水平融合的提示，有许多可能的方式来执行给定的计算图。例如，给定三个操作符A、B和C，可以将A与B融合，将B与C融合，或者将A、B和C全部一起融合。
+- en: Traditionally, framework and hardware vendors hire optimization engineers who,
+    based on their experience, come up with heuristics on how to best execute the
+    computation graph of a model. For example, NVIDIA might have an engineer or a
+    team of engineers who focus exclusively on how to make ResNet-50 run really fast
+    on their DGX A100 server.^([49](ch07.xhtml#ch01fn245))
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 传统上，框架和硬件供应商会聘请优化工程师，根据其经验制定如何最佳执行模型计算图的启发式方法。例如，NVIDIA可能有一个工程师或一个专门团队，专注于如何使其DGX
+    A100服务器上的ResNet-50运行得非常快速^([49](ch07.xhtml#ch01fn245))。
+- en: There are a couple of drawbacks to hand-designed heuristics. First, they’re
+    nonoptimal. There’s no guarantee that the heuristics an engineer comes up with
+    are the best possible solution. Second, they are nonadaptive. Repeating the process
+    on a new framework or a new hardware architecture requires an enormous amount
+    of effort.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 手工设计的启发式方法有几个缺点。首先，它们不是最优的。工程师提出的启发式方法并没有保证是最佳解决方案。其次，它们不具备自适应性。在新框架或新硬件架构上重复这一过程需要大量的工作量。
+- en: This is complicated by the fact that model optimization is dependent on the
+    operators its computation graph consists of. Optimizing a convolution neural network
+    is different from optimizing a recurrent neural network, which is different from
+    optimizing a transformer. Hardware vendors like NVIDIA and Google focus on optimizing
+    popular models like ResNet-50 and BERT for their hardware. But what if you, as
+    an ML researcher, come up with a new model architecture? You might need to optimize
+    it yourself to show that it’s fast first before it’s adopted and optimized by
+    hardware vendors.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型优化受其计算图中操作符的影响。优化卷积神经网络与优化循环神经网络或优化Transformer不同。像NVIDIA和Google这样的硬件供应商专注于优化像ResNet-50和BERT这样的流行模型。但如果您作为ML研究人员提出了新的模型架构，您可能需要首先优化它，以显示它快速执行，然后才能被采纳和优化。
+- en: If you don’t have ideas for good heuristics, one possible solution might be
+    to try all possible ways to execute a computation graph, record the time they
+    need to run, then pick the best one. However, given a combinatorial number of
+    possible paths, exploring them all would be intractable. Luckily, approximating
+    the solutions to intractable problems is what ML is good at. What if we use ML
+    to narrow down the search space so we don’t have to explore that many paths, and
+    predict how long a path will take so that we don’t have to wait for the entire
+    computation graph to finish executing?
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您没有好的启发式方法，一个可能的解决方案是尝试所有可能的执行计算图的方式，记录它们运行所需的时间，然后选择最佳的方式。然而，考虑到可能的路径组合数量，探索所有这些路径将是不可行的。幸运的是，近似解决不可解问题的方案是ML擅长的。如果我们利用ML来缩小搜索空间，这样就不必探索那么多路径，并预测路径所需的时间，这样我们就不必等待整个计算图执行完毕了。
+- en: To estimate how much time a path through a computation graph will take to run
+    turns out to be difficult, as it requires making a lot of assumptions about that
+    graph. It’s much easier to focus on a small part of the graph.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 评估计算图中路径运行所需时间的估计结果很难，因为需要对该图做出很多假设。更容易的方法是专注于图的一个小部分。
+- en: 'If you use PyTorch on GPUs, you might have seen `torch.backends.cudnn.benchmark=True`.
+    When this is set to True, *cuDNN autotune* will be enabled. cuDNN autotune searches
+    over a predetermined set of options to execute a convolution operator and then
+    chooses the fastest way. cuDNN autotune, despite its effectiveness, only works
+    for convolution operators. A much more general solution is [autoTVM](https://oreil.ly/ZNgzH),
+    which is part of the open source compiler stack TVM. autoTVM works with subgraphs
+    instead of just an operator, so the search spaces it works with are much more
+    complex. The way autoTVM works is quite complicated, but in simple terms:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您在GPU上使用PyTorch，可能已经见过`torch.backends.cudnn.benchmark=True`。当此选项设置为True时，*cuDNN
+    autotune* 将启用。cuDNN autotune在一组预定的选项上搜索以执行卷积运算，并选择最快的方式。尽管cuDNN autotune非常有效，但仅适用于卷积运算符。一个更通用的解决方案是[autoTVM](https://oreil.ly/ZNgzH)，它是开源编译器堆栈TVM的一部分。autoTVM处理子图而不仅仅是操作符，因此它处理的搜索空间要复杂得多。autoTVM的工作原理相当复杂，但简单来说：
+- en: It first breaks your computation graph into subgraphs.
+  id: totrans-192
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它首先将您的计算图分解成子图。
+- en: It predicts how big each subgraph is.
+  id: totrans-193
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它预测每个子图的大小。
+- en: It allocates time to search for the best possible path for each subgraph.
+  id: totrans-194
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它分配时间来搜索每个子图的最佳路径。
+- en: It stitches the best possible way to run each subgraph together to execute the
+    entire graph.
+  id: totrans-195
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它将每个子图的最佳运行方式串联起来，以执行整个图。
+- en: autoTVM measures the actual time it takes to run each path it goes down, which
+    gives it ground truth data to train a cost model to predict how long a future
+    path will take. The pro of this approach is that because the model is trained
+    using the data generated during runtime, it can adapt to any type of hardware
+    it runs on. The con is that it takes more time for the cost model to start improving.
+    [Figure 7-15](#speedup_achieved_by_autotvm_over_cudnn) shows the performance gain
+    that autoTVM gave compared to cuDNN for the model ResNet-50 on NVIDIA TITAN X.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: autoTVM 测量运行每条路径所需的实际时间，从而为训练成本模型提供了地面真实数据，以预测未来路径所需的时间。这种方法的优点是，由于模型是使用运行时生成的数据进行训练的，因此可以适应其运行的任何类型的硬件。缺点是，成本模型开始改进需要更多时间。[图 7-15](#speedup_achieved_by_autotvm_over_cudnn)
+    显示了 autoTVM 相对于 cuDNN 在 NVIDIA TITAN X 上为 ResNet-50 模型带来的性能提升。
+- en: 'While the results of ML-powered compilers are impressive, they come with a
+    catch: they can be slow. You go through all the possible paths and find the most
+    optimized ones. This process can take hours, even days for complex ML models.
+    However, it’s a one-time operation, and the results of your optimization search
+    can be cached and used to both optimize existing models and provide a starting
+    point for future tuning sessions. You optimize your model once for one hardware
+    backend then run it on multiple devices of that same hardware type. This sort
+    of optimization is ideal when you have a model ready for production and target
+    hardware to run inference on.'
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管由机器学习驱动的编译器的结果令人印象深刻，但也有一个限制：它们可能会很慢。您需要遍历所有可能的路径，并找到最优化的路径。这个过程可能需要几个小时，甚至对于复杂的机器学习模型可能需要几天。然而，这是一个一次性的操作，您可以缓存优化搜索的结果，并用于优化现有模型以及为未来的调整会话提供一个起点。一旦为一个硬件后端优化了您的模型，您就可以在同类型的多个设备上运行它。当您的模型准备好投入生产并且目标硬件用于推断时，这种优化非常理想。
+- en: '![](Images/dmls_0715.png)'
+  id: totrans-198
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0715.png)'
+- en: 'Figure 7-15\. Speedup achieved by autoTVM over cuDNN for ResNet-50 on NVIDIA
+    TITAN X. It takes ~70 trials for autoTVM to outperform cuDNN. Source: Chen et
+    al.^([50](ch07.xhtml#ch01fn246))'
+  id: totrans-199
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-15\. autoTVM 相对于 cuDNN 在 NVIDIA TITAN X 上为 ResNet-50 带来的加速。autoTVM 超越 cuDNN
+    大约需要 ~70 次试验。来源：Chen 等人^([50](ch07.xhtml#ch01fn246))
+- en: ML in Browsers
+  id: totrans-200
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 浏览器中的机器学习
+- en: 'We’ve been talking about how compilers can help us generate machine-native
+    code run models on certain hardware backends. It is, however, possible to generate
+    code that can run on just any hardware backends by running that code in browsers.
+    If you can run your model in a browser, you can run your model on any device that
+    supports browsers: MacBooks, Chromebooks, iPhones, Android phones, and more. You
+    wouldn’t need to care what chips those devices use. If Apple decides to switch
+    from Intel chips to ARM chips, it’s not your problem.'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们一直在讨论编译器如何帮助我们生成机器本地代码来在特定硬件后端上运行模型。然而，通过在浏览器中运行代码，也可以生成可以在任何硬件后端上运行的代码。如果您可以在浏览器中运行您的模型，那么您可以在支持浏览器的任何设备上运行您的模型：MacBook、Chromebook、iPhone、Android
+    手机等。您不需要关心这些设备使用的芯片是什么。如果苹果决定从英特尔芯片切换到 ARM 芯片，那就不是您的问题。
+- en: When talking about browsers, many people think of JavaScript. There are tools
+    that can help you compile your models into JavaScript, such as [TensorFlow.js](https://oreil.ly/3Afzv),
+    [Synaptic](https://oreil.ly/SYiLq), and [brain.js](https://oreil.ly/83IIa). However,
+    JavaScript is slow, and its capacity as a programming language is limited for
+    complex logics such as extracting features from data.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 谈到浏览器，许多人会想到 JavaScript。有一些工具可以帮助您将模型编译成 JavaScript，例如 [TensorFlow.js](https://oreil.ly/3Afzv)、[Synaptic](https://oreil.ly/SYiLq)
+    和 [brain.js](https://oreil.ly/83IIa)。然而，JavaScript 速度较慢，并且作为编程语言，在复杂逻辑（如从数据中提取特征）方面的能力有限。
+- en: A more promising approach is WebAssembly (WASM). WASM is an open standard that
+    allows you to run executable programs in browsers. After you’ve built your models
+    in scikit-learn, PyTorch, TensorFlow, or whatever frameworks you’ve used, instead
+    of compiling your models to run on specific hardware, you can compile your model
+    to WASM. You get back an executable file that you can just use with JavaScript.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更为有前景的方法是 WebAssembly（WASM）。WASM 是一个开放标准，允许您在浏览器中运行可执行程序。在您用 scikit-learn、PyTorch、TensorFlow
+    或其他任何框架构建了模型之后，不再需要将模型编译为特定硬件上的运行代码，而是可以将模型编译为 WASM。您将得到一个可执行文件，可以直接在 JavaScript
+    中使用。
+- en: WASM is one of the most exciting technological trends I’ve seen in the last
+    couple of years. It’s performant, easy to use, and has an ecosystem that is growing
+    like wildfire.^([51](ch07.xhtml#ch01fn247)) As of September 2021, it’s supported
+    by 93% of devices worldwide.^([52](ch07.xhtml#ch01fn248))
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: WASM 是我在过去几年看到的最激动人心的技术趋势之一。它具有高性能，易于使用，并且其生态系统像野火般快速增长。^([51](ch07.xhtml#ch01fn247))
+    截至 2021 年 9 月，全球 93% 的设备已支持它。^([52](ch07.xhtml#ch01fn248))
+- en: The main drawback of WASM is that because WASM runs in browsers, it’s slow.
+    Even though WASM is already much faster than JavaScript, it’s still slow compared
+    to running code natively on devices (such as iOS or Android apps). A study by
+    Jangda et al. showed that applications compiled to WASM run slower than native
+    applications by an average of 45% (on Firefox) to 55% (on Chrome).^([53](ch07.xhtml#ch01fn249))
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: WASM 的主要缺点是，因为它在浏览器中运行，速度较慢。尽管 WASM 已经比 JavaScript 快得多，但与在设备上原生运行的代码（如 iOS 或
+    Android 应用程序）相比，它仍然较慢。Jangda 等人的研究显示，编译为 WASM 的应用程序在 Firefox 上比本机应用程序慢平均 45%（在
+    Chrome 上为 55%）。^([53](ch07.xhtml#ch01fn249))
+- en: Summary
+  id: totrans-206
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Congratulations, you’ve finished possibly one of the most technical chapters
+    in this book! The chapter is technical because deploying ML models is an engineering
+    challenge, not an ML challenge.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 恭喜，您已经完成了本书中可能是最技术性最强的一章！这章技术性很强，因为部署机器学习模型是一项工程挑战，而不是机器学习挑战。
+- en: We’ve discussed different ways to deploy a model, comparing online prediction
+    with batch prediction, and ML on the edge with ML on the cloud. Each way has its
+    own challenges. Online prediction makes your model more responsive to users’ changing
+    preferences, but you have to worry about inference latency. Batch prediction is
+    a workaround for when your models take too long to generate predictions, but it
+    makes your model less flexible.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们讨论了部署模型的不同方式，比较了在线预测与批处理预测，以及边缘机器学习与云端机器学习。每种方式都有其自己的挑战。在线预测使您的模型更能响应用户不断变化的偏好，但您需要担心推理延迟。批处理预测是一种解决方案，用于当您的模型生成预测时间太长时，但它会使您的模型不够灵活。
+- en: Similarly, doing inference on the cloud is easy to set up, but it becomes impractical
+    with network latency and cloud cost. Doing inference on the edge requires having
+    edge devices with sufficient compute power, memory, and battery.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样地，在云上进行推理设置很容易，但随着网络延迟和云成本的增加，这种做法变得不切实际。在边缘进行推理需要具有足够计算能力、内存和电池的边缘设备。
+- en: However, I believe that most of these challenges are due to the limitations
+    of the hardware that ML models run on. As hardware becomes more powerful and optimized
+    for ML, I believe that ML systems will transition to making online prediction
+    on-device, illustrated in [Figure 7-16](#as_hardware_becomes_more_powerfulcomma).
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，我认为这些挑战大多是由 ML 模型运行硬件的限制造成的。随着硬件变得更加强大并优化用于机器学习，我相信 ML 系统将过渡到在设备上进行在线预测，如图
+    7-16 所示。
+- en: '![](Images/dmls_0716.png)'
+  id: totrans-211
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/dmls_0716.png)'
+- en: Figure 7-16\. As hardware becomes more powerful, ML models will move to online
+    and on the edge
+  id: totrans-212
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-16\. 随着硬件变得更加强大，机器学习模型将迁移到在线和边缘
+- en: I used to think that an ML project is done after the model is deployed, and
+    I hope that I’ve made clear in this chapter that I was seriously mistaken. Moving
+    the model from the development environment to the production environment creates
+    a whole new host of problems. The first is how to keep that model in production.
+    In the next chapter, we’ll discuss how our models might fail in production, and
+    how to continually monitor models to detect issues and address them as fast as
+    possible.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我曾认为 ML 项目在模型部署后就完成了，但我希望在本章中已经清楚地表明，我严重错误了。将模型从开发环境移到生产环境会产生全新的一系列问题。首先是如何保持模型在生产中的运行。在下一章中，我们将讨论如何监控模型在生产中可能出现的问题，并尽快解决这些问题。
+- en: ^([1](ch07.xhtml#ch01fn198-marker)) We’ll cover development environments in
+    detail in [Chapter 10](ch10.xhtml#infrastructure_and_tooling_for_mlops).
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch07.xhtml#ch01fn198-marker)) 我们将在[第 10 章](ch10.xhtml#infrastructure_and_tooling_for_mlops)详细介绍开发环境。
+- en: ^([2](ch07.xhtml#ch01fn199-marker)) We’ll go more into containers in [Chapter 9](ch09.xhtml#continual_learning_and_test_in_producti).
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch07.xhtml#ch01fn199-marker)) 我们将在[第 9 章](ch09.xhtml#continual_learning_and_test_in_producti)深入讨论容器。
+- en: '^([3](ch07.xhtml#ch01fn200-marker)) [CS 329S: Machine Learning Systems Design](https://oreil.ly/A6lFT)
+    at Stanford; you can see the project demos on [YouTube](https://oreil.ly/q4pjX).'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch07.xhtml#ch01fn200-marker)) 斯坦福大学的 [CS 329S：机器学习系统设计](https://oreil.ly/A6lFT)，你可以在
+    [YouTube](https://oreil.ly/q4pjX) 上查看项目演示。
+- en: ^([4](ch07.xhtml#ch01fn201-marker)) See the discussion on “data serialization”
+    in the section [“Data Formats”](ch03.xhtml#data_formats).
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch07.xhtml#ch01fn201-marker)) 请参见“数据格式”部分中关于“数据序列化”的讨论。
+- en: ^([5](ch07.xhtml#ch01fn202-marker)) Ville Tuulos, “Human-Centric Machine Learning
+    Infrastructure @Netflix,” InfoQ, 2018, video, 49:11, [*https://oreil.ly/j4Hfx*](https://oreil.ly/j4Hfx).
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch07.xhtml#ch01fn202-marker)) Ville Tuulos，《Netflix的以人为中心的机器学习基础设施》，InfoQ，2018，视频，49:11，[*https://oreil.ly/j4Hfx*](https://oreil.ly/j4Hfx)。
+- en: '^([6](ch07.xhtml#ch01fn203-marker)) Wayne Cunningham, “Science at Uber: Powering
+    Machine Learning at Uber,” *Uber Engineering Blog*, September 10, 2019, [*https://oreil.ly/WfaCF*](https://oreil.ly/WfaCF).'
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch07.xhtml#ch01fn203-marker)) Wayne Cunningham，《Uber科学：在Uber推动机器学习》，Uber
+    Engineering Blog，2019年9月10日，[*https://oreil.ly/WfaCF*](https://oreil.ly/WfaCF)。
+- en: '^([7](ch07.xhtml#ch01fn204-marker)) Daniel Papasian and Todd Underwood, “OpML
+    ’20—How ML Breaks: A Decade of Outages for One Large ML Pipeline,” Google, 2020,
+    video, 19:06, [*https://oreil.ly/HjQm0*](https://oreil.ly/HjQm0).'
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch07.xhtml#ch01fn204-marker)) Daniel Papasian 和 Todd Underwood，《OpML '20——机器学习的问题：一个大型ML管道的十年故障回顾》（2020年），视频，19:06，[*https://oreil.ly/HjQm0*](https://oreil.ly/HjQm0)。
+- en: '^([8](ch07.xhtml#ch01fn205-marker)) Lucas Bernardi, Themistoklis Mavridis,
+    and Pablo Estevez, “150 Successful Machine Learning Models: 6 Lessons Learned
+    at Booking.com,” *KDD ’19: Proceedings of the 25th ACM SIGKDD International Conference
+    on Knowledge Discovery & Data Mining* (July 2019): 1743–51, [*https://oreil.ly/Ea1Ke*](https://oreil.ly/Ea1Ke).'
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch07.xhtml#ch01fn205-marker)) Lucas Bernardi, Themistoklis Mavridis 和
+    Pablo Estevez，《Booking.com的150个成功机器学习模型：从KDD '19的学习经验》（2019年7月），1743–51，[*https://oreil.ly/Ea1Ke*](https://oreil.ly/Ea1Ke)。
+- en: ^([9](ch07.xhtml#ch01fn206-marker)) “2021 Enterprise Trends in Machine Learning,”
+    Algorithmia, [*https://oreil.ly/9kdcw*](https://oreil.ly/9kdcw).
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch07.xhtml#ch01fn206-marker)) “2021年企业机器学习趋势”，Algorithmia，[*https://oreil.ly/9kdcw*](https://oreil.ly/9kdcw)。
+- en: ^([10](ch07.xhtml#ch01fn207-marker)) We’ll discuss data distribution shifts
+    further in [Chapter 8](ch08.xhtml#data_distribution_shifts_and_monitoring).
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([10](ch07.xhtml#ch01fn207-marker)) 我们将在[第8章](ch08.xhtml#data_distribution_shifts_and_monitoring)进一步讨论数据分布的变化。
+- en: ^([11](ch07.xhtml#ch01fn208-marker)) Christopher Null, “10 Companies Killing
+    It at DevOps,” *TechBeacon*, 2015, [*https://oreil.ly/JvNwu*](https://oreil.ly/JvNwu).
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([11](ch07.xhtml#ch01fn208-marker)) Christopher Null，《10家在DevOps领域表现突出的公司》，TechBeacon，2015，[*https://oreil.ly/JvNwu*](https://oreil.ly/JvNwu)。
+- en: ^([12](ch07.xhtml#ch01fn209-marker)) Qian Yu, “Machine Learning with Flink in
+    Weibo,” QCon 2019, video, 17:57, [*https://oreil.ly/RcTMv*](https://oreil.ly/RcTMv).
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([12](ch07.xhtml#ch01fn209-marker)) Qian Yu，《微博中使用Flink进行机器学习》，QCon 2019，视频，17:57，[*https://oreil.ly/RcTMv*](https://oreil.ly/RcTMv)。
+- en: ^([13](ch07.xhtml#ch01fn210-marker)) Josh Wills, “Instrumentation, Observability
+    and Monitoring of Machine Learning Models,” InfoQ 2019, [*https://oreil.ly/5Ot5m*](https://oreil.ly/5Ot5m).
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([13](ch07.xhtml#ch01fn210-marker)) Josh Wills，《机器学习模型的仪器化、可观察性与监控》，InfoQ 2019，[*https://oreil.ly/5Ot5m*](https://oreil.ly/5Ot5m)。
+- en: ^([14](ch07.xhtml#ch01fn211-marker)) “Developer Survey Results,” Stack Overflow,
+    2019, [*https://oreil.ly/guYIq*](https://oreil.ly/guYIq).
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([14](ch07.xhtml#ch01fn211-marker)) “开发者调查结果”，Stack Overflow，2019，[*https://oreil.ly/guYIq*](https://oreil.ly/guYIq)。
+- en: ^([15](ch07.xhtml#ch01fn212-marker)) David Curry, “Grubhub Revenue and Usage
+    Statistics (2022),” Business of Apps, January 11, 2022, [*https://oreil.ly/jX43M*](https://oreil.ly/jX43M);
+    “Average Number of Grubhub Orders per Day Worldwide from 2011 to 2020,” Statista,
+    [*https://oreil.ly/Tu9fm*](https://oreil.ly/Tu9fm).
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([15](ch07.xhtml#ch01fn212-marker)) David Curry，《Grubhub的收入和使用统计数据（2022年）》，Business
+    of Apps，2022年1月11日，[*https://oreil.ly/jX43M*](https://oreil.ly/jX43M)；“2011至2020年全球每天Grubhub订单的平均数量”，Statista，[*https://oreil.ly/Tu9fm*](https://oreil.ly/Tu9fm)。
+- en: ^([16](ch07.xhtml#ch01fn213-marker)) The URL of the entry point for a service,
+    which, in this case, is the prediction service of your ML model.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([16](ch07.xhtml#ch01fn213-marker)) 在这种情况下，服务的入口点URL是你的ML模型预测服务。
+- en: ^([17](ch07.xhtml#ch01fn214-marker)) If a new user joins, you can give them
+    some generic recommendations.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([17](ch07.xhtml#ch01fn214-marker)) 如果有新用户加入，你可以给他们一些通用的建议。
+- en: ^([18](ch07.xhtml#ch01fn215-marker)) Shuyi Chean and Fabian Hueske, “Streaming
+    SQL to Unify Batch & Stream Processing w/ Apache Flink @Uber,” *InfoQ*, [*https://oreil.ly/XoaNu*](https://oreil.ly/XoaNu);
+    Yu, “Machine Learning with Flink in Weibo.”
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([18](ch07.xhtml#ch01fn215-marker)) Shuyi Chean 和 Fabian Hueske，《使用Apache Flink在Uber实现批处理与流处理的流式SQL统一》，InfoQ，[*https://oreil.ly/XoaNu*](https://oreil.ly/XoaNu)；Yu，《微博中使用Flink进行机器学习》，QCon
+    2019，视频，17:57，[*https://oreil.ly/RcTMv*](https://oreil.ly/RcTMv)。
+- en: ^([19](ch07.xhtml#ch01fn216-marker)) Yu Cheng, Duo Wang, Pan Zhou, and Tao Zhang,
+    “A Survey of Model Compression and Acceleration for Deep Neural Networks,” *arXiv*,
+    June 14, 2020, [*https://oreil.ly/1eMho*](https://oreil.ly/1eMho).
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([19](ch07.xhtml#ch01fn216-marker)) Yu Cheng, Duo Wang, Pan Zhou, and Tao Zhang，“深度神经网络模型压缩和加速综述，”*arXiv*，2020年6月14日，[*https://oreil.ly/1eMho*](https://oreil.ly/1eMho)。
+- en: ^([20](ch07.xhtml#ch01fn217-marker)) Max Jaderberg, Andrea Vedaldi, and Andrew
+    Zisserman, “Speeding up Convolutional Neural Networks with Low Rank Expansions,”
+    *arXiv*, May 15, 2014, [*https://oreil.ly/4Vf4s*](https://oreil.ly/4Vf4s).
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([20](ch07.xhtml#ch01fn217-marker)) Max Jaderberg, Andrea Vedaldi, and Andrew
+    Zisserman，“用低秩扩展加速卷积神经网络，”*arXiv*，2014年5月15日，[*https://oreil.ly/4Vf4s*](https://oreil.ly/4Vf4s)。
+- en: '^([21](ch07.xhtml#ch01fn218-marker)) Forrest N. Iandola, Song Han, Matthew
+    W. Moskewicz, Khalid Ashraf, William J. Dally, and Kurt Keutzer, “SqueezeNet:
+    AlexNet-Level Accuracy with 50x Fewer Parameters and <0.5MB Model Size,” *arXiv*,
+    November 4, 2016, [*https://oreil.ly/xs3mi*](https://oreil.ly/xs3mi).'
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([21](ch07.xhtml#ch01fn218-marker)) Forrest N. Iandola, Song Han, Matthew W.
+    Moskewicz, Khalid Ashraf, William J. Dally, and Kurt Keutzer，“SqueezeNet：具有50倍参数和<0.5MB模型尺寸的AlexNet级准确性，”*arXiv*，2016年11月4日，[*https://oreil.ly/xs3mi*](https://oreil.ly/xs3mi)。
+- en: '^([22](ch07.xhtml#ch01fn219-marker)) Andrew G. Howard, Menglong Zhu, Bo Chen,
+    Dmitry Kalenichenko, Weijun Wang, Tobias Weyand, Marco Andreetto, and Hartwig
+    Adam, “MobileNets: Efficient Convolutional Neural Networks for Mobile Vision Applications,”
+    *arXiv*, April 17, 2017, [*https://oreil.ly/T84fD*](https://oreil.ly/T84fD).'
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([22](ch07.xhtml#ch01fn219-marker)) Andrew G. Howard, Menglong Zhu, Bo Chen,
+    Dmitry Kalenichenko, Weijun Wang, Tobias Weyand, Marco Andreetto, and Hartwig
+    Adam，“MobileNets：移动视觉应用中高效的卷积神经网络，”*arXiv*，2017年4月17日，[*https://oreil.ly/T84fD*](https://oreil.ly/T84fD)。
+- en: ^([23](ch07.xhtml#ch01fn220-marker)) Geoffrey Hinton, Oriol Vinyals, and Jeff
+    Dean, “Distilling the Knowledge in a Neural Network,” *arXiv*, March 9, 2015,
+    [*https://oreil.ly/OJEPW*](https://oreil.ly/OJEPW).
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([23](ch07.xhtml#ch01fn220-marker)) Geoffrey Hinton, Oriol Vinyals, and Jeff
+    Dean，“在神经网络中提炼知识，”*arXiv*，2015年3月9日，[*https://oreil.ly/OJEPW*](https://oreil.ly/OJEPW)。
+- en: '^([24](ch07.xhtml#ch01fn221-marker)) Victor Sanh, Lysandre Debut, Julien Chaumond,
+    and Thomas Wolf, “DistilBERT, a Distilled Version of BERT: Smaller, Faster, Cheaper
+    and Lighter,” *arXiv*, October 2, 2019, [*https://oreil.ly/mQWBv*](https://oreil.ly/mQWBv).'
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([24](ch07.xhtml#ch01fn221-marker)) Victor Sanh, Lysandre Debut, Julien Chaumond,
+    and Thomas Wolf，“DistilBERT，BERT的精炼版本：更小、更快、更便宜和更轻，”*arXiv*，2019年10月2日，[*https://oreil.ly/mQWBv*](https://oreil.ly/mQWBv)。
+- en: ^([25](ch07.xhtml#ch01fn222-marker)) Hence the name “pruning.”
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([25](ch07.xhtml#ch01fn222-marker)) 因此得名“修剪”。
+- en: '^([26](ch07.xhtml#ch01fn223-marker)) Jonathan Frankle and Michael Carbin, “The
+    Lottery Ticket Hypothesis: Finding Sparse, Trainable Neural Networks,” ICLR 2019,
+    [*https://oreil.ly/ychdl*](https://oreil.ly/ychdl).'
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([26](ch07.xhtml#ch01fn223-marker)) Jonathan Frankle and Michael Carbin，“彩票假设：找到稀疏、可训练的神经网络，”ICLR
+    2019，[*https://oreil.ly/ychdl*](https://oreil.ly/ychdl)。
+- en: ^([27](ch07.xhtml#ch01fn224-marker)) Davis Blalock, Jose Javier Gonzalez Ortiz,
+    Jonathan Frankle, and John Guttag, “What Is the State of Neural Network Pruning?”
+    *arXiv*, March 6, 2020, [*https://oreil.ly/VQsC3*](https://oreil.ly/VQsC3).
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([27](ch07.xhtml#ch01fn224-marker)) Davis Blalock, Jose Javier Gonzalez Ortiz,
+    Jonathan Frankle, and John Guttag，“神经网络修剪的现状是什么？”*arXiv*，2020年3月6日，[*https://oreil.ly/VQsC3*](https://oreil.ly/VQsC3)。
+- en: ^([28](ch07.xhtml#ch01fn225-marker)) Zhuang Liu, Mingjie Sun, Tinghui Zhou,
+    Gao Huang, and Trevor Darrell, “Rethinking the Value of Network Pruning,” *arXiv*,
+    March 5, 2019, [*https://oreil.ly/mB4IZ*](https://oreil.ly/mB4IZ).
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([28](ch07.xhtml#ch01fn225-marker)) Zhuang Liu, Mingjie Sun, Tinghui Zhou,
+    Gao Huang, and Trevor Darrell，“重新思考网络修剪的价值，”*arXiv*，2019年3月5日，[*https://oreil.ly/mB4IZ*](https://oreil.ly/mB4IZ)。
+- en: '^([29](ch07.xhtml#ch01fn226-marker)) Michael Zhu and Suyog Gupta, “To Prune,
+    or Not to Prune: Exploring the Efficacy of Pruning for Model Compression,” *arXiv*,
+    November 13, 2017, [*https://oreil.ly/KBRjy*](https://oreil.ly/KBRjy).'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([29](ch07.xhtml#ch01fn226-marker)) Michael Zhu and Suyog Gupta，“是否修剪：探索模型压缩的有效性，”*arXiv*，2017年11月13日，[*https://oreil.ly/KBRjy*](https://oreil.ly/KBRjy)。
+- en: '^([30](ch07.xhtml#ch01fn227-marker)) Matthieu Courbariaux, Yoshua Bengio, and
+    Jean-Pierre David, “BinaryConnect: Training Deep Neural Networks with Binary Weights
+    During Propagations,” *arXiv*, November 2, 2015, [*https://oreil.ly/Fwp2G*](https://oreil.ly/Fwp2G);
+    Mohammad Rastegari, Vicente Ordonez, Joseph Redmon, and Ali Farhadi, “XNOR-Net:
+    ImageNet Classification Using Binary Convolutional Neural Networks,” *arXiv*,
+    August 2, 2016, [*https://oreil.ly/gr3Ay*](https://oreil.ly/gr3Ay).'
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([30](ch07.xhtml#ch01fn227-marker)) Matthieu Courbariaux、Yoshua Bengio和Jean-Pierre
+    David，《BinaryConnect: 在传播过程中使用二进制权重训练深度神经网络》，*arXiv*，2015年11月2日，[*https://oreil.ly/Fwp2G*](https://oreil.ly/Fwp2G)；Mohammad
+    Rastegari、Vicente Ordonez、Joseph Redmon和Ali Farhadi，《XNOR-Net: 使用二进制卷积神经网络进行ImageNet分类》，*arXiv*，2016年8月2日，[*https://oreil.ly/gr3Ay*](https://oreil.ly/gr3Ay)。'
+- en: '^([31](ch07.xhtml#ch01fn228-marker)) Alan Boyle, Taylor Soper, and Todd Bishop,
+    “Exclusive: Apple Acquires Xnor.ai, Edge AI Spin-out from Paul Allen’s AI2, for
+    Price in $200M Range,” *GeekWire*, January 15, 2020, [*https://oreil.ly/HgaxC*](https://oreil.ly/HgaxC).'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([31](ch07.xhtml#ch01fn228-marker)) Alan Boyle、Taylor Soper和Todd Bishop，《独家报道：苹果收购Xnor.ai，保罗·艾伦的AI2公司分拆的边缘AI，交易价在2亿美元左右》，*GeekWire*，2020年1月15日，[*https://oreil.ly/HgaxC*](https://oreil.ly/HgaxC)。
+- en: ^([32](ch07.xhtml#ch01fn229-marker)) As of October 2020, TensorFlow’s quantization
+    aware training doesn’t actually train models with weights in lower bits, but collects
+    statistics to use for post-training quantization.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([32](ch07.xhtml#ch01fn229-marker)) 截至2020年10月，TensorFlow的量化感知训练实际上并不会训练使用较低比特位的模型权重，而是收集统计信息以用于训练后的量化。
+- en: ^([33](ch07.xhtml#ch01fn230-marker)) Chip Huyen, Igor Gitman, Oleksii Kuchaiev,
+    Boris Ginsburg, Vitaly Lavrukhin, Jason Li, Vahid Noroozi, and Ravi Gadde, “Mixed
+    Precision Training for NLP and Speech Recognition with OpenSeq2Seq,” *NVIDIA Devblogs*,
+    October 9, 2018, [*https://oreil.ly/WDT1l*](https://oreil.ly/WDT1l). It’s my post!
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([33](ch07.xhtml#ch01fn230-marker)) Chip Huyen、Igor Gitman、Oleksii Kuchaiev、Boris
+    Ginsburg、Vitaly Lavrukhin、Jason Li、Vahid Noroozi和Ravi Gadde，《混合精度训练用于自然语言处理和语音识别的OpenSeq2Seq》，*NVIDIA
+    Devblogs*，2018年10月9日，[*https://oreil.ly/WDT1l*](https://oreil.ly/WDT1l)。这是我的文章！
+- en: '^([34](ch07.xhtml#ch01fn231-marker)) Shibo Wang and Pankaj Kanwar, “BFloat16:
+    The Secret to High Performance on Cloud TPUs,” *Google Cloud Blog*, August 23,
+    2019, [*https://oreil.ly/ZG5p0*](https://oreil.ly/ZG5p0).'
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([34](ch07.xhtml#ch01fn231-marker)) Shibo Wang和Pankaj Kanwar，《BFloat16: 云TPU高性能的秘密》，*Google
+    Cloud Blog*，2019年8月23日，[*https://oreil.ly/ZG5p0*](https://oreil.ly/ZG5p0)。'
+- en: '^([35](ch07.xhtml#ch01fn232-marker)) Itay Hubara, Matthieu Courbariaux, Daniel
+    Soudry, Ran El-Yaniv, and Yoshua Bengio, “Quantized Neural Networks: Training
+    Neural Networks with Low Precision Weights and Activations,” *Journal of Machine
+    Learning Research* 18 (2018): 1–30; Benoit Jacob, Skirmantas Kligys, Bo Chen,
+    Menglong Zhu, Matthew Tang, Andrew Howard, Hartwig Adam, and Dmitry Kalenichenko,
+    “Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only
+    Inference,” *arXiv*, December 15, 2017, [*https://oreil.ly/sUuMT*](https://oreil.ly/sUuMT).'
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([35](ch07.xhtml#ch01fn232-marker)) Itay Hubara、Matthieu Courbariaux、Daniel
+    Soudry、Ran El-Yaniv和Yoshua Bengio，《量化神经网络：使用低精度权重和激活函数训练神经网络》，*机器学习研究杂志* 18 (2018):
+    1–30；Benoit Jacob、Skirmantas Kligys、Bo Chen、Menglong Zhu、Matthew Tang、Andrew Howard、Hartwig
+    Adam和Dmitry Kalenichenko，《神经网络的量化和训练：仅使用整数算术推理的高效率》，*arXiv*，2017年12月15日，[*https://oreil.ly/sUuMT*](https://oreil.ly/sUuMT)。'
+- en: ^([36](ch07.xhtml#custom_ch07fn1-marker)) Quoc Le and Kip Kaehler, “How We Scaled
+    Bert To Serve 1+ Billion Daily Requests on CPUs,” Roblox, May 27, 2020, [*https://oreil.ly/U01Uj*](https://oreil.ly/U01Uj).
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([36](ch07.xhtml#custom_ch07fn1-marker)) Quoc Le和Kip Kaehler，《我们如何扩展Bert以在CPU上提供每天10亿次以上的请求服务》，Roblox，2020年5月27日，[*https://oreil.ly/U01Uj*](https://oreil.ly/U01Uj)。
+- en: ^([37](ch07.xhtml#ch01fn233-marker)) Amir Efrati and Kevin McLaughlin, “As AWS
+    Use Soars, Companies Surprised by Cloud Bills,” *The Information*, February 25,
+    2019, [*https://oreil.ly/H9ans*](https://oreil.ly/H9ans); Mats Bauer, “How Much
+    Does Netflix Pay Amazon Web Services Each Month?” Quora, 2020, [*https://oreil.ly/HtrBk*](https://oreil.ly/HtrBk).
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([37](ch07.xhtml#ch01fn233-marker)) Amir Efrati和Kevin McLaughlin，《随着AWS使用量飙升，企业对云账单感到惊讶》，*The
+    Information*，2019年2月25日，[*https://oreil.ly/H9ans*](https://oreil.ly/H9ans)；Mats
+    Bauer，《Netflix每月支付亚马逊网络服务多少钱？》，Quora，2020年，[*https://oreil.ly/HtrBk*](https://oreil.ly/HtrBk)。
+- en: ^([38](ch07.xhtml#ch01fn234-marker)) “2021 State of Cloud Cost Report,” Anodot,
+    [*https://oreil.ly/5ZIJK*](https://oreil.ly/5ZIJK).
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([38](ch07.xhtml#ch01fn234-marker)) “2021年云成本报告”，Anodot，[*https://oreil.ly/5ZIJK*](https://oreil.ly/5ZIJK)。
+- en: ^([39](ch07.xhtml#ch01fn235-marker)) “Burnt $72K Testing Firebase and Cloud
+    Run and Almost Went Bankrupt,” Hacker News, December 10, 2020, [*https://oreil.ly/vsHHC*](https://oreil.ly/vsHHC);
+    “How to Burn the Most Money with a Single Click in Azure,” Hacker News, March
+    29, 2020, [*https://oreil.ly/QvCiI*](https://oreil.ly/QvCiI). We’ll discuss in
+    more detail how companies respond to high cloud bills in the section [“Public
+    Cloud Versus Private Data Centers”](ch10.xhtml#public_cloud_versus_private_data_center).
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([39](ch07.xhtml#ch01fn235-marker)) “测试 Firebase 和 Cloud Run 耗资 72K 美元并且几乎破产”，《黑客新闻》，2020年12月10日，[*https://oreil.ly/vsHHC*](https://oreil.ly/vsHHC);
+    “如何在 Azure 中用一个点击烧掉最多的钱”，《黑客新闻》，2020年3月29日，[*https://oreil.ly/QvCiI*](https://oreil.ly/QvCiI)。我们将在[“公共云与私有数据中心”](ch10.xhtml#public_cloud_versus_private_data_center)一节中详细讨论公司如何应对高昂的云费用。
+- en: ^([40](ch07.xhtml#ch01fn236-marker)) “Nearly 80% of Companies Experienced a
+    Cloud Data Breach in Past 18 Months,” *Security*, June 5, 2020, [*https://oreil.ly/gA1am*](https://oreil.ly/gA1am).
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([40](ch07.xhtml#ch01fn236-marker)) “过去18个月中，近80%的公司经历了云数据泄露”，《安全》，2020年6月5日，[*https://oreil.ly/gA1am*](https://oreil.ly/gA1am)。
+- en: '^([41](ch07.xhtml#ch01fn237-marker)) See slide #53, CS 329S’s Lecture 8: Deployment
+    - Prediction Service, 2022, [*https://oreil.ly/cXTou*](https://oreil.ly/cXTou).'
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([41](ch07.xhtml#ch01fn237-marker)) 查看第53页幻灯片，CS 329S《部署 - 预测服务》讲座，2022年，[*https://oreil.ly/cXTou*](https://oreil.ly/cXTou)。
+- en: ^([42](ch07.xhtml#ch01fn238-marker)) “Internet of Things (IoT) and Non-IoT Active
+    Device Connections Worldwide from 2010 to 2025,” Statista, [https://oreil.ly/BChLN](https://oreil.ly/BChLN).
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([42](ch07.xhtml#ch01fn238-marker)) “2010年至2025年全球物联网（IoT）和非IoT活动设备连接情况”，Statista，[https://oreil.ly/BChLN](https://oreil.ly/BChLN)。
+- en: '^([43](ch07.xhtml#ch01fn240-marker)) Tianqi Chen, Thierry Moreau, Ziheng Jiang,
+    Lianmin Zheng, Eddie Yan, Meghan Cowan, Haichen Shen, et al., “TVM: An Automated
+    End-to-End Optimizing Compiler for Deep Learning,” *arXiv*, February 12, 2018,
+    [*https://oreil.ly/vGnkW*](https://oreil.ly/vGnkW).'
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([43](ch07.xhtml#ch01fn240-marker)) Tianqi Chen, Thierry Moreau, Ziheng Jiang,
+    Lianmin Zheng, Eddie Yan, Meghan Cowan, Haichen Shen 等，“TVM：一个自动化的端到端优化深度学习编译器”，*arXiv*，2018年2月12日，[*https://oreil.ly/vGnkW*](https://oreil.ly/vGnkW)。
+- en: ^([44](ch07.xhtml#ch01fn239-marker)) Nowadays, many CPUs have vector instructions
+    and some GPUs have tensor cores, which are two-dimensional.
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([44](ch07.xhtml#ch01fn239-marker)) 如今，许多 CPU 都有向量指令，一些 GPU 有张量核心，这是二维的。
+- en: '^([45](ch07.xhtml#ch01fn241-marker)) Shoumik Palkar, James Thomas, Deepak Narayanan,
+    Pratiksha Thaker, Rahul Palamuttam, Parimajan Negi, Anil Shanbhag, et al., “Evaluating
+    End-to-End Optimization for Data Analytics Applications in Weld,” *Proceedings
+    of the VLDB Endowment* 11, no. 9 (2018): 1002–15, [*https://oreil.ly/ErUIo*](https://oreil.ly/ErUIo).'
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([45](ch07.xhtml#ch01fn241-marker)) Shoumik Palkar, James Thomas, Deepak Narayanan,
+    Pratiksha Thaker, Rahul Palamuttam, Parimajan Negi, Anil Shanbhag 等，“评估数据分析应用中端到端优化的效果：以Weld为例”，《VLDB
+    Endowment会议论文集》第11卷第9期（2018年）：1002–15，[*https://oreil.ly/ErUIo*](https://oreil.ly/ErUIo)。
+- en: '^([46](ch07.xhtml#idm46868207978704-marker)) For a helpful visualization of
+    loop tiling, see slide 33 from Colfax Research’s presentation [“Access to Caches
+    and Memory”](https://oreil.ly/7ipWQ), session 10 of their Programming and Optimization
+    for Intel Architecture: Hands-on Workshop series. The entire series is available
+    at [*https://oreil.ly/hT1g4*](https://oreil.ly/hT1g4).'
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([46](ch07.xhtml#idm46868207978704-marker)) 关于循环分块的有用可视化，请参见 Colfax Research
+    的演示幻灯片33，来自他们的《Intel 架构编程与优化：实战工作坊》系列中的第10节[“访问缓存和内存”](https://oreil.ly/7ipWQ)。整个系列可以在[*https://oreil.ly/hT1g4*](https://oreil.ly/hT1g4)找到。
+- en: ^([47](ch07.xhtml#ch01fn243-marker)) Matthias Boehm, “Architecture of ML Systems
+    04 Operator Fusion and Runtime Adaptation,” Graz University of Technology, April
+    5, 2019, [*https://oreil.ly/py43J*](https://oreil.ly/py43J).
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([47](ch07.xhtml#ch01fn243-marker)) Matthias Boehm，“ML 系统架构 04 运算符融合和运行时适应”，格拉茨科技大学，2019年4月5日，[*https://oreil.ly/py43J*](https://oreil.ly/py43J)。
+- en: '^([48](ch07.xhtml#ch01fn244-marker)) Shashank Prasanna, Prethvi Kashinkunti,
+    and Fausto Milletari, “TensorRT 3: Faster TensorFlow Inference and Volta Support,”
+    NVIDIA Developer, December 4, 2017, [*https://oreil.ly/d9h98*](https://oreil.ly/d9h98).
+    CBR stands for “convolution, bias, and ReLU.”'
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([48](ch07.xhtml#ch01fn244-marker)) Shashank Prasanna, Prethvi Kashinkunti,
+    和 Fausto Milletari，“TensorRT 3：更快的 TensorFlow 推理和 Volta 支持”，NVIDIA Developer，2017年12月4日，[*https://oreil.ly/d9h98*](https://oreil.ly/d9h98)。CBR
+    表示“卷积、偏置和 ReLU”。
+- en: ^([49](ch07.xhtml#ch01fn245-marker)) This is also why you shouldn’t read too
+    much into benchmarking results, such as [MLPerf’s results](https://oreil.ly/XrW2C).
+    A popular model running really fast on a type of hardware doesn’t mean an arbitrary
+    model will run really fast on that hardware. It might just be that this model
+    is over-optimized.
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([49](ch07.xhtml#ch01fn245-marker)) 这也是为什么你不应该过分关注基准测试结果，比如[MLPerf 的结果](https://oreil.ly/XrW2C)。在一种类型的硬件上非常快速运行的流行模型，并不意味着任意模型都会在该硬件上非常快速运行。可能只是这个模型被过度优化了。
+- en: '^([50](ch07.xhtml#ch01fn246-marker)) Chen et al., “TVM: An Automated End-to-End
+    Optimizing Compiler for Deep Learning.”'
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '^([50](ch07.xhtml#ch01fn246-marker)) Chen等人，“TVM: 用于深度学习的自动化端到端优化编译器”。'
+- en: ^([51](ch07.xhtml#ch01fn247-marker)) Wasmer, [*https://oreil.ly/dTRxr*](https://oreil.ly/dTRxr);
+    Awesome Wasm, [*https://oreil.ly/hlIFb*](https://oreil.ly/hlIFb).
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([51](ch07.xhtml#ch01fn247-marker)) Wasmer，[*https://oreil.ly/dTRxr*](https://oreil.ly/dTRxr)；Awesome
+    Wasm，[*https://oreil.ly/hlIFb*](https://oreil.ly/hlIFb)。
+- en: ^([52](ch07.xhtml#ch01fn248-marker)) Can I Use _____?, [*https://oreil.ly/slI05*](https://oreil.ly/slI05).
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([52](ch07.xhtml#ch01fn248-marker)) Can I Use _____?，[*https://oreil.ly/slI05*](https://oreil.ly/slI05)。
+- en: '^([53](ch07.xhtml#ch01fn249-marker)) Abhinav Jangda, Bobby Powers, Emery D.
+    Berger, and Arjun Guha, “Not So Fast: Analyzing the Performance of WebAssembly
+    vs. Native Code,” USENIX, [*https://oreil.ly/uVzrX*](https://oreil.ly/uVzrX).'
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([53](ch07.xhtml#ch01fn249-marker)) Abhinav Jangda, Bobby Powers, Emery D.
+    Berger, and Arjun Guha,“不要那么快：分析 WebAssembly 与原生代码的性能”，USENIX，[*https://oreil.ly/uVzrX*](https://oreil.ly/uVzrX)。

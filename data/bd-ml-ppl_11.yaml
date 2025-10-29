@@ -1,0 +1,1184 @@
+- en: 'Chapter 11\. Pipelines Part 1: Apache Beam and Apache Airflow'
+  id: totrans-0
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第11章\. 管道第一部分：Apache Beam和Apache Airflow
+- en: 'In the previous chapters, we introduced all the necessary components to build
+    a machine learning pipeline using TFX. In this chapter, we will put all the components
+    together and show how to run the full pipeline with two orchestrators: Apache
+    Beam and Apache Airflow. In [Chapter 12](index_split_019.html#filepos1378763),
+    we will also show how to run the pipeline with Kubeflow Pipelines. All of these
+    tools follow similar principles, but we will show how the details differ and provide
+    example code for each.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前几章中，我们介绍了使用TFX构建机器学习管道所需的所有组件。在本章中，我们将把所有组件整合起来，展示如何使用两个编排工具（Apache Beam和Apache
+    Airflow）运行完整的管道。在[第12章](index_split_019.html#filepos1378763)中，我们还将展示如何使用Kubeflow
+    Pipelines运行管道。所有这些工具遵循类似的原则，但我们将展示细节上的差异，并为每个工具提供示例代码。
+- en: As we discussed in [Chapter 1](index_split_006.html#filepos46283), the pipeline
+    orchestration tool is vital to abstract the glue code that we would otherwise
+    need to write to automate a machine learning pipeline. As shown in [Figure 11-1](#filepos1265531),
+    the pipeline orchestrators sit underneath the components we have already mentioned
+    in previous chapters. Without one of these orchestration tools, we would need
+    to write code that checks when one component has finished, starts the next component,
+    schedules runs of the pipeline, and so on. Fortunately all this code already exists
+    in the form of these orchestrators!
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在[第1章](index_split_006.html#filepos46283)中讨论的那样，管道编排工具对于抽象化我们需要编写的胶水代码以自动化机器学习管道非常重要。如[图11-1](#filepos1265531)所示，管道编排工具位于我们在前几章已经提到的组件之下。如果没有这些编排工具之一，我们将需要编写代码来检查一个组件何时完成，启动下一个组件，安排管道的运行等等。幸运的是，所有这些代码已经以这些编排工具的形式存在！
+- en: '![](images/00097.jpg)'
+  id: totrans-3
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00097.jpg)'
+- en: Figure 11-1\. Pipeline orchestrators
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11-1\. 管道编排工具
+- en: We will start this chapter by discussing the use cases for the different tools.
+    Then, we will walk through some common code that is required to move from an interactive
+    pipeline to one that can be orchestrated by these tools. Apache Beam and Apache
+    Airflow are simpler to set up than Kubeflow Pipelines, so we will discuss them
+    in this chapter before moving on to the more powerful Kubeflow Pipelines in [Chapter 12](index_split_019.html#filepos1378763).
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将从讨论不同工具的使用案例开始本章。然后，我们将逐步介绍一些常见代码，这些代码是从交互式管道转移到可以由这些工具编排的管道所必需的。Apache Beam和Apache
+    Airflow的设置比Kubeflow Pipelines简单，因此我们将在本章中讨论它们，然后再转向功能更强大的Kubeflow Pipelines，在[第12章](index_split_019.html#filepos1378763)中详细讨论。
+- en: Which Orchestration Tool to Choose?
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择哪种编排工具？
+- en: 'In this chapter and in [Chapter 12](index_split_019.html#filepos1378763), we
+    discuss three orchestration tools that you could use to run your pipelines: Apache
+    Beam, Apache Airflow, and Kubeflow Pipelines. You need to pick only one of them
+    to run each pipeline. Before we take a deep dive into how to use all of these
+    tools, we will describe some of the benefits and drawbacks to each of them, which
+    will help you decide what is best for your needs.'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章和[第12章](index_split_019.html#filepos1378763)中，我们将讨论三种你可以使用的管道编排工具：Apache
+    Beam、Apache Airflow和Kubeflow Pipelines。你需要选择其中一种工具来运行每个管道。在深入研究如何使用所有这些工具之前，我们将描述每个工具的一些优缺点，这将帮助你决定哪种工具最适合你的需求。
+- en: Apache Beam
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Beam
+- en: If you are using TFX for your pipeline tasks, you have already installed Apache
+    Beam. Therefore, if you are looking for a minimal installation, reusing Beam to
+    orchestrate is a logical choice. It is straightforward to set up, and it also
+    allows you to use any existing distributed data processing infrastructure you
+    might already be familiar with (e.g., Google Cloud Dataflow). You can also use
+    Beam as an intermediate step to ensure your pipeline runs correctly before moving
+    to Airflow or Kubeflow Pipelines.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你正在使用TFX进行管道任务，那么你已经安装了Apache Beam。因此，如果你正在寻找一个最小的安装选项，重用Beam来编排是一个合乎逻辑的选择。这样设置非常简单，而且还允许你使用任何你可能已经熟悉的现有分布式数据处理基础设施（例如Google
+    Cloud Dataflow）。在转移到Airflow或Kubeflow Pipelines之前，你也可以使用Beam作为中间步骤来确保你的管道正确运行。
+- en: However, Apache Beam is missing a variety of tools for scheduling your model
+    updates or monitoring the process of a pipeline job. That’s where Apache Airflow
+    and Kubeflow Pipelines shine.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，Apache Beam缺少多种用于调度模型更新或监视管道作业过程的工具。这就是Apache Airflow和Kubeflow Pipelines脱颖而出的地方。
+- en: Apache Airflow
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Airflow
+- en: Apache Airflow is often already used in companies for data-loading tasks. Expanding
+    an existing Apache Airflow setup to run your pipeline means you would not need
+    to learn a new tool such as Kubeflow.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Airflow通常已经在公司中用于数据加载任务。将现有的Apache Airflow设置扩展到运行你的管道意味着你不需要学习Kubeflow等新工具。
+- en: If you use Apache Airflow in combination with a production-ready database like
+    PostgreSQL, you can take advantage of executing partial pipelines. This can save
+    a significant amount of time if a time-consuming pipeline fails and you want to
+    avoid rerunning all the previous pipeline steps.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你将Apache Airflow与像PostgreSQL这样的生产就绪数据库结合使用，你可以利用执行部分管道的优势。如果一个耗时的管道失败，你可以节省大量时间，而且你想避免重新运行所有之前的管道步骤。
+- en: Kubeflow Pipelines
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubeflow Pipelines
+- en: If you already have experience with Kubernetes and access to a Kubernetes cluster,
+    it makes sense to consider Kubeflow Pipelines. While the setup of Kubeflow is
+    more complicated than the Airflow installation, it opens up a variety of new opportunities,
+    including the ability to view TFDV and TFMA visualizations, model lineage, and
+    the artifact collections.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你已经有了Kubernetes的经验并且可以访问Kubernetes集群，考虑使用Kubeflow Pipelines是有道理的。虽然设置Kubeflow比Airflow安装更复杂，但它开启了各种新机会，包括查看TFDV和TFMA的可视化、模型谱系和艺术品集合。
+- en: Kubernetes is also an excellent infrastructure platform to deploy machine learning
+    models. Inference routing through the Kubernetes tool Istio is currently state
+    of the art in the field of machine learning infrastructure.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes也是一个优秀的基础设施平台，用于部署机器学习模型。通过Kubernetes工具Istio进行推理路由目前是机器学习基础设施领域的最新技术。
+- en: You can set up a Kubernetes cluster with a variety of cloud providers, so you
+    are not limited to a single vendor. Kubeflow Pipelines also lets you take advantage
+    of state-of-the-art training hardware supplied by cloud providers. You can run
+    your pipeline efficiently and scale up and down the nodes of your cluster.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以使用各种云提供商设置Kubernetes集群，因此你不限于单一供应商。Kubeflow Pipelines还允许你利用由云提供商提供的最先进的训练硬件。你可以高效地运行你的管道，并在你的集群节点上进行缩放。
+- en: Kubeflow Pipelines on AI Platform
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AI平台上的Kubeflow Pipelines
+- en: It’s also possible to run Kubeflow Pipelines on Google’s AI Platform, which
+    is part of GCP. This takes care of much of the infrastructure for you and makes
+    it easy to load data from Google Cloud Storage buckets. Also, the integration
+    of Google’s Dataflow simplifies the scaling of your pipelines. However, this locks
+    you into one single cloud provider.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你也可以在Google的AI平台上运行Kubeflow Pipelines，这是GCP的一部分。这为你处理了大部分基础设施，并且使得从Google Cloud存储桶加载数据变得轻松。此外，Google的Dataflow集成简化了管道的扩展。但是，这将使你锁定在一个单一的云提供商上。
+- en: If you decide to go with Apache Beam or Airflow, this chapter has the information
+    you will need. If you choose Kubeflow (either via Kubernetes or on Google Cloud’s
+    AI Platform), you will only need to read the next section of this chapter. This
+    will show you how to convert your interactive pipeline to a script, and then you
+    can head over to [Chapter 12](index_split_019.html#filepos1378763) afterward.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你决定选择Apache Beam或Airflow，本章包含了你将需要的信息。如果你选择Kubeflow（通过Kubernetes或Google Cloud的AI平台），你只需要阅读本章的下一节。这将向你展示如何将你的交互式管道转换为脚本，然后你可以前往[第12章](index_split_019.html#filepos1378763)。
+- en: Converting Your Interactive TFX Pipeline to a Production Pipeline
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将你的交互式TFX管道转换为生产管道
+- en: Up to this point, our examples have shown how to run all the different components
+    of a TFX pipeline in a notebook-style environment, or interactive context. To
+    run the pipeline in a notebook, each component needs to be triggered manually
+    when the previous one has finished. In order to automate our pipelines, we will
+    need to write a Python script that will run all these components without any input
+    from us.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们的示例展示了如何在笔记本式环境或交互式环境中运行TFX管道的所有不同组件。要在笔记本中运行管道，每个组件需要在前一个组件完成后手动触发。为了自动化我们的管道，我们将需要编写一个Python脚本，该脚本将在没有我们任何输入的情况下运行所有这些组件。
+- en: 'Fortunately, we already have all the pieces of this script. We’ll summarize
+    all the pipeline components that we have discussed so far:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，我们已经有了这个脚本的所有部分。我们将总结到目前为止我们讨论过的所有管道组件：
+- en: '`ExampleGen`'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ExampleGen`'
+- en: Ingests the new data from the data source we wish to use ([Chapter 3](index_split_008.html#filepos156116))
+  id: totrans-25
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 从我们希望使用的数据源摄取新数据（[第3章](index_split_008.html#filepos156116)）
+- en: '`StatisticsGen`'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`StatisticsGen`'
+- en: Calculates the summary statistics of the new data ([Chapter 4](index_split_009.html#filepos295199))
+  id: totrans-27
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 计算新数据的摘要统计信息（[第4章](index_split_009.html#filepos295199)）
+- en: '`SchemaGen`'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`SchemaGen`'
+- en: Defines the expected features for the model, as well as their types and ranges
+    ([Chapter 4](index_split_009.html#filepos295199))
+  id: totrans-29
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 定义模型期望的特征，以及它们的类型和范围（[第4章](index_split_009.html#filepos295199)）
+- en: '`ExampleValidator`'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ExampleValidator`'
+- en: Checks the data against the schema and flags any anomalies ([Chapter 4](index_split_009.html#filepos295199))
+  id: totrans-31
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 检查数据是否符合模式，并标记任何异常（[第4章](index_split_009.html#filepos295199)）
+- en: '`Transform`'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Transform`'
+- en: Preprocesses the data into the correct numerical representation that the model
+    is expecting ([Chapter 5](index_split_010.html#filepos397186))
+  id: totrans-33
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 将数据预处理为模型期望的正确数值表示（[第5章](index_split_010.html#filepos397186)）
+- en: '`Trainer`'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Trainer`'
+- en: Trains the model on the new data ([Chapter 6](index_split_011.html#filepos491525))
+  id: totrans-35
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在新数据上训练模型（[第6章](index_split_011.html#filepos491525)）
+- en: '`Resolver`'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Resolver`'
+- en: Checks for the presence of a previously blessed model and returns it for comparison
+    ([Chapter 7](index_split_012.html#filepos624151))
+  id: totrans-37
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 检查之前已经认证的模型是否存在，并返回以进行比较（[第7章](index_split_012.html#filepos624151)）
+- en: '`Evaluator`'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Evaluator`'
+- en: Evaluates the model’s performance on an evaluation dataset and validates the
+    model if it is an improvement on the previous version ([Chapter 7](index_split_012.html#filepos624151))
+  id: totrans-39
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在评估数据集上评估模型的性能，并在其是前一个版本的改进时验证模型（[第7章](index_split_012.html#filepos624151)）
+- en: '`Pusher`'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Pusher`'
+- en: Pushes the model to a serving directory if it passes the validation step ([Chapter 7](index_split_012.html#filepos624151))
+  id: totrans-41
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果模型通过验证步骤，则将模型推送到服务目录中（[第7章](index_split_012.html#filepos624151)）
+- en: The full pipeline is shown in [Example 11-1](#filepos1274326).
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完整的管道展示在 [例子 11-1](#filepos1274326) 中。
+- en: Example 11-1\. The base pipeline
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例子 11-1\. 基本管道
+- en: '`import``tensorflow_model_analysis``as``tfma``from``tfx.components``import``(``CsvExampleGen``,``Evaluator``,``ExampleValidator``,``Pusher``,``ResolverNode``,``SchemaGen``,``StatisticsGen``,``Trainer``,``Transform``)``from``tfx.components.base``import``executor_spec``from``tfx.components.trainer.executor``import``GenericExecutor``from``tfx.dsl.experimental``import``latest_blessed_model_resolver``from``tfx.proto``import``pusher_pb2``,``trainer_pb2``from``tfx.types``import``Channel``from``tfx.types.standard_artifacts``import``Model``,``ModelBlessing``from``tfx.utils.dsl_utils``import``external_input``def``init_components``(``data_dir``,``module_file``,``serving_model_dir``,``training_steps``=``2000``,``eval_steps``=``200``):``examples``=``external_input``(``data_dir``)``example_gen``=``CsvExampleGen``(``...``)``statistics_gen``=``StatisticsGen``(``...``)``schema_gen``=``SchemaGen``(``...``)``example_validator``=``ExampleValidator``(``...``)``transform``=``Transform``(``...``)``trainer``=``Trainer``(``...``)``model_resolver``=``ResolverNode``(``...``)``eval_config``=``tfma``.``EvalConfig``(``...``)``evaluator``=``Evaluator``(``...``)``pusher``=``Pusher``(``...``)``components``=``[``example_gen``,``statistics_gen``,``schema_gen``,``example_validator``,``transform``,``trainer``,``model_resolver``,``evaluator``,``pusher``]``return``components`'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`import``tensorflow_model_analysis``as``tfma``from``tfx.components``import``(``CsvExampleGen``,``Evaluator``,``ExampleValidator``,``Pusher``,``ResolverNode``,``SchemaGen``,``StatisticsGen``,``Trainer``,``Transform``)``from``tfx.components.base``import``executor_spec``from``tfx.components.trainer.executor``import``GenericExecutor``from``tfx.dsl.experimental``import``latest_blessed_model_resolver``from``tfx.proto``import``pusher_pb2``,``trainer_pb2``from``tfx.types``import``Channel``from``tfx.types.standard_artifacts``import``Model``,``ModelBlessing``from``tfx.utils.dsl_utils``import``external_input``def``init_components``(``data_dir``,``module_file``,``serving_model_dir``,``training_steps``=``2000``,``eval_steps``=``200``):``examples``=``external_input``(``data_dir``)``example_gen``=``CsvExampleGen``(``...``)``statistics_gen``=``StatisticsGen``(``...``)``schema_gen``=``SchemaGen``(``...``)``example_validator``=``ExampleValidator``(``...``)``transform``=``Transform``(``...``)``trainer``=``Trainer``(``...``)``model_resolver``=``ResolverNode``(``...``)``eval_config``=``tfma``.``EvalConfig``(``...``)``evaluator``=``Evaluator``(``...``)``pusher``=``Pusher``(``...``)``components``=``[``example_gen``,``statistics_gen``,``schema_gen``,``example_validator``,``transform``,``trainer``,``model_resolver``,``evaluator``,``pusher``]``return``components`'
+- en: In our example project, we have split the component instantiation from the pipeline
+    configuration to focus on the pipeline setup for the different orchestrators.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例项目中，我们已将组件实例化从管道配置中分离，以便专注于不同编排器的管道设置。
+- en: 'The `init_components` function instantiates the components. It requires three
+    inputs in addition to the number of training steps and evaluation steps:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`init_components` 函数实例化组件。除了训练步骤数和评估步骤数之外，还需要三个输入：'
+- en: '`data_dir`'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`data_dir`'
+- en: Path where the training/eval data can be found.
+  id: totrans-48
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 训练/评估数据的路径。
+- en: '`module_file`'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`module_file`'
+- en: Python module required by the `Transform` and `Trainer` components. These are
+    described in Chapters [5](index_split_010.html#filepos397186) and [6](index_split_011.html#filepos491525),
+    respectively.
+  id: totrans-50
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`Transform`和`Trainer`组件所需的Python模块。分别在第[5](index_split_010.html#filepos397186)章和第[6](index_split_011.html#filepos491525)章进行了描述。'
+- en: '`serving_model_dir`'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`serving_model_dir`'
+- en: Path where the exported model should be stored.
+  id: totrans-52
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 导出模型应存储的路径。
+- en: Besides the small tweaks to the Google Cloud setup we will discuss in [Chapter 12](index_split_019.html#filepos1378763),
+    the component setup will be identical for each orchestrator platform. Therefore,
+    we’ll reuse the component definition across the different example setups for Apache
+    Beam, Apache Airflow, and Kubeflow Pipelines. If you would like to use Kubeflow
+    Pipelines, you may find Beam is useful for debugging your pipeline. But if you
+    would like to jump straight in to Kubeflow Pipelines, turn to the next chapter!
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了我们将在[第12章](index_split_019.html#filepos1378763)中讨论的Google Cloud设置微调外，每个编排器平台的组件设置都将相同。因此，我们将在Apache
+    Beam、Apache Airflow和Kubeflow Pipelines的不同示例设置中重用组件定义。如果您想要使用Kubeflow Pipelines，您可能会发现Beam对于调试管道很有用。但如果您想直接进入Kubeflow
+    Pipelines，请转到下一章！
+- en: Simple Interactive Pipeline Conversion for Beam and Airflow
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Beam和Airflow的简单交互式管道转换
+- en: If you would like to orchestrate your pipeline using Apache Beam or Airflow,
+    you can also convert a notebook to a pipeline via the following steps. For any
+    cells in your notebook that you don’t want to export, use the `%%skip_for_export`
+    Jupyter magic command at the start of each cell.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您希望使用Apache Beam或Airflow编排您的管道，您还可以通过以下步骤将笔记本转换为管道。对于您不希望导出的笔记本中的任何单元格，请在每个单元格的开头使用`%%skip_for_export`
+    Jupyter魔法命令。
+- en: 'First, set the pipeline name and the orchestration tool:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，设置管道名称和编排工具：
+- en: '`runner_type``=``''beam''`![](images/00002.jpg)`pipeline_name``=``''consumer_complaints_beam''`'
+  id: totrans-57
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`runner_type``=``''beam''`![](images/00002.jpg)`pipeline_name``=``''consumer_complaints_beam''`'
+- en: '![](images/00002.jpg)'
+  id: totrans-58
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Alternatively, `airflow`.
+  id: totrans-59
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 或者，`airflow`。
+- en: 'Then, set all the relevant file paths:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，设置所有相关文件路径：
+- en: '`notebook_file``=``os``.``path``.``join``(``os``.``getcwd``(),``notebook_filename``)``#
+    Pipeline inputs``data_dir``=``os``.``path``.``join``(``pipeline_dir``,``''data''``)``module_file``=``os``.``path``.``join``(``pipeline_dir``,``''components''``,``''module.py''``)``requirement_file``=``os``.``path``.``join``(``pipeline_dir``,``''requirements.txt''``)``#
+    Pipeline outputs``output_base``=``os``.``path``.``join``(``pipeline_dir``,``''output''``,``pipeline_name``)``serving_model_dir``=``os``.``path``.``join``(``output_base``,``pipeline_name``)``pipeline_root``=``os``.``path``.``join``(``output_base``,``''pipeline_root''``)``metadata_path``=``os``.``path``.``join``(``pipeline_root``,``''metadata.sqlite''``)`'
+  id: totrans-61
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`notebook_file``=``os``.``path``.``join``(``os``.``getcwd``(),``notebook_filename``)``#
+    管道输入``data_dir``=``os``.``path``.``join``(``pipeline_dir``,``''data''``)``module_file``=``os``.``path``.``join``(``pipeline_dir``,``''components''``,``''module.py''``)``requirement_file``=``os``.``path``.``join``(``pipeline_dir``,``''requirements.txt''``)``#
+    管道输出``output_base``=``os``.``path``.``join``(``pipeline_dir``,``''output''``,``pipeline_name``)``serving_model_dir``=``os``.``path``.``join``(``output_base``,``pipeline_name``)``pipeline_root``=``os``.``path``.``join``(``output_base``,``''pipeline_root''``)``metadata_path``=``os``.``path``.``join``(``pipeline_root``,``''metadata.sqlite''``)`'
+- en: 'Next, list the components you wish to include in your pipeline:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，列出您希望包含在管道中的组件：
+- en: '`components``=``[``example_gen``,``statistics_gen``,``schema_gen``,``example_validator``,``transform``,``trainer``,``evaluator``,``pusher``]`'
+  id: totrans-63
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`components``=``[``example_gen``,``statistics_gen``,``schema_gen``,``example_validator``,``transform``,``trainer``,``evaluator``,``pusher``]`'
+- en: 'And export the pipeline:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后导出管道：
+- en: '`pipeline_export_file``=``''consumer_complaints_beam_export.py''``context``.``export_to_pipeline``(``notebook_file``path``=``_notebook_file``,``export_file``path``=``pipeline_export_file``,``runner_type``=``runner_type``)`'
+  id: totrans-65
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`pipeline_export_file``=``''consumer_complaints_beam_export.py''``context``.``export_to_pipeline``(``notebook_file``path``=``_notebook_file``,``export_file``path``=``pipeline_export_file``,``runner_type``=``runner_type``)`'
+- en: This export command will generate a script that can be run using Beam or Airflow,
+    depending on the `runner_type` you choose.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此导出命令将生成一个脚本，可以使用Beam或Airflow运行，具体取决于您选择的`runner_type`。
+- en: Introduction to Apache Beam
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Beam 简介
+- en: Because Apache Beam is running behind the scenes in many TFX components, we
+    introduced it in [Chapter 2](index_split_007.html#filepos83150). Various TFX components
+    (e.g., TFDV or TensorFlow `Transform`) use Apache Beam for the abstraction of
+    the internal data processing. But many of the same Beam functions can also be
+    used to run your pipeline. In the next section, we’ll show you how to orchestrate
+    our example project using Beam.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为Apache Beam在许多TFX组件的后台运行，所以我们在[第二章](index_split_007.html#filepos83150)中引入了它。各种TFX组件（例如TFDV或TensorFlow
+    `Transform`）使用Apache Beam来抽象内部数据处理。但是许多相同的Beam功能也可以用来运行您的管道。在接下来的部分中，我们将展示如何使用Beam来编排我们的示例项目。
+- en: Orchestrating TFX Pipelines with Apache Beam
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Apache Beam编排TFX管道
+- en: Apache Beam is already installed as a dependency of TFX, and this makes it very
+    easy to start using it as our pipeline orchestration tool. Beam is very simple
+    and does not have all the functionality of Airflow or Kubeflow Pipelines, like
+    graph visualizations, scheduled executions, etc.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Beam已作为TFX的依赖项安装，这使得将其作为我们的管道编排工具非常简单。Beam非常简单，并且不具有像图形可视化、计划执行等Airflow或Kubeflow
+    Pipelines的所有功能。
+- en: Beam can also be a good way to debug your machine learning pipeline. By using
+    Beam during your pipeline debugging and then moving to Airflow or Kubeflow Pipelines,
+    you can rule out root causes of pipeline errors coming from the more complex Airflow
+    or Kubeflow Pipelines setups.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Beam也可以是调试机器学习管道的好方法。通过在管道调试期间使用Beam，然后切换到Airflow或Kubeflow Pipelines，您可以排除由更复杂的Airflow或Kubeflow
+    Pipelines设置引起的管道错误的根本原因。
+- en: 'In this section, we will run through how to set up and execute our example
+    TFX pipeline with Beam. We introduced the Beam `Pipeline` function in [Chapter 2](index_split_007.html#filepos83150).
+    This is what we’ll use together with our [Example 11-1](#filepos1274326) script
+    to run the pipeline. We will define a Beam `Pipeline` that accepts the TFX pipeline
+    components as an argument and also connects to the SQLite database holding the
+    ML MetadataStore:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将演示如何使用Beam设置和执行我们的示例TFX管道。我们在[第二章](index_split_007.html#filepos83150)中介绍了Beam
+    `Pipeline`函数。这是我们将与我们的[Example 11-1](#filepos1274326)脚本一起使用来运行管道的内容。我们将定义一个Beam
+    `Pipeline`，它接受TFX管道组件作为参数，并连接到持有ML MetadataStore的SQLite数据库：
+- en: '`import``absl``from``tfx.orchestration``import``metadata``,``pipeline``def``init_beam_pipeline``(``components``,``pipeline_root``,``direct_num_workers``):``absl``.``logging``.``info``(``"Pipeline
+    root set to: {}"``.``format``(``pipeline_root``))``beam_arg``=``[``"--direct_num_workers={}"``.``format``(``direct_num_workers``),`![](images/00002.jpg)`"--requirements_file={}"``.``format``(``requirement_file``)``]``p``=``pipeline``.``Pipeline``(`![](images/00075.jpg)`pipeline_name``=``pipeline_name``,``pipeline_root``=``pipeline_root``,``components``=``components``,``enable_cache``=``False``,`![](images/00064.jpg)`metadata_connection_config``=``\`
+    `metadata``.``sqlite_metadata_connection_config``(``metadata_path``),``beam_pipeline_args``=``beam_arg``)``return``p`'
+  id: totrans-73
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`import``absl``from``tfx.orchestration``import``metadata``,``pipeline``def``init_beam_pipeline``(``components``,``pipeline_root``,``direct_num_workers``):``absl``.``logging``.``info``(``"Pipeline
+    root set to: {}"``.``format``(``pipeline_root``))``beam_arg``=``[``"--direct_num_workers={}"``.``format``(``direct_num_workers``),`![](images/00002.jpg)`"--requirements_file={}"``.``format``(``requirement_file``)``]``p``=``pipeline``.``Pipeline``(`![](images/00075.jpg)`pipeline_name``=``pipeline_name``,``pipeline_root``=``pipeline_root``,``components``=``components``,``enable_cache``=``False``,`![](images/00064.jpg)`metadata_connection_config``=``\`
+    `metadata``.``sqlite_metadata_connection_config``(``metadata_path``),``beam_pipeline_args``=``beam_arg``)``return``p`'
+- en: '![](images/00002.jpg)'
+  id: totrans-74
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Beam lets you specify the number of workers. A sensible default is half the
+    number of CPUs (if there is more than one CPU).
+  id: totrans-75
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: Beam allows you to specify the number of workers. A sensible default is half
+    the number of CPUs (if there is more than one CPU).
+- en: '![](images/00075.jpg)'
+  id: totrans-76
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: This is where you define your pipeline object with a configuration.
+  id: totrans-77
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 在这里，您可以使用配置定义管道对象。
+- en: '![](images/00064.jpg)'
+  id: totrans-78
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00064.jpg)'
+- en: We can set the cache to `True` if we would like to avoid rerunning components
+    that have already finished. If we set this flag to `False`, everything gets recomputed
+    every time we run the pipeline.
+  id: totrans-79
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 如果希望避免重新运行已完成的组件，我们可以将缓存设置为`True`。如果将此标志设置为`False`，每次运行管道时都会重新计算所有内容。
+- en: The Beam pipeline configuration needs to include the name of the pipeline, the
+    path to the root of the pipeline directory, and a list of components to be executed
+    as part of the pipeline.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Beam管道配置需要包括管道名称、管道目录根路径以及作为管道执行一部分的组件列表。
+- en: 'Next, we will initialize the components from [Example 11-1](#filepos1274326),
+    initialize the pipeline as earlier, and run the pipeline using `BeamDagRunner().run(pipeline)`:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将按照 [示例 11-1](#filepos1274326) 初始化组件，初始化流水线如前所述，并使用 `BeamDagRunner().run(pipeline)`
+    运行流水线：
+- en: '`from``tfx.orchestration.beam.beam_dag_runner``import``BeamDagRunner``components``=``init_components``(``data_dir``,``module_file``,``serving_model_dir``,``training_steps``=``100``,``eval_steps``=``100``)``pipeline``=``init_beam_pipeline``(``components``,``pipeline_root``,``direct_num_workers``)``BeamDagRunner``()``.``run``(``pipeline``)`'
+  id: totrans-82
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.orchestration.beam.beam_dag_runner``import``BeamDagRunner``components``=``init_components``(``data_dir``,``module_file``,``serving_model_dir``,``training_steps``=``100``,``eval_steps``=``100``)``pipeline``=``init_beam_pipeline``(``components``,``pipeline_root``,``direct_num_workers``)``BeamDagRunner``()``.``run``(``pipeline``)`'
+- en: This is a minimal setup that you can easily integrate with the rest of your
+    infrastructure or schedule using a cron job. You can also scale up this pipeline
+    using [Apache Flink](https://flink.apache.org) or Spark. An example using Flink
+    is briefly described in [this TFX example](https://oreil.ly/FYzLY).
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个最小设置，您可以轻松集成到其余基础架构中，或使用 cron 作业进行调度。您还可以使用 [Apache Flink](https://flink.apache.org)
+    或 Spark 扩展此流水线。有关使用 Flink 的示例，请参见 [此 TFX 示例](https://oreil.ly/FYzLY) 中的简要描述。
+- en: In the next section, we will move on to Apache Airflow, which offers many extra
+    features when we use it to orchestrate our pipelines.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的部分，我们将继续使用 Apache Airflow，当我们用它来编排我们的流水线时，它提供了许多额外的功能。
+- en: Introduction to Apache Airflow
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Airflow 简介
+- en: Airflow is Apache’s project for workflow automation. The project was initiated
+    in 2016, and it has gained significant attention from large corporations and the
+    general data science community since then. In December 2018, the project “graduated”
+    from the Apache Incubator and became its own [Apache project](https://airflow.apache.org).
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Airflow 是 Apache 的工作流自动化项目。该项目始于2016年，并自那时起引起了大公司和整个数据科学社区的广泛关注。2018年12月，该项目从
+    Apache 孵化器“毕业”，成为自己的 [Apache 项目](https://airflow.apache.org)。
+- en: Apache Airflow lets you represent workflow tasks through DAGs represented via
+    Python code. Also, Airflow lets you schedule and monitor workflows. This makes
+    it an ideal orchestration tool for our TFX pipelines.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Airflow 允许您通过用 Python 代码表示的 DAG 表示工作流任务。此外，Airflow 还允许您调度和监视工作流。这使它成为我们
+    TFX 流水线的理想编排工具。
+- en: In this section, we’ll go through the basics of setting up Airflow. Then, we’ll
+    show how we can use it to run our example project.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将介绍设置 Airflow 的基础知识。然后，我们将展示如何使用它来运行我们的示例项目。
+- en: Installation and Initial Setup
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装和初始设置
+- en: 'The basic setup of Apache Airflow is straightforward. If you are using Mac
+    or Linux, define the location for the Airflow data with this command:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Airflow 的基本设置非常简单。如果您使用的是 Mac 或 Linux，可以使用以下命令定义 Airflow 数据的位置：
+- en: '`$` `export` `AIRFLOW_HOME``=``~/airflow`'
+  id: totrans-91
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `$` `export` `AIRFLOW_HOME``=``~/airflow`'
+- en: 'Once the main data folder for Airflow is defined, you can install Airflow:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义好 Airflow 的主数据文件夹后，您可以安装 Airflow：
+- en: '`$` `pip install apache-airflow`'
+  id: totrans-93
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `pip install apache-airflow`'
+- en: Airflow can be installed with a variety of dependencies. At the time of writing,
+    the list of extensions is PostgreSQL support, Dask, Celery, and Kubernetes.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Airflow 可以安装多种依赖项。在撰写本文时，扩展列表包括 PostgreSQL 支持、Dask、Celery 和 Kubernetes。
+- en: A complete list of Airflow extensions and how to install them can be found in
+    the [Airflow documentation](https://oreil.ly/evVfY).
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在 [Airflow 文档](https://oreil.ly/evVfY) 中找到完整的 Airflow 扩展列表以及安装方法。
+- en: 'With Airflow now installed, you need to create an initial database where all
+    the task status information will be stored. Airflow provides you a command to
+    initialize the Airflow database:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在安装了 Airflow，需要创建一个初始数据库，用于存储所有任务状态信息。Airflow 提供了一个命令来初始化 Airflow 数据库：
+- en: '`$` `airflow initdb`'
+  id: totrans-97
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `airflow initdb`'
+- en: If you use Airflow out of the box and haven’t changed any configurations, Airflow
+    will instantiate an SQLite database. This setup works to execute demo projects
+    and to run smaller workflows. If you want to scale your workflow with Apache Airflow,
+    we highly recommend a deep dive into [the documentation](https://oreil.ly/Pgc9S).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您使用的是 Airflow 的默认设置，并且没有更改任何配置，则 Airflow 将实例化一个 SQLite 数据库。此设置适用于执行演示项目和运行较小的工作流程。如果您希望通过
+    Apache Airflow 扩展工作流程，请务必深入研究 [文档](https://oreil.ly/Pgc9S)。
+- en: A minimal Airflow setup consists of the Airflow scheduler, which coordinates
+    the tasks and task dependencies, as well as a web server, which provides a UI
+    to start, stop, and monitor the tasks.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最小化的Airflow设置包括Airflow调度器，协调任务和任务依赖关系，以及Web服务器，提供UI来启动、停止和监视任务。
+- en: 'Start the scheduler with the following command:'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用以下命令启动调度器：
+- en: '`$` `airflow scheduler`'
+  id: totrans-101
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `airflow scheduler`'
+- en: 'In a different terminal window, start the Airflow web server with this command:'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在另一个终端窗口，使用以下命令启动Airflow Web服务器：
+- en: '`$` `airflow webserver -p 8081`'
+  id: totrans-103
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `airflow webserver -p 8081`'
+- en: The command argument `-p` sets the port where your web browser can access the
+    Airflow interface. When everything is working, go to [http://127.0.0.1:8081](http://127.0.0.1:8081)
+    and you should see the interface shown in [Figure 11-2](#filepos1323902).
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 命令参数`-p`设置了你的网络浏览器访问Airflow接口的端口。一切正常后，请访问[http://127.0.0.1:8081](http://127.0.0.1:8081)，你应该能看到[Figure 11-2](#filepos1323902)中展示的界面。
+- en: '![](images/00107.jpg)'
+  id: totrans-105
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00107.jpg)'
+- en: Figure 11-2\. Apache Airflow UI
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Figure 11-2\. Apache Airflow UI
+- en: AIRFLOW CONFIGURATION
+  id: totrans-107
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: AIRFLOW配置
+- en: The default settings of Airflow can be overwritten by changing the relevant
+    parameters in the Airflow configuration. If you store your graph definitions in
+    a different place than `~/airflow/dags`, you may want to overwrite the default
+    configuration by defining the new locations of the pipeline graphs in `~/airflow/airflow.cfg`.
+  id: totrans-108
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 通过更改Airflow配置中的相关参数，可以覆盖Airflow的默认设置。如果您将图定义存储在与`~/airflow/dags`不同的位置，可能需要通过定义管道图的新位置在`~/airflow/airflow.cfg`中覆盖默认配置。
+- en: Basic Airflow Example
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基本Airflow示例
+- en: With the Airflow installation in place, let’s take a look at how to set up a
+    basic Airflow pipeline. In this example, we won’t include any TFX components.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Airflow安装完成后，让我们看看如何设置一个基本的Airflow管道。在本示例中，我们不包括任何TFX组件。
+- en: Workflow pipelines are defined as Python scripts, and Airflow expects the DAG
+    definitions to be located in `~/airflow/dags`. A basic pipeline consists of project-specific
+    Airflow configurations, task definitions, and the definition of the task dependencies.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工作流管道被定义为Python脚本，并且Airflow期望DAG定义位于`~/airflow/dags`。一个基本的管道包括项目特定的Airflow配置、任务定义和任务依赖的定义。
+- en: Project-specific configurations
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 项目特定配置
+- en: Airflow gives you the option to configure project-specific settings, such as
+    when to retry failed workflows or notifying a specific person if a workflow fails.
+    The list of configuration options is extensive. We recommend you reference the
+    [Airflow documentation](https://airflow.apache.org) for an updated overview.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Airflow提供了配置项目特定设置的选项，例如何时重试失败的工作流或在工作流失败时通知特定人员。配置选项列表非常广泛。我们建议您参考[Airflow文档](https://airflow.apache.org)获取更新的概述。
+- en: 'Your Airflow pipeline definitions start with importing the relevant Python
+    modules and project configurations:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你的Airflow管道定义始于导入相关Python模块和项目配置：
+- en: '`from``airflow``import``DAG``from``datetime``import``datetime``,``timedelta``project_cfg``=``{`![](images/00002.jpg)`''owner''``:``''airflow''``,``''email''``:``[``''``your-email@example.com``''``],``''email_on_failure''``:``True``,``''start_date''``:``datetime``(``2019``,``8``,``1``),``''retries''``:``1``,``''retry_delay''``:``timedelta``(``hours``=``1``),``}``dag``=``DAG``(`![](images/00075.jpg)`''basic_pipeline''``,``default_args``=``project_cfg``,``schedule_interval``=``timedelta``(``days``=``1``))`'
+  id: totrans-115
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``airflow``import``DAG``from``datetime``import``datetime``,``timedelta``project_cfg``=``{`![](images/00002.jpg)`''owner''``:``''airflow''``,``''email''``:``[``''``your-email@example.com``''``],``''email_on_failure''``:``True``,``''start_date''``:``datetime``(``2019``,``8``,``1``),``''retries''``:``1``,``''retry_delay''``:``timedelta``(``hours``=``1``),``}``dag``=``DAG``(`![](images/00075.jpg)`''basic_pipeline''``,``default_args``=``project_cfg``,``schedule_interval``=``timedelta``(``days``=``1``))`'
+- en: '![](images/00002.jpg)'
+  id: totrans-116
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Location to define the project configuration.
+  id: totrans-117
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 定义项目配置的位置。
+- en: '![](images/00075.jpg)'
+  id: totrans-118
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: The DAG object will be picked up by Airflow.
+  id: totrans-119
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: DAG对象将被Airflow拾取。
+- en: Again, Airflow provides a range of configuration options to set up DAG objects.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次提醒，Airflow提供了一系列配置选项来设置DAG对象。
+- en: Task definitions
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任务定义
+- en: Once the DAG object is set up, we can create workflow tasks. Airflow provides
+    task operators that execute tasks in a Bash or Python environment. Other predefined
+    operators let you connect to cloud data storage buckets like GCP Storage or AWS
+    S3.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦设置了DAG对象，我们可以创建工作流任务。Airflow提供任务运算符，可以在Bash或Python环境中执行任务。其他预定义的运算符允许您连接到云数据存储桶，如GCP
+    Storage或AWS S3。
+- en: 'A very basic example of task definitions is shown in the following:'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任务定义的一个非常基本的示例如下所示：
+- en: '`from``airflow.operators.python_operator``import``PythonOperator``def``example_task``(``_id``,``**``kwargs``):``print``(``"task
+    {}"``.``format``(``_id``))``return``"completed task {}"``.``format``(``_id``)``task_1``=``PythonOperator``(``task_id``=``''task
+    1''``,``provide_context``=``True``,``python_callable``=``example_task``,``op_kwargs``=``{``''_id''``:``1``},``dag``=``dag``,``)``task_2``=``PythonOperator``(``task_id``=``''task
+    2''``,``provide_context``=``True``,``python_callable``=``example_task``,``op_kwargs``=``{``''_id''``:``2``},``dag``=``dag``,``)`'
+  id: totrans-124
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``airflow.operators.python_operator``import``PythonOperator``def``example_task``(``_id``,``**``kwargs``):``print``(``"task
+    {}"``.``format``(``_id``))``return``"completed task {}"``.``format``(``_id``)``task_1``=``PythonOperator``(``task_id``=``''task
+    1''``,``provide_context``=``True``,``python_callable``=``example_task``,``op_kwargs``=``{``''_id''``:``1``},``dag``=``dag``,``)``task_2``=``PythonOperator``(``task_id``=``''task
+    2''``,``provide_context``=``True``,``python_callable``=``example_task``,``op_kwargs``=``{``''_id''``:``2``},``dag``=``dag``,``)``'
+- en: In a TFX pipeline, you don’t need to define these tasks because the TFX library
+    takes care of it for you. But these examples will help you understand what is
+    going on behind the scenes.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 TFX 流水线中，您不需要定义这些任务，因为 TFX 库会为您处理。但这些示例将帮助您理解背后的运行原理。
+- en: Task dependencies
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任务依赖关系
+- en: In our machine learning pipelines, tasks depend on each other. For example,
+    our model training tasks require that data validation is performed before training
+    starts. Airflow gives you a variety of options for declaring these dependencies.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的机器学习流水线中，任务彼此依赖。例如，我们的模型训练任务要求在开始训练之前执行数据验证。Airflow 提供了多种选项来声明这些依赖关系。
+- en: 'Let’s assume that our `task_2` depends on `task_1`. You could define the task
+    dependency as follows:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们的 `task_2` 依赖于 `task_1`。您可以如下定义任务依赖关系：
+- en: '`task_1``.``set_downstream``(``task_2``)`'
+  id: totrans-129
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`task_1``.``set_downstream``(``task_2``)`'
+- en: 'Airflow also offers a `bit-shift` operator to denote the task dependencies:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Airflow 也提供了一个 `bit-shift` 操作符来表示任务依赖关系：
+- en: '`task_1``>>``task_2``>>``task_X`'
+  id: totrans-131
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`task_1``>>``task_2``>>``task_X`'
+- en: In the preceding example, we defined a chain of tasks. Each of the tasks will
+    be executed if the previous task is successfully completed. If a task does not
+    complete successfully, dependent tasks will not be executed and Airflow marks
+    them as skipped.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上述示例中，我们定义了一个任务链。如果前一个任务成功完成，每个任务将被执行。如果任务未能成功完成，依赖任务将不会执行，Airflow 会标记它们为跳过状态。
+- en: Again, this will be taken care of by the TFX library in a TFX pipeline.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，在 TFX 流水线中，这将由 TFX 库处理。
+- en: Putting it all together
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将所有内容放在一起
+- en: 'After explaining all the individual setup steps, let’s put it all together.
+    In your `DAG` folder in your `AIRFLOW_HOME` path, usually at `~/airflow/dags`,
+    create a new file basic_pipeline.py:'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在解释所有单独设置步骤之后，让我们把所有内容放在一起。在您的 `AIRFLOW_HOME` 路径下的 `DAG` 文件夹中，通常在 `~/airflow/dags`，创建一个新文件
+    `basic_pipeline.py`：
+- en: '`from``airflow``import``DAG``from``airflow.operators.python_operator``import``PythonOperator``from``datetime``import``datetime``,``timedelta``project_cfg``=``{``''owner''``:``''airflow''``,``''email''``:``[``''``your-email@example.com``''``],``''email_on_failure''``:``True``,``''start_date''``:``datetime``(``2020``,``5``,``13``),``''retries''``:``1``,``''retry_delay''``:``timedelta``(``hours``=``1``),``}``dag``=``DAG``(``''basic_pipeline''``,``default_args``=``project_cfg``,``schedule_interval``=``timedelta``(``days``=``1``))``def``example_task``(``_id``,``**``kwargs``):``print``(``"Task
+    {}"``.``format``(``_id``))``return``"completed task {}"``.``format``(``_id``)``task_1``=``PythonOperator``(``task_id``=``''task_1''``,``provide_context``=``True``,``python_callable``=``example_task``,``op_kwargs``=``{``''_id''``:``1``},``dag``=``dag``,``)``task_2``=``PythonOperator``(``task_id``=``''task_2''``,``provide_context``=``True``,``python_callable``=``example_task``,``op_kwargs``=``{``''_id''``:``2``},``dag``=``dag``,``)``task_1``>>``task_2`'
+  id: totrans-136
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``airflow``import``DAG``from``airflow.operators.python_operator``import``PythonOperator``from``datetime``import``datetime``,``timedelta``project_cfg``=``{``''owner''``:``''airflow''``,``''email''``:``[``''``your-email@example.com``''``],``''email_on_failure''``:``True``,``''start_date''``:``datetime``(``2020``,``5``,``13``),``''retries''``:``1``,``''retry_delay''``:``timedelta``(``hours``=``1``),``}``dag``=``DAG``(``''basic_pipeline''``,``default_args``=``project_cfg``,``schedule_interval``=``timedelta``(``days``=``1``))``def``example_task``(``_id``,``**``kwargs``):``print``(``"Task
+    {}"``.``format``(``_id``))``return``"completed task {}"``.``format``(``_id``)``task_1``=``PythonOperator``(``task_id``=``''task_1''``,``provide_context``=``True``,``python_callable``=``example_task``,``op_kwargs``=``{``''_id''``:``1``},``dag``=``dag``,``)``task_2``=``PythonOperator``(``task_id``=``''task_2''``,``provide_context``=``True``,``python_callable``=``example_task``,``op_kwargs``=``{``''_id''``:``2``},``dag``=``dag``,``)``task_1``>>``task_2`'
+- en: 'You can test the pipeline setup by executing this command in your terminal:'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过在终端中执行以下命令来测试流水线设置：
+- en: '`python ~/airflow/dags/basic_pipeline.py`'
+  id: totrans-138
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`python ~/airflow/dags/basic_pipeline.py`'
+- en: 'Our `print` statement will be printed to Airflow’s log files instead of the
+    terminal. You can find the log file at:'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的`print`语句将被打印到Airflow的日志文件中，而不是终端。您可以在以下位置找到日志文件：
+- en: '`~/airflow/logs/``NAME OF YOUR PIPELINE``/``TASK NAME``/``EXECUTION TIME``/`'
+  id: totrans-140
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`~/airflow/logs/``你的流水线名称``/``任务名称``/``执行时间``/`'
+- en: 'If we want to inspect the results of the first task from our basic pipeline,
+    we have to investigate the log file:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们想检查我们基本流水线的第一个任务的结果，我们必须查看日志文件：
+- en: '`$` `cat ../logs/basic_pipeline/task_1/2019-09-07T19``\:``36``\:``18.027474+00``\:``00/1.log  ...`
+    `[``2019-09-07 19:36:25,165``]``{``logging_mixin.py:95``}` `INFO - Task` `1`![](images/00002.jpg)`[``2019-09-07
+    19:36:25,166``]``{``python_operator.py:114``}` `INFO - Done. Returned value was:
+        completed task 1` `[``2019-09-07 19:36:26,112``]``{``logging_mixin.py:95``}`
+    `INFO -` `[``2019-09-07 19:36:26,112``]`![](images/00075.jpg)`{``local_task_job.py:105``}`
+    `INFO - Task exited with` `return` `code 0`'
+  id: totrans-142
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `cat ../logs/basic_pipeline/task_1/2019-09-07T19``\:``36``\:``18.027474+00``\:``00/1.log  ...`
+    `[``2019-09-07 19:36:25,165``]``{``logging_mixin.py:95``}` `INFO - Task` `1`![](images/00002.jpg)`[``2019-09-07
+    19:36:25,166``]``{``python_operator.py:114``}` `INFO - Done. Returned value was:
+        completed task 1` `[``2019-09-07 19:36:26,112``]``{``logging_mixin.py:95``}`
+    `INFO -` `[``2019-09-07 19:36:26,112``]`![](images/00075.jpg)`{``local_task_job.py:105``}`
+    `INFO - Task exited with` `return` `code 0`'
+- en: '![](images/00002.jpg)'
+  id: totrans-143
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00002.jpg)'
+- en: Our print statement
+  id: totrans-144
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们的打印语句
+- en: '![](images/00075.jpg)'
+  id: totrans-145
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00075.jpg)'
+- en: Our return message after a successful completion
+  id: totrans-146
+  prefs:
+  - PREF_BQ
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 我们成功完成后的返回消息
+- en: 'To test whether Airflow recognized the new pipeline, you can execute:'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要测试Airflow是否识别了新流水线，您可以执行：
+- en: '`$` `airflow list_dags  -------------------------------------------------------------------
+    DAGS ------------------------------------------------------------------- basic_pipeline`'
+  id: totrans-148
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`$` `airflow list_dags  -------------------------------------------------------------------
+    DAGS ------------------------------------------------------------------- basic_pipeline`'
+- en: This shows that the pipeline was recognized successfully.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这显示了流水线已成功识别。
+- en: Now that you have an understanding of the principles behind an Airflow pipeline,
+    let’s put it into practice with our example project.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经了解了Airflow流水线背后的原理，让我们通过我们的示例项目实践一下。
+- en: Orchestrating TFX Pipelines with Apache Airflow
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Apache Airflow编排TFX流水线
+- en: In this section, we will demonstrate how we can orchestrate TFX pipelines with
+    Airflow. This lets us use features such as Airflow’s UI and its scheduling capabilities,
+    which are very helpful in a production setup.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将演示如何使用Airflow编排TFX流水线。这使我们可以使用Airflow的UI和其调度功能等功能，这些在生产环境设置中非常有帮助。
+- en: Pipeline Setup
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流水线设置
+- en: Setting up a TFX pipeline with Airflow is very similar to the `BeamDagRunner`
+    setup for Beam, except that we have to configure more settings for the Airflow
+    use case.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Airflow设置TFX流水线与为Beam设置`BeamDagRunner`相似，只是我们需要为Airflow用例配置更多设置。
+- en: Instead of importing the `BeamDagRunner`, we will use the `AirflowDAGRunner`.
+    The runner tasks an additional argument, which is the configurations of Apache
+    Airflow (the same configurations that we discussed in [“Project-specific configurations”](#filepos1325372)).
+    The `AirflowDagRunner` takes care of all the task definitions and dependencies
+    that we described previously so that we can focus on our pipeline.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将不再导入`BeamDagRunner`，而是使用`AirflowDAGRunner`。该运行器需要一个额外的参数，即Apache Airflow的配置（与我们在[“项目特定配置”](#filepos1325372)中讨论的配置相同）。`AirflowDagRunner`负责我们之前描述的所有任务定义和依赖关系，以便我们可以专注于我们的流水线。
+- en: 'As we discussed earlier, the files for an Airflow pipeline need to be located
+    in the ~/airflow/dags folder. We also discussed some common configurations for
+    Airflow, such as scheduling. We provide these for our pipeline:'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前讨论的那样，Airflow流水线的文件需要位于~/airflow/dags文件夹中。我们还讨论了一些Airflow的常见配置，如调度。我们为我们的流水线提供这些配置：
+- en: '`airflow_config``=``{``''schedule_interval''``:``None``,``''start_date''``:``datetime``.``datetime``(``2020``,``4``,``17``),``''pipeline_name''``:``''your_ml_pipeline''``,``}`'
+  id: totrans-157
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`airflow_config``=``{``''schedule_interval''``:``None``,``''start_date''``:``datetime``.``datetime``(``2020``,``4``,``17``),``''pipeline_name''``:``''your_ml_pipeline''``,``}`'
+- en: 'Similar to the Beam example, we initialize the components and define the number
+    of workers:'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与Beam示例类似，我们初始化组件并定义工作人员的数量：
+- en: '`from``tfx.orchestration``import``metadata``,``pipeline``def``init_pipeline``(``components``,``pipeline_root``:``Text``,``direct_num_workers``:``int``)``->``pipeline``.``Pipeline``:``beam_arg``=``[``"--direct_num_workers={}"``.``format``(``direct_num_workers``),``]``p``=``pipeline``.``Pipeline``(``pipeline_name``=``pipeline_name``,``pipeline_root``=``pipeline_root``,``components``=``components``,``enable_cache``=``True``,``metadata_connection_config``=``metadata``.``sqlite_metadata_connection_config``(``metadata_path``),``beam_pipeline_args``=``beam_arg``)``return``p`'
+  id: totrans-159
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.orchestration``import``metadata``,``pipeline``def``init_pipeline``(``components``,``pipeline_root``:``Text``,``direct_num_workers``:``int``)``->``pipeline``.``Pipeline``:``beam_arg``=``[``"--direct_num_workers={}"``.``format``(``direct_num_workers``),``]``p``=``pipeline``.``Pipeline``(``pipeline_name``=``pipeline_name``,``pipeline_root``=``pipeline_root``,``components``=``components``,``enable_cache``=``True``,``metadata_connection_config``=``metadata``.``sqlite_metadata_connection_config``(``metadata_path``),``beam_pipeline_args``=``beam_arg``)``return``p`'
+- en: 'Then, we initialize the pipeline and execute it:'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们初始化流水线并执行它。
+- en: '`from``tfx.orchestration.airflow.airflow_dag_runner``import``AirflowDagRunner``from``tfx.orchestration.airflow.airflow_dag_runner``import``AirflowPipelineConfig``from``base_pipeline``import``init_components``components``=``init_components``(``data_dir``,``module_file``,``serving_model_dir``,``training_steps``=``100``,``eval_steps``=``100``)``pipeline``=``init_pipeline``(``components``,``pipeline_root``,``0``)``DAG``=``AirflowDagRunner``(``AirflowPipelineConfig``(``airflow_config``))``.``run``(``pipeline``)`'
+  id: totrans-161
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '`from``tfx.orchestration.airflow.airflow_dag_runner``import``AirflowDagRunner``from``tfx.orchestration.airflow.airflow_dag_runner``import``AirflowPipelineConfig``from``base_pipeline``import``init_components``components``=``init_components``(``data_dir``,``module_file``,``serving_model_dir``,``training_steps``=``100``,``eval_steps``=``100``)``pipeline``=``init_pipeline``(``components``,``pipeline_root``,``0``)``DAG``=``AirflowDagRunner``(``AirflowPipelineConfig``(``airflow_config``))``.``run``(``pipeline``)`'
+- en: Again, this code is very similar to the code for the Apache Beam pipeline, but
+    instead of `BeamDagRunner`, we use `AirflowDagRunner` and `AirflowPipelineConfig`.
+    We initialize the components using [Example 11-1](#filepos1274326), and then Airflow
+    looks for a variable named `DAG`.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次，这段代码与Apache Beam流水线的代码非常相似，但我们使用的是`AirflowDagRunner`和`AirflowPipelineConfig`，而不是`BeamDagRunner`。我们使用[示例 11-1](#filepos1274326)初始化组件，然后Airflow会寻找名为`DAG`的变量。
+- en: In this [book’s GitHub repo](https://oreil.ly/bmlp-git), we provide a Docker
+    container that allows you to easily try out the example pipeline using Airflow.
+    It sets up the Airflow web server and scheduler, and moves the files to the correct
+    locations. You can also learn more about Docker in [Appendix A](index_split_023.html#filepos1605424).
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这本书的GitHub存储库中，我们提供了一个Docker容器，允许您轻松尝试使用Airflow的示例流水线。它设置了Airflow Web服务器和调度程序，并将文件移动到正确的位置。您还可以在[附录 A](index_split_023.html#filepos1605424)中了解有关Docker的更多信息。
+- en: Pipeline Execution
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流水线执行
+- en: As we discussed earlier, once we have started our Airflow web server, we can
+    open the UI at the port we define. The view should look very similar to [Figure 11-3](#filepos1376193).
+    To run a pipeline, we need to turn the pipeline on and then trigger it using the
+    Trigger DAG button, indicated by the Play icon.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前讨论的那样，一旦启动了Airflow Web服务器，我们可以在定义的端口上打开UI。视图应该看起来与[图 11-3](#filepos1376193)非常相似。要运行一个流水线，我们需要打开流水线，然后使用触发DAG按钮来触发它，该按钮由播放图标指示。
+- en: '![](images/00005.jpg)'
+  id: totrans-166
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00005.jpg)'
+- en: Figure 11-3\. Turning on a DAG in Airflow
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 11-3\. 在Airflow中启动DAG
+- en: The graph view in the web server UI ([Figure 11-4](#filepos1376702)) is useful
+    to see the dependencies of the components and the progress of the pipeline execution.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Web服务器UI中的图形视图（[图 11-4](#filepos1376702)）对于查看组件的依赖关系和流水线执行的进度非常有用。
+- en: '![](images/00014.jpg)'
+  id: totrans-169
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00014.jpg)'
+- en: Figure 11-4\. Airflow graph view
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 11-4\. Airflow图形视图
+- en: You will need to refresh the browser page to see the updated progress. As the
+    components finish, they will acquire a green box around the edge, as shown in
+    [Figure 11-5](#filepos1377288). You can view the logs from each component by clicking
+    on them.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您需要刷新浏览器页面以查看更新的进度。随着组件完成，它们将在边缘周围获得绿色框，如[图 11-5](#filepos1377288)所示。您可以通过点击它们来查看每个组件的日志。
+- en: '![](images/00027.jpg)'
+  id: totrans-172
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00027.jpg)'
+- en: Figure 11-5\. Completed pipeline in Airflow
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 11-5\. Airflow中完成的流水线
+- en: Orchestrating pipelines with Airflow is a good choice if you want a fairly lightweight
+    setup that includes a UI or if your company is already using Airflow. But if your
+    company is already running Kubernetes clusters, the next chapter describes Kubeflow
+    Pipelines, a much better orchestration tool for this situation.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Airflow来编排流水线是一个不错的选择，如果您想要一个包含UI的相对轻量级设置，或者您的公司已经在使用Airflow。但如果您的公司已经在运行Kubernetes集群，下一章将介绍Kubeflow
+    Pipelines，这是一个更好的编排工具适用于这种情况。
+- en: Summary
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结
+- en: In this chapter, we discussed the different options for orchestrating your machine
+    learning pipelines. You need to choose the tool that best suits your setup and
+    your use case. We demonstrated how to use Apache Beam to run a pipeline, then
+    introduced Airflow and its principles, and finally showed how to run the complete
+    pipeline with Airflow.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们讨论了不同的选项来编排您的机器学习流水线。您需要选择最适合您的设置和用例的工具。我们演示了如何使用Apache Beam来运行流水线，然后介绍了Airflow及其原理，最后展示了如何使用Airflow运行完整的流水线。
+- en: In the next chapter, we will show how to run pipelines using Kubeflow Pipelines
+    and Google’s AI Platform. If these do not fit your use case, you can skip straight
+    to [Chapter 13](index_split_020.html#filepos1489635) where we will show you how
+    to turn your pipeline into a cycle using feedback loops.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，我们将展示如何使用Kubeflow Pipelines和Google的AI平台来运行流水线。如果这些不符合您的用例，您可以直接跳到[第13章](index_split_020.html#filepos1489635)，我们将展示如何使用反馈循环将您的流水线转变为一个循环。

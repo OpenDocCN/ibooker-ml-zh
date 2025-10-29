@@ -1,0 +1,842 @@
+- en: Chapter 7\. Using Classifiers for Writing Recommendations
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第7章\. 使用分类器撰写建议
+- en: The best way to make progress in ML is through repeatedly following the iterative
+    loop depicted in [Figure 7-1](#le_loop), which we saw in the introduction to Part
+    III. Start by establishing a modeling hypothesis, iterate on a modeling pipeline,
+    and perform detailed error analysis to inform your next hypothesis.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在ML中取得进展的最佳方式是通过反复遵循第III部分介绍中所示的迭代循环（参见[图 7-1](#le_loop)）。首先建立建模假设，迭代建模管道，并进行详细的错误分析以指导下一个假设。
+- en: '![The ML Loop](assets/bmla_0701.png)'
+  id: totrans-2
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ML循环](assets/bmla_0701.png)'
+- en: Figure 7-1\. The ML loop
+  id: totrans-3
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-1\. ML循环
+- en: The previous chapters described multiple steps in this loop. In [Chapter 5](ch05.html#first_model),
+    we covered how to train and score a model. In [Chapter 6](ch06.html#debugging),
+    we shared advice on how to build models faster and troubleshoot ML-related errors.
+    This chapter closes an iteration of the loop by first showcasing methods to use
+    trained classifiers to provide suggestions to users, then selecting a model to
+    use for the ML Editor, and finally combining both to build a working ML Editor.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前几章描述了此循环中的多个步骤。在[第5章](ch05.html#first_model)中，我们讨论了如何训练和评分模型。在[第6章](ch06.html#debugging)中，我们分享了如何更快地构建模型和解决ML相关错误的建议。本章通过首先展示如何使用训练有素的分类器为用户提供建议，然后选择用于ML
+    Editor的模型，并最终结合两者来构建工作中的ML Editor，从而结束了循环的一个迭代。
+- en: In [“ML Editor Planning”](ch02.html#case_study_plan) we outlined our plan for
+    the ML Editor, which consists of training a model that classifies questions into
+    high- and low-score categories and use this trained model to guide users to write
+    better questions. Let’s see how we can use such a model to provide writing advice
+    to users.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[“ML Editor规划”](ch02.html#case_study_plan)中，我们概述了我们的ML Editor计划，其中包括训练一个能将问题分类为高分和低分类别的模型，并使用这个训练有素的模型来引导用户撰写更好问题的方法。让我们看看如何使用这样的模型为用户提供写作建议。
+- en: Extracting Recommendations from Models
+  id: totrans-6
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 从模型中提取推荐
+- en: The goal of the ML Editor is to provide writing recommendations. Classifying
+    a question as good or bad is a first step in this direction since it makes it
+    possible to display the current quality of a question to a user. We’d like to
+    go one step beyond this and help users improve the formulation of their questions
+    by providing them with actionable recommendations.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML Editor的目标是提供写作建议。将问题分类为好与坏是朝这个方向迈出的第一步，因为它可以向用户展示问题的当前质量。我们希望进一步，通过提供可操作的建议帮助用户改善问题的表达方式。
+- en: This section covers methods to provide such recommendations. We will start with
+    simple approaches that rely on aggregate feature metrics and do not require the
+    use of a model at inference time. Then, we will see how to both use a model’s
+    score and its sensitivity to perturbations to generate more personalized recommendations.
+    You can find examples of each of the methods showcased in this chapter applied
+    to the ML Editor in the generating recommendations notebook on [this book’s GitHub
+    site](https://oreil.ly/ml-powered-applications).
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节介绍了提供此类建议的方法。我们将从依赖聚合特征度量且不需要在推断时使用模型的简单方法开始。然后，我们将看到如何同时使用模型得分及其对扰动的敏感性来生成更个性化的建议。您可以在[本书的GitHub站点](https://oreil.ly/ml-powered-applications)上的生成推荐笔记本中找到本章展示的每种方法的示例，应用于ML
+    Editor。
+- en: What Can We Achieve Without a Model?
+  id: totrans-9
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 没有模型我们能实现什么？
+- en: Training a model that performs well is achieved through multiple iterations
+    of the ML loop. Each iteration helps create a better set of features through researching
+    prior art, iterating on potential datasets, and examining model results. To provide
+    users with recommendations, you can leverage this feature iteration work. This
+    approach does not necessarily require running a model on each question a user
+    submits and focuses instead on making general recommendations.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过多次ML循环迭代来训练表现良好的模型。每次迭代都有助于通过研究先前的技术成果、迭代潜在数据集和检查模型结果来创建更好的特征集。为了向用户提供建议，您可以利用这些特征迭代工作。这种方法不一定需要在用户提交的每个问题上运行模型，而是专注于提供一般性建议。
+- en: You can do so either by using the features directly or by incorporating a trained
+    model to help select relevant ones.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以直接使用特征或将训练有素的模型纳入以帮助选择相关特征。
+- en: Using feature statistics
+  id: totrans-12
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用特征统计
+- en: Once predictive features have been identified, they can be directly communicated
+    to a user without using a model. If the mean value of a feature is significantly
+    different for each class, you can share this information directly to help users
+    nudge their examples in the direction of the target class.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦确定了预测性特征，可以直接向用户传达这些特征而无需使用模型。如果一个特征的均值在每个类别中有显著不同，您可以直接分享这些信息，以帮助用户朝着目标类别的方向调整其示例。
+- en: One of the features we identified early on for the ML Editor was the presence
+    of question marks. Inspecting the data showed that questions with high scores
+    tend to have fewer question marks. To use this information to generate recommendations,
+    we can write a rule that warns a user if the proportion of question marks in their
+    question is much larger than in highly rated questions.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 ML 编辑器早期识别的一个特征是问号的存在。检查数据显示，得分高的问题倾向于问题标点少。为了利用这些信息生成推荐，我们可以编写一个规则，警告用户如果其问题中问号的比例远高于高评分问题。
+- en: Visualizing average feature values for each label can be done in a few lines
+    of code using pandas.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以通过几行代码使用 pandas 可视化每个标签的平均特征值。
+- en: '[PRE0]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Running the previous code produces the result shown in [Table 7-1](#feat_val_diffs).
+    In these results, we can see that many of the features we’ve generated have significantly
+    different values for high- and low-score questions, labeled True and False here.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行前述代码将生成如[表 7-1](#feat_val_diffs)所示的结果。从这些结果中，我们可以看到，我们生成的许多特征在高分和低分问题中具有显著不同的值，这里标记为真和假。
+- en: Table 7-1\. Differences in feature values between classes
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 7-1\. 类别间特征值差异
+- en: '| Label | False | True |'
+  id: totrans-19
+  prefs: []
+  type: TYPE_TB
+  zh: '| 标签 | 假 | 真 |'
+- en: '| --- | --- | --- |'
+  id: totrans-20
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| num_questions | 0.432 | 0.409 |'
+  id: totrans-21
+  prefs: []
+  type: TYPE_TB
+  zh: '| num_questions | 0.432 | 0.409 |'
+- en: '| num_periods | 0.814 | 0.754 |'
+  id: totrans-22
+  prefs: []
+  type: TYPE_TB
+  zh: '| num_periods | 0.814 | 0.754 |'
+- en: '| num_commas | 0.673 | 0.728 |'
+  id: totrans-23
+  prefs: []
+  type: TYPE_TB
+  zh: '| num_commas | 0.673 | 0.728 |'
+- en: '| num_exclam | 0.019 | 0.015 |'
+  id: totrans-24
+  prefs: []
+  type: TYPE_TB
+  zh: '| num_exclam | 0.019 | 0.015 |'
+- en: '| num_quotes | 0.216 | 0.199 |'
+  id: totrans-25
+  prefs: []
+  type: TYPE_TB
+  zh: '| num_quotes | 0.216 | 0.199 |'
+- en: '| num_colon | 0.094 | 0.081 |'
+  id: totrans-26
+  prefs: []
+  type: TYPE_TB
+  zh: '| num_colon | 0.094 | 0.081 |'
+- en: '| num_stops | 10.537 | 10.610 |'
+  id: totrans-27
+  prefs: []
+  type: TYPE_TB
+  zh: '| num_stops | 10.537 | 10.610 |'
+- en: '| num_semicolon | 0.013 | 0.014 |'
+  id: totrans-28
+  prefs: []
+  type: TYPE_TB
+  zh: '| num_semicolon | 0.013 | 0.014 |'
+- en: '| num_words | 21.638 | 21.480 |'
+  id: totrans-29
+  prefs: []
+  type: TYPE_TB
+  zh: '| num_words | 21.638 | 21.480 |'
+- en: '| num_chars | 822.104 | 967.032 |'
+  id: totrans-30
+  prefs: []
+  type: TYPE_TB
+  zh: '| num_chars | 822.104 | 967.032 |'
+- en: 'Using feature statistics is a simple way to provide robust recommendations.
+    It is in many ways similar to the heuristic approach that we first built in [“The
+    Simplest Approach: Being the Algorithm”](ch01.html#start_heuristic).'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用特征统计是提供稳健推荐的简单方法。在很多方面，它与我们在[“最简单的方法：成为算法”](ch01.html#start_heuristic)中首次构建的启发式方法类似。
+- en: When comparing feature values between classes, it can be hard to identify which
+    features contribute the most to a question being classified a certain way. To
+    estimate this better, we can use feature importance.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在比较类别间特征值时，很难确定哪些特征对于问题分类有最大贡献。为了更好地估计这一点，我们可以使用特征重要性。
+- en: Extracting Global Feature Importance
+  id: totrans-33
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 提取全局特征重要性
+- en: We first showed examples of generating feature importance in the context of
+    model evaluation in [“Evaluate Feature Importance”](ch05.html#eval_feat_imp_sect).
+    Feature importances can also be used to prioritize feature-based recommendations.
+    When displaying recommendations to users, features that are most predictive for
+    a trained classifier should be prioritized.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先展示了在[“评估特征重要性”](ch05.html#eval_feat_imp_sect)中模型评估背景下生成特征重要性的示例。特征重要性还可以用于优先考虑基于特征的推荐。在向用户展示推荐时，应优先考虑对训练过的分类器最具预测性的特征。
+- en: Next, I’ve displayed the results of a feature importance analysis for a question
+    classification model that uses a total of 30 features. Each of the top features
+    has a much larger importance than the bottom features. Guiding users to act based
+    on these top features first will help them improve their questions faster according
+    to the model.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我展示了一个问题分类模型的特征重要性分析结果，该模型使用了共30个特征。每个顶部特征的重要性远高于底部特征。引导用户首先基于这些顶部特征行动将帮助他们根据模型更快地改进问题。
+- en: '[PRE1]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Combining feature statistics and feature importance can make recommendations
+    more actionable and focused. The first approach provides target values for each
+    feature, while the latter prioritizes a smaller subset of the most important features
+    to display. These approaches also provide recommendations quickly, since they
+    do not require running a model at inference time, only checking an input against
+    feature statistics for the most important features.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结合特征统计和特征重要性可以使推荐更具可操作性和聚焦性。第一种方法为每个特征提供目标值，而后者则优先显示最重要特征的较小子集。这些方法还能够快速提供推荐，因为它们不需要在推断时运行模型，只需根据最重要特征的特征统计检查输入即可。
+- en: As we saw in [“Evaluate Feature Importance”](ch05.html#eval_feat_imp_sect),
+    extracting feature importances can be more difficult for complex models. If you
+    are using a model that does not expose feature importances, you can leverage a
+    black-box explainer on a large sample of examples to attempt to infer their values.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在[“评估特征重要性”](ch05.html#eval_feat_imp_sect) 中看到的，对于复杂模型来说，提取特征重要性可能更为困难。如果您正在使用不公开特征重要性的模型，可以利用大量示例上的黑盒解释器来尝试推断它们的值。
+- en: Feature importance and feature statistics come with another drawback, which
+    is that they do not always provide accurate recommendations. Since recommendations
+    are based on statistics aggregated over the entire dataset, they will not be applicable
+    to each individual example. Feature statistics only provide general recommendations,
+    such as “questions that contain more adverbs tend to receive higher ratings.”
+    However, there exists examples of questions with a below average proportion of
+    adverbs that receive a high score. Such recommendations are not useful for these
+    questions.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特征重要性和特征统计也带来另一个缺点，即它们并不总是提供准确的推荐。由于推荐基于整个数据集上聚合的统计数据，因此它们不一定适用于每个单独的示例。特征统计仅提供一般性推荐，例如“含有更多副词的问题往往得到更高评分”。然而，存在一些含有低于平均比例副词的问题得到高分的例子。这些推荐对这些问题并不适用。
+- en: In the next two sections, we will cover methods to provide more granular recommendations
+    that work at the level of individual examples.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的两个部分中，我们将讨论在个别示例级别提供更精细推荐的方法。
+- en: Using a Model’s Score
+  id: totrans-41
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用模型得分
+- en: '[Chapter 5](ch05.html#first_model) described how classifiers output a score
+    for each example. The example is then assigned a class based on whether this score
+    is above a certain threshold. If a model’s score is well calibrated (see [“Calibration
+    Curve”](ch05.html#cal_curve_sect) for more on calibration), then it can be used
+    as an estimate of the probability of an input example belonging to the given class.'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第五章](ch05.html#first_model) 描述了分类器如何为每个示例输出得分。然后根据该得分是否超过某个阈值，来为示例分配类别。如果模型的得分校准良好（详见[“校准曲线”](ch05.html#cal_curve_sect)
+    了解更多关于校准的信息），那么它可以被用作估计输入示例属于给定类别的概率。'
+- en: To display a score instead of a class for a scikit-learn model, use the `predict_proba`
+    function and select the class for which you’d like to display a score.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 若要显示一个 scikit-learn 模型的得分而不是类别，请使用 `predict_proba` 函数，并选择要显示得分的类别。
+- en: '[PRE2]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: If it is well calibrated, presenting a score to users allows them to track improvements
+    in their question as they follow recommendations to modify it, leading to it receiving
+    a higher score. Quick feedback mechanisms like a score help users have an increased
+    sense of trust in the recommendations provided by a model.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果它校准良好，向用户展示得分可以让他们在跟随修改建议改进其问题时跟踪得分提升。得分等快速反馈机制帮助用户更加信任模型提供的推荐。
+- en: On top of a calibrated score, a trained model can also be used to provide recommendations
+    to improve a specific example.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在校准得分之上，训练好的模型还可以用来提供改进特定示例的推荐。
+- en: Extracting Local Feature Importance
+  id: totrans-47
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 提取局部特征重要性
+- en: Recommendations can be generated for an individual example by using a black-box
+    explainer on top of a trained model. In [“Evaluate Feature Importance”](ch05.html#eval_feat_imp_sect),
+    we saw how black-box explainers estimate the importance of feature values for
+    a specific example by repeatedly applying slight perturbations to input features
+    and observing changes in the model’s predicted score. This makes such explainers
+    a great tool to provide recommendations.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以通过在训练模型的基础上使用黑盒解释器为单个示例生成推荐。在[“评估特征重要性”](ch05.html#eval_feat_imp_sect)中，我们看到黑盒解释器如何通过反复应用轻微扰动到输入特征并观察模型预测得分变化来估计特定示例的特征值重要性。这使得这样的解释器成为提供推荐的好工具。
+- en: Let’s demonstrate this using the [LIME](https://github.com/marcotcr/lime) package
+    to generate explanations for an example. In the following code example, we first
+    instantiate a tabular explainer, and then we choose an example to explain in our
+    test data. We show the explanations in the generating recommendations notebook
+    on [this book’s GitHub repository](https://oreil.ly/ml-powered-applications),
+    and display them in array format.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用 [LIME](https://github.com/marcotcr/lime) 包来演示这一点，为一个示例生成解释。在以下代码示例中，我们首先实例化一个表格解释器，然后选择我们测试数据中要解释的一个示例。我们在[这本书的
+    GitHub 仓库](https://oreil.ly/ml-powered-applications)的生成推荐笔记本中展示这些解释，并以数组格式显示它们。
+- en: '[PRE3]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Running the previous code produces the plot shown in [Figure 7-2](#expl_as_rec)
+    as well as the array of feature importances shown in the following code. The model’s
+    predicted probabilities are displayed on the left side of the figure. In the middle
+    of the figure, feature values are ranked by their contributions to the prediction.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行前面的代码会生成 [图 7-2](#expl_as_rec) 中显示的图以及下面代码中显示的特征重要性数组。模型的预测概率显示在图的左侧。图的中间，特征值按其对预测贡献的排名。
+- en: '![Explanations as recommendations](assets/bmla_0702.png)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_IMG
+  zh: '![作为推荐的解释](assets/bmla_0702.png)'
+- en: Figure 7-2\. Explanations as recommendations
+  id: totrans-53
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-2\. 作为推荐的解释
+- en: Those values are identical to the ones in the more readable console output below.
+    Each row in this output represents a feature value and its impact on the score
+    of the model. For example, the fact that the feature `num_diff_words` had a value
+    lower than 88.00 lowered the score of the model by about .038\. According to this
+    model, increasing the length of the input question beyond this number would increase
+    its quality.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些值与下面更易读的控制台输出中的值相同。此输出中的每一行代表一个特征值及其对模型得分的影响。例如，特征 `num_diff_words` 的值低于 88.00
+    会将模型得分降低约 0.038。根据这个模型，增加输入问题的长度超过这个数字将提高其质量。
+- en: '[PRE4]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: For more usage examples, please refer to the generating recommendations notebook
+    in [the book’s GitHub repository](https://oreil.ly/ml-powered-applications).
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更多用法示例，请参阅[这本书的 GitHub 仓库](https://oreil.ly/ml-powered-applications)中的生成推荐笔记本。
+- en: Black-box explainers can generate accurate recommendations for an individual
+    model, but they do come with a drawback. These explainers generate estimates by
+    perturbing input features and running a model on each perturbed input, so using
+    them to generate recommendations is slower than the methods discussed. For example,
+    the default number of perturbations that LIME uses to evaluate feature importance
+    is 500\. This makes this method two orders of magnitude slower than methods that
+    need to run a model only once and even slower than ones that do not need to run
+    a model at all. On my laptop, running LIME on an example question takes a little
+    over 2 seconds. Such a delay could prevent us from serving recommendations to
+    users as they are typing and require them to submit questions manually instead.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 黑盒解释器可以为单个模型生成准确的推荐，但它们确实有一个缺点。这些解释器通过扰动输入特征并在每个扰动的输入上运行模型来生成估计，因此使用它们生成推荐比讨论的其他方法要慢。例如，LIME
+    用于评估特征重要性的默认扰动次数是 500 次。这使得这种方法比那些只需要运行模型一次的方法慢两个数量级，甚至比根本不需要运行模型的方法还要慢。在我的笔记本电脑上，运行一个示例问题的
+    LIME 大约需要 2 秒多一点。这样的延迟可能会阻止我们在用户输入时为其提供推荐，并要求他们手动提交问题。
+- en: Just like many ML models, the recommendation methods we’ve seen here present
+    a trade-off between accuracy and latency. The right recommendation for a product
+    depends on its requirements.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像许多 ML 模型一样，我们在这里看到的推荐方法在准确性和延迟之间存在权衡。对产品的正确推荐取决于其需求。
+- en: Every recommendation method we’ve covered relies on features that were generated
+    during model iteration, and some of them leverage the models that were trained
+    as well. In the next section, we’ll compare different model options for the ML
+    Editor and decide which one is the most appropriate for recommendations.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们所介绍的每一种建议方法都依赖于在模型迭代过程中生成的特性，并且其中一些利用了训练过的模型。在接下来的部分中，我们将比较ML编辑器的不同模型选项，并决定哪一个最适合提供建议。
+- en: Comparing Models
+  id: totrans-60
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 比较模型
+- en: '[“Measuring Success”](ch02.html#minimal_viable_product) covered important metrics
+    to judge the success of a product. [“Judge Performance”](ch05.html#perf_mes_sect)
+    described methods to evaluate models. Such methods can also be used to compare
+    successive iterations of models and features to identify top-performing ones.'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[“衡量成功”](ch02.html#minimal_viable_product)覆盖了判断产品成功的重要指标。[“评估表现”](ch05.html#perf_mes_sect)描述了评估模型的方法。这些方法也可以用于比较模型和特性的连续迭代，以识别表现最佳的那些。'
+- en: In this section we will choose a subset of key metrics and use them to evaluate
+    three successive iterations of the ML Editor in terms of model performance and
+    usefulness of recommendations.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将选择一组关键指标，并使用它们来评估ML编辑器的三个连续迭代在模型性能和建议的有用性方面。
+- en: The goal of the ML Editor is to provide recommendations using the techniques
+    mentioned. To power such recommendations, a model should match the following requirements.
+    It should be well calibrated so that its predicted probabilities represent a meaningful
+    estimate of the quality of a question. As we covered in [“Measuring Success”](ch02.html#minimal_viable_product),
+    it should have high precision so that the recommendations it makes are accurate.
+    The features it uses should be understandable to a user, since they will serve
+    as the basis for recommendations. Finally, it should be fast enough to allow us
+    to use a black-box explainer to provide recommendations.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML编辑器的目标是使用上述技术提供建议。为了支持这些建议，模型应满足以下要求。它应该校准良好，以使其预测的概率代表问题质量的有意义估计。正如我们在[“衡量成功”](ch02.html#minimal_viable_product)中所讨论的，它应该具有高精度，以确保其所做的推荐是准确的。它所使用的特性应该对用户可理解，因为它们将作为建议的基础。最后，它应该足够快，以允许我们使用黑盒解释器提供建议。
+- en: Let’s describe a few successive modeling approaches for the ML Editor and compare
+    their performance. The code for these performance comparisons can be found in
+    the comparing models notebook in [this book’s GitHub repository](https://oreil.ly/ml-powered-applications).
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们描述一下ML编辑器的几种连续建模方法，并比较它们的表现。这些性能比较的代码可以在[这本书的GitHub存储库](https://oreil.ly/ml-powered-applications)中的比较模型笔记本中找到。
+- en: 'Version 1: The Report Card'
+  id: totrans-65
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 版本1：成绩单
+- en: In [Chapter 3](ch03.html#pipeline), we built a first version of the editor that
+    was entirely based on heuristics. This first version used hard-coded rules meant
+    to encode readability and displayed results to users in a structured format. Building
+    this pipeline allowed us to modify our approach and focus ML efforts on providing
+    clearer recommendations, rather than a set of measurements.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第三章](ch03.html#pipeline)中，我们构建了一个完全基于启发式的编辑器的第一个版本。这个第一个版本使用了旨在编码可读性并以结构化格式向用户显示结果的硬编码规则。通过构建这个流水线，我们能够修改我们的方法，并将机器学习的努力集中在提供更清晰建议而不是一组测量上。
+- en: Since this initial prototype was built in order to develop an intuition for
+    the problem we were tackling, we won’t be comparing it to other models here.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这个初始原型是为了发展我们所处理问题的直觉而建立的，我们不会在这里将其与其他模型进行比较。
+- en: 'Version 2: More Powerful, More Unclear'
+  id: totrans-68
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 版本2：更强大，更不明确
+- en: After building a heuristic-based version and exploring the Stack Overflow dataset,
+    we settled on an initial modeling approach. The simple model we trained can be
+    found in the simple model notebook in [this book’s GitHub repository](https://oreil.ly/ml-powered-applications).
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '在建立基于启发式的版本和探索Stack Overflow数据集之后，我们选择了一个初始建模方法。我们训练的简单模型可以在[这本书的GitHub存储库](https://oreil.ly/ml-powered-applications)中的简单模型笔记本中找到。 '
+- en: 'This model used a combination of features generated by vectorizing text using
+    the methods described in [“Vectorizing”](ch04.html#vectorizing) and manually created
+    features that were surfaced during data exploration. When first exploring the
+    dataset, I noticed a few patterns:'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该模型使用了通过使用[“矢量化”](ch04.html#vectorizing)中描述的方法对文本进行向量化生成的特征的组合，以及在数据探索过程中出现的手动创建的特性。当首次探索数据集时，我注意到了一些模式：
+- en: Longer questions received higher scores.
+  id: totrans-71
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更长的问题得到了更高的分数。
+- en: Questions that were specifically about use of the English language received
+    lower scores.
+  id: totrans-72
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 特别涉及英语使用的问题得分较低。
+- en: Questions that contained at least one question mark received higher scores.
+  id: totrans-73
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 至少包含一个问号的问题得分较高。
+- en: I created features to encode these assumptions by counting the length of the
+    text, the presence of words such as *punctuate* and *abbreviate*, and the frequency
+    of question marks.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我创建了一些特征来编码这些假设，通过计算文本长度、包含诸如*punctuate*和*abbreviate*等词的情况以及问号的频率。
+- en: In addition to these features, I vectorized input questions using TF-IDF. Using
+    a simple vectorization scheme allows me to tie a model’s feature importances back
+    to individual words, which can allow for word-level recommendations using the
+    methods described earlier.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了这些特征外，我还使用了TF-IDF对输入问题进行了向量化。使用简单的向量化方案使我能够将模型的特征重要性与个别单词联系起来，这可以允许使用前述方法进行单词级别的推荐。
+- en: This first approach showed acceptable aggregate performance, with a precision
+    of `0.62`. Its calibration, however, left much to be desired, as you can see in
+    [Figure 7-3](#calib_for_2).
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法首次展示了可接受的总体性能，精度为`0.62`。但其校准程度仍有待提高，如您在[第7-3图](#calib_for_2)中所见。
+- en: '![V2 Calibration](assets/bmla_0703.png)'
+  id: totrans-77
+  prefs: []
+  type: TYPE_IMG
+  zh: '![V2 校准](assets/bmla_0703.png)'
+- en: Figure 7-3\. V2 model calibration
+  id: totrans-78
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-3\. V2 模型校准
+- en: 'After inspecting this model’s feature importances, I realized the only predictive
+    manually created feature was question length. Other generated features had no
+    predictive power. Exploring the dataset once more revealed a few more features
+    that seemed predictive:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查了这个模型的特征重要性后，我意识到唯一有预测能力的手工创建特征是问题长度。其他生成的特征没有预测能力。再次探索数据集后发现，还有几个特征似乎具有预测能力：
+- en: A restrained usage of punctuation seemed to be predictive of high scores.
+  id: totrans-80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 适度使用标点符号似乎预测得分较高。
+- en: Questions that were more emotionally charged seemed to receive a lower score.
+  id: totrans-81
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 看起来更具情感色彩的问题得分较低。
+- en: Questions that were descriptive and used more adjectives seemed to receive a
+    higher score.
+  id: totrans-82
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 描述性更强、使用更多形容词的问题似乎得分较高。
+- en: To encode these new hypotheses, I generated a new set of features. I created
+    counts for each possible punctuation element. I then created counts that for each
+    part-of-speech category, such as verb or adjective, measured how many words in
+    a question belonged to that category. Finally, I added a feature to encode the
+    emotional sentiment of a question. For more details about these features, refer
+    to the second model notebook in [this book’s GitHub repository](https://oreil.ly/ml-powered-applications).
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了编码这些新的假设，我生成了一组新的特征。我为每个可能的标点元素创建了计数。然后我创建了计数，对于每个词性类别，如动词或形容词，测量了问题中属于该类别的词的数量。最后，我添加了一个特征来编码问题的情感倾向。关于这些特征的更多细节，请参阅[此书的GitHub存储库中的第二个模型笔记本](https://oreil.ly/ml-powered-applications)。
+- en: This updated version of the model performed slightly better in aggregate, with
+    a precision of `0.63`. Its calibration did not improve upon the previous model.
+    Displaying the feature importances for this model revealed that this model exclusively
+    relies on the manually crafted features, revealing that these features have some
+    predictive power.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个更新版本的模型在总体上表现略有改善，精度为`0.63`。但其校准并未超越前一模型。展示这个模型的特征重要性揭示，该模型仅依赖于手工制作的特征，显示这些特征具有一定的预测能力。
+- en: Having a model rely on such understandable features makes it easier to explain
+    recommendations to a user than when using vectorized word-level features. For
+    example, the most important word-level features for this model are the words *are*
+    and *what*. We can guess why these words may be correlated with question quality,
+    but recommending to a user that they should reduce or increase the occurrence
+    of arbitrary words in their question does not make for clear recommendations.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使模型依赖于这些易于理解的特征，比使用向量化的单词级特征更容易向用户解释推荐。例如，对于这个模型来说，最重要的单词级特征是*are*和*what*。我们可以猜测为什么这些词可能与问题质量相关，但向用户推荐他们在问题中减少或增加任意单词的发生频率并不会产生清晰的建议。
+- en: To address this limitation of a vectorized representation and recognizing that
+    the manually crafted features were predictive, I attempted to build a simpler
+    model that does not use any vectorization features.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决向量化表示的局限性，并认识到手工制作的特征具有预测能力，我尝试构建一个更简单的模型，不使用任何向量化特征。
+- en: 'Version 3: Understandable Recommendations'
+  id: totrans-87
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 版本 3：可理解的推荐
+- en: The third model contains only the features described earlier (counts of punctuation
+    and parts of speech, question sentiment, and question length). The model thus
+    only uses 30 features, as opposed to more than 7,000 when using vectorized representations.
+    See the third model notebook in [this book’s GitHub repository](https://oreil.ly/ml-powered-applications)
+    for more details. Removing vectorized features and keeping manual ones allows
+    the ML Editor to only leverage features that are explainable to a user. However,
+    it may lead to a model performing more poorly.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三个模型仅包含前面描述的特征（标点符号和词性的计数、问题情感以及问题长度）。因此，该模型仅使用30个特征，而不是使用向量化表示时的7000多个特征。详细信息请参阅[该书的GitHub存储库中的第三个模型笔记本](https://oreil.ly/ml-powered-applications)。删除向量化特征并保留手动特征使得ML编辑器只能利用对用户可解释的特征。然而，这可能会导致模型的表现较差。
+- en: In terms of aggregate performance, this model does perform worse than previous
+    ones with a precision of `0.597`. However, it is significantly better calibrated
+    than previous models. In [Figure 7-4](#calib_for_3), you can see that model 3
+    is well calibrated for most probabilities, even ones above .7 that other models
+    struggle with. The histogram shows that this is due to this model predicting such
+    probabilities more often than other models as well.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在总体性能方面，该模型的表现比以前的模型差，精度为`0.597`。然而，它的校准比以前的模型好得多。在[图7-4](#calib_for_3)中，您可以看到模型3在大多数概率上都有良好的校准，甚至是其他模型难以处理的大于0.7的概率。直方图显示这是由于该模型相比其他模型更经常预测这样的概率。
+- en: Because of the increased range of scores it produces and the improved calibration
+    of scores, this model is the best choice when it comes to displaying a score to
+    guide users. When it comes to making clear recommendations, this model is also
+    the best choice since it only relies on explainable features. Finally, because
+    it relies on fewer features than other models, it is also the fastest to run.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于它生成的分数范围增加并且分数校准得到了改进，当涉及到显示分数以指导用户时，这个模型是最佳选择。当需要明确推荐时，由于它仅依赖于可解释特征，这个模型也是最佳选择。最后，因为它依赖的特征比其他模型少，所以运行速度也是最快的。
+- en: '![Calibration comparison](assets/bmla_0704.png)'
+  id: totrans-91
+  prefs: []
+  type: TYPE_IMG
+  zh: '![校准比较](assets/bmla_0704.png)'
+- en: Figure 7-4\. Calibration comparison
+  id: totrans-92
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-4\. 校准比较
+- en: Model 3 is the best choice for the ML Editor and is thus the model we should
+    deploy for an initial version. In the next section, we will briefly cover how
+    to use this model with the recommendation techniques to provide editing recommendations
+    to users.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型3是ML编辑器的最佳选择，因此是我们应该部署的模型的初始版本。在下一节中，我们将简要介绍如何使用此模型结合推荐技术向用户提供编辑建议。
+- en: Generating Editing Recommendations
+  id: totrans-94
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 生成编辑建议
+- en: The ML Editor can benefit from any of the four methods we described to generate
+    recommendations. In fact, all of these methods are showcased in the generating
+    recommendations notebook in [the book’s GitHub repository](https://oreil.ly/ml-powered-applications).
+    Because the model we are using is fast, we will illustrate the most elaborate
+    approach here, using black-box explainers.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ML编辑器可以从我们描述的四种方法中受益以生成建议。实际上，所有这些方法都展示在生成建议笔记本中，[该书的GitHub存储库](https://oreil.ly/ml-powered-applications)中展示了这些方法。因为我们使用的模型速度快，我们将在这里演示最详尽的方法，使用黑匣子解释器。
+- en: 'Let’s start by taking a look at the entire recommendation function that takes
+    in a question and provides editing advice based on a trained model. Here is what
+    this function looks like:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们首先看一下完整的推荐函数，该函数接受一个问题并基于训练模型提供编辑建议。函数如下所示：
+- en: '[PRE5]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Calling this function on an example input and pretty printing its results produces
+    recommendations such as the following ones. We can then display these recommendations
+    to users to allow them to iterate on their question.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对一个示例输入调用此函数并美观地打印其结果会生成诸如以下的建议。然后，我们可以将这些建议显示给用户，让他们可以对其问题进行迭代。
+- en: '[PRE6]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Let’s break this function down. Starting with its signature, the function takes
+    as arguments an input string representing a question, as well as an optional argument
+    determining how many of the most important features to make recommendations for.
+    It returns recommendations, as well as a score representing the current quality
+    of the question.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们逐步解析这个函数。从其签名开始，该函数接受一个表示问题的输入字符串作为参数，以及一个可选参数，确定要为其推荐的最重要特征数量。它返回推荐结果，以及表示当前问题质量的分数。
+- en: Diving into the body of the question, the first line refers to two globally
+    defined variables, the trained model and an instance of a LIME explainer like
+    the one we defined in [“Extracting Local Feature Importance”](#loc_feats_sect).
+    The next two lines generate features from the input text and pass these features
+    to the classifier for it to predict. Then, `exp` is defined by using LIME to generate
+    explanations.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在问题主体中，第一行提到了两个全局定义的变量，训练好的模型和一个像我们在[“提取本地特征重要性”](#loc_feats_sect)中定义的LIME解释器的实例。接下来的两行生成输入文本的特征，并将这些特征传递给分类器进行预测。然后，通过使用LIME生成解释来定义`exp`。
+- en: The last two function calls turn these explanations into human-readable recommendations.
+    Let’s see how by looking at the definitions of these functions, starting with
+    `parse_explanations`.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后两个函数调用将这些解释转换为易于理解的建议。让我们通过查看这些函数的定义来看看，从`parse_explanations`开始。
+- en: '[PRE7]'
+  id: totrans-103
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'This function is long, but it is accomplishing a relatively simple goal. It
+    takes the array of feature importances returned by LIME and produces a more structured
+    dictionary that can be used in recommendations. Here is an example of this transformation:'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个函数很长，但它完成了一个相对简单的目标。它接受LIME返回的特征重要性数组，并生成一个更结构化的字典，可以用于建议。这里是这个转换的一个例子：
+- en: '[PRE8]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'Notice that the function call converted the threshold value displayed by LIME
+    to a recommendation of whether a feature value should be increased or decreased.
+    This is done using the `get_recommended_modification` function displayed here:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，函数调用将LIME显示的阈值转换为建议，即是否增加或减少特征值。这是通过这里显示的`get_recommended_modification`函数完成的：
+- en: '[PRE9]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'Once the explanations are parsed to recommendations, all that is left is to
+    display them in an appropriate format. This is accomplished by the last function
+    call in `get_recommendation_and_prediction_from_text`, which is displayed here:'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦解释被解析为建议，剩下的就是以适当的格式显示它们。这通过在`get_recommendation_and_prediction_from_text`中的最后一个函数调用完成，这里显示如下：
+- en: '[PRE10]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: If you’d like to experiment with this editor and iterate on it, feel free to
+    refer to the generating recommendations notebook in [this book’s GitHub repository](https://oreil.ly/ml-powered-applications).
+    At the end of the notebook, I’ve included an example of using the model recommendations
+    to rephrase a question multiple times and increase its score. I’m reproducing
+    this example here to demonstrate how such recommendations can be used to guide
+    users’ editing questions.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想尝试这个编辑器并对其进行迭代，可以参考本书GitHub仓库中的生成建议笔记本。在笔记本的结尾，我包含了一个例子，使用模型的建议多次重述问题并提高其分数。我在这里重现这个例子，以演示如何利用这些建议来指导用户编辑问题。
+- en: '[PRE11]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: Voilà, we now have a pipeline that can take in a question and provide actionable
+    recommendations to users. This pipeline is by no means perfect, but we now have
+    a working end-to-end ML-powered editor. If you’d like to try your hand at improving
+    it, I encourage you to interact with this current version and identify failure
+    modes to address. Interestingly, while models can always be iterated upon, I would
+    argue that the most promising aspect to improve for this editor would be to generate
+    new features that are even clearer to users.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们有一个可以接受问题并向用户提供可操作建议的流水线。这个流水线当然不完美，但我们现在拥有一个可工作的端到端ML驱动的编辑器。如果你想尝试改进它，我鼓励你与当前版本互动，并识别需要解决的故障模式。有趣的是，虽然模型总是可以迭代，但我认为为这个编辑器改进最有前途的方面是生成对用户更加清晰的新特征。
+- en: Conclusion
+  id: totrans-113
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: In this chapter, we’ve covered different methods to generate suggestions from
+    a trained classification model. With these methods in mind, we compared different
+    modeling approaches for the ML Editor and chose the one that would optimize our
+    product goal of helping users ask better questions. We then built an end-to-end
+    pipeline for the ML Editor and used it to provide recommendations.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们介绍了不同的方法来从训练好的分类模型中生成建议。考虑到这些方法，我们比较了ML编辑器的不同建模方法，并选择了一个能够优化我们产品目标——帮助用户提出更好问题的方法。然后，我们建立了一个ML编辑器的端到端流水线，并用它来提供建议。
+- en: The model we settled on still has much room for improvement and can benefit
+    from more iteration cycles. If you’d like to practice using the concepts we outlined
+    in [Part III](part03.html#section_3), I encourage you to go through these cycles
+    yourself. Overall, every chapter in [Part III](part03.html#section_3) represents
+    one aspect of the ML iteration loop. To progress on ML projects, repeatedly go
+    through the steps outlined in this section until you estimate that a model is
+    ready to be deployed.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们最终确定的模型仍有很大改进空间，并且可以从更多的迭代周期中获益。如果你想要实践我们在 [第三部分](part03.html#section_3) 中概述的概念，我鼓励你自行完成这些周期。总体而言，[第三部分](part03.html#section_3)
+    中的每一章都代表了机器学习迭代循环的一个方面。要在机器学习项目中取得进展，请反复执行本节中概述的步骤，直到你估计一个模型已经准备好部署为止。
+- en: In [Part IV](part04.html#section_4), we will cover risks that come with deploying
+    models, how to mitigate them, and methods to monitor and react to model performance
+    variability.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [第四部分](part04.html#section_4)，我们将涵盖部署模型所伴随的风险、如何减轻这些风险，以及监测和应对模型性能变化的方法。

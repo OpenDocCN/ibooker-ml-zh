@@ -1,0 +1,1273 @@
+- en: Chapter 10\. Build Safeguards for Models
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第十章。为模型构建保障
+- en: When designing databases or distributed systems, software engineers concern
+    themselves with fault tolerance, the ability for a system to continue working
+    when some of its components fail. In software, the question is not whether a given
+    part of the system will fail, but when. The same principles can be applied to
+    ML. No matter how good a model is, it will fail on some examples, so you should
+    engineer a system that can gracefully handle such failures.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在设计数据库或分布式系统时，软件工程师关注的是容错能力，即系统在某些组件失败时仍能继续工作的能力。在软件中，问题不在于系统的某个部分是否会失败，而在于何时会失败。同样的原则也适用于机器学习。无论模型有多好，在某些示例上它都会失败，因此您应该设计一个能够优雅处理这类失败的系统。
+- en: In this chapter, we will cover different ways to help prevent or mitigate failures.
+    First, we’ll see how to verify the quality of the data that we receive and produce
+    and use this verification to decide how to display results to users. Then, we
+    will take a look at ways to make a modeling pipeline more robust to be able to
+    serve many users efficiently. After that, we’ll take a look at options to leverage
+    user feedback and judge how a model is performing. We’ll end the chapter with
+    an interview with Chris Moody about deployment best practices.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将介绍不同的方法来帮助预防或减轻故障。首先，我们将看看如何验证我们接收和生成的数据的质量，并利用这些验证来决定如何向用户显示结果。然后，我们将探讨如何使建模管道更加健壮，以便有效服务于许多用户。接下来，我们将看看利用用户反馈来评估模型表现的选项。最后，我们将以与克里斯·穆迪关于部署最佳实践的访谈结束本章。
+- en: Engineer Around Failures
+  id: totrans-3
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 围绕故障设计
+- en: 'Let’s cover some of the most likely ways for an ML pipeline to fail. The observant
+    reader will notice that these failure cases are somewhat similar to the debugging
+    tips we saw in [“Debug Wiring: Visualizing and Testing”](ch06.html#data_wiring).
+    Indeed, exposing a model to users in production comes with a set of challenges
+    that mirrors the ones that come with debugging a model.'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们来看看机器学习管道可能失败的最可能方式。敏锐的读者会注意到，这些故障案例与我们在[“调试布线：可视化和测试”](ch06.html#data_wiring)中看到的调试技巧有些相似。事实上，在生产中向用户公开模型会带来一系列与调试模型类似的挑战。
+- en: 'Bugs and errors can show up anywhere, but three areas in particular are most
+    important to verify: the inputs to a pipeline, the confidence of a model, and
+    the outputs it produces. Let’s address each in order.'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 错误和 bug 可以在任何地方出现，但有三个特别重要的区域需要验证：管道的输入、模型的置信度以及它生成的输出。让我们依次来解决每个问题。
+- en: Input and Output Checks
+  id: totrans-6
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 输入和输出检查
+- en: Any given model was trained on a specific dataset that exhibited particular
+    characteristics. The training data had a certain number of features, and each
+    of these features was of a certain type. Furthermore, each feature followed a
+    given distribution that the model learned in order to perform accurately.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任何给定的模型都是在展示特定特征的特定数据集上训练的。训练数据具有特定数量的特征，每个特征都是特定类型的。此外，每个特征都遵循给定的分布，模型学习了这些分布以便准确执行。
+- en: As we saw in [“Freshness and Distribution Shift”](ch02.html#fresh_dis_shift),
+    if production data is different from the data a model was trained on, a model
+    may struggle to perform. To help with this, you should check the inputs to your
+    pipeline.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在[“新鲜度和分布偏移”](ch02.html#fresh_dis_shift)中看到的，如果生产数据与模型训练时的数据不同，模型可能会难以表现出色。为了帮助解决这个问题，您应该检查管道的输入。
+- en: Check inputs
+  id: totrans-9
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 检查输入
+- en: Some models may still perform well when faced with small differences in data
+    distributions. However, if a model receives data that is very different from its
+    training data or if some features are missing or of an unexpected type, it will
+    struggle to perform.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些模型可能在面对数据分布的微小差异时仍然表现良好。然而，如果一个模型接收到与其训练数据非常不同的数据，或者某些特征缺失或类型不符合预期，它将很难表现出色。
+- en: As we saw previously, ML models are able to run even when given incorrect inputs
+    (as long as these inputs are of the right shape and type). Models will produce
+    outputs, but these outputs may be widely incorrect. Consider the example illustrated
+    in [Figure 10-1](#right_size_wrong_input). A pipeline classifies a sentence into
+    one of two topics by first vectorizing it and applying a classification model
+    on the vectorized representation. If the pipeline receives a string of random
+    characters, it will still transform it into a vector, and the model will make
+    a prediction. This prediction is absurd, but there is no way to know it only by
+    looking at the results of the model.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前所见，即使给定不正确的输入（只要这些输入的形状和类型正确），ML模型也能够运行。模型将产生输出，但这些输出可能是完全不正确的。考虑以下示例，在[图10-1](#right_size_wrong_input)中有所说明。一个流水线通过首先对句子进行向量化并在向量化表示上应用分类模型，将句子分类为两个主题。如果流水线收到一串随机字符，它仍然会将其转换为向量，然后模型将进行预测。这个预测是荒谬的，但仅凭查看模型的结果是无法知道的。
+- en: '![Models will still output a prediction for random inputs](assets/bmla_1001.png)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_IMG
+  zh: '![模型将仍然为随机输入输出预测](assets/bmla_1001.png)'
+- en: Figure 10-1\. Models will still output a prediction for random inputs
+  id: totrans-13
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-1\. 模型将仍然为随机输入输出预测
+- en: To prevent a model from running on incorrect outputs, we need to detect that
+    these inputs are incorrect before passing them to the model.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了防止模型在错误输出上运行，我们需要在将其传递给模型之前检测这些输入是否错误。
+- en: 'The checks cover similar domains to the tests in [“Test Your ML Code”](ch06.html#testing_ml).
+    In order of importance, they will:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些检查覆盖了类似于[“测试您的ML代码”](ch06.html#testing_ml)中的测试的领域。按重要性顺序，它们将会：
+- en: Verify that all necessary features are present
+  id: totrans-16
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 验证所有必要特征是否存在
+- en: Check every feature type
+  id: totrans-17
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 检查每种特征类型
+- en: Validate feature values
+  id: totrans-18
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 验证特征值
+- en: Verifying feature values in isolation can be hard, as feature distributions
+    can be complex. A simple way to perform such validation is to define a reasonable
+    range of values a feature could take and validate that it falls within that range.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在隔离验证特征值时可能会很困难，因为特征分布可能很复杂。执行此类验证的简单方法是定义特征可能取值的合理范围，并验证其是否落在该范围内。
+- en: If any of the input checks fail, the model should not run. What you should do
+    depends on the use case. If the data that is missing represents a core piece of
+    information, you should return an error specifying the source of the error. If
+    you estimate that you can still provide a result, you can replace a model call
+    with a heuristic. This is an additional reason to start any ML project by building
+    a heuristic; it provides you with an option to fall back on!
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果任何输入检查失败，则不应运行模型。您应该根据用例决定应采取的措施。如果缺失的数据代表核心信息的一部分，您应返回一个指明错误来源的错误。如果您估计仍然可以提供结果，则可以将模型调用替换为启发式算法。这是在任何ML项目中首先建立启发式算法的另一个原因；它为您提供了一个备用选项！
+- en: In [Figure 10-2](#input_check_workflow), you can see an example of this logic,
+    where the path taken depends on the results of the input checks.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图10-2](#input_check_workflow)中，您可以看到这种逻辑的示例，其中所采取的路径取决于输入检查的结果。
+- en: '![Example branching logic for input checks](assets/bmla_1002.png)'
+  id: totrans-22
+  prefs: []
+  type: TYPE_IMG
+  zh: '![输入检查的分支逻辑示例](assets/bmla_1002.png)'
+- en: Figure 10-2\. Example branching logic for input checks
+  id: totrans-23
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-2\. 输入检查的分支逻辑示例
+- en: Following is an example of some control flow logic from the ML Editor that checks
+    for missing features and feature types. Depending on the quality of the input,
+    it either raises an error or runs a heuristic. I’ve copied the example here, but
+    you can also find it on [this book’s GitHub repository](https://github.com/hundredblocks/ml-powered-applications)
+    with the rest of the ML Editor code.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是来自ML编辑器的一些控制流逻辑示例，用于检查缺失特征和特征类型。根据输入的质量，它要么引发错误，要么运行启发式算法。我在这里复制了示例，但您也可以在[本书的GitHub存储库](https://github.com/hundredblocks/ml-powered-applications)中找到ML编辑器代码的其余部分。
+- en: '[PRE0]'
+  id: totrans-25
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Verifying model inputs allows you to narrow down failure modes and identify
+    data input issues. Next, you should validate a model’s outputs.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 验证模型输入允许您缩小故障模式并识别数据输入问题。接下来，您应该验证模型的输出。
+- en: Model outputs
+  id: totrans-27
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 模型输出
+- en: Once a model makes a prediction, you should determine whether it should be displayed
+    to the user. If the prediction falls outside of an acceptable range of answers
+    for a model, you should consider not displaying it.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦模型进行预测，您应该确定是否应将其显示给用户。如果预测结果不在模型可接受答案范围内，您应考虑不显示它。
+- en: For example, if you are predicting the age of a user from a photo, output values
+    should be between zero to a little over 100 years old (if you are reading this
+    book in the year 3000, feel free to adjust the bounds). If a model outputs a value
+    outside of this range, you should not display it.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，如果您正在从照片预测用户的年龄，输出值应在0到略高于100岁之间（如果您在公元3000年阅读本书，请随时调整范围）。如果模型输出超出此范围的值，则不应显示它。
+- en: In this context, an acceptable outcome is not only defined by an outcome that
+    is plausible. It also depends on your estimation of the kind of outcome that would
+    be *useful to our user*.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，可接受的结果不仅由可能的结果定义。它还取决于您对对用户有用的结果种类的估计。
+- en: 'For our ML editor, we want to only provide recommendations that are actionable.
+    If a model predicts that everything a user wrote should be entirely deleted, this
+    would consist of a rather useless (and insulting) recommendation. Here is an example
+    snippet validating model outputs and reverting to a heuristic if necessary:'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的机器学习编辑器，我们希望只提供可操作的建议。如果模型预测用户所写的一切都应完全删除，那将是一个相当无用（并且侮辱性的）建议。以下是一个示例片段，验证模型输出并在必要时返回到一种启发式方法：
+- en: '[PRE1]'
+  id: totrans-32
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: When a model fails, you can revert to a heuristic just as we saw earlier or
+    to a simpler model you may have built earlier. Trying an earlier type of model
+    can often be worthwhile because different models may have uncorrelated errors.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当模型失败时，您可以像之前看到的那样返回到一个启发式方法，或者返回到您之前可能构建的一个简单模型。尝试早期类型的模型通常是值得的，因为不同的模型可能存在不相关的错误。
+- en: I’ve illustrated this on a toy example in [Figure 10-3](#complex_simple_error_difference).
+    On the left, you can see a better-performing model with a more complex decision
+    boundary. On the right, you can see a worse, simpler model. The worse model makes
+    more mistakes, but its mistakes are different from the complex model because of
+    the different shape of its decision boundary. Because of this, the simpler model
+    gets some examples right that the complex model gets wrong. This is the intuition
+    for why using a simple model as a backup is a reasonable idea when a primary model
+    fails.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我在[图10-3](#complex_simple_error_difference)上展示了一个玩具示例。在左侧，您可以看到一个性能更好的模型，具有更复杂的决策边界。在右侧，您可以看到一个更糟糕、更简单的模型。更糟糕的模型会犯更多错误，但其错误与复杂模型不同，因为其决策边界形状不同。因此，简单模型会正确处理一些复杂模型处理错误的案例。这就是在主模型失败时使用简单模型作为备用的直觉合理性。
+- en: If you do use a simpler model as a backup, you should also validate its outputs
+    in the same manner and fall back to a heuristic or display an error if they do
+    not pass your checks.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您确实将简单模型用作备用，您还应以相同方式验证其输出，并在未通过检查时退回到一种启发式方法或显示错误。
+- en: Validating that the outputs of a model are in a reasonable range is a good start,
+    but it isn’t sufficient. In the next section, we will cover additional safeguards
+    we can build around a model.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 验证模型输出是否在合理范围内是一个良好的开始，但这还不够。在接下来的部分中，我们将讨论我们可以围绕模型构建的额外保护措施。
+- en: '![A simpler model often makes different errors](assets/bmla_1003.png)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_IMG
+  zh: '![简单模型通常会犯不同的错误](assets/bmla_1003.png)'
+- en: Figure 10-3\. A simpler model often makes different errors
+  id: totrans-38
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-3\. 简单模型通常会犯不同的错误
+- en: Model Failure Fallbacks
+  id: totrans-39
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型失败的备用方案
+- en: We have built safeguards to detect and correct erroneous inputs and outputs.
+    In some cases, however, the input to our model can be correct, and our model’s
+    output can be reasonable while being entirely wrong.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经建立了防范措施来检测和纠正错误的输入和输出。然而，在某些情况下，我们的模型的输入可能是正确的，而模型的输出可能是合理的，但完全是错误的。
+- en: To go back to the example of predicting a user’s age from a photo, guaranteeing
+    that the age predicted by the model is a plausible human age is a good start,
+    but ideally we’d like to predict the correct age for this specific user.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要回到从照片预测用户年龄的示例，保证模型预测的年龄是一个合理的人类年龄是一个良好的开始，但理想情况下，我们希望为这个特定用户预测正确的年龄。
+- en: No model will be right 100 percent of the time, and slight mistakes can often
+    be acceptable, but as much as possible, you should aim to detect when a model
+    is wrong. Doing so allows you to potentially flag a given case as too hard and
+    encourages users to provide an easier input (in the form of a well-lit photo,
+    for example).
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有模型会百分之百正确，轻微的错误通常是可以接受的，但尽可能地，您应该努力检测模型何时错误。这样做可以让您可能标记某个案例过于困难，并鼓励用户提供更简单的输入（例如，形式良好的照片）。
+- en: There are two main approaches to detecting errors. The simplest one is to track
+    the confidence of a model to estimate whether an output will be accurate. The
+    second one is to build an additional model that is tasked with detecting examples
+    a main model is likely to fail on.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检测错误有两种主要方法。最简单的方法是跟踪模型的置信度来估计输出是否准确。第二种方法是构建一个额外的模型，任务是检测主模型可能失败的示例。
+- en: For the first method, classification models can output a probability that can
+    be used as an estimate of the model’s confidence in its output. If those probabilities
+    are well calibrated (see [“Calibration Curve”](ch05.html#cal_curve_sect)), they
+    can be used to detect instances where a model is uncertain and decide not to display
+    results to a user.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于第一种方法，分类模型可以输出一个概率，可以用作模型对其输出的置信度的估计。如果这些概率被很好地校准（见[“校准曲线”](ch05.html#cal_curve_sect)），它们可以用来检测模型不确定的实例，并决定不向用户显示结果。
+- en: 'Sometimes, models are wrong despite assigning a high probability to an example.
+    This is where the second approach comes in: using a model to filter out the hardest
+    inputs.'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时候，即使模型为一个例子分配了很高的概率，也会出现错误。这就是第二种方法的出现的地方：使用一个模型来过滤最难的输入。
+- en: Filtering model
+  id: totrans-46
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 过滤模型
+- en: On top of not always being trustworthy, using a model’s confidence score comes
+    with another strong drawback. To get this score, the entire inference pipeline
+    needs to be run regardless of whether its predictions will be used. This is especially
+    wasteful when using more complex models that need to be run on a GPU, for example.
+    Ideally, we would like to estimate how well a model will perform on an example
+    without running the model on it.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了不总是可信之外，使用模型的置信度得分还有另一个强大的缺点。要获得这个分数，需要运行整个推理管道，无论其预测是否会被使用。当使用需要在GPU上运行的更复杂的模型时，这种方式尤其浪费。理想情况下，我们希望在不运行模型的情况下估计模型在一个示例上的表现。
+- en: This is the idea behind filtering models. Since you know some inputs will be
+    hard for a model to handle, you should detect them ahead of time and not bother
+    running a model on them at all. A filtering model is the ML version of input tests.
+    It is a binary classifier that is trained to predict whether a model will perform
+    well on a given example. The core assumption between such a model is that there
+    are trends in the kind of data points that are hard for the main model. If such
+    hard examples have enough in common, the filtering model can learn to separate
+    them from easier inputs.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是过滤模型的理念。由于你知道某些输入对于模型来说很难处理，你应该提前检测到它们，而不需要在它们上运行模型。过滤模型是输入测试的机器学习版本。它是一个二元分类器，被训练来预测一个模型在给定示例上的表现是否良好。这种模型的核心假设是，有些数据点对主模型来说很难。如果这些困难的示例有足够的共同点，过滤模型可以学会将它们与更容易的输入区分开来。
+- en: 'Here are some types of inputs you may want a filtering model to catch:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一些你可能希望过滤模型捕捉到的输入类型：
+- en: Inputs that are qualitatively different from ones the main model performs well
+    on
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与主模型表现良好的输入质量上有所不同的输入
+- en: Inputs that the model was trained on but struggled with
+  id: totrans-51
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 主模型在训练过程中有困难的输入
+- en: Adversarial inputs that are meant to fool the main model
+  id: totrans-52
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 有意欺骗主模型的对抗性输入
+- en: In [Figure 10-4](#filtering_pipeline), you can see an updated example of the
+    logic in [Figure 10-2](#input_check_workflow), which now includes a filtering
+    model. As you can see, the filtering model is only run if the input checks pass,
+    because you only need to filter out inputs that could have made their way to the
+    “Run Model” box.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 10-4](#filtering_pipeline)中，你可以看到更新的示例，展示了[图 10-2](#input_check_workflow)中的逻辑，现在包括一个过滤模型。如你所见，只有在输入检查通过时才运行过滤模型，因为你只需过滤掉可能进入“运行模型”框的输入。
+- en: To train a filtering model, you simply need to gather a dataset containing two
+    categories of examples; categories that your main model succeeded on and others
+    that it failed on. This can be done using our training data and requires no additional
+    data collection!
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要训练一个过滤模型，你只需收集一个包含两类示例的数据集；主模型成功的类别和失败的类别。这可以使用我们的训练数据完成，不需要额外的数据收集！
+- en: '![Adding a filtering step to our input checks](assets/bmla_1004.png)'
+  id: totrans-55
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在我们的输入检查中添加一个过滤步骤](assets/bmla_1004.png)'
+- en: Figure 10-4\. Adding a filtering step to our input checks (bolded)
+  id: totrans-56
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-4\. 在我们的输入检查中添加一个过滤步骤（加粗）
+- en: In [Figure 10-5](#data_to_train_filtering), I show how to do this by leveraging
+    a trained model and its result on a dataset, as seen in the chart on the left.
+    Sample some data points that the model predicted correctly and some that the model
+    failed on. You can then train a filtering model to predict which of the data points
+    are ones that the original model failed on.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 10-5](#data_to_train_filtering) 中，我展示了如何通过利用训练好的模型及其在数据集上的结果来做到这一点，正如左侧图表所示。随机抽取一些模型预测正确的数据点和一些模型预测失败的数据点。然后，您可以训练一个过滤模型来预测原始模型预测失败的数据点。
+- en: '![Getting training data for a filtering model](assets/bmla_1005.png)'
+  id: totrans-58
+  prefs: []
+  type: TYPE_IMG
+  zh: '![为过滤模型获取训练数据](assets/bmla_1005.png)'
+- en: Figure 10-5\. Getting training data for a filtering model
+  id: totrans-59
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-5\. 为过滤模型获取训练数据
+- en: Once you have a trained classifier, training a filtering model can be relatively
+    straightforward. Given a test set and a trained classifier, the following function
+    will do just that.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你有了训练好的分类器，训练过滤模型就相对简单。给定一个测试集和一个训练好的分类器，以下函数将完成此任务。
+- en: '[PRE2]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'This approach is used by Google for their Smart Reply feature, which suggests
+    a few short responses to an incoming email (see this article by A. Kanan et al.,
+    [“Smart Reply: Automated Response Suggestion for Email”](https://oreil.ly/2EQvu)).
+    They use what they call a triggering model, responsible for deciding whether to
+    run the main model that suggests responses. In their case, only about 11% of emails
+    are suitable for this model. By using a filtering model, they reduce their infrastructure
+    needs by an order of magnitude.'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'Google 在其智能回复功能中使用了这种方法，该功能为即将到达的电子邮件建议几个简短的回复（参见 A. Kanan 等人的文章 [“Smart Reply:
+    Automated Response Suggestion for Email”](https://oreil.ly/2EQvu)）。他们使用所谓的触发模型，负责决定是否运行建议回复的主模型。在他们的情况下，仅约
+    11% 的电子邮件适合该模型。通过使用过滤模型，他们将基础设施需求降低了一个数量级。'
+- en: A filtering model generally needs to satisfy two criteria. It should be fast
+    since its whole purpose is to reduce the computational burden, and it should be
+    good at eliminating hard cases.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 过滤模型通常需要满足两个标准。它应该快速，因为其主要目的是减少计算负担，并且应该擅长消除困难案例。
+- en: 'A filtering model that tries to identify hard cases doesn’t need to be able
+    to catch all of them; it simply needs to detect enough to justify the added cost
+    of running it on each inference. Generally, the faster your filtering model is,
+    the less effective it needs to be. Here is why:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个试图识别困难案例的过滤模型不需要能够捕获所有这些案例；它只需检测足够多的案例以证明在每次推理中运行它的额外成本是合理的。通常情况下，你的过滤模型越快，它需要的效果就越小。原因如下：
+- en: Let’s say your average inference time using only one model is <math alttext="i"><mi>i</mi></math>
+    .
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你仅使用一个模型的平均推理时间是<math alttext="i"><mi>i</mi></math>。
+- en: Your average inference time using a filtering model will be <math alttext="f
+    plus i left-parenthesis 1 minus b right-parenthesis"><mrow><mi>f</mi> <mo>+</mo>
+    <mi>i</mi> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>b</mi> <mo>)</mo></mrow></math>
+    where *f* is the execution time of your filtering model, and *b* is the average
+    proportion of examples it filters out (b for block).
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用过滤模型的平均推理时间将是 <math alttext="f plus i left-parenthesis 1 minus b right-parenthesis"><mrow><mi>f</mi>
+    <mo>+</mo> <mi>i</mi> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>b</mi> <mo>)</mo></mrow></math>
+    ，其中 *f* 是您的过滤模型执行时间，*b* 是它过滤掉的平均例子比例（b 代表 block）。
+- en: To reduce your average inference time by using a filtering model, you thus need
+    to have <math alttext="f plus i left-parenthesis 1 minus b right-parenthesis less-than
+    i"><mrow><mi>f</mi> <mo>+</mo> <mi>i</mi> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>b</mi>
+    <mo>)</mo> <mo><</mo> <mi>i</mi></mrow></math> , which translates to <math alttext="StartFraction
+    f Over i EndFraction less-than b"><mrow><mfrac><mi>f</mi> <mi>i</mi></mfrac> <mo><</mo>
+    <mi>b</mi></mrow></math> .
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要通过使用过滤模型来减少您的平均推理时间，您因此需要 <math alttext="f plus i left-parenthesis 1 minus
+    b right-parenthesis less-than i"><mrow><mi>f</mi> <mo>+</mo> <mi>i</mi> <mo>(</mo>
+    <mn>1</mn> <mo>-</mo> <mi>b</mi> <mo>)</mo> <mo><</mo> <mi>i</mi></mrow></math>
+    ，这等同于 <math alttext="StartFraction f Over i EndFraction less-than b"><mrow><mfrac><mi>f</mi>
+    <mi>i</mi></mfrac> <mo><</mo> <mi>b</mi></mrow></math> 。
+- en: This means the proportion of cases your model filters out needs to be higher
+    than the ratio between its inference speed and the speed of your larger model.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着你的模型过滤掉的案例比其推理速度与你更大模型速度之间的比例要高。
+- en: For example, if your filtering model is 20 times faster than your regular model
+    ( <math alttext="StartFraction f Over i EndFraction equals 5 percent-sign"><mrow><mfrac><mi>f</mi>
+    <mi>i</mi></mfrac> <mo>=</mo> <mn>5</mn> <mo>%</mo></mrow></math> ), it would
+    need to block more than 5% of cases ( <math alttext="5 percent-sign b"><mrow><mn>5</mn>
+    <mo>%</mo> <mo><</mo> <mi>b</mi></mrow></math> ) to be useful in production.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，如果您的过滤模型比常规模型快20倍（ <math alttext="StartFraction f Over i EndFraction equals
+    5 percent-sign"><mrow><mfrac><mi>f</mi> <mi>i</mi></mfrac> <mo>=</mo> <mn>5</mn>
+    <mo>%</mo></mrow></math> ），它需要阻止超过5%的情况（ <math alttext="5 percent-sign b"><mrow><mn>5</mn>
+    <mo>%</mo> <mo><</mo> <mi>b</mi></mrow></math> ），才能在生产中发挥作用。
+- en: Of course, you would also need to make sure that the precision of your filtering
+    model is good, meaning that the majority of the inputs it blocks are actually
+    too hard for your main model.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，您还需要确保您的过滤模型的精度很高，这意味着它所阻止的大多数输入实际上对于您的主模型来说确实太难了。
+- en: One way to do this would be to regularly let a few examples through that your
+    filtering model would have blocked and examine how your main model does on them.
+    We will cover this in more depth in [“Choose What to Monitor”](ch11.html#monitoring_metrics).
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个方法是定期让一些例子通过，这些例子被您的过滤模型阻止了，然后检查主模型在这些例子上的表现。我们将在[“选择监控内容”](ch11.html#monitoring_metrics)中更深入地讨论这一点。
+- en: Since the filtering model is different from the inference model and trained
+    specifically to predict hard cases, it can detect these cases more accurately
+    than by relying on the main model’s probability output. Using a filtering model
+    thus helps both decreasing the likelihood of poor results and improving resource
+    usage.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于过滤模型与推理模型不同，并且专门训练来预测困难情况，因此它可以比依赖主模型的概率输出更准确地检测这些情况。因此，使用过滤模型既有助于减少不良结果的可能性，又有助于改善资源使用。
+- en: For these reasons, adding filtering models to existing input and output checks
+    can significantly increase the robustness of a production pipeline. In the next
+    section, we will tackle more ways to make pipelines robust by discussing how to
+    scale ML applications to more users and how to organize complex training processes.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这些原因，将过滤模型添加到现有的输入和输出检查中，可以显著增加生产管道的稳健性。在接下来的部分中，我们将讨论更多方法，通过讨论如何将机器学习应用程序扩展到更多用户以及如何组织复杂的训练流程，来使管道更加稳健。
+- en: Engineer for Performance
+  id: totrans-74
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 为性能进行工程设计
+- en: Maintaining performance when deploying models to production is a significant
+    challenge, especially as a product becomes more popular and new versions of a
+    model get deployed regularly. We will start this section by discussing methods
+    to allow models to process large amounts of inference requests. Then, we will
+    cover features that make it easier to regularly deploy updated model versions.
+    Finally, we will discuss methods to reduce variance in performance between models
+    by making training pipelines more reproducible.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在将模型部署到生产环境时保持性能是一个重大挑战，特别是产品变得越来越受欢迎，新版本的模型定期部署。我们将从讨论允许模型处理大量推理请求的方法开始这一部分。然后，我们将涵盖使定期部署更新的模型版本更容易的功能。最后，我们将讨论通过使训练流程更可复制来减少模型性能变化的方法。
+- en: Scale to Multiple Users
+  id: totrans-76
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 扩展到多个用户
+- en: Many software workloads are horizontally scalable, meaning that spinning up
+    additional servers is a valid strategy to keep response time reasonable when the
+    number of requests increases. ML is no different in this aspect, as we can simply
+    spin up new servers to run our models and handle the extra capacity.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多软件工作负载是横向可扩展的，这意味着在请求数量增加时，启动额外的服务器是一种有效的策略，以保持响应时间合理。在这个方面，机器学习也不例外，因为我们可以简单地启动新服务器来运行我们的模型，并处理额外的容量。
+- en: Note
+  id: totrans-78
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If you use a deep learning model, you may need a GPU to serve results in an
+    acceptable time. If that is the case and you are expecting to have enough requests
+    to require more than a single GPU-enabled machine, you should run your application
+    logic and your model inference on two different servers.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果使用深度学习模型，您可能需要一个 GPU 在可接受的时间内提供结果。如果是这种情况，并且您预计将有足够的请求需要超过一个启用 GPU 的机器，您应该在两个不同的服务器上运行应用逻辑和模型推理。
+- en: Because GPU instances are often an order of magnitude more expensive than regular
+    instances for most cloud providers, having one cheaper instance scale out your
+    application and GPU instances tackling only inference will significantly lower
+    your compute costs. When using this strategy, you should keep in mind that you
+    are introducing some communication overhead and make sure that this is not too
+    detrimental to your use case.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为GPU实例在大多数云服务提供商中的价格往往比普通实例高出一个数量级，因此采用一个较便宜的实例扩展应用程序，而GPU实例仅处理推理，将显著降低计算成本。在使用此策略时，应注意引入一些通信开销，并确保这对您的使用案例影响不大。
+- en: In addition to increasing resource allocation, ML lends itself to efficient
+    ways to handle additional traffic, such as caching.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了增加资源分配外，机器学习还有助于处理额外流量的高效方式，例如缓存。
+- en: Caching for ML
+  id: totrans-82
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 机器学习的缓存
+- en: Caching is the practice of storing results to function calls so that future
+    calls to this function with the same parameters can be run faster by simply retrieving
+    the stored results. Caching is a common practice to speed up engineering pipelines
+    and is very useful for ML.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缓存是存储函数调用结果的实践，以便以后使用相同参数调用此函数时可以通过简单检索存储的结果来更快地运行。缓存是加速工程管道的常见实践，对机器学习非常有用。
+- en: Caching inference results
+  id: totrans-84
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 推理结果的缓存
+- en: A least recently used (LRU) cache is a simple caching approach, which entails
+    keeping track of the most recent inputs to a model and their corresponding outputs.
+    Before running the model on any new input, look up the input in the cache. If
+    a corresponding entry is found, serve the results directly from the cache. [Figure 10-6](#caching)
+    shows an example of such a workflow. The first row represents the caching step
+    when an input is initially encountered. The second row depicts the retrieval step
+    once the same input is seen again.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最近最少使用（LRU）缓存是一种简单的缓存方法，它包括跟踪模型的最近输入及其对应的输出。在对任何新输入运行模型之前，查找缓存中的输入。如果找到相应条目，则直接从缓存中提供结果。[图 10-6](#caching)显示了这种工作流程的示例。第一行表示首次遇到输入时的缓存步骤。第二行描述了再次看到相同输入时的检索步骤。
+- en: '![Caching for an image captioning model](assets/bmla_1006.png)'
+  id: totrans-86
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图像字幕模型的缓存](assets/bmla_1006.png)'
+- en: Figure 10-6\. Caching for an image captioning model
+  id: totrans-87
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-6\. 图像字幕模型的缓存
+- en: This sort of caching strategy works well for applications where users will provide
+    the same kind of input. It is not appropriate if each input is unique. If an application
+    takes in photos of paw prints to predict which animal they belong to, it should
+    rarely receive two identical photos, so a LRU cache would not help.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种缓存策略适用于用户提供相同类型输入的应用程序。如果每个输入都是唯一的，则不适用。例如，一个应用程序接收动物爪印的照片以预测它们属于哪种动物，它很少会收到两张完全相同的照片，所以LRU缓存对其无济于事。
+- en: When using caching, you should only cache functions with no side effects. If
+    a `run_model` function also stores results to a database, for example, using an
+    LRU cache will cause duplicate function calls to not be saved, which may not be
+    the intended behavior.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用缓存时，应仅缓存无副作用的函数。例如，如果`run_model`函数还将结果存储到数据库中，则使用LRU缓存将导致不保存重复函数调用，这可能不是预期的行为。
+- en: 'In Python, the `functools` module proposes a default [implementation](https://oreil.ly/B73Bo)
+    of an LRU cache that you can use with a simple decorator, as shown here:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Python中，`functools`模块提供了一个LRU缓存的默认[实现](https://oreil.ly/B73Bo)，您可以通过简单的装饰器来使用，如下所示：
+- en: '[PRE3]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Caching is most useful when retrieving features, processing them, and running
+    inference is slower than accessing a cache. Depending on your approach to caching
+    (in memory versus on disk, for example) and the complexity of the model you are
+    using, caching will have different degrees of usefulness.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当检索特征、处理它们和运行推理速度慢于访问缓存时，缓存最为有用。根据缓存方法的不同（例如内存中还是磁盘中）以及所使用模型的复杂性，缓存的有用程度会有所不同。
+- en: Caching by indexing
+  id: totrans-93
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 按索引缓存
+- en: While the caching method described is not appropriate when receiving unique
+    inputs, we can cache other aspects of the pipeline that can be precomputed. This
+    is easiest if a model does not only rely on user inputs.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管所描述的缓存方法在接收唯一输入时不适用，我们可以缓存管道的其他可预先计算部分。如果模型不仅依赖用户输入，则这样做最为简单。
+- en: Let’s say we are building a system that allows users to search for content that
+    is related to either a text query or an image they provide. It is unlikely that
+    caching user queries would boost performance by much if we expect queries to vary
+    significantly. Since we are building a search system, however, we have access
+    to a list of potential items in our catalog that we could return. This list is
+    known to us in advance, whether we are an online retailer or a document indexing
+    platform.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们正在构建一个系统，允许用户搜索与他们提供的文本查询或图像相关的内容。如果我们预计查询会显著变化，缓存用户查询可能不会显著提升性能。然而，作为一个搜索系统的构建者，我们可以访问我们目录中潜在项目的列表，这些项目我们事先知道，无论我们是在线零售商还是文档索引平台。
+- en: This means that we could precompute modeling aspects that depend only on the
+    items in our catalog. If we chose a modeling approach that allows us to do this
+    computation ahead of time, we can make inference significantly faster.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着我们可以预先计算仅依赖于我们目录中项目的建模方面。如果我们选择一种允许我们提前进行此计算的建模方法，我们可以显著加快推理速度。
+- en: For this reason, a common approach when building a search system is to first
+    embed all indexed documents to a meaningful vector (refer to [“Vectorizing”](ch04.html#vectorizing)
+    for more on vectorization methods). Once embeddings are created, they can be stored
+    in a database. This is illustrated on the top row of [Figure 10-7](#search_cached_embeddings).
+    When a user submits a search query, it is embedded at inference time, and a lookup
+    is performed in the database to find the most similar embeddings and return the
+    products that correspond to these embeddings. You can see this illustrated in
+    the bottom row of [Figure 10-7](#search_cached_embeddings).
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，构建搜索系统时的一种常见方法是首先将所有索引文档转换为有意义的向量（有关向量化方法，请参阅[“向量化”](ch04.html#vectorizing)）。一旦创建了嵌入，它们可以存储在数据库中。这在[图10-7](#search_cached_embeddings)的顶行有所说明。当用户提交搜索查询时，在推理时对其进行嵌入，并在数据库中执行查找以找到最相似的嵌入并返回对应这些嵌入的产品。您可以在[图10-7](#search_cached_embeddings)的底行中看到这一过程的图示。
+- en: This approach significantly speeds up inference since most of the calculations
+    have been done ahead of time. Embeddings have been successfully used in large-scale
+    production pipelines at companies such as Twitter (see this [post on Twitter’s
+    blog](https://oreil.ly/3R5hL)) and Airbnb (see this article by M. Haldar et al.,
+    [“Applying Deep Learning To Airbnb Search”](https://arxiv.org/abs/1810.09591).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法显著加快了推理速度，因为大部分计算工作都已提前完成。在诸如Twitter（参见[Twitter博客上的这篇文章](https://oreil.ly/3R5hL)）和Airbnb（参见M.
+    Haldar等人的文章，[“将深度学习应用于Airbnb搜索”](https://arxiv.org/abs/1810.09591)）等公司的大规模生产流水线中已成功使用了嵌入技术。
+- en: '![A search query with cached embeddings](assets/bmla_1007.png)'
+  id: totrans-99
+  prefs: []
+  type: TYPE_IMG
+  zh: '![带有缓存嵌入的搜索查询](assets/bmla_1007.png)'
+- en: Figure 10-7\. A search query with cached embeddings
+  id: totrans-100
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-7\. 带有缓存嵌入的搜索查询
+- en: Caching can improve performance, but it adds a layer of complexity. The size
+    of the cache becomes an additional hyperparameter to tune depending on your application’s
+    workload. In addition, any time a model or the underlying data is updated, the
+    cache needs to be cleared in order to prevent it from serving outdated results.
+    More generally, updating a model running in production to a new version often
+    requires care. In the next section, we will cover a few domains that can help
+    make such updates easier.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缓存可以提高性能，但会增加复杂性。缓存的大小成为一个额外的超参数，根据您的应用工作负载进行调整。此外，任何时候模型或基础数据更新，都需要清除缓存，以防止提供过时的结果。更普遍地说，将正在生产中运行的模型更新到新版本通常需要小心处理。在接下来的部分，我们将介绍一些领域，可以帮助使这些更新更容易。
+- en: Model and Data Life Cycle Management
+  id: totrans-102
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 模型和数据生命周期管理
+- en: Keeping caches and models up-to-date can be challenging. Many models require
+    regular retraining to maintain their level of performance. While we will cover
+    when to retrain your models in [Chapter 11](ch11.html#monitoring), I’d like to
+    briefly talk about how to deploy updated models to users.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保持缓存和模型的更新可能具有挑战性。许多模型需要定期重新训练以维持其性能水平。虽然我们将在[第11章](ch11.html#monitoring)中介绍何时重新训练您的模型，但我想简要讨论一下如何将更新的模型部署给用户。
+- en: A trained model is usually stored as a binary file containing information about
+    its type and architecture, as well as its learned parameters. Most production
+    applications load a trained model in memory when they start and call it to serve
+    results. A simple way to replace a model with a newer version is to replace the
+    binary file the application loads. This is illustrated in [Figure 10-8](#replacing_model_binary),
+    where the only aspect of the pipeline that is impacted by a new model is the bolded
+    box.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，训练好的模型被存储为一个包含其类型、架构以及学习到的参数信息的二进制文件。大多数生产应用程序在启动时将训练好的模型加载到内存中，并调用其提供结果。用新版本替换模型的一个简单方法是替换应用程序加载的二进制文件。如图 10-8（#replacing_model_binary）所示，这只会影响到流水线中的粗体框。
+- en: In practice, however, this process is often much more involved. Ideally, an
+    ML application produces reproducible results, is resilient to model updates, and
+    is flexible enough to handle significant modeling and data processing changes.
+    Guaranteeing this involves a few additional steps that we will cover next.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在实践中，这个过程通常更加复杂。理想情况下，一个机器学习应用程序能够产生可重现的结果，能够适应模型更新，并且足够灵活，以处理重大的建模和数据处理变化。确保这一点需要进行一些额外的步骤，接下来我们将详细介绍。
+- en: '![Deploying an updated version of the same model can seem like a simple change](assets/bmla_1008.png)'
+  id: totrans-106
+  prefs: []
+  type: TYPE_IMG
+  zh: '![部署更新版本的相同模型似乎是一个简单的改变](assets/bmla_1008.png)'
+- en: Figure 10-8\. Deploying an updated version of the same model can seem like a
+    simple change
+  id: totrans-107
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-8\. 部署更新版本的相同模型似乎是一个简单的改变
+- en: Reproducibility
+  id: totrans-108
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 可重现性
+- en: To track down and reproduce errors, you’ll need to know which model is running
+    in production. To do so requires keeping an archive of trained models and the
+    datasets they were trained on. Each model/dataset pair should be assigned a unique
+    identifier. This identifier should be logged each time a model is used in production.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要追踪和重现错误，您需要知道生产环境中运行的是哪个模型。为此，需要保留训练过的模型及其训练数据集的存档。每个模型/数据集对应一个唯一标识符。每次在生产中使用模型时，应记录此标识符。
+- en: In [Figure 10-9](#additional_model_info), I’ve added these requirements to the
+    load and save boxes to represent the complexity this adds to an ML pipeline.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 10-9](#additional_model_info)中，我已将这些要求添加到加载和保存框中，以展示这对机器学习流水线的复杂性产生的影响。
+- en: '![Adding crucial metadata when saving and loading](assets/bmla_1009.png)'
+  id: totrans-111
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在保存和加载时添加关键元数据](assets/bmla_1009.png)'
+- en: Figure 10-9\. Adding crucial metadata when saving and loading
+  id: totrans-112
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-9\. 在保存和加载时添加关键元数据
+- en: In addition to being able to serve different versions of existing models, a
+    production pipeline should aim to update models without significant downtime.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了能够提供不同版本的现有模型外，生产流水线还应该努力在没有显著停机时间的情况下更新模型。
+- en: Resilience
+  id: totrans-114
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 弹性
+- en: Enabling an application to load a new model once it is updated requires building
+    a process to load a newer model, ideally without disrupting service to your users.
+    This can consist of launching a new server serving the updated model and slowly
+    transition traffic to it, but it quickly becomes more complex for larger systems.
+    If a new model performs poorly, we’d like to be able to roll back to the previous
+    one. Doing both of these tasks properly is challenging and would traditionally
+    be categorized in the realm of DevOps. While we won’t cover this domain in depth,
+    we will introduce monitoring in [Chapter 11](ch11.html#monitoring).
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使应用程序能够在更新后加载新模型需要建立一个过程，能够加载更新后的模型，理想情况下不会影响到用户的服务。这可能包括启动一个新的服务器来提供更新后的模型，并逐渐将流量转移到新模型上，但对于较大的系统来说，这很快就会变得更加复杂。如果新模型表现不佳，我们希望能够回滚到以前的版本。正确执行这两项任务是具有挑战性的，并且传统上被归类为DevOps领域。虽然我们不会深入探讨这个领域，但我们会在[第 11 章](ch11.html#monitoring)中介绍监控。
+- en: Production changes can be more complex than updating a model. They can include
+    large changes to data processing, which should also be deployable.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产环境的变更可能比更新模型更加复杂。它们可以包括对数据处理的大幅更改，这些更改也应该可以部署。
+- en: Pipeline flexibility
+  id: totrans-117
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 流水线的灵活性
+- en: We previously saw that the best way to improve a model is often by iterating
+    on data processing and feature generation. This means that new versions of a model
+    will often require additional preprocessing steps or different features.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之前看到，改进模型的最佳方法通常是通过迭代数据处理和特征生成。这意味着新版本的模型通常需要额外的预处理步骤或不同的特征。
+- en: This kind of change is reflected in more than just the model binary and would
+    often be tied to a new version of your application. For this reason, the application
+    version should also be logged when a model makes a prediction in order to make
+    this prediction reproducible.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种变化不仅体现在模型二进制文件中，通常还与您的应用程序的新版本相关联。因此，在模型进行预测时，还应记录应用程序版本，以使此预测可重现。
+- en: Doing so adds another level of complexity to our pipeline, depicted with the
+    added preprocessing and postprocessing boxes in [Figure 10-10](#additional_model_info_feature_change).
+    These now also need to be reproducible and modifiable.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样做增加了我们管道的另一个复杂层次，在[图10-10](#additional_model_info_feature_change)中以增加的预处理和后处理框进行了描述。这些现在也需要是可重现和可修改的。
+- en: Deploying and updating models is challenging. When building a serving infrastructure,
+    the most important aspect is to be able to reproduce the results of a model running
+    in production. This means tying each inference call to the model that was run,
+    the dataset that model was trained on, and the version of the data pipeline that
+    served this model.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署和更新模型具有挑战性。在构建服务基础设施时，最重要的是能够复现模型在生产中运行的结果。这意味着将每个推理调用与运行的模型、模型训练的数据集以及为该模型提供服务的数据管道版本相关联起来。
+- en: '![Adding model and application version](assets/bmla_1010.png)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_IMG
+  zh: '![添加模型和应用程序版本](assets/bmla_1010.png)'
+- en: Figure 10-10\. Adding model and application version
+  id: totrans-123
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-10\. 添加模型和应用程序版本
+- en: Data Processing and DAGs
+  id: totrans-124
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 数据处理和DAGs
+- en: To produce reproducible results as described earlier, a training pipeline should
+    also be reproducible and deterministic. For a given combination of dataset, preprocessing
+    steps, and model, a training pipeline should produce the same trained model on
+    every training run.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要像前面描述的那样生成可重现的结果，训练管道也应该是可重现和确定性的。对于给定的数据集组合、预处理步骤和模型，训练管道应该在每次训练运行时生成相同的训练模型。
+- en: Many successive transformation steps are required to building a model, so pipelines
+    will often break at different locations. This makes guaranteeing that each part
+    was run successfully and that they were all run in the right order.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构建模型需要许多连续的转换步骤，因此管道经常会在不同位置中断。这使得确保每个部分都成功运行并且按正确顺序运行成为可能。
+- en: One way to make this challenge easier is by representing our process of going
+    from raw data to trained model as a directed acyclic graph (DAG), with each node
+    representing a processing step and each step representing a dependency between
+    two nodes. This idea is at the core of dataflow programming, a programming paradigm
+    that the popular ML library TensorFlow is based on.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简化这一挑战的一种方法是将从原始数据到训练模型的过程表示为一个有向无环图（DAG），其中每个节点表示一个处理步骤，每个步骤表示两个节点之间的依赖关系。这个想法是数据流编程的核心，这也是流行的ML库TensorFlow所基于的编程范式。
+- en: DAGs can be a natural way to visualize preprocessing. In [Figure 10-11](#dag),
+    each arrow represents a task that depends on another one. The representation allows
+    us to keep each task simple, using the graph structure to express complexity.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DAG可以是可视化预处理的一种自然方式。在[图10-11](#dag)中，每个箭头代表一个依赖于另一个任务的任务。该表示允许我们保持每个任务简单，使用图结构来表达复杂性。
+- en: '![An example of a DAG for our application](assets/bmla_1011.png)'
+  id: totrans-129
+  prefs: []
+  type: TYPE_IMG
+  zh: '![我们应用程序的DAG示例](assets/bmla_1011.png)'
+- en: Figure 10-11\. An example of a DAG for our application
+  id: totrans-130
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-11\. 我们应用程序的DAG示例
+- en: Once we have a DAG, we can then guarantee that we follow the same set of operations
+    for each model that we produce. There are multiple solutions to define DAGs for
+    ML, including active opensource projects such as [Apache Airflow](https://oreil.ly/8ztqj)
+    or Spotify’s [Luigi](https://oreil.ly/jQFj8). Both packages allow you to define
+    DAGs and provide a set of dashboards to allow you to monitor the progress of your
+    DAGs and any associated logs.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们有了一个DAG（有向无环图），我们就能够保证对每个生成的模型采取相同的操作序列。有多种方法可以为ML定义DAG，包括像[Apache Airflow](https://oreil.ly/8ztqj)或Spotify的[Luigi](https://oreil.ly/jQFj8)这样的活跃开源项目。这两个软件包允许您定义DAG，并提供一组仪表板，以便您监视DAG的进展和任何相关日志。
+- en: When first building an ML pipeline, using a DAG can be unnecessarily cumbersome,
+    but once a model becomes a core part of a production system, reproducibility requirements
+    make DAGs very compelling. Once models are being regularly retrained and deployed,
+    any tool that helps systematize, debug, and version a pipeline will become a crucial
+    time-saver.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当首次构建ML管道时，使用DAG可能会显得不必要复杂，但一旦模型成为生产系统的核心组成部分，可重现性要求使DAG变得非常吸引人。一旦模型定期进行重新训练和部署，任何能帮助系统化、调试和版本化管道的工具都将成为重要的时间节省者。
+- en: To conclude this chapter, I will cover an additional and direct way to guarantee
+    that a model is performing well—asking users.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结束本章，我将介绍另一种直接的方式来确保模型的性能良好——询问用户。
+- en: Ask for Feedback
+  id: totrans-134
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 请求反馈
+- en: This chapter covered systems that can help ensure we give every user an accurate
+    result in a timely manner. To guarantee the quality of results, we covered tactics
+    to detect whether a model’s predictions are inaccurate. Why don’t we ask users?
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章介绍了能够确保我们及时向每个用户提供准确结果的系统。为了保证结果的质量，我们讨论了检测模型预测是否不准确的策略。为什么不问问用户呢？
+- en: You can gather feedback from users both by explicitly asking for feedback and
+    by measuring implicit signals. You can ask for explicit feedback when displaying
+    a model’s prediction, by accompanying it with a way for users to judge and correct
+    a prediction. This can be as simple as a dialog asking “was this prediction useful?”
+    or something more subtle.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当显示模型预测时，你可以通过请求明确反馈或测量隐式信号来从用户那里获取反馈。这可以简单到一个对话框询问“这个预测有用吗？”或者更为微妙的方式。
+- en: The budgeting application Mint, for example, categorizes each transaction on
+    an account automatically (categories include *Travel*, *Food*, etc.). As depicted
+    in [Figure 10-12](#implicit_explicit_feedback), each category is shown in the
+    UI as a field the user can edit and correct if needed. Such systems allow valuable
+    feedback to be collected to continuously improve models in a way that is less
+    intrusive than a satisfaction survey, for example.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，预算应用Mint自动为账户上的每笔交易分类（包括*旅行*、*食品*等）。正如在[图10-12](#implicit_explicit_feedback)中所示，每个类别在用户界面中显示为用户可以编辑和纠正的字段。这样的系统允许收集宝贵的反馈，以持续改进模型，比起满意度调查等方式，更少侵入性。
+- en: '![Let users fix mistakes directly](assets/bmla_1012.png)'
+  id: totrans-138
+  prefs: []
+  type: TYPE_IMG
+  zh: '![让用户直接修正错误](assets/bmla_1012.png)'
+- en: Figure 10-12\. Let users fix mistakes directly
+  id: totrans-139
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 10-12\. 让用户直接修正错误
+- en: Users cannot provide feedback for each prediction a model makes, so gathering
+    implicit feedback is an important way to judge ML performance. Gathering such
+    feedback consists of looking at actions users perform to infer whether a model
+    provided useful results.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户无法为模型每次预测提供反馈，因此收集隐式反馈是评估ML性能的重要方式。收集此类反馈包括查看用户执行的操作，以推断模型是否提供了有用的结果。
+- en: Implicit signals are useful but harder to interpret. You shouldn’t hope to find
+    an implicit signal that always correlates with model quality, only one that does
+    so in aggregate. For example, in a recommendation system, if a user clicks on
+    a recommended item, you can reasonably assume that the recommendation was valid.
+    This will not be true in all cases (people click on the wrong things sometimes!),
+    but as long as it is true more often than not, it is a reasonable implicit signal.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 隐式信号非常有用但更难解释。你不能指望找到一个总是与模型质量相关的隐式信号，只能找到在总体上相关的信号。例如，在推荐系统中，如果用户点击了一个推荐的物品，你可以合理地假设该推荐是有效的。这在所有情况下都不成立（有时人们会误点击！），但只要大多数情况下是真的，这就是一个合理的隐式信号。
+- en: By collecting this information, as shown in [Figure 10-13](#user_actions_as_feedback),
+    you can then estimate how often users found results useful. The collection of
+    such implicit signals is useful but comes with the added risk of collecting and
+    storing this data and potentially introducing negative feedback loops as we discussed
+    in [Chapter 8](ch08.html#final_validation).
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过收集这些信息，如[图10-13](#user_actions_as_feedback)所示，你可以估计用户发现结果有用的频率。收集此类隐式信号非常有用，但也伴随着收集和存储数据的风险，并且可能引入我们在[第8章](ch08.html#final_validation)中讨论过的负反馈循环。
+- en: '![User actions as a source for feedback](assets/bmla_1013.png)'
+  id: totrans-143
+  prefs: []
+  type: TYPE_IMG
+  zh: '![用户行为作为反馈的来源](assets/bmla_1013.png)'
+- en: Figure 10-13\. User actions as a source for feedback
+  id: totrans-144
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: Figure 10-13\. 用户行为作为反馈的来源
+- en: Building implicit feedback mechanisms in your product can be a valuable way
+    to gather additional data. Many actions can be considered a mix of implicit and
+    explicit feedback.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你的产品中构建隐式反馈机制可以是收集额外数据的一种有价值的方式。许多动作可以被视为隐式和显式反馈的混合。
+- en: Let’s say we added a “Ask the question on Stack Overflow” button to the recommendations
+    of our ML editor. By analyzing which predictions led to users clicking this button,
+    we could measure the proportion of recommendations that were good enough to be
+    posted as questions. By adding this button, we aren’t directly asking users whether
+    the suggestion is good, but we allow them to act on it, thus giving us a “weak
+    label” (see [“Data types”](ch01.html#data_types) for a reminder on weakly labeled
+    data) of question quality.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们在我们的 ML 编辑器的推荐中添加了一个“在 Stack Overflow 上提问”的按钮。通过分析导致用户点击此按钮的预测，我们可以衡量推荐中可以作为问题发布的比例。通过添加此按钮，我们并不直接询问用户建议是否良好，而是允许他们采取行动，从而为我们提供了“弱标签”（请参见[“数据类型”](ch01.html#data_types)中对弱标记数据的提醒）来评估问题质量。
+- en: In addition to being a good source of training data, implicit and explicit user
+    feedback can be the first way to notice a degradation in performance in an ML
+    product. While ideally errors should be caught before being displayed to users,
+    monitoring such feedback helps detect and fix bugs quicker. We will cover this
+    in more detail in [Chapter 11](ch11.html#monitoring).
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了作为训练数据的良好来源外，隐式和显式用户反馈也可以是注意到 ML 产品性能下降的第一种方式。虽然理想情况下应在显示给用户之前捕获错误，但监控此类反馈有助于更快地检测和修复错误。我们将在[第
+    11 章](ch11.html#monitoring)中更详细地讨论这一点。
+- en: Strategies for deploying and updating models vary tremendously depending on
+    the size of a team and their experience with ML. Some of the solutions in this
+    chapter are excessively complex for a prototype such as the ML Editor. On the
+    other hand, some teams that have invested a significant amount of resources into
+    ML have built complex systems that allow them to simplify their deployment process
+    and guarantee a high level of quality to users. Next, I’ll share an interview
+    with Chris Moody, who leads Stitch Fix’s AI Instruments team and will take us
+    through their philosophy when it comes to deploying ML models.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署和更新模型的策略因团队规模和他们在机器学习方面的经验而异。本章中的一些解决方案对于像 ML 编辑器这样的原型而言过于复杂。另一方面，一些投入大量资源到机器学习的团队已经建立了复杂的系统，使他们能够简化部署过程，并保证给用户高水平的质量。接下来，我将分享一个关于克里斯·穆迪的采访，他领导着
+    Stitch Fix 的 AI Instruments 团队，并将带我们了解他们在部署机器学习模型时的理念。
+- en: 'Chris Moody: Empowering Data Scientists to Deploy Models'
+  id: totrans-149
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 克里斯·穆迪：赋予数据科学家们部署模型的权力
+- en: Chris Moody came from a physics background from Caltech and UCSC and is now
+    leading Stitch Fix’s AI Instruments team. He has an avid interest in NLP and has
+    dabbled in deep learning, variational methods, and Gaussian processes. He’s contributed
+    to the [Chainer](http://chainer.org/) deep learning library, contributed to the
+    super fast Barnes–Hut version of t-SNE to [scikit-learn](https://oreil.ly/t3Q0k),
+    and written (one of the few!) sparse tensor factorization libraries in [Python](https://oreil.ly/tS_qD).
+    He also built his own NLP model, [lda2vec](https://oreil.ly/t7XFr).
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 克里斯·穆迪毕业于加州理工学院和加州大学圣克鲁兹分校，拥有物理学背景，现在领导着 Stitch Fix 的 AI Instruments 团队。他对自然语言处理有浓厚兴趣，并涉足深度学习、变分方法和高斯过程。他为深度学习库
+    [Chainer](http://chainer.org/) 做出了贡献，为 [scikit-learn](https://oreil.ly/t3Q0k)
+    贡献了超快的 Barnes–Hut 版本的 t-SNE，还编写了（为数不多的！）稀疏张量分解库 [Python](https://oreil.ly/tS_qD)。他还建立了自己的
+    NLP 模型，[lda2vec](https://oreil.ly/t7XFr)。
+- en: 'Q: *What part of the model life cycle do data scientists work on at Stitch
+    Fix?*'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Q：*在 Stitch Fix，数据科学家们在模型生命周期的哪个部分工作？*
+- en: 'A: At Stitch Fix, data scientists own the entire modeling pipeline. This pipeline
+    is broad and includes things such as ideation, prototyping, design and debugging,
+    ETL, and model training in languages and frameworks such as scikit-learn, pytorch,
+    and R. In addition, data scientists are in charge of setting up systems to measure
+    metrics and building “sanity checks” for their models. Finally, data scientists
+    run the A/B test, monitor errors and logs, and redeploy updated model versions
+    as needed based on what they observe. To be able to do this, they leverage the
+    work done by the platform and engineering team.'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'A: 在 Stitch Fix，数据科学家拥有整个建模管道。这个管道很广泛，包括构思、原型设计、设计和调试、ETL以及使用 scikit-learn、pytorch
+    和 R 等语言和框架进行模型训练。此外，数据科学家负责建立度量系统和为模型设置“健全性检查”。最后，数据科学家运行 A/B 测试，监控错误和日志，并根据观察到的情况重新部署更新的模型版本。为了能够做到这一点，他们利用平台和工程团队的工作成果。'
+- en: 'Q: *What does the platform team do to make data science work easier?*'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'Q: *平台团队为简化数据科学工作做了什么？*'
+- en: 'A: The goal of engineers on the platform team is to find the right abstractions
+    for modeling. This means they need to understand how a data scientist works. Engineers
+    don’t build individual data pipelines for data scientists working on a given project.
+    They build solutions that enable data scientists to do so themselves. More generally,
+    they build tools to empower data scientists to own the entire workflow. This empowers
+    engineers to spend more time making the platform better and less time building
+    one-off solutions.'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'A: 平台团队的工程师的目标是为建模找到合适的抽象。这意味着他们需要了解数据科学家的工作方式。工程师们不为在特定项目上工作的数据科学家构建单独的数据管道。他们构建的是能让数据科学家自己完成这些工作的解决方案。更普遍地说，他们构建工具来赋予数据科学家全流程所有权。这使工程师们能够花更多时间改进平台，而不是构建临时解决方案。'
+- en: 'Q: *How do you judge the performance of models once they are deployed?*'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'Q: *一旦部署了模型，你如何评估其性能？*'
+- en: 'A: A big part of Stitch Fix’s strength is in making humans and algorithms work
+    together. For example, Stitch Fix spends a lot of time thinking about the right
+    way to present information to their stylists. Fundamentally, if you have an API
+    that exposes your model on one end and a user such as a stylist or merchandise
+    buyer on the other hand, how should you design interactions between them?'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'A: Stitch Fix 的一大优势在于使人类和算法共同工作。例如，Stitch Fix 投入了大量时间思考向他们的设计师呈现信息的正确方式。从根本上说，如果你在一端暴露你的模型有一个
+    API，并在另一端有像设计师或商品购买者这样的用户，你应该如何设计他们之间的交互？'
+- en: At first glance, you could be tempted to build a frontend to simply present
+    the results of your algorithm to users. Unfortunately, this can lead users to
+    feel like they have no control over the algorithm and the overall system and can
+    lead to frustration when it isn’t performing well. Instead, you should think about
+    this interaction as a feedback loop, allowing users to correct and adjust results.
+    Doing so lets users train algorithms and have a much larger impact on the entire
+    process by being able to give feedback. In addition, this allows you to gather
+    labeled data to judge the performance of your models.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 乍一看，你可能会想要构建一个前端，简单地向用户展示算法的结果。不幸的是，这可能会让用户感觉他们对算法和整个系统没有控制权，在算法表现不佳时会感到沮丧。相反，你应该将这种交互视为一个反馈循环，允许用户进行纠正和调整结果。这样做可以让用户训练算法，并对整个过程产生更大的影响，因为他们可以提供反馈。此外，这还可以帮助你收集标记数据以评估模型的性能。
+- en: To do this well, data scientists should ask themselves how they can expose a
+    model to a user in order to both make their job easier and empower them to make
+    the model better. This means that since data scientists know best what kind of
+    feedback would be the most useful for their models, it is integral for them to
+    own the process end-to-end up to this point. They can catch any errors because
+    they can see the entire feedback loop.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要做到这一点，数据科学家应该问自己如何向用户展示模型，以便既能简化他们的工作，又能赋予他们使模型变得更好的能力。这意味着由于数据科学家最了解什么样的反馈对他们的模型最有用，因此他们对从端到端拥有整个过程至关重要。他们可以捕捉到任何错误，因为他们可以看到整个反馈循环。
+- en: 'Q: *How do you monitor and debug models?*'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'Q: *你如何监控和调试模型？*'
+- en: 'A: When your engineering team builds great tooling, monitoring and debugging
+    get much easier. Stitch Fix has built an internal tool that takes in a modeling
+    pipeline and creates a Docker container, validates arguments and return types,
+    exposes the inference pipeline as an API, deploys it on our infrastructure, and
+    builds a dashboard on top of it. This tooling allows data scientists to directly
+    fix any errors that happen during or after deployment. Because data scientists
+    are now in charge of troubleshooting models, we have also found that this setup
+    incentivizes simple and robust models that tend to break more rarely. Ownership
+    of the entire pipeline leads individuals to optimize for impact and reliability,
+    rather than model complexity.'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '-   A: 当你的工程团队构建了优秀的工具时，监控和调试变得更加容易。Stitch Fix 已经构建了一个内部工具，它接收建模管道并创建 Docker
+    容器，验证参数和返回类型，将推断管道作为 API 公开，部署到我们的基础设施上，并在其之上构建仪表板。这些工具允许数据科学家在部署期间或之后直接修复任何错误。因为数据科学家现在负责解决模型故障，我们还发现这种设置促使简单且稳健的模型更少出现故障。整个流程的所有权促使个人优化影响和可靠性，而不是模型复杂性。'
+- en: 'Q: *How do you deploy new model versions?*'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'Q: *你是如何部署新模型版本的？*'
+- en: 'A: In addition, data scientists run experiments by using a custom-built A/B
+    testing service that allows them to define granular parameters. They then analyze
+    test results, and if they are deemed conclusive by the team, they deploy the new
+    version themselves.'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '-   A: 此外，数据科学家们通过使用自定义构建的 A/B 测试服务来运行实验，该服务允许他们定义精细的参数。然后他们分析测试结果，如果团队认为结果是确凿的，他们会自行部署新版本。'
+- en: When it comes to deployment, we use a system similar to canary development where
+    we start by deploying the new version to one instance and progressively update
+    instances while monitoring performance. Data scientists have access to a dashboard
+    that shows the number of instances under each version and continuous performance
+    metrics as the deployment progresses.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在部署方面，我们使用类似金丝雀开发的系统，从一个实例开始部署新版本，然后逐步更新实例并监控性能。数据科学家们可以访问仪表板，显示每个版本下的实例数量和随着部署进展的连续性能指标。
+- en: Conclusion
+  id: totrans-164
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: In this chapter, we’ve covered ways to make our responses more resilient by
+    detecting potential failures of our model proactively and finding ways to mitigate
+    them. This has included both deterministic validation strategies and the use of
+    filtering models. We also covered a few of the challenges that come with keeping
+    a production model up-to-date. Then, we discussed some of the ways that we can
+    estimate how well a model is performing. Finally, we took a look at a practical
+    example of a company that deploys ML frequently and at large scale, and the processes
+    they have built to do so.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们已经讨论了通过积极检测模型潜在故障并找到缓解方法来使我们的响应更具弹性的方式。这包括确定性验证策略和使用过滤模型。我们还讨论了保持生产模型更新的一些挑战。然后，我们探讨了如何评估模型性能的几种方法。最后，我们看了一个频繁部署
+    ML 的大规模公司的实际例子，以及他们为此构建的流程。
+- en: In [Chapter 11](ch11.html#monitoring), we will cover additional methods to keep
+    an eye on the performance of models and leverage a variety of metrics to diagnose
+    the health of an ML-powered application.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [第 11 章](ch11.html#monitoring) 中，我们将介绍额外的方法来监控模型的性能，并利用各种指标来诊断 ML 驱动应用的健康状况。
