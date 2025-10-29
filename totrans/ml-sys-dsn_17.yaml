@@ -1,0 +1,1760 @@
+- en: 14 Monitoring and reliability
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter covers
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Monitoring as part of machine learning system design
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Software system health
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Data quality and integrity
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Model quality and relevance
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Traditional software development is based on a simple principle: a quality-built
+    product will perform with high stability, efficiency, and predictability, and
+    these values will not change over time. In contrast, the world of machine learning
+    (ML) is more complex, and working on an ML system does not end at its release.
+    There is a practical explanation for this; while in the first case, a solution
+    performs strictly within predesigned algorithms, in the second case, functionality
+    is based on a probabilistic model trained on a limited amount of certain input
+    data.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This means that the model will inevitably be prone to degradation over time,
+    as well as experience cases of unexpected behavior, due to the difference between
+    the data it was trained on and the data it will receive in real-life conditions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These are risks that cannot be eliminated but that you need to be prepared for
+    and able to mitigate so that your system remains effective and valuable to your
+    business over the long term.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we’ll cover the essence of monitoring as part of ML system
+    design and the sources of problems your ML model may encounter as it operates.
+    We will also explore how you want to monitor typical cases in system behavior
+    change and how you need to respond to them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.1 Why monitoring is important
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Having an operating ML solution in production is an excellent feeling. Having
+    a proper validation schema, test coverage, and working continuous integration
+    and continuous delivery CI/CD is an even better (although rarer) feeling. Unfortunately,
+    this does not guarantee your system will remain stable without going crazy. By
+    craziness here we mean any unexpected, illogical, wholly wrong, and unexplainable
+    output from the model that can severely affect the system output—anything you
+    would not expect to see from a healthy, reliable system (at least without notifying
+    its maintainers and switching to fallback).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Without proper monitoring, even the most well-trained and accurate models can
+    begin to degrade over time due to changes in the data they are working with. This
+    is especially evident during times of significant change, such as the recent COVID-19
+    pandemic, where models used for tasks like predicting item availability, credit
+    risk, and many more had to face enormous challenges. By implementing monitoring
+    systems, we can identify and address problems with data quality and ensure that
+    our models continue to make reliable predictions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If somebody asks us to make a simplified high-level review of a generic ML system,
+    it will most likely look like figure 14.1.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![figure](../Images/CH14_F01_Babushkin.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.1 A simplified structure of a regular ML system
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: We can expect deterministic (e.g., reproducible) output only if all stages are
+    fixed, exactly the same sample of data goes through precisely the same model (the
+    same structure and the same weights), and this model is nonprobabilistic (some
+    of the most popular models in the world, e.g., generative AI champions ChatGPT
+    and Midjourney, are probabilistic; however, to be completely pedantic, we can
+    fix a random generator or seed and improve the reproducibility) with precisely
+    the same postprocessing, and then we could expect that the results would be identical.
+    Actually, this is among the primary reasons for designing a proper training pipeline,
+    which helps create and maintain these conditions for reproducible iterations and
+    thus provides for improvement and experimentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, the probability that such a combination of factors can happen is extremely
+    low, as we are always dealing with a multitude of inputs that can change with
+    varying degrees of probability and effects on the model. Let’s break down all
+    four components from figure 14.1 to understand what challenges we may encounter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.1.1 Incoming data
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Unfortunately, the more complex the system we have, the smaller the chances
+    that data inputs will be repeatable (if that were the case, we could use a simple
+    cache instead), meaning that we can assume every input is unique. In addition,
+    the distribution of specific features in data might change over time, affecting
+    downstream stages. Another possibility is that something will break in the data
+    pipeline and corrupt the data or someone will try to tackle the input in a way
+    that will affect the output in the desired and sometimes malevolent way (this,
+    however, is usually more related to planting backdoors; see, for an overview,
+    “Planting Undetectable Backdoors in Machine Learning Models” ([https://arxiv.org/pdf/2204.06974.pdf](https://arxiv.org/pdf/2204.06974.pdf)).
+    If the system is not robust to these perturbations, things can backfire at any
+    moment in time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.1.2 Model
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Unlike the incoming data, the model’s structure (or architecture) and weights
+    can be stable. That, of course, depends on the presence of online training (e.g.,
+    updating the model based on incoming data in a real-time/quasi-real-time fashion)
+    and scheduled updates (e.g., retraining every week on the latest batch of data).
+    After any update, regardless of this being a batch learning on online learning,
+    it is not entirely the same model as before. If the model is not the same, output
+    from the same data might change, which is essentially the reason why we retrain
+    the model. Still, we want to be sure that retraining/updating affected the model
+    adequately and was a necessary thing to do (recall section 13.2).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another thing is that the system we have might be probabilistic/generative by
+    nature. The dialogue with ChatGPT (as of July 2024) shown in figure 14.2 is a
+    rather illustrative example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![figure](../Images/CH14_F02_Babushkin.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.2 Annoying ChatGPT to ensure it is a fairly nondeterministic model.
+    Although responses are similar, they are not identical.
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: The screenshot shows four different (though similar) replies from ChatGPT. While
+    behaving within a specific range is something we would expect, not having the
+    same output for the same input makes it more challenging to check the health of
+    the system. Which reply is acceptable, and which is not? As of January 2023, our
+    experience with ChatGPT showed that it is not rare to receive several answers
+    in a row that are completely different or contradict each other, although this
+    was partially fixed in later versions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.1.3 Model output
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: It might be a relatively rare thing, but the model’s output can become irrelevant
+    due to so-called *concept drift*—for example, a change of the underlying dependencies
+    between input data and the resulting output, making dependencies built by the
+    model obsolete and inadequate. This is different from input data distribution
+    shifts in the sense that while incoming data distribution remains the same, the
+    labels, previously correctly allocated to them, are now different. For example,
+    according to a recent tax change in the UK, which took place in 2022, the highest
+    tax bracket is now applied to people with an income of 125,000 pounds per year,
+    with the previous threshold being 150,000 pounds. Now imagine you have a marketing
+    campaign to promote tax service assistance and a model set to pick the most probable
+    users for this service to remain within the marketing budget. Such a change in
+    the legislation would immediately trigger a lot of refinements to your model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another example would be a lag in time, causing shifts in understanding of the
+    world to happen much later than the event that prompted these shifts. A good example
+    here is the *Madoff investment scandal*, which was revealed only decades after
+    the original shenanigans. For many years, signals coming from it were reviewed
+    as signals of a successful hedge fund, but later, it turned out to be a Ponzi
+    scheme. In other words, for many years, the incoming data was labeled as benevolent,
+    only eventually turning out to be fraudulent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.1.4 Postprocessing/decision-making
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: It is important to be aware of the potential for a mismatch between the quality
+    of the ML model and the business value it is expected to deliver. Several factors
+    can contribute to this mismatch, including changes in the environment in which
+    the model is used, as well as changes in how the model is being utilized.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If the model was designed to support a specific business process, it may no
+    longer be effective if the process changes over time. For example, say the model
+    was set up to prioritize customer support for the incoming tickets based on the
+    future revenue of those users, and the new process is to focus on the quickest
+    tickets to solve. Similarly, if the model is not being used in the way it was
+    intended or is not being used at all, it may not be able to deliver the expected
+    business value. To mitigate these risks, it is important to continuously monitor
+    the performance of the ML model and the business value it is delivering and to
+    make adjustments as needed to ensure that the model is able to support the desired
+    business objectives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following sections, we cover the most common cases of what can go wrong,
+    focusing primarily on the first three stages. We discuss how to monitor and detect
+    them, what to do if something has changed, and how to incorporate this into the
+    design document so that you are able to plan beforehand and not after something
+    terrible happens. Before we dive into potential malfunctions and ways to handle
+    them, let’s talk about the main components of monitoring ML systems. In her article
+    “Monitoring ML Systems in Production. Which Metrics Should You Track?” ([https://mng.bz/86B2](https://mng.bz/86B2)),
+    Elena Samuylova highlights four integral components of ML system monitoring, represented
+    as a pyramid in figure 14.3\.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![figure](../Images/CH14_F03_Babushkin.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 14.3 Core components of ML system monitoring (source: [https://mng.bz/86B2](https://mng.bz/86B2))'
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: The foundation of proper monitoring is the software backend, topped subsequently
+    with data quality and integrity, model quality and relevance, and business key
+    performance indicators (KPIs). The last point may seem irrelevant at first sight,
+    as it is not part of an ML system per se, but the way a corrupted system may affect
+    our KPIs and, eventually, the business itself cannot be underestimated. Let’s
+    break down every layer of the pyramid in reverse order.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.2 Software system health
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: It is crucial to think of the software backend as the foundation of the design.
+    This includes monitoring software performance to ensure it is functioning properly,
+    executing tasks efficiently, and responding quickly to requests. Failing to prioritize
+    the stability and performance of the software backend can have detrimental effects
+    on the overall effectiveness of the ML system. Because this book covers the principles
+    of ML system design and there are many books out there dedicated to “regular”
+    software system design and its reliability, we are not covering this extensively.
+    However, it naturally has to be addressed, as any system is only as strong as
+    its weakest link. For a more in-depth analysis of system health, see the article
+    by Chris Jones et al. ([https://mng.bz/EOAl](https://mng.bz/EOAl)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Monitoring the health of an ML system is an important aspect of production deployment.
+    It is essential to ensure that the system is up and running and to track its performance
+    characteristics to meet service-level objectives. Many of the same monitoring
+    practices used in traditional software systems—such as application and infrastructure
+    monitoring, alerting, and incident management—can also be applied to ML systems.
+    These practices can help ensure the health and performance of the ML system and
+    allow for timely intervention if any problems arise. By using the tools and practices
+    developed for traditional software systems, it is possible to effectively monitor
+    and manage the health and performance of an ML system in production.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are various metrics that can be monitored, depending on the deployment
+    architecture of the ML system. These can include service usage metrics such as
+    the total number of model calls, requests per second, and error rates, as well
+    as system performance metrics such as uptime, latency, cold start time, error
+    rate, and resource utilization metrics such as memory and GPU/CPU utilization.
+    It is important to carefully select a few key metrics that quantify different
+    aspects of service performance, often referred to as *service-level indicators*.
+    These metrics can help identify problems with the system and allow for timely
+    intervention to prevent failures or degraded performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is important to log events and predictions with their timestamps to monitor
+    and debug your ML system. In the context of an ML system, we recommend recording
+    data on every prediction if this is feasible and fits the budget (there are cases
+    when storing every intermediate model output may drastically affect the profit
+    margin), including the input features and the model output. This will allow you
+    to track the performance of the model and identify any problems that may arise.
+    As a general rule, you should log every prediction unless there are specific circumstances,
+    such as privacy regulations or the use of edge models on a user’s device, that
+    prevent you from doing so. In these cases, it may be necessary to develop workarounds
+    to collect and label some of the data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to prediction logs, it is also important to have software system
+    logs—timestamped events that provide information on what is happening within your
+    ML-powered application. Having access to these logs can be helpful for debugging
+    problems that may arise and for improving the model’s performance. There are multiple
+    tools available to help you centralize and analyze these logs, like Prometheus
+    and Grafana among open source tools or AWS Cloudwatch or Datadog among cloud services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: NOTE  You can always remove logs that you later consider unnecessary, but you
+    can’t retroactively add them back. Don’t log if it doesn’t add new context; in
+    other words, make sure logs contain proper values and IDs, not just static statements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following shows examples of a poorly written log message and a good log
+    message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The model health assurance platform at LinkedIn ([https://mng.bz/dZEo](https://mng.bz/dZEo))
+    can provide some ideas on this topic. Service Level Objectives by Google can provide
+    a necessary vocabulary to ensure system health ([https://mng.bz/r1eJ](https://mng.bz/r1eJ)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Logs and metrics should be stored in systems, allowing for exploration and alerting.
+    There are multiple software solutions for this matter. Good examples of self-hosted
+    systems are the ELK stack (Elasticsearch, Logstash, and Kibana) for logs and Prometheus
+    or Victoria Metrics for metrics. Similar systems are often provided by all-in-one
+    cloud providers (e.g., AWS Cloudwatch) and more dedicated companies like Datadog.
+    As we mentioned in chapter 13, connecting your ML system to a proper logs/metrics
+    toolset is a must, though inexperienced engineers often underestimate the importance
+    of this step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.3 Data quality and integrity
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Data quality monitoring is essential for ensuring that the data used to train
+    and make predictions with an ML model is accurate and reliable. Working with faulty
+    data will inevitably lead to faulty predictions by the model. To maintain trust
+    in the data, it may be necessary to stop and use a fallback until the data quality
+    is restored or to investigate and resolve problems as they arise. Next we will
+    touch on the most common possible situations that can require a fallback.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.3.1 Processing problems
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: It is common for the system to rely on various upstream systems to provide input
+    data. However, these data sources can trigger problems that will affect the performance
+    of your ML system. For example, data may not be received or may be corrupted,
+    which can be caused by problems in the data pipeline. Imagine an ML system that
+    personalizes promotional offers for clients and may rely on data from an internal
+    customer database, clickstream logs, and call center logs, which are merged and
+    stored in a data warehouse. If any of these data sources experience problems,
+    it can affect the functioning of the entire system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of our favorite examples is when a job processes zero rows and reports success
+    (expected green square in the UI reporting the successful execution of the extract,
+    transfer, and load job), so everyone is happy—until 1 week passes and we find
+    out that there was a problem in the upstream data sources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition, the data processing stage of an ML pipeline can also be prone to
+    problems. This can include problems with the data source, data access problems,
+    errors in the SQL or other queries used to extract the data, infrastructure updates
+    that change the data format, and problems with the code used to calculate features.
+    In batch inference systems, detecting and correcting these problems is possible
+    by rerunning the model. However, in high-load streaming models, such as those
+    used in eCommerce or banking, the effect of data processing problems can be more
+    severe due to the large volume of data being processed and real-time decisions
+    made based on model outputs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.3.2 Data source corruption
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In addition to changes, data can also be lost due to problems with the data
+    source. This can occur due to bugs, physical failures, or problems with external
+    APIs. It is essential to monitor data pipelines closely to catch these problems
+    early, as they can lead to irreversible loss of future retraining data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Sometimes, these outages may only affect a subset of the data, making the problem
+    harder to detect. Additionally, a corrupted source may still provide data, but
+    it may be incorrect or misleading. In these cases, it is crucial to keep track
+    of unusual numbers and patterns to identify potential problems. These failures
+    can be both gradual and instant. Let’s imagine two computer vision systems used
+    for industrial needs: one is used on sterile assembly lines where photos of half-assembled
+    devices are taken and analyzed, and the other is used on gigantic ironworks where
+    it monitors how metal scrap turns into new alloys. The first could have an instant
+    failure of lighting, and thus, the datastream suddenly becomes dark. The second
+    is affected by dust and temperature; thus, the camera lens degrades over time.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If a data source problem is detected, it is important to assess the damage and
+    take appropriate action, such as updating, replacing, or pausing the model if
+    necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some data source problems are, unfortunately, inevitable. Imagine building a
+    recommendation system for a marketplace where some merchants fill in every attribute
+    of their goods and others ignore optional fields. In this case, a smart choice
+    is to think about it in advance during the feature engineering stage to make the
+    model ignore such cases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s take a look at a more concrete example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: This function is not the best way to approach potentially missing or corrupted
+    data if `–1` is not replaced downstream. While returning some impossible value
+    is a common practice in low-level programming, for ML purposes, it would be more
+    suitable to return something like the median value across other items.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.3.3 Cascade/upstream models
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In more complex ML systems, there may be several models that depend on each
+    other, with the output of one model serving as the input for another model. This
+    can create a loop of interconnected models, which can be vulnerable to problems
+    (see figure 14.4).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![figure](../Images/CH14_F04_Babushkin.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.4 Input data is processed by a chain of models; even a small drift
+    in the first one can lead to accumulated error downstream.
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: Arseny worked for a company that used a chain of models; first, the named entity
+    recognition model extracted core entities; later they were enriched with multiple
+    internal and external datasets, and finally the result was used for classification.
+    Components of the system were developed and maintained by different people, and
+    sometimes it could lead to situations when the named entity recognition model
+    demonstrated improvements on its own metrics while the downstream classifiers’
+    performance dropped. Luckily, after the first catch, engineers implemented cross-stack
+    checks, so it was no longer possible to deploy a new release upstream without
+    running proper checks across downstream models, and thus potential failures were
+    caught in advance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, in a content or product recommendation engine, one model may predict
+    the popularity of a product or item. In contrast, another model makes recommendations
+    to users based on the estimated popularity. If the popularity prediction model
+    is incorrect, this can lead to incorrect recommendations provided by the second
+    model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A similar problem can occur in a car route navigation system, where a model
+    predicts the expected time of arrival for various routes, and another model ranks
+    the options and suggests the optimal route. If there is a problem with the model
+    that predicts the expected time of arrival, this can lead to incorrect route recommendations,
+    which in turn can affect traffic patterns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These types of interconnected systems can be at risk for problems if something
+    goes wrong with one of the models, leading to a chain reaction of negative actions
+    throughout the system. It is essential to carefully design and monitor these types
+    of systems to ensure that they are functioning correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.3.4 Schema change
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Changes in data schemas, where the format, type, or structure of data is altered,
+    can be a major challenge for ML systems. These changes can cause the model to
+    lose signal, as it may be unable to match new categories with old ones or process
+    new features. This can be particularly problematic in systems that rely on complex
+    features based on a category type, as changes to categories can require the model
+    to relearn how to interpret the data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, in a demand forecasting or e-commerce recommendation system, changes
+    to the product catalog can affect the model’s understanding of the data. Similarly,
+    updates to business systems or the introduction of new data sources or APIs can
+    also cause problems for the model if it has not been trained on new data. (See
+    chapter 6 for more information.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: To mitigate the affect of data schema changes, it is vital to design the model
+    with this possibility in mind and to educate business users about the potential
+    consequences of these types of changes. Data quality monitoring can also help
+    identify and address these problems as they arise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.3.5 Training-serving skew
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Training-serving skew is a situation where an ML model performs poorly on real-world
+    data because it was trained on an artificially constructed or cleaned dataset
+    that does not accurately represent the data it will be applied to. This can happen
+    when the training data is incomplete or does not adequately capture the diversity
+    and complexity of the real world (see chapter 6 for detailed information).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![figure](../Images/CH14_F05_Babushkin.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.5 Such a drastic difference between sandbox sets of images and real-life
+    photos can lead to significant drops in the model’s performance.
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: One example of training-serving skew is a model trained on a limited set of
+    crowdsourced images that performs poorly when applied to real-world images with
+    a wide range of data formats and image quality. Similarly, a model trained on
+    high-quality images in a lab setting may struggle to perform well on real-world
+    images taken in poor lighting conditions (see figure 14.5).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Campfire story
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: This story was told by one of our friends. There was a company developing an
+    augmented reality application based on computer vision on top of camera data;
+    the company office was in St. Petersburg, a Russian city located by the Baltic
+    Sea. St. Petersburg is famous for its cloudy weather—the average annual number
+    of sunny hours is about 1,600\. That was where engineers gathered most of the
+    data and tested their product.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The company’s lead investors were located in Cyprus, a Mediterranean country
+    with 3,400 sunny hours annually. So when they tested the prerelease version of
+    the product, they were terrified—the ML component worked so poorly! After a short
+    investigation, the engineers realized the problem was caused by a data distribution
+    mismatch: outdoor scenes they used were captured in the cloudy and rainy environment
+    of a Russian winter, while investors tested the product under the blazing sun
+    of the Cyprus summer.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: To address training-serving skew, it may be necessary to continue developing
+    the model by collecting and labeling a new dataset or adapting the existing model
+    based on the data from an unsuccessful trial run. Sometimes the trial run may
+    generate enough data to train a new model or adapt to the existing one. There’s
+    a great article by Will Douglas Heaven on Google’s medical AI published in *Technology
+    Review* ([https://mng.bz/V2ay](https://mng.bz/V2ay)). Note that this is somewhat
+    close to the data drift scenario we will review in the following section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.3.6 How to monitor and react
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Danger foreseen is half avoided, so the first and most crucial step in monitoring
+    is knowing beforehand what might go wrong. In addition to that, though, we attempt
+    to provide some actionable advice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data quality monitoring is somewhat specific to ML, as it involves ensuring
+    that the data we use to train and make predictions with an ML model meets specific
+    expectations. However, it is also necessary for other analytical use cases; here,
+    existing approaches and tools can be reused.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Traditional data monitoring is often performed at a macro level, such as monitoring
+    all data assets and flows in a warehouse, but ML requires monitoring to be more
+    granular, focusing on particular model inputs. In some cases, you can rely on
+    existing upstream data quality monitoring. Still, additional checks may be required
+    to control feature transformation steps, real-time model input, or external data
+    sources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Various metrics can be monitored to ensure the quality of the data that is
+    being used in an ML model. Some common types of metrics and checks are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Checking missing data* implies a search for lost data in particular features
+    and the overall share of missing data in the model’s inputs. It is generally acceptable
+    to have some missing values, but it is important to ensure that the level of missing
+    data stays within an acceptable range, both for the entire dataset and for individual
+    features. You should also check for different expressions of missing data, such
+    as “N/A,” “NaN,” or “undefined,” as a simplistic check for missing values may
+    not catch all cases. You can use a visual aid like a plot to identify missing
+    data with your own eyes and set a threshold for when to pause the model or use
+    a fallback if there are too many missing values. It is also helpful to identify
+    the key driving factors in your dataset based on model feature importance or SHAP
+    values (see chapter 11 for more details) and ensure these are not missing. This
+    will allow you to set up different monitoring policies for critical and auxiliary
+    features.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Duplicated data* is a problem that is the opposite of the previous one, and
+    it can be dangerous, too. Duplicates often happen for a subset of the whole dataset,
+    which changes the data distribution, affecting downstream models.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Data schema validation* verifies whether the input schema matches expectations
+    to detect erroneous inputs and track problems like the appearance of new columns
+    or categories.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Constraints on individual feature types assert the specific feature type, such
+    as *ensuring that a feature is numerical.* This approach can catch input errors,
+    such as a feature arriving in the wrong format.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It is important to *check the number of model calls* to ensure that the model
+    is functioning properly. This is particularly useful if the model is expected
+    to be used on a regular basis, as it can help you identify any sudden changes
+    or deviations from the typical usage pattern. Additionally, checking the number
+    of model responses can help you detect if the model is experiencing problems or
+    if there is a problem with the service itself. This can help prevent disruptions
+    in service and ensure the system continues to operate smoothly. Last but not least,
+    this check is very easy to implement.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With *constraints on individual feature ranges*, expectations about “normal”
+    feature values can be formulated, such as sanity checks (e.g., “age is less than
+    100”) or domain-specific checks (“normal sensor operating conditions are between
+    10 and 12”). The violation of a constraint can be a symptom of a data quality
+    problem. It may start with common-sense checks, but for more complicated domains
+    it requires a deep understanding of the problem.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Feature statistics track particular features’ mean values, min-max ranges, standard
+    deviation, the correlation between features, percentile distribution, or specific
+    statistical tests. This can help *expose less obvious failures*, such as a feature
+    behaving abnormally within the expected range. Histograms/class distribution for
+    categorical features can be used for manual checks; however, they are not easy
+    for automatic data quality monitoring
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With *anomalous effects,* you can use the anomaly and outlier detection approaches
+    to detect “unusual” data points and catch corrupted inputs. This will allow you
+    to focus on detecting individual outliers or tracking their overall rate.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For nonstructured data like images, texts, or audio, similar principles may
+    be applied. We cannot apply a primitive check like “customer age should be in
+    the range between 12 and 100,” but we can introduce simple features on top of
+    data that will be tested. These features don’t have to be directly used in the
+    models (so we still directly apply a deep learning model to images) but are used
+    only for data quality monitoring. It could be brightness or color temperature
+    for images, length (number of characters) for texts, and distribution of wave
+    frequencies for audio.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In most cases, it may be useful to *validate inputs and outputs separately for
+    each step in the pipeline* to identify the source of the problem more easily.
+    This can be particularly helpful if your pipeline is complex and involves multiple
+    steps, such as merging data from different sources or applying multiple transformations.
+    By running checks at different stages of the pipeline, you can locate the source
+    of any problem and debug them more quickly. On the other hand, if you only validate
+    the output of the final calculation and notice that some features are incorrect,
+    it may be more difficult to identify the source of the problem, and you may need
+    to retrace each step in the pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The choice of metrics to monitor will depend on various factors such as the
+    model’s deployment architecture (e.g., batch, live service, or streaming workflows),
+    the specifics of the data and real-world process, the importance of the use case,
+    and the desired level of reactivity. For example, if the cost of failure is high,
+    more elaborate data quality checks may be necessary, and online data quality validation
+    with a pass/fail result may be added before acting on predictions. In other cases,
+    a more reactive approach may be sufficient, with metrics like average values of
+    specific features or the share of missing data tracked on a dashboard to monitor
+    changes over time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the challenges of data quality monitoring in ML is the execution of the
+    monitoring process itself. Ensuring the quality of data fed into ML pipelines
+    is critical, but setting up a monitoring system can be time-consuming. This is
+    especially true if you need to codify expert domain knowledge outside the ML team
+    or if you have many checks to set up, such as monitoring raw input data and postprocessed
+    feature values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another challenge is managing a large number of touchpoints in the data quality
+    monitoring process. It is important to design the monitoring framework to detect
+    critical problems without being overwhelmed. If your monitoring system sends tens
+    of false alerts daily, at some point you will just ignore its signals, so finding
+    the right balance of sensitivity is crucial.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, tracing the root cause of a data quality problem can be difficult,
+    especially if you have a complex pipeline with many steps and transformations.
+    Data quality monitoring is closely connected to data lineage and tracing, and
+    setting this up can require additional work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We highly recommend reading a paper from Google called “Data Validation for
+    Machine Learning” ([https://research.google/pubs/pub47967/](https://research.google/pubs/pub47967/)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following is a highly condensed summary of the paper that features a list
+    of actions that we recommend to effectively monitor your system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Identify *key data quality dimensions* that are critical to the ML use case,
+    such as completeness, accuracy, timeliness, and consistency.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Set up data quality *constraints* for each dimension and define the acceptable
+    range for each constraint. For example, you might set a constraint that the data
+    must be complete, with no more than 5% missing values.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Implement a *data validation pipeline* that regularly runs to check the data
+    against the defined constraints. The pipeline should produce a report indicating
+    the data quality status for each dimension.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Set up *reliable alerts and notifications* for when the data quality falls outside
+    of the acceptable range. This will allow you to take timely action to fix any
+    problems. Reliability is the balance between false positives and false negatives,
+    which is context-dependent.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Continuously monitor* and improve the data quality over time. This might involve
+    updating the constraints or adding new ones as you learn more about the data and
+    the ML use case.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For a detailed review, see the previously mentioned Google paper.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We recommend setting up a data governance framework to ensure that the data
+    validation system is properly maintained and aligned with business objectives.
+    This might involve establishing roles and responsibilities for data quality management,
+    as well as establishing processes for data quality improvement and problem resolution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.4 Model quality and relevance
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Even if the software system is functioning correctly and the data is of high
+    quality, this does not guarantee that the ML model will perform as expected. One
+    problem that can arise is model decay, which occurs when the model begins to perform
+    poorly—either out of the blue or gradually.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Model decay*, also known as *model drift* or staleness, refers to the phenomenon
+    of a model’s performance degrading over time. This can occur for a variety of
+    reasons, such as changes in the data or the real-world relationships that the
+    model was trained on. The speed at which model decay occurs can vary widely; some
+    models can last for years with no need for updates, while others may require daily
+    retraining on fresh data. One way to monitor for model decay is to regularly track
+    key performance metrics and compare them to historical baselines. If the metrics
+    start to degrade significantly, it could be an indication of model decay (see
+    figure 14.6).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![figure](../Images/CH14_F06_Babushkin.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.6 Regular retraining can help with model drift.
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: 'There are two main types of model drifts (see figure 14.7):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Data drifts* occur when the model is applied to inputs that it has not previously
+    encountered, such as data from new demographics. It means the original dataset
+    was not representative enough for the model to generalize.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Concept drifts* occur when the relationships in the data change, such as when
+    user behavior evolves. It is important to continuously monitor for model drift
+    and take appropriate action. One of the solutions is to retrain the model to maintain
+    its accuracy and efficiency.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![figure](../Images/CH14_F07_Babushkin.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.7 With a concept drift, identical inputs may lead to new expected
+    outputs; with a data drift, incoming data changes while the model is not adapted.
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: Possible causes of model drift include
+  prefs: []
+  type: TYPE_NORMAL
+- en: Shifts in the global environment, such as the start of a pandemic/war/crisis/legislation
+    change.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deliberate business changes, such as launching an app in a new location or for
+    a new user segment.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Adversarial adaptation when bad actors try to adapt to the model’s behavior.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Model feedback loop where the model itself influences reality. For example,
+    a recommendation system uses current item popularity as a feature and recommends
+    it often, so the item becomes even more popular, thus becoming self-reinforced.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Model decay can sometimes occur when there is a mismatch between the design
+    of the model and how it is being used. For example, if a lead scoring model is
+    designed to predict conversion probabilities but users start using it for scenario
+    analysis by feeding it different input combinations to understand the effect of
+    different factors on the model’s decisions, this could lead to poor model performance.
+    Such cases may require a different analytical tool that is better suited to the
+    intended use case. Arseny made a similar error in his career: at a ride-hailing
+    company, his team built a model to estimate how long it could take for a taxi
+    driver to reach the destination. The model was fine, but they tried to apply it
+    for a slightly different scenario (estimating the overall duration of the ride),
+    and the model performed poorly. The initial problem was about short rides (a free
+    driver picking up a passenger), but the latter one can involve long rides as well.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Some people distinguish *output drift*, which refers to a change in the predictions,
+    recommendations, or other output produced by an ML model. This change can be detected
+    by comparing the “new” output data to the “old” output data using statistical
+    tests or descriptive statistics. For example, if a model that rarely recommended
+    that shoppers buy sunglasses is now pushing them into every recommendation block,
+    this could indicate output drift.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We review output drift as one of the markers to monitor and detect model drift,
+    as it can indicate a change in the model’s performance or a change in the relationship
+    between the input and output data, which either belongs to concept drift or data
+    drift. By identifying and addressing output drift, you can help ensure that the
+    model continues to produce reliable and accurate results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Model drift can lead to increased model error or incorrect predictions, and
+    in severe cases, the model can become inadequate overnight. It is important to
+    continuously monitor for model drift and take appropriate action to maintain the
+    accuracy and effectiveness of the model (see chapter 8 for more context).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.4.1 Data drift
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '*Data drift*, also known as *feature drift* or *covariate shift*, refers to
+    a situation where the input data for an ML model has changed in such a way that
+    the model is no longer relevant for the new data. This can occur when the distribution
+    of variables in the data is significantly different from the distribution the
+    model was trained on. As a result, the model may perform poorly on the new data,
+    even though it may continue to perform well on data that is similar to the “old”
+    data.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: One example of data drift is when an ML model trained to predict the likelihood
+    of a user making a purchase at an online marketplace is applied to a new population
+    of users who were acquired through a different advertising campaign. If new users
+    come from a different source, such as Facebook, and the model did not have many
+    examples from this source during training, it may perform poorly on this new segment
+    of users. Similarly, data drift can occur if a model is applied to a new geographical
+    area or demographic segment or if the distribution of important features in the
+    data changes over time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To address data drift, it may be necessary to retrain the model on the new data
+    or build a new model specifically for the new segment of data. Monitoring the
+    data and the model’s performance can help identify data drift early on and take
+    corrective action before the model’s performance deteriorates significantly. As
+    data drift is not something inherently wrong with the data, it has to be fixed
+    on the model level instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.4.2 Concept drift
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '*Concept drift* occurs when the patterns that the model has learned are no
+    longer valid, even if the distributions of the input features remain unchanged.
+    Depending on the scale of the change, concept drift can result in a decrease in
+    the model’s accuracy or make the model entirely obsolete.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are several types of concept drift: *gradual concept drift*, *sudden
+    concept drift*, and *recurring concept drift*. *Gradual* or *incremental drift*
+    occurs when external factors change over time, leading to a gradual decline in
+    the model’s performance (see figure 14.8). This type of drift is usually expected
+    and can be caused by a variety of factors, including changes in consumer behavior,
+    changes in the economy, or wear and tear on equipment when the data is coming
+    from physical sensors.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![figure](../Images/CH14_F08_Babushkin.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.8 Gradual concept drift
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: To address gradual concept drift, the model may need to be retrained on new
+    data or even rebuilt entirely. To determine if that is needed, it is essential
+    to monitor model performance over time to ensure it continues to make accurate
+    and reliable predictions. The rate at which a model’s performance degrades, or
+    “ages,” can vary greatly depending on the specific application and the data being
+    used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To estimate how quickly a model will age, it is helpful to perform a test using
+    older data and to measure the model’s performance with different frequencies of
+    retraining. This can give an indication of how frequently the model should be
+    updated with new data to maintain its accuracy. It is also essential to consider
+    the effect of external factors, such as changes in the market or the introduction
+    of new products, which may affect the relationships between the model’s inputs
+    and outputs and cause concept drift.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Monitoring the performance of ML models and regularly retraining them as necessary
+    is a critical aspect of maintaining their effectiveness in a production environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Sudden concept drift* usually happens due to external changes that are sudden
+    or drastic and can be hard to miss. These types of changes can affect all sorts
+    of models, even ones that are typically “stable.” For example, the COVID-19 pandemic
+    affected mobility and shopping patterns almost overnight, causing demand forecasting
+    models to fail to predict surges in certain products or the cancellation of most
+    flights due to border closures. In addition to events like the pandemic or stock
+    market crashes, sudden concept drift can also occur due to changes in interest
+    rates by central banks, technical revamping of production lines, or major updates
+    to app interfaces. These changes can cause models to fail to adapt to unseen patterns,
+    become obsolete, or become irrelevant due to changes in the user journey.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In an ML system, it is common for certain events or patterns to recur over time.
+    For example, people may display different behavior during the holiday season or
+    on certain days of the week. These repeating changes, also known as *recurring
+    drift*, can be anticipated and accounted for in the design of the system (see
+    figure 14.9). For example, we can build a group of models to be applied in certain
+    conditions or incorporate cyclic changes and special events into the system design
+    to account for such recurring drift and prevent a decline in model performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![figure](../Images/CH14_F09_Babushkin.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 14.9 Recurring concept drift
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: 14.4.3 How to monitor
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Monitoring model quality serves two primary purposes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: To give you confidence in the model’s reliability
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To alert you if something goes wrong
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'An effective monitoring setup should provide enough context to efficiently
+    identify and fix any arising problems with your model. This may involve three
+    main scenarios:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Retraining the model
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Rebuilding the model
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using a backup strategy
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Data drift may be more significant for tabular data compared to other data modalities,
+    such as images or speech. If there is a delay between prediction and the availability
+    of ground truth data, this may be the signal for monitoring proxy metrics including
+    data and prediction drift. For high-risk or critical models, you will likely use
+    more granular monitoring and specific metrics (e.g., fairness). Low-risk models
+    may only require monitoring of standard metrics relevant to the model type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are hundreds of different metrics that can be calculated to evaluate the
+    performance of an ML model (see chapter 5). We will cover several categories into
+    which these metrics can be grouped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Model quality metrics* evaluate the actual quality of the model’s predictions.
+    These metrics can be calculated once ground truth or feedback is available and
+    may include'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mean absolute error and root mean squared error for regression models
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Accuracy, precision, and F1-score for classification models
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Top-k accuracy and mean average precision for ranking models
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Model quality by segment* involves tracking the model’s performance for specific
+    subpopulations within the data, such as a geographical location. This can help
+    identify discrepancies in performance for specific segments.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Prediction drift* occurs when the model’s predictions change significantly
+    over time. To detect prediction drift, you can use statistical tests, probability
+    distance metrics, or changes in the descriptive statistics of the model’s output.
+    We recommend reading a post by Olga Filippova ([https://mng.bz/x60d](https://mng.bz/x60d))
+    for more details.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Input data drift* refers to changes in the input data used by the model. This
+    can be detected by tracking changes in the descriptive statistics of individual
+    features, running statistical tests, using distance metrics to compare distributions,
+    or identifying changes in linear correlations between features and predictions.
+    Monitoring for input data drift can help identify when the model is operating
+    in an unfamiliar environment.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Outliers* are unusual individual cases where the model might not perform as
+    expected; it is important to identify these and flag them for expert review. Please
+    note that this is different from data drift, where the goal is to detect the overall
+    distribution shift. Outliers can be detected using statistical methods and distance
+    metrics.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Campfire story from Valerii
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+- en: While I was working at a prominent crypto company, I turned into a fervent user
+    of its services, among which, of course, was a basic opportunity to buy crypto
+    using fiat money. One day I tried to do that and was successful until I was blocked
+    by the antifraud system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Why was I blocked? Because I did too many transactions. And why is that? Because
+    the transaction limit introduced by the same team forced me to do more transactions
+    than I would do otherwise. This is one of the possible ways to handle outliers—in
+    that case, relying on the single feature (people who did too many transactions)—but
+    it is probably not very user-friendly and results in losing the revenue of those
+    users. Fortunately, we were able to improve this system further and make a multistage
+    outlier detection and specific flow (that sometimes could include manual review)
+    to handle them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Fairness* is also key. For certain use cases, you should make sure that the
+    model performs with equal efficiency for different demographic groups. Metrics
+    such as demographic parity and equalized odds can be used to evaluate model bias.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The monitoring process can’t be done without covert challenges, though. These
+    include
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Lack of blueprints**—*This belongs to a list of problems that still do not
+    have a solid out-of-the-box solution, as appropriate metrics and heuristics depend
+    on a given context and goals of the model. Thus, it is important to understand
+    the model and data to choose the right monitoring approaches.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Monitoring without ground truth**—*The actual quality of the model’s predictions
+    is often difficult to evaluate without access to ground truth labels. In these
+    cases, a solution would be to use proxy metrics while carefully considering how
+    to set thresholds and trigger alarms.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Computing metrics at scale**—*Calculating complex metrics at a large scale
+    can be computationally expensive, particularly when working with distributed systems.
+    It is essential to find a fast, efficient, and scalable way to compute metrics.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 14.4.4 How to react
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: It would require a separate book to cover all the possible scenarios and ways
+    to address data drifts and concept drifts, but we discuss some of the scenarios
+    next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data drift
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: Facing a data drift leaves you with two options. The first option is to monitor
+    the model’s performance and look for changes in metrics like accuracy, mean error,
+    and fraud rates. If there is a decline in performance, you may need to reevaluate
+    the model and determine whether it is still appropriate for the current data.
+    The second option is to incorporate additional data or features into the model
+    to capture the changed patterns in the data more accurately. In some cases, you
+    should consider retraining the model from scratch using the updated data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If new labels are available and the training pipeline is up and running, it
+    is very tempting to hit the retrain button (you can find more information in an
+    article by Emeli Dral, [https://mng.bz/AaYo](https://mng.bz/AaYo)). But there
+    are things we can do prior to that if we dig deeper.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Check whether the problem is related to data quality or if it is a genuine change
+    in the patterns the model is attempting to capture. Data quality problems can
+    arise from a variety of sources, such as data entry errors, changes to the data
+    schema, or problems with upstream models. It is important to have separate checks
+    in place to monitor for data quality problems and to address them as soon as they
+    are detected (see section 14.3).
+  prefs: []
+  type: TYPE_NORMAL
+- en: If data drift is genuine, try to investigate the cause of the shift. This can
+    help us understand how to address the problem in an optimal way and maintain the
+    model’s accuracy and effectiveness.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One way to start this process is to plot the distributions of the features that
+    have experienced drift, as this can provide insights into the nature of the change.
+    Another helpful step would be consulting with domain experts who may have insights
+    into the real-world factors that could be causing the shift.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In cases where concept drift is also detected, there is a chance that the relationships
+    between features and the model output may have changed, even if the individual
+    feature distributions remain similar. Visualizing these relationships can provide
+    further insights into the nature of the drift. For example, plotting the correlations
+    between features and model predictions can highlight changes in these relationships.
+    Additional insights may also come from plotting the shift in pairwise feature
+    correlations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is important to determine whether the observed drift is meaningful and warrants
+    a response. This can involve setting drift detection thresholds tailored to a
+    given use case and set to be alerted to potentially significant changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, it is often necessary to iterate on these thresholds through trial
+    and error, as it can be difficult to predict in advance exactly how data will
+    drift over time. When a drift alert is triggered in production, we need to carefully
+    assess its nature and magnitude, as well as the effect it may have on the model’s
+    performance. This may involve consulting with domain experts or conducting further
+    analysis to gain a deeper understanding of the changes. Based on this assessment,
+    you will be able to decide whether to address the drift. In some cases, you may
+    be able to understand the causes of the drift and decide to (temporarily) accept
+    the changes rather than take action to address the problem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, suppose additional labels or data are expected to become available
+    in the near future. In that case, it may be worth holding off on taking action
+    until this information can be taken into account. If it was a false alert, we
+    can change the drift alert conditions or the statistical tests, as well as discard
+    the notification to avoid receiving similar alerts in the future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In some cases, the model may still perform despite the drift. For example, if
+    a particular class becomes more prevalent in the model’s predictions but this
+    is consistent with the observed feature drift and the expected behavior, there
+    may be no need for any further action. In these situations, it may be possible
+    to continue using the model as is without the need to retrain or update it. However,
+    given the potential consequences of this decision, monitoring the model closely
+    to ensure it remains effective is crucial.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*A**dapt the preprocessing used in the pipeline.* For example, say your system
+    uses images captured by a camera in a factory. At some point, the factory manager
+    decides to upgrade the light bulbs, so the assembly line is now well lit, and
+    so are the images. Once it affects the model performance due to drift, one solution
+    can be applying an artificial “darkening” function to mimic the original data
+    distribution.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*R**etrain the model using updated or new data.* This is often the most straightforward
+    approach and can be effective if the necessary data is available. By retraining
+    the model using updated or new data, you should improve its performance and adapt
+    to changing patterns in the data (if nothing is broken in the data pipelines).
+    If you follow the good practices from chapter 10, retraining the model should
+    be relatively simple.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Instead of hitting the retrain button, you can *consider developing an ML model
+    that is more robust to drift.* This could involve applying more robust model architectures
+    (e.g., those designed for online learning) or using techniques such as domain
+    adaptation to make the model more resilient to changes in the data distribution.
+    The following are some additional details on options for addressing data drift:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Reweighting samples**—*This involves giving more weight to more recent samples
+    in the training data to prioritize newer patterns. It can be a simple way to address
+    data drift, but it may not always be effective, especially when the drift is significant.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Creating separate models for different segments**—*If the model is failing
+    for certain segments of the data, you can consider creating a separate model specifically
+    for those segments. Alternatively, you can use an ensemble of models, where each
+    model is responsible for a different segment of data. (In our experience, one
+    model is almost always better than many, as it incorporates more data, but context
+    is the king.)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Changing the prediction target**—*You may be able to improve the model’s performance
+    by changing the prediction target. For example, switching from weekly to daily
+    forecasts may allow the model to better capture short-term changes in the data.
+    Alternatively, you could change the type of model you are using, such as switching
+    from a regression model to a classification model (to some extent, it might be
+    considered reviewing the problem coarser).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Incorporating human expert knowledge into the model training process**—*You
+    can use expert features or active learning techniques to guide the model’s training
+    data selection. Ultimately, the most effective approach will depend on your data’s
+    specific characteristics and the requirements of your application.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Introducing more regularization**—*Include techniques that can implicitly
+    address the drift. Let’s recall augmentations; they’re a popular regularization
+    practice, and you can design them keeping in mind possible drifts that may happen
+    in the domain. For example, for image data, it may be useful to imitate different
+    weather conditions.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Using a more powerful pretrained model as an initializer**—*Empirically, in
+    the deep learning world, training custom models works better if the initial model
+    is trained on a larger and more diverse dataset and thus tends to generalize better.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: One strategy for dealing with changes in the data distribution is to *identify
+    and isolate the low-performing segments of the data.* This can be especially useful
+    when the change is not universal and affects only a specific subset of the data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To do this, you can start by analyzing the changed features of the data and
+    identifying any potential correlations with the model’s performance. For example,
+    if you see a shift in the distribution of a feature (e.g., location), you might
+    try filtering the data by that feature to see if it is causing the low performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once you are able to identify low-performing segments of the data, you can decide
+    how to handle them. One option is to route your predictions differently for these
+    segments, either by relying on heuristics or by manually curating output. Alternatively,
+    you can single out these segments and wait until you have collected enough new
+    labeled data to update the model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, processing outliers in a separate workflow can also help limit errors
+    under data drift. Outliers are individual data points that are significantly different
+    from the rest of the data, and processing them separately can help to ensure that
+    the model can continue to operate effectively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another option to address data drift is to *apply additional business logic
+    on top of the model* by either making an adjustment to the model prediction or
+    changing the application logic. This approach can be effective but difficult to
+    generalize and can have unintended consequences if not done carefully.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A good example of this approach is manually correcting the output, which is
+    common in forecasting demand. Business rules for specific items, categories, and
+    regions can be used to adjust the model’s forecast for promotional activities,
+    marketing campaigns, and known events. In case of data drift, a new correction
+    can be applied to the model output to account for the change.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another example is setting a new decision threshold for classification problems.
+    The model output is often a probability, and the decision threshold can be adjusted
+    to assign labels based on a desired probability. If data drift is detected, the
+    threshold can be changed to reflect the new data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Alternatively, you can consider using a hybrid approach where you combine ML
+    with non-ML methods, especially if you have a small amount of data or if you need
+    to make predictions in a dynamic environment where relationships between variables
+    are constantly changing. In some cases, using a non-ML solution can be more robust
+    and easier to maintain because it does not depend on data patterns and can be
+    based on causal relationships or expert knowledge. However, it may not be as flexible
+    or able to adapt to changing circumstances as ML models. It’s important to carefully
+    consider the tradeoffs and choose the appropriate solution for a given problem.
+    See section 13.4\.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Concept drift
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: With concept drift, there are several approaches to retrain the model, including
+    using all available data, assigning higher weights to new data, and dropping past
+    data if new data that has been collected is enough. In some cases, simply retraining
+    the model may not be sufficient, and there is a chance you will have to tune the
+    model or try new features, architectures, or data sources as the new patterns
+    to be captured are too complex for an existing model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Retraining the model may mean either full retraining for a smaller model or
+    some kind of finetuning for a larger one, depending on how serious the drift is
+    and what the computational budget is.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You may have to modify the model’s scope or the business process (this can be
+    done by shortening the prediction horizon, postponing the predictions to have
+    more time for data accumulation, or increasing the frequency of model runs). With
+    this approach, it is important to maintain effective communication with business
+    owners and other system consumers, ensuring that everyone is prepared for changes
+    and is able to handle them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additional attention should be paid to recurring drift or seasonality. There
+    are many possible reasons for it, such as increased shopping on Black Fridays
+    or altered mobility patterns on holidays or payday at the end of the month. Consider
+    incorporating these periodic changes or building ensemble models to take them
+    into account. This can help prevent a decline in the model’s performance, as these
+    predictable changes (recurring drift) are expected and can be accounted for.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To effectively handle seasonality in a ML system, it is important to train the
+    model to recognize and respond to these periodic changes. For example, if an ML
+    model is used to forecast loungewear sales, it should be able to recognize and
+    anticipate an increased demand on weekends. In this case, the model correctly
+    predicts the known pattern of increased shopping on weekends. A predictable change
+    like that will not require an alert, as it is a regular occurrence.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Drift detection framework
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: When dealing with drift, the first thing to do is to consider possible actions
+    and then design a drift detection framework to monitor potential changes. This
+    allows you to define the degree of change that will trigger an alert and how to
+    react to it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To design it effectively, consider ways in which the model and the real-world
+    process behind the data are likely to change. Depending on the needs and constraints
+    of the model, there may be a variety of approaches to detecting and responding
+    to drift.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For instance, if the model’s quality can be directly calculated using timely
+    obtained true labels, you can ignore distribution drift. Instead, you can focus
+    on identifying and addressing problems such as broken inputs using rule-based
+    data validation checks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, if the model is being used in a critical application with
+    delayed ground truth and interpretable features, you may need to switch to a more
+    comprehensive drift detection system. This might include a detailed data drift
+    detection dashboard and a set of statistical tests to help identify changes in
+    data distribution and correlations between features. If you know the model’s key
+    features and the business value they provide, you can assign different weights
+    to those features and focus on detecting drift in those. If not, you can consider
+    the overall drift of multiple weak features but increase the threshold for defining
+    drift in this case, compared to a few key features to avoid false positives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ultimately, the best approach to drift detection will depend on the specific
+    needs and constraints of the model and may involve a combination of different
+    methods and metrics. So carefully keep in mind the potential for false-positive
+    alerts and the consequences of the model’s failure and design a system that can
+    effectively detect and respond to drift while minimizing disruption and downtime.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A note on business KPIs
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: Monitoring business KPIs can be challenging due to the complexity of isolating
+    the effect of the ML system and the difficulty in measuring certain metrics. In
+    these cases, it is important to find a proxy or interpretable checks that can
+    provide insight into the ML system’s performance. It is also worth noting that
+    monitoring business KPIs may not always provide the required context in case of
+    model decay. In these circumstances, it may be necessary to investigate other
+    factors such as the model, data, and software to determine the root cause of any
+    problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, there is a reason why business KPIs are taking their place at the top
+    of the pyramid in figure 14.5\. Monitoring business metrics and key performance
+    indicators is crucial for understanding the business value of your ML system.
+    Tracking metrics such as revenue and conversion rates (if your model revolves
+    around user acquisition, for example) allows you to determine whether the ML system
+    meets its goals and exerts a positive effect on the business.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is also important to involve both data scientists and business stakeholders
+    in the monitoring process to ensure that the ML system is meeting the needs of
+    the business. We also advise tracking both absolute and relative values to gain
+    a more comprehensive understanding of the ML system’s effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most importantly, whatever technically honed metrics you define for your ML
+    system, they are nothing but the result of gradual cascading of business KPIs.
+    And it is for this reason that ultimately the effectiveness and sustainability
+    of any system directly or indirectly affects the success of your employer or even
+    your own business.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '14.5 Design document: Monitoring'
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The ways to monitor your ML system may vary depending on its goals, properties,
+    and architecture. The two design documents we provide as examples display their
+    unique approaches to monitoring, as the systems we are designing have essential
+    differences and features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.5.1 Monitoring for Supermegaretail
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: We have dedicated certain sections of this chapter to the peculiarities of monitoring
+    forecasting systems and are now ready to delve into the practical part focused
+    on monitoring the Supermegaretail’s model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Design document: Supermegaretail'
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: XI. Monitoring
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: i. Existing infrastructure analysis
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: Unfortunately, demand forecasting is among the pioneering ML projects for Supermegaretail,
+    meaning that there is no proper ML monitoring infrastructure in place. Luckily,
+    quick preliminary research proved to be fruitful, and we found Evidently AI—an
+    open source Python library ([https://github.com/evidentlyai/evidently](https://github.com/evidentlyai/evidently))
+    that helps with monitoring. The motto “We build tools to evaluate, test and monitor
+    machine learning models, so you don’t have to” perfectly suits our goals until
+    and if we decide to build our own platform (see section 3.2). According to the
+    description, Evidently AI covers model quality, data drift, target drift, and
+    data quality. This means that we still have to build some foundations for this
+    to implement.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ii. Logging
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'We will keep model prediction logs in a column-oriented database management
+    system. We should record data on every prediction: the features that went in and
+    the model output + timestamps. We will use an open source such as ClickHouse as
+    it is already used for other similar needs in the company.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In addition, we will log basic statistics: requests per second, resource utilization,
+    error rate, p90, p99, p999 latency, and error rate, as well as a number of model
+    calls per hour, day, and week and average, median, min, and max prediction from
+    the model on the same aggregation level. We will use Kafka + Prometheus + Grafana
+    for that. We will keep the last month of data. We will use this stack as well
+    for real-time ML monitoring and visualization ([https://mng.bz/ZVOR](https://mng.bz/ZVOR)).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: iii. Data quality
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'In addition to basic extract, transform, load and data quality checks, we will
+    monitor for the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Missing data*, as a percentage from the whole dataset and separately as a
+    percentage from the most important features according to the feature importance
+    (see section 11.2). We will use historical data (cleaning out occurrences with
+    broken pipelines) to calculate the z-score. We will set an alarm of three z-scores
+    for important features and four z-scores for the rest. In addition, we will use
+    several test suite presets from the Evidently AI library. There is a preset to
+    check for data quality and another for data stability.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Schema compliance*. Are all the features there? Do their types match? Are
+    there new columns?'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Feature ranges and stats*. To ensure that the learning model is being fed
+    good-quality data, we will manually define expected ranges for each important
+    feature, as three z-scores + checks for invalid stats (e.g., negative data for
+    the amount of sales, min >= 0).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Correlations.* To detect any abnormalities in the data, we will plot the correlation
+    matrix between features and compare the difference between the two plots. A basic
+    alarm will be set for residuals higher than |0.15|.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: iv. Model quality
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: We are very fortunate to have the availability of true labels with a very minor
+    delay. We receive daily sales information 15 minutes after they happen. With that
+    in mind, we will monitor quantile metrics for quantiles of 1.5, 25, 50, 75, 95,
+    and 99, both as is and with weights equal to the SKU price. In addition, we will
+    monitor the root mean squared error and mean absolute error to track the mean
+    and median. We will set up final thresholds after we receive the first 3 months
+    of the data; we will pick initial thresholds based on the historical data and
+    model performance on the validation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition, we set up alarms for negative values and max values. An alarm will
+    fire if the new max value is 50% higher than the previously seen max value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will set up prediction drift monitoring. We will use it as an early alarm
+    for the next day, week, and month predictions. We will test two approaches: Population
+    Stability Index > 0.2 and Wasserstein distance > 0.1\. For Wasserstein distance,
+    we will apply growth multiplayer to the control dataset. For example, when comparing
+    April 2021 to April 2022, knowing that overall growth is expected to be 15%, we
+    multiply everything in 2021 by 1.15\. We will further adjust this based on historical
+    data experimentation.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: v. Data drift
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'While we have true data available with a minor delay, we don’t need to track
+    input drift as a proxy for understanding the model relevance. However, it would
+    still help us detect upcoming change before it affects the model quality. After
+    reading a post titled “Which Test Is the Best? We Compared 5 Methods to Detect
+    Data Drift on Large Datasets” ([https://mng.bz/2g5g](https://mng.bz/2g5g)), we
+    decided to pick Wasserstein distance to alert us in case of data drift. We start
+    from the threshold of the mean drift score. We can later try to apply the paper
+    titled “Feature Shift Detection: Localizing Which Features Have Shifted via Conditional
+    Distribution Tests” ([https://mng.bz/RNQZ](https://mng.bz/RNQZ)).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: vi. Business metrics
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'Business metrics of interest remain the same as we describe in section 2.1.1:
+    revenue (expected to increase), level of stock (expected to decrease or remain
+    the same), and margin (expected to increase), which we will monitor through a
+    series of A/B tests, switching and swapping control groups over time.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 14.5.2 Monitoring for PhotoStock Inc.
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The set of actions within the system monitoring for PhotoStock Inc. will differ
+    from the previous example, as here we are dealing with the design of a model for
+    a “smart” stock photo search engine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Design document: PhotoStock Inc.'
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: XI. Monitoring
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: i. Software health
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'We need to be sure the following logs are available:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Original query
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Candidate document IDs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Top 20 of final ranking
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Other than that, all negative scenarios and fallbacks should be logged.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Logs should be traceable via three IDs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*user_id*—Could be empty as not all users are logged in'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*session_id*—Handled by backend; may contain multiple queries in a row'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*request_id*—A batch of logs related to a single search/query'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We will use the same log storage provider as used across the company (AWS Cloudwatch).
+  prefs: []
+  type: TYPE_NORMAL
+- en: We should report metrics related to latency as we assume it is important for
+    user experience, and some of the components can be somewhat slow. A sample (not
+    necessarily comprehensive) list is
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fetching candidates
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Final ranking
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Overrides application
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Metrics should be reported to AWS Cloudwatch as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: ii. Data health
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: Given the origin of our data, we can be very confident about the image data
+    (photos are carefully reviewed by our internal moderation team and their AI tools
+    as well) but less confident about search queries (obtained from users) and ranking
+    scores (obtained via crowdsourcing).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Search queries should be filtered to reduce the amount of total garbage (e.g.,
+    a cat walking across the keyboard). Other than that, some silly queries are possible
+    and should be present in the training set as that’s the real input from our users.
+    Too aggressive filtering here may lead to training-serving skew.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ranking labels used for the model training are our bread and butter. They should
+    be as correct as possible, and we should invest in their quality together with
+    the labeling platform vendor. That must include cross-checks and honeypots to
+    filter out inaccurate labelers. Additionally, we can consider using some algorithmic
+    validation of the labeled data with the help of foundational models—for example,
+    prompt GPT API if image description + tags can be relevant to the query or prompt
+    self-served multimodal image + text model like LLAVA ([https://llava-vl.github.io/](https://llava-vl.github.io/)).
+    In the future, we can consider using the model as the main source of labels and
+    people as validators, depending on the labels’ accuracy by both parties.
+  prefs: []
+  type: TYPE_NORMAL
+- en: iii. Model health
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+- en: 'To the best of our understanding, the image search problem is not too sensitive
+    to drift problems. However, there may be some changes in both user preferences
+    and photos we host: new topics may emerge, new types of images, and so on. Also,
+    we don’t output anything other than ranking, so it’s hard to imagine any catastrophic
+    failure (in the worst case, we can switch back to the previous non-ML search engine).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Given that, we don’t have to include specific model health monitoring in the
+    first version with the assumption that model quality is assured in the previous
+    steps (validation, testing). However, there are already existing monitors used
+    by the current search engine: average clicked position, average first clicked
+    position, and so on. Keeping them as is should be the first line of defense. In
+    the future, we can consider an open source solution like Deepchecks ([https://deepchecks.com/](https://deepchecks.com/))
+    for the proof of concept if we realize drift-related problems are causing us real
+    harm.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Even the most well-trained and accurate models can start degrading over time
+    without proper monitoring. This can happen due to changes in incoming data, model
+    architecture, or even model output.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The foundation of proper monitoring is software backend, topped subsequently
+    with data quality and integrity, model quality and relevance, and business KPIs.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Make sure to monitor the software health of your system, as it is essential
+    to provide efficient task execution and prompt responses to requests. Failing
+    to prioritize the stability and performance of the software backend can have detrimental
+    effects on the overall effectiveness of the ML system.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Many monitoring practices used in traditional software systems—such as application
+    and infrastructure monitoring, alerting, and incident management—can also be applied
+    to ML systems.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Monitoring data quality implies problems at the data processing stage (from
+    access problems to changes in data format) or potential corruption of data sources,
+    which can occur due to bugs, physical failures, or problems with external APIs.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In case of cascade models where you have to deal with a loop of interconnected
+    models, the output data of the preceding model will force invalid predictions
+    by the next model, thus breaking the whole system.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Some models are able to last for years with no need for updates; others may
+    require daily retraining on fresh data. Track key performance metrics and compare
+    them to historical baselines regularly to avoid model decay or detect it at the
+    earliest stage.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Data drift occurs when the distribution of variables in the data is significantly
+    different from the distribution the model was trained on. To address data drift,
+    it may be necessary to retrain the model on the new data or build a new model
+    specifically for the new segment of data.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Concept drift occurs when the patterns that the model has learned are no longer
+    valid, even if the distributions of the input features remain unchanged and can
+    result in the decrease of the model’s accuracy or make the model entirely obsolete.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'You have two options while facing data drift: you can either monitor the model’s
+    performance and look for changes in metrics like accuracy, mean error, or fraud
+    rates or you can incorporate additional data or features into the model to capture
+    the changed patterns in the data more accurately.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When concept drift occurs, you may want to retrain the model, including using
+    all available data, assigning higher weights to new data, or dropping past data
+    if new data that has been collected is sufficient.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
