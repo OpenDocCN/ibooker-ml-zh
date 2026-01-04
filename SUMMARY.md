@@ -32,7 +32,7 @@
 +   [Python 机器学习秘籍第二版](docs/ml-py-cb-2e/README.md)
 +   [R 机器学习](docs/ml-r/README.md)
 +   [机器学习系统](docs/ml-sys/README.md)
-+   [斯坦福 CS329R：机器学习系统设计](docs/ml-sys-dsn/README.md)
++   [斯坦福 CS329S：机器学习系统设计](docs/ml-sys-dsn/README.md)
 +   [TensorFlow 机器学习](docs/ml-tf/README.md)
 +   [MLOps：数据科学运维化指南](docs/mlops-oper-ds/README.md)
 +   [机器学习项目管理指南](docs/ms-ml-proj/README.md)
