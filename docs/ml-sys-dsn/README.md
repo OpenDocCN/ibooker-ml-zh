@@ -1,4 +1,4 @@
-# 机器学习系统设计
+# 斯坦福 CS329R：机器学习系统设计
 
 > 原文：[`annas-archive.org/md5/448cbe9f1b564bbe7b4a7ae5906c9404`](https://annas-archive.org/md5/448cbe9f1b564bbe7b4a7ae5906c9404)
 >
